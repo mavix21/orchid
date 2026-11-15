@@ -18,6 +18,7 @@
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/react-start": "latest",
+    "@workspace/db": "workspace:*",
     "@workspace/ui": "workspace:*",
     "effect": "4.1.4",
     "lucide-react": "^1.73.0",
