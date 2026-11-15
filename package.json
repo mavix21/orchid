@@ -6,6 +6,7 @@
     "apps/*",
     "packages/*"
   ],
+  "type": "module",
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
@@ -17,8 +18,10 @@
   },
   "devDependencies": {
     "@effect/tsgo": "0.69.0",
+    "@oxlint/plugins": "1.93.0",
+    "@shadcn/lint": "^0.2.5",
     "oxfmt": "^0.78.0",
-    "oxlint": "^1.93.0",
+    "oxlint": "1.93.0",
     "turbo": "^2.11.10",
     "typescript": "7.0.2"
   },

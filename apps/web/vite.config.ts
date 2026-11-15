@@ -9,7 +9,7 @@ const config = defineConfig({
   plugins: [
     cloudflare({ viteEnvironment: { name: "ssr" } }),
     tailwindcss(),
-    tanstackStart(),
+    tanstackStart({ router: { quoteStyle: "double", semicolons: true } }),
     viteReact(),
   ],
 });

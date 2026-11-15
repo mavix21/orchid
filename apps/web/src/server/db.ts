@@ -1,8 +1,7 @@
 import { env } from "cloudflare:workers";
 import { databaseLayer } from "@workspace/db";
+import * as Layer from "effect/Layer";
 
 export { makeDatabase } from "@workspace/db";
 
-export function requestDatabaseLayer() {
-  return databaseLayer(env.HYPERDRIVE);
-}
+export const requestDatabaseLayer = Layer.suspend(() => databaseLayer(env.HYPERDRIVE));

@@ -25,7 +25,7 @@ Cloudflare Workers/Hyperdrive: Wrangler 4.162.0, Vite plugin 1.69.1. Drizzle ORM
 
 ## Getting started
 
-Install Bun 1.4.4 and Docker Desktop. Port 55432 must be free; stop the earlier spike container with `docker stop orchid-spike-postgres` if needed.
+Install Bun 1.4.4 and Docker Desktop. Port 55432 must be free.
 
 ```sh
 bun install
