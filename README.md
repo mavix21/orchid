@@ -1,21 +1,11 @@
-# shadcn/ui monorepo template
+# Orchid
 
-This is a TanStack Start monorepo template with shadcn/ui.
+Minimal Bun workspace with TanStack Start, Base UI, Effect and Cloudflare Workers.
 
-## Adding components
+Run `bun install`, then `bun run dev`. The web app serves on port 3000.
 
-To add components to your app, run the following command at the root of your `web` app:
+Checks: `bun run lint`, `bun run fmt:check`, `bun run typecheck`, `bun run build`. Format with `bun run fmt`.
 
-```bash
-pnpm dlx shadcn@latest add button -c apps/web
-```
+`apps/web` contains the app; `packages/ui` contains shared UI. No deployment is performed.
 
-This will place the ui components in the `packages/ui/src/components` directory.
-
-## Using components
-
-To use the components in your app, import them from the `ui` package.
-
-```tsx
-import { Button } from "@workspace/ui/components/button";
-```
+For the Effect language service, install the TypeScript 7 editor extension; workspace settings are included.
