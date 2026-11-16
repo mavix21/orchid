@@ -8,6 +8,8 @@
     ".continue/**",
     ".cursor/**",
     ".gemini/**",
+    ".github/agents/**",
+    ".github/skills/**",
     ".opencode/**",
     ".pi/**",
     ".roo/**",
