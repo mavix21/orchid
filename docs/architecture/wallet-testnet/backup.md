@@ -192,11 +192,11 @@ The phrase imports into any SEP-0005 wallet as account 0. I did not confirm that
 
 Showing the phrase changes nothing on the ledger. There is no "leave" event: the same key now exists in two apps.
 
-- The sponsor keeps carrying 1.5 XLM per wallet: two base reserves for the account plus one for the trustline, at 0.5 XLM each [docs].
-- The account holds 0 XLM. In another wallet the user cannot pay a fee until they send XLM to it. Inside Orchid the sponsor still pays by fee bump.
-- If the user removes the trustline, the sponsor's count drops and that reserve is free again [docs].
-- If the user merges the account away, they must remove the trustline first; being sponsored does not block a merge [docs]. The docs page does not state where the account's own reserve goes on merge [unverified]. The expectation is that it returns to the sponsor.
-- The sponsor can revoke a sponsorship without the user's signature [docs]. With 0 XLM the account cannot take the reserve over, so the revoke should fail. The error is not documented on the page read [unverified].
+- The reserve sponsor keeps carrying 1.5 XLM per wallet: two base reserves for the account plus one for the trustline, at 0.5 XLM each [docs].
+- The account holds 0 XLM. In another wallet the user cannot pay a fee until they send XLM to it. Inside Orchid the fee payer still pays by fee bump.
+- If the user removes the trustline, the reserve sponsor's count drops and that reserve is free again [docs].
+- If the user merges the account away, they must remove the trustline first; being sponsored does not block a merge [docs]. The docs page does not state where the account's own reserve goes on merge [unverified]. The expectation is that it returns to the reserve sponsor.
+- The reserve sponsor can revoke a sponsorship without the user's signature [docs]. With 0 XLM the account cannot take the reserve over, so the revoke should fail. The error is not documented on the page read [unverified].
 
 Recommendation: do nothing. 1.5 XLM is the acquisition cost already spent at sign-up, and reclaiming it would break the user's account.
 
@@ -234,7 +234,7 @@ A write must be authorised, and the only credential every writer has is the Stel
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | The phone with the app | Payments keep working. The phrase cannot be revealed. Add a new passkey at once; `E` is gone from this phone, so see below.  |
 | The written phrase     | Welcome → "Use a recovery phrase". The address is derived, `overview(address)` returns the username, a new passkey is added. |
-| Neither                | The funds are lost. Orchid cannot help. The sponsor's 1.5 XLM stays locked.                                                  |
+| Neither                | The funds are lost. Orchid cannot help. The reserve sponsor's 1.5 XLM stays locked.                                          |
 
 The first row has a gap: with the passkey deleted, the phone has a signing handle but no way to get `E` back, so no new backup can be made. The only safe exit is to send the balance to a fresh wallet. A PRF phone could close the gap by also keeping `E` under the local device key from section 6, at the cost of some at-rest protection. Decision D6 rejects that, so the gap is accepted.
 

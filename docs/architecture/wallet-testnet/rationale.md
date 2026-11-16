@@ -31,7 +31,7 @@ The caller never retries, polls, or sees a transaction.
 3. One sender has at most one signed, unfinished transfer, enforced by a unique index. That also removes sequence-number races.
 4. A final state is written only from ledger evidence. `Failed` means the ledger clock passed the transaction's time bound.
 5. `open` and `transfer` are replayable. Retry, resume and status are the same call.
-6. Classic accounts; the sponsor carries reserves and fees.
+6. Classic accounts; the reserve sponsor carries reserves and the fee payer pays fees.
 
 **Invariants in types.** `Approval` has no envelope field. `submit` returns `void`. `conclude` rejects `Undecided`. A sealed envelope exists only on `Authorized`. The key has no raw sign method.
 
@@ -76,13 +76,14 @@ The caller never retries, polls, or sees a transaction.
 - **Browser minimum.** Native Ed25519 is acceptable: Chrome 137, Safari 17, Firefox 129. Passkey backup has its own, higher floor (the WebAuthn PRF extension). Phones below it get a device-only wallet; see `backup.md` section 6.
 - **Unauthenticated reads.** Balance and overview without authentication are acceptable on testnet.
 - **Testnet funding.** A fund button in the app. Friendbot gives only testnet XLM. Test USDC comes from an Orchid-funded endpoint.
+- **Sponsorship roles.** The reserve sponsor only sponsors account and trustline reserves with CAP-33 `beginSponsoringFutureReserves`; the fee payer only pays fees through CAP-15 fee bumps. Configure separate key roles in code and configuration, although both may use the same key for the hackathon/testnet. Mainnet can split them without code changes. Separate keys isolate an empty or compromised fee payer from reserve sponsorship and vice versa. Keep the sponsor balances small, top them up from a cold account, store keys in Cloudflare secrets, and alert on low balances.
 - **Key backup.** Decided in `backup.md`. A SEP-0005 phrase is the source of truth, is never shown at sign-up, and is encrypted with a key from the passkey's PRF output. Two things block implementation: the passkey domain is not defined, and PRF support on low-end Android must be tested on real phones first.
 
 ## Open questions and risks
 
 1. May Hyperdrive query caching be disabled? With it on, a status can read a minute stale.
 2. Should the tables live inside `packages/wallet`, leaving `packages/db` as the driver only? The scaffold expected them in `packages/db/src/schema.ts`.
-3. Who funds and guards the sponsor key? Each wallet locks 1.5 XLM.
+3. Who operates sponsor funding and alerts? Each wallet locks 1.5 XLM in reserves.
 4. Can account creation and the trustline share one sponsorship sandwich? The docs imply it; no example shows it.
 5. Does Cloudflare's documented `scheduled` entry work with TanStack Start 1.169.5 as written?
 6. Does the build fail when browser code imports `@workspace/wallet/server`? If not, what should enforce it?
