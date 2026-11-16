@@ -213,7 +213,7 @@ Recommendation: do nothing. 1.5 XLM is the acquisition cost already spent at sig
 Effects on the approved transfer design, all already handled or small:
 
 - Another wallet can advance the account's sequence number. A signed Orchid transfer then never applies, its time bound passes, and it is recorded `Failed` with proof. No rule changes.
-- Another wallet can remove the trustline or merge the account. `Chain.balance` then returns none for an `active` wallet. `overview` needs an answer for that. This is a new small case for the base design.
+- Another wallet can remove the trustline or merge the account. `Chain.balance` then returns none for an `active` wallet. `overview` returns `NeedsReopening`, marks it `recovered`, and replayable `open` repairs it with the same username and device key before repeating recovery signing.
 
 ## 8. More passkeys, and none
 

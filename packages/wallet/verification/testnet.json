@@ -1,0 +1,49 @@
+{
+  "verifiedAt": "2026-11-16T22:29:37.492Z",
+  "network": "testnet",
+  "reserveSponsor": "GDICJLHMUQ5FLEW42VG2UOZIYRYOTFJ4CG77W2PAEEHY76BSCT3K2WVI",
+  "feePayer": "GCWVOTFFZ2JUUNYJJNKBLP3R6XMLCRWZOG63SYFDMESGQW7JAGMLPMD4",
+  "hashes": [
+    {
+      "label": "verify_recovery opening",
+      "hash": "30be6d6aa4dc43a1234b003c4f6df56d3ede8d763a1a927aee422f81ecf2410f"
+    },
+    {
+      "label": "bounded recovery",
+      "hash": "65aa335d777e2bab1827b7110019b341cc4f3d5d1752995b75ac9800db11075e"
+    },
+    {
+      "label": "same-key same-username reopening",
+      "hash": "c7fcee2494e9804c316d02785538bcb385d414e97b36676cc810b8b2eace8428"
+    },
+    {
+      "label": "external trustline removal",
+      "hash": "0f7821afa581317f986e203668b21230153726b0fccfdbe3ec5c3bbb7f7757d6"
+    },
+    {
+      "label": "sponsored trustline-only repair",
+      "hash": "6886a9f64d8fe035bf9948a80b17160a5736db30a3225dac28e9ad158ff1438f"
+    },
+    {
+      "label": "verify_activity opening",
+      "hash": "debfc36fd4ad44470397ae008a292f53bebe8cef86ca422160068a5b0dc10f5d"
+    },
+    {
+      "label": "device activity invalidates recovery sequence",
+      "hash": "a6dec94eabc4dcfd44d33d75e8809cfc52a0e0b6ed62295c9b76ab37fd8e6160"
+    }
+  ],
+  "checks": [
+    "0 XLM sponsored opening + USDC trustline",
+    "two-stage opening stores recovery unsubmitted",
+    "recovery txTooEarly before minTime",
+    "bounded recovery after minTime",
+    "recovered state",
+    "same-key same-username reopening",
+    "sponsored trustline-only repair",
+    "sweep skips changed sequence"
+  ],
+  "deferred": [
+    "Live USDC payment and nonzero-USDC recovery guard require Circle testnet USDC funding; covered by local behavioral tests."
+  ]
+}
