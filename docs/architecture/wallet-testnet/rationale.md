@@ -1,6 +1,6 @@
 # Rationale: core wallet flow on testnet
 
-Facts are in `ground.md`. Types and signatures are in `sketch.md`.
+Facts are in `ground.md`. Types and signatures are in `sketch.md`. Key backup and recovery are in `backup.md`.
 
 ## Problem
 
@@ -22,7 +22,7 @@ The caller never retries, polls, or sees a transaction.
 
 ## Shape
 
-**Data first.** The ledger is the truth for balances and for whether a payment happened. Postgres holds what the ledger cannot: which username owns which address, and which signed transaction belongs to which intent. The phone stores only its key.
+**Data first.** The ledger is the truth for balances and for whether a payment happened. Postgres holds what the ledger cannot: which username owns which address, and which signed transaction belongs to which intent. The phone stores a signing handle and an encrypted copy of its seed. The server stores one encrypted copy of the seed per passkey and cannot decrypt it.
 
 **Load-bearing decisions.**
 
@@ -37,7 +37,7 @@ The caller never retries, polls, or sees a transaction.
 
 **Validation** lives in the contract schemas, run where input enters: user text on the phone, the wire on the server. Services accept only branded types.
 
-**Deliberately not done.** Sessions, activity history, memos, payment links, pots, agent accounts, channel accounts (so about one sign-up per ledger), key backup, mainnet.
+**Deliberately not done.** Sessions, activity history, memos, payment links, pots, agent accounts, channel accounts (so about one sign-up per ledger), mainnet.
 
 **Interface depth.** The UI sees three functions; the server exposes four operations. Behind them sit sponsorship, trustlines, fee bumps, sequence numbers, time bounds, idempotency, reconciliation and the database. None of it appears in a signature a caller can see.
 
@@ -60,6 +60,7 @@ The caller never retries, polls, or sees a transaction.
 - We accept up to two minutes of "on its way" for a payment that never reaches the network in exchange for never guessing an outcome.
 - We accept that the server could misdirect a payment by lying about a username in exchange for usernames at all. It cannot change the amount or touch the rest of the balance.
 - We accept a second package in exchange for a boundary the build enforces.
+- We accept that the seed is in page memory at creation, recovery and phrase reveal in exchange for a phrase the user can take to another wallet.
 
 ## Alternatives considered
 
@@ -72,10 +73,10 @@ The caller never retries, polls, or sees a transaction.
 - **Usernames.** `[a-z0-9_]`, 3-20 characters, lowercase, and permanent. Once claimed, a name cannot be changed or released.
 - **Registration.** Open, with no invite and no quota for now.
 - **Cloudflare.** Try the Workers free plan first and measure CPU. Upgrade only if the measurement requires it.
-- **Browser minimum.** Native Ed25519 is acceptable: Chrome 137, Safari 17, Firefox 129.
+- **Browser minimum.** Native Ed25519 is acceptable: Chrome 137, Safari 17, Firefox 129. Passkey backup has its own, higher floor (the WebAuthn PRF extension). Phones below it get a device-only wallet; see `backup.md` section 6.
 - **Unauthenticated reads.** Balance and overview without authentication are acceptable on testnet.
 - **Testnet funding.** A fund button in the app. Friendbot gives only testnet XLM. Test USDC comes from an Orchid-funded endpoint.
-- **Key backup.** Pending. Proposed: encrypt the key with a passkey via the WebAuthn PRF extension, with an optional recovery phrase as fallback. PRF support on low-end Android is unverified.
+- **Key backup.** Decided in `backup.md`. A SEP-0005 phrase is the source of truth, is never shown at sign-up, and is encrypted with a key from the passkey's PRF output. Two things block implementation: the passkey domain is not defined, and PRF support on low-end Android must be tested on real phones first.
 
 ## Open questions and risks
 
@@ -87,6 +88,7 @@ The caller never retries, polls, or sees a transaction.
 6. Does the build fail when browser code imports `@workspace/wallet/server`? If not, what should enforce it?
 7. Should the app detect a testnet reset (next: 2026-12-16) and clear its tables?
 8. May `drizzle-kit` be added for migrations?
+9. A user who exports the phrase can remove the USDC trustline or merge the account in another wallet. The wallet is then `active` in the database with no balance on the ledger. What should `overview` answer? See `backup.md` section 7.
 
 ## Next implementation step
 
