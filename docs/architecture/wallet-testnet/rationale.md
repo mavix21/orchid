@@ -29,7 +29,7 @@ The caller never retries, polls, or sees a transaction.
 1. The server drafts every transaction. The phone checks each draft does exactly what was asked and returns only signatures (opening first, then recovery from the confirmed account sequence, behind one user action).
 2. One transfer id maps to one signed transaction, forever, stored before it is first submitted.
 3. One sender has at most one signed, unfinished transfer, enforced by a unique index. That also removes sequence-number races.
-4. A final state is written only from ledger evidence. `Failed` means the ledger clock passed the transaction's time bound.
+4. A final state is written only from ledger evidence. `Failed` requires an included rejection or expiry proved while RPC history covers the inclusion window.
 5. `open` and `transfer` are replayable. Retry, resume and status are the same call.
 6. Classic accounts; the reserve sponsor carries reserves and the fee payer pays fees.
 

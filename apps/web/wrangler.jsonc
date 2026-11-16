@@ -10,7 +10,10 @@
     },
   ],
   "compatibility_date": "2026-11-15",
-  "main": "@tanstack/react-start/server-entry",
+  "main": "src/server.ts",
+  "vars": { "STELLAR_RPC_URL": "https://soroban-testnet.stellar.org" },
+  "secrets": { "required": ["RESERVE_SPONSOR_SECRET", "FEE_PAYER_SECRET"] },
+  "triggers": { "crons": ["* * * * *"] },
   "observability": {
     "enabled": true,
   },

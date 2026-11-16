@@ -15,8 +15,9 @@ These owner-approved decisions take precedence over the illustrative service sig
 ## Implementation decisions for review
 
 - Opening repair uses the same sponsorship layout without `createAccount` when the account survives but its trustline is missing. The strict reader accepts these two opening variants only.
-- Testnet defaults: recovery after one day, a seven-day recovery submission window, and ten minutes for an unsigned username claim. These are in `stellar/network.ts`; production timing is not implemented.
+- Testnet defaults: recovery one day after its draft is built, a seven-day recovery submission window, and ten minutes for an unsigned username claim. These are in `stellar/network.ts`; production timing is not implemented.
 - `NeedsReopening` carries the retained profile. Reopening never changes its username or device address. Wallet transitions compare a version to prevent stale requests from overwriting newer state.
+- Authorization accepts the stored proposed record, compares its draft when writing, and acquires the sender lock before any row lock.
 - Transfer locks and reads are scoped to network and testnet epoch; the known 2026-12-16 reset starts a new epoch. Old unresolved transfers remain unchanged rather than acquiring an invented final result. A new epoch permits new intents.
 - RPC `NOT_FOUND` only proves expiry while history covers the whole transaction inclusion window. Otherwise keep `Undecided`; operator reconciliation may be needed after a long outage. A submit response never concludes a transfer.
 - Recovery also skips accounts observed holding native XLM. An XLM deposit racing the final check remains an account-merge limitation; USDC removal is protected atomically on-chain.
