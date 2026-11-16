@@ -2,9 +2,9 @@
 
 The root entry exports schemas and device-facing types. `@workspace/wallet/server` exports only `Wallet` and `WalletSettings`. Every server module is named `*.server.ts`. The root build runs three negative production builds and one positive transport build before the normal application build.
 
-`Wallet` implements replayable `overview`, `open`, `transfer` and `sweep`. Opening submits the sponsored account/trustline first, then stores a signed, bounded recovery transaction before activation. A missing account or trustline produces `NeedsReopening`; opening retains the username and device key. Account creation and trustline repair are distinct variants of the same sponsorship layout.
+`Wallet` implements replayable `overview`, `open`, `transfer` and `sweep`. Opening submits the sponsored account/trustline first, then stores a signed, bounded recovery transaction before activation. Two confirming missing account/trustline reads produce `NeedsReopening`; opening retains the username and device key. Account creation and trustline repair are distinct variants of the same sponsorship layout.
 
-Transfers pin the resolved recipient and order. Authorization freezes the fee-bumped bytes before submission. A transaction-level sender lock plus a partial unique index serializes authorization. Only ledger evidence concludes a transfer. RPC history gaps retain an undecided result. Phone recipients return `PhoneNotSupported`; phone storage and escrow are absent.
+Transfers pin the resolved recipient and order. Authorization freezes the fee-bumped bytes before submission. A transaction-level sender lock plus a partial unique index serializes authorization. Only ledger evidence concludes a transfer. RPC history gaps retain an undecided result. Server checksum failures return `InvalidAddress` before claiming a username. New external recipients return `ExternalMemoRequired` until memo support is implemented; active Orchid addresses and usernames remain supported. Phone recipients return `PhoneNotSupported`; phone storage and escrow are absent.
 
 The application creates database and wallet layers per request, validates server-function inputs and encodes outputs. Its Worker entry also runs a minute cron. Configure Hyperdrive with query caching disabled before using a deployed environment; this work does not provision or deploy one.
 
@@ -49,4 +49,12 @@ Device key storage and the UI replay loop, passkeys/PRF, `protect`/`recover`, en
 
 An opening abandoned before recovery signing keeps its reserve locked. Recovery covers only an account whose sequence has not advanced. The sweep skips observed nonzero USDC and native XLM balances. USDC deposits racing recovery are protected atomically by trustline removal; an XLM deposit racing the final check can still be merged to the sponsor by the pre-signed account merge. Mainnet recovery policy needs review before adoption.
 
-Known reset handling uses the 2026-12-16 epoch boundary. Old unresolved transfers are preserved instead of being assigned fabricated failures; a new epoch permits new intents. An RPC outage longer than retained history can require operator reconciliation. Worker CPU limits and PRF support on real devices remain unmeasured.
+Known reset handling uses the 2026-12-16 epoch boundary. Old unresolved transfers are preserved instead of being assigned fabricated failures; a new epoch permits new intents. An RPC outage longer than retained history or an advanced sequence with no located result can require operator reconciliation. Worker CPU limits and PRF support on real devices remain unmeasured.
+
+## Review hardening
+
+Reopened usernames are permanently bound to their original address. Only never-bound unsigned first claims expire, ten minutes after their last claim/draft activity. The upgrade binds all existing rows conservatively; it cannot reconstruct old activation history.
+
+Recovery signing and submission require matching reserve-sponsor identities on both the account and trustline. The RPC wire decoder retains `extXdr` sponsorship metadata omitted by the installed SDK parser. Transfers look up both fee-bump and inner hashes. Expiry additionally requires a fresh sender sequence below the signed sequence; an advanced or absent sender stays undecided without definitive transaction evidence. Openings alone may redraft after their ledger time bound without retained transaction history.
+
+Each scheduled run selects up to four transfers and four currently eligible recovery wallets. Conditional queue writes bypass Hyperdrive read caching and rotate least-recently checked records. Two independent negative reads protect against demotion from one transient missing response.

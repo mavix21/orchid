@@ -12,6 +12,16 @@ These owner-approved decisions take precedence over the illustrative service sig
 - If an active wallet loses its account or USDC trustline, `overview` returns `NeedsReopening` and marks the row `recovered`; replayable `open` repairs the account and/or trustline under the same username and device key, then repeats recovery signing.
 - A resolved transfer recipient is either an Orchid `Profile` (username and address) or an external address without a username. Drafts, stored transfers and receipts retain that resolved recipient. `transfers.recipient` is nullable for external addresses; their destination address must still be stored. `Phone` resolves to a typed not-supported-yet outcome; no phone implementation is added.
 
+## Fable review fixes and decisions
+
+- Reopening stays `reopening` and retains permanent `ownershipBound`. Only never-bound, unsigned first claims can expire, ten minutes after their last claim/draft activity. The migration conservatively binds every pre-existing row because its complete activation history is unavailable.
+- A sealed opening may be replaced once the ledger clock passes its maximum time and a fresh account observation still requires opening/repair. Transfer settlement remains conservative: query outer and inner hashes, and require a current sender sequence below the transaction sequence plus complete history coverage before `Expired`. Included failures that never executed the inner operations do not prove rejection.
+- Two independent negative account/trustline observations are required before demotion. A wall-clock epoch boundary alone does not demote a positively observed wallet.
+- `InvalidAddress` is a server checksum refusal before any username claim. `NotSponsored` refuses recovery consent unless the account and USDC trustline both name the configured reserve sponsor. Missing sponsorship metadata fails closed; sponsored counts alone are insufficient.
+- Sweeps take at most four transfers and four wallets per scheduled run, rotate oldest-checked work, and read queues using conditional `UPDATE ... RETURNING`. Recovery wallets must be active, in the current epoch, and inside their recovery window. Expired windows leave background work; later overview still detects a missing account.
+- Payments still have exactly one USDC operation and no memo. New external-address payments (including old unsigned external drafts) return `ExternalMemoRequired`; addresses belonging to active Orchid profiles remain supported. Already-authorized external transfers continue reconciliation. Optional memo support is deferred rather than changing the signed layout in this fix.
+- Sponsor identity is read from the official RPC `extXdr` ledger extensions, which SDK 17.4.0's parsed ledger response omits. The official wire format is decoded with Schema and the installed XDR classes, without patching SDK types.
+
 ## Implementation decisions for review
 
 - Opening repair uses the same sponsorship layout without `createAccount` when the account survives but its trustline is missing. The strict reader accepts these two opening variants only.
