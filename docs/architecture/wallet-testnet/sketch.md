@@ -2,6 +2,14 @@
 
 Design only. Bodies are `not implemented` or pseudocode. Facts this rests on are in `ground.md`; the reasons for the choice are in `rationale.md`.
 
+## Approved implementation scope (2026-11-16)
+
+These owner-approved decisions take precedence over the illustrative service signatures and flow pseudocode below.
+
+- This step implements `overview`, `open`, `transfer` and the scheduled sweep. Passkey backup, `protect`, `recover` and the enrollment envelope layout belong to the later backup step; do not add working-looking stubs. `readEnvelope` accepts only opening, payment and abandoned-account recovery layouts in this step.
+- `OpeningDraft` carries the opening signing request and a recovery signing request. One device approval supplies both signatures. The recovery transaction has the user as source, sequence current + 1, `minTime` and `maxTime`, then exactly USDC `changeTrust` limit 0 and `accountMerge` to the reserve sponsor. The server validates the recovery layout with `readEnvelope`, verifies its signature and stores it unsubmitted. Opening cannot complete without a valid stored recovery transaction. The sweep checks balance and sequence before submitting it and marks a merged wallet `recovered`.
+- A resolved transfer recipient is either an Orchid `Profile` (username and address) or an external address without a username. Drafts, stored transfers and receipts retain that resolved recipient. `transfers.recipient` is nullable for external addresses; their destination address must still be stored. `Phone` resolves to a typed not-supported-yet outcome; no phone implementation is added.
+
 ## 1. Three candidates
 
 Each candidate is a whole design, starting from what the UI calls.
@@ -235,9 +243,17 @@ export class SigningRequest extends Schema.Class<SigningRequest>(
   expiresAt: Schema.DateTimeUtcFromString,
 }) {}
 
-/** The phone's answer. A signature and nothing else: the phone never sends a transaction. */
+/** Payment approval. Opening approval additionally carries the recovery signature; neither sends an envelope. */
 export class Approval extends Schema.Class<Approval>("@workspace/wallet/Approval")({
   signature: Schema.Uint8ArrayFromBase64,
+}) {}
+
+/** One device approval signs both server-held requests; no envelope is returned. */
+export class OpeningApproval extends Schema.Class<OpeningApproval>(
+  "@workspace/wallet/OpeningApproval",
+)({
+  signature: Schema.Uint8ArrayFromBase64,
+  recoverySignature: Schema.Uint8ArrayFromBase64,
 }) {}
 
 // --- opening a wallet ---------------------------------------------------
@@ -249,6 +265,7 @@ export class WalletClaim extends Schema.Class<WalletClaim>("@workspace/wallet/Wa
 
 export class OpeningDraft extends Schema.TaggedClass<OpeningDraft>()("OpeningDraft", {
   request: SigningRequest,
+  recoveryRequest: SigningRequest,
 }) {}
 export class OpeningPending extends Schema.TaggedClass<OpeningPending>()("OpeningPending", {}) {}
 export class Opened extends Schema.TaggedClass<Opened>()("Opened", { profile: Profile }) {}
@@ -279,7 +296,19 @@ export class TransferOrder extends Schema.Class<TransferOrder>("@workspace/walle
   amount: PositiveUsdc,
 }) {}
 
-const transferFields = { id: TransferId, to: Recipient, amount: PositiveUsdc };
+/** An external destination has no Orchid username. */
+export class ExternalRecipient extends Schema.Class<ExternalRecipient>(
+  "@workspace/wallet/ExternalRecipient",
+)({ address: AccountAddress }) {}
+export const ResolvedRecipient = Schema.Union([Profile, ExternalRecipient]);
+export type ResolvedRecipient = typeof ResolvedRecipient.Type;
+
+const transferFields = {
+  id: TransferId,
+  to: Recipient,
+  recipient: ResolvedRecipient,
+  amount: PositiveUsdc,
+};
 
 /** Signed, stored, on its way. It will become Settled or Failed without the phone. */
 export class Pending extends Schema.TaggedClass<Pending>()("Pending", {
@@ -305,7 +334,7 @@ export type Receipt = typeof Receipt.Type;
 
 export class TransferDraft extends Schema.TaggedClass<TransferDraft>()("TransferDraft", {
   request: SigningRequest,
-  recipient: Profile,
+  recipient: ResolvedRecipient,
 }) {}
 export class NotOpened extends Schema.TaggedClass<NotOpened>()("NotOpened", {}) {}
 export class UnknownRecipient extends Schema.TaggedClass<UnknownRecipient>()("UnknownRecipient", {
@@ -358,9 +387,9 @@ export interface WalletPort {
   overview(address: AccountAddress): Effect.Effect<Overview, WalletUnavailable>;
   open(
     claim: WalletClaim,
-    approval: Option.Option<Approval>,
+    approval: Option.Option<OpeningApproval>,
   ): Effect.Effect<OpenStep, WalletUnavailable>;
-  // protect(enrollment, approval) and recover(assertion): schemas pending; see backup.md.
+  // Later backup step: protect(enrollment, approval) and recover(assertion); see backup.md.
   transfer(
     order: TransferOrder,
     approval: Option.Option<Approval>,
@@ -368,7 +397,7 @@ export interface WalletPort {
 }
 ```
 
-`WalletPort` also gains replayable `protect` and `recover` operations for passkey backup, including their transport implementations; their draft/approval and challenge/assertion flows are specified in `backup.md` sections 5 and 8. Their concrete schemas are pending.
+In the later backup step, `WalletPort` gains replayable `protect` and `recover` operations and their transports. Their flows are described in `backup.md` sections 5 and 8; their concrete schemas are pending and are not implemented in this step.
 
 Two rules are visible in these types.
 
@@ -524,7 +553,7 @@ export class Wallet extends Context.Service<
 }
 ```
 
-The planned server surface comprises the five port operations, the scheduled sweep and settings; passkey schemas remain to be specified.
+This step exposes the three port operations, scheduled sweep and settings. The two passkey operations are deferred to the backup step.
 
 ### Internal services
 
@@ -590,17 +619,17 @@ class Chain extends Context.Service<
 
 class Proposed extends Schema.TaggedClass<Proposed>()("Proposed", {
   order: TransferOrder,
-  recipient: Profile,
+  recipient: ResolvedRecipient,
   request: SigningRequest,
 }) {}
 class Authorized extends Schema.TaggedClass<Authorized>()("Authorized", {
   order: TransferOrder,
-  recipient: Profile,
+  recipient: ResolvedRecipient,
   sealed: Sealed,
 }) {}
 class Concluded extends Schema.TaggedClass<Concluded>()("Concluded", {
   order: TransferOrder,
-  recipient: Profile,
+  recipient: ResolvedRecipient,
   receipt: Schema.Union([Settled, Failed]),
 }) {}
 type Transfer = Proposed | Authorized | Concluded;
@@ -618,7 +647,7 @@ class Transfers extends Context.Service<
     /** Insert, or return what the id already holds. Replaces an expired unsigned draft. */
     propose(
       order: TransferOrder,
-      recipient: Profile,
+      recipient: ResolvedRecipient,
       request: SigningRequest,
     ): Effect.Effect<Transfer, StoreFailure>;
     /** Proposed → Authorized, once. Fails over to the current state if it lost the race. */

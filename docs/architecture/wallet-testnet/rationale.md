@@ -26,7 +26,7 @@ The caller never retries, polls, or sees a transaction.
 
 **Load-bearing decisions.**
 
-1. The server drafts every transaction. The phone checks the draft does exactly what was asked and returns only a signature.
+1. The server drafts every transaction. The phone checks each draft does exactly what was asked and returns only signatures (opening and recovery together at creation).
 2. One transfer id maps to one signed transaction, forever, stored before it is first submitted.
 3. One sender has at most one signed, unfinished transfer, enforced by a unique index. That also removes sequence-number races.
 4. A final state is written only from ledger evidence. `Failed` means the ledger clock passed the transaction's time bound.
@@ -39,7 +39,7 @@ The caller never retries, polls, or sees a transaction.
 
 **Deliberately not done.** Sessions, activity history, memos, payment links, pots, agent accounts, channel accounts (so about one sign-up per ledger), mainnet.
 
-**Interface depth.** The UI sees three functions; the server exposes five operations plus a scheduled sweep. Behind them sit sponsorship, trustlines, fee bumps, sequence numbers, time bounds, idempotency, reconciliation and the database. None of it appears in a signature a caller can see.
+**Interface depth.** The UI sees three functions; the server exposes three operations plus a scheduled sweep in this step; passkey backup adds two operations later. Behind them sit sponsorship, trustlines, fee bumps, sequence numbers, time bounds, idempotency, reconciliation and the database. None of it appears in a signature a caller can see.
 
 ## Synthesis decision
 
