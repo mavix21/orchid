@@ -7,7 +7,8 @@ Design only. Bodies are `not implemented` or pseudocode. Facts this rests on are
 These owner-approved decisions take precedence over the illustrative service signatures and flow pseudocode below.
 
 - This step implements `overview`, `open`, `transfer` and the scheduled sweep. Passkey backup, `protect`, `recover` and the enrollment envelope layout belong to the later backup step; do not add working-looking stubs. `readEnvelope` accepts only opening, payment and abandoned-account recovery layouts in this step.
-- `OpeningDraft` carries the opening signing request and a recovery signing request. One device approval supplies both signatures. The recovery transaction has the user as source, sequence current + 1, `minTime` and `maxTime`, then exactly USDC `changeTrust` limit 0 and `accountMerge` to the reserve sponsor. The server validates the recovery layout with `readEnvelope`, verifies its signature and stores it unsubmitted. Opening cannot complete without a valid stored recovery transaction. The sweep checks balance and sequence before submitting it and marks a merged wallet `recovered`.
+- Opening uses two signing stages behind one user action. `OpeningDraft` carries the opening request; submit it first. Once the account exists, build a recovery request from its confirmed sequence and return `RecoveryDraft`. Both stages use `Approval` (one signature, no envelope) and the same replayable `open`. The recovery transaction has the user as source, sequence current + 1, `minTime` and `maxTime`, then exactly USDC `changeTrust` limit 0 and `accountMerge` to the reserve sponsor. Validate its layout and signature and store it unsubmitted before returning `Opened`. The sweep checks balance and sequence before recovery submission and marks a merged wallet `recovered`.
+- An account that exists but lacks signed recovery stays `opening`. A later app session resumes `open` and requests that signature. If the device never returns, its reserve remains locked; this limitation is accepted. No background service can supply the missing signature.
 - A resolved transfer recipient is either an Orchid `Profile` (username and address) or an external address without a username. Drafts, stored transfers and receipts retain that resolved recipient. `transfers.recipient` is nullable for external addresses; their destination address must still be stored. `Phone` resolves to a typed not-supported-yet outcome; no phone implementation is added.
 
 ## 1. Three candidates
@@ -243,17 +244,9 @@ export class SigningRequest extends Schema.Class<SigningRequest>(
   expiresAt: Schema.DateTimeUtcFromString,
 }) {}
 
-/** Payment approval. Opening approval additionally carries the recovery signature; neither sends an envelope. */
+/** Each signing stage returns one signature and no envelope. */
 export class Approval extends Schema.Class<Approval>("@workspace/wallet/Approval")({
   signature: Schema.Uint8ArrayFromBase64,
-}) {}
-
-/** One device approval signs both server-held requests; no envelope is returned. */
-export class OpeningApproval extends Schema.Class<OpeningApproval>(
-  "@workspace/wallet/OpeningApproval",
-)({
-  signature: Schema.Uint8ArrayFromBase64,
-  recoverySignature: Schema.Uint8ArrayFromBase64,
 }) {}
 
 // --- opening a wallet ---------------------------------------------------
@@ -265,7 +258,9 @@ export class WalletClaim extends Schema.Class<WalletClaim>("@workspace/wallet/Wa
 
 export class OpeningDraft extends Schema.TaggedClass<OpeningDraft>()("OpeningDraft", {
   request: SigningRequest,
-  recoveryRequest: SigningRequest,
+}) {}
+export class RecoveryDraft extends Schema.TaggedClass<RecoveryDraft>()("RecoveryDraft", {
+  request: SigningRequest,
 }) {}
 export class OpeningPending extends Schema.TaggedClass<OpeningPending>()("OpeningPending", {}) {}
 export class Opened extends Schema.TaggedClass<Opened>()("Opened", { profile: Profile }) {}
@@ -273,7 +268,13 @@ export class UsernameTaken extends Schema.TaggedClass<UsernameTaken>()("Username
   username: Username,
 }) {}
 
-export const OpenStep = Schema.Union([OpeningDraft, OpeningPending, Opened, UsernameTaken]);
+export const OpenStep = Schema.Union([
+  OpeningDraft,
+  RecoveryDraft,
+  OpeningPending,
+  Opened,
+  UsernameTaken,
+]);
 export type OpenStep = typeof OpenStep.Type;
 
 // --- transfers ----------------------------------------------------------
@@ -387,7 +388,7 @@ export interface WalletPort {
   overview(address: AccountAddress): Effect.Effect<Overview, WalletUnavailable>;
   open(
     claim: WalletClaim,
-    approval: Option.Option<OpeningApproval>,
+    approval: Option.Option<Approval>,
   ): Effect.Effect<OpenStep, WalletUnavailable>;
   // Later backup step: protect(enrollment, approval) and recover(assertion); see backup.md.
   transfer(
@@ -712,7 +713,7 @@ class Directory extends Context.Service<
 export const wallets = pgTable("wallets", {
   address: text().primaryKey(),
   username: text().notNull().unique(),
-  status: text({ enum: ["claimed", "active", "recovered"] }).notNull(),
+  status: text({ enum: ["claimed", "opening", "active", "recovered"] }).notNull(),
   claimedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   attemptEnvelope: text(), // the opening draft, then the sealed opening
   attemptHash: text(), // set once sealed
@@ -920,7 +921,10 @@ open(claim, approval):
     Taken                          → UsernameTaken
     Active(profile)                → Opened(profile)
     Claimed(attempt):
-      Chain.balance(address) is some → Directory.activate → Opened     ← the goal state, however it was reached
+      Chain.balance(address) is some → keep status opening; load confirmed sequence
+                                     → draft recovery if absent; return RecoveryDraft
+                                     → verify approval against stored recovery draft
+                                     → store signed recovery unsubmitted; activate → Opened
       attempt is Sealed            → Chain.settlement:
                                        Undecided → submit again → OpeningPending
                                        Rejected | Expired → draft again (below)
@@ -930,7 +934,7 @@ open(claim, approval):
                                      → OpeningDraft(request)
 ```
 
-Opening is not exactly-once and does not need to be. Its goal is a state: the account exists and trusts USDC. Creating an account twice is impossible on the ledger, so any number of attempts is safe, and the client simply replays until it reads `Opened`.
+Opening is not exactly-once and does not need to be. Its goal is a state: the account exists, trusts USDC and has a valid signed recovery transaction stored. Creating an account twice is impossible on the ledger, so any number of attempts is safe, and the client simply replays until it reads `Opened`.
 
 The sponsor is the source of every opening transaction, so openings share its sequence number. Two people who sign up in the same few seconds get drafts with the same number; one is applied and the other is drafted again on its next replay. The network also takes only one transaction per source account per ledger. Sign-ups are therefore limited to about one per ledger close. A pool of channel accounts lifts that limit and fits inside `Chain` without changing any signature here.
 
