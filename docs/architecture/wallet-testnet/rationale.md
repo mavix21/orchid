@@ -100,7 +100,7 @@ A Neon dev branch cloned from main copies seed ciphertexts and, later, the phone
 6. Does the build fail when browser code imports `@workspace/wallet/server`? If not, what should enforce it?
 7. Should the app detect a testnet reset (next: 2026-12-16) and clear its tables?
 8. May `drizzle-kit` be added for migrations?
-9. A user who exports the phrase can remove the USDC trustline or merge the account in another wallet. The wallet is then `active` in the database with no balance on the ledger. What should `overview` answer? See `backup.md` section 7.
+9. Answered: missing account or USDC trustline returns `NeedsReopening`, marks the row `recovered`, and `open` repairs it with the same username and key before repeating recovery signing.
 
 ## Send-to-phone roadmap
 
