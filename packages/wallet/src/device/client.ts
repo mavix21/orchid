@@ -3,6 +3,9 @@ import * as Schema from "effect/Schema";
 import type { OpeningFacts, PaymentFacts, RecoveryFacts } from "../stellar/envelopes";
 import type {
   Approval,
+  InvalidAddress,
+  NotSponsored,
+  ExternalMemoRequired,
   Holding,
   NeedsReopening,
   Opened,
@@ -47,9 +50,11 @@ export class UnsupportedDevice extends Schema.TaggedClass<UnsupportedDevice>()(
 /** The server's transaction did not do exactly what was asked. Nothing was signed. */
 export class DraftRejected extends Schema.TaggedClass<DraftRejected>()("DraftRejected", {}) {}
 
-export type DeviceOverview = Holding | NeedsReopening | NoWallet | Offline;
+export type DeviceOverview = Holding | NeedsReopening | InvalidAddress | NoWallet | Offline;
 
 export type CreateOutcome =
+  | InvalidAddress
+  | NotSponsored
   | Opened
   | UsernameTaken
   | InvalidUsername
@@ -58,6 +63,8 @@ export type CreateOutcome =
   | Offline;
 
 export type SendOutcome =
+  | InvalidAddress
+  | ExternalMemoRequired
   | PhoneNotSupported
   | Settled
   | Pending

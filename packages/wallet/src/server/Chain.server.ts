@@ -5,6 +5,7 @@ import {
   Transaction,
   TransactionBuilder,
   rpc,
+  StrKey,
   xdr,
 } from "@stellar/stellar-sdk";
 import * as Context from "effect/Context";
@@ -26,6 +27,10 @@ import {
   recoveryWindow,
   usdc,
 } from "../stellar/network";
+import { type AccountState, LedgerResponse, accountFromEntries } from "./ledger.server";
+
+export type { AccountState } from "./ledger.server";
+
 import { WalletSettings } from "./settings.server";
 
 export class Sealed extends Schema.Class<Sealed>("Sealed")({
@@ -52,21 +57,24 @@ export class ChainUnreachable extends Schema.TaggedError<ChainUnreachable>()("Ch
 
 export class ApprovalInvalid extends Schema.TaggedError<ApprovalInvalid>()("ApprovalInvalid", {}) {}
 
-export interface AccountState {
-  readonly sequence: string;
-  readonly nativeBalance: bigint;
-  readonly balance: Option.Option<Usdc>;
-}
-
 export function settlementFromResponse(
   response: rpc.Api.GetTransactionResponse,
   sealed: Sealed,
+  sender: Option.Option<AccountState>,
 ): Settlement {
   if (response.status === rpc.Api.GetTransactionStatus.SUCCESS)
     return new Applied({ at: DateTime.makeUnsafe(response.createdAt * 1000) });
 
-  if (response.status === rpc.Api.GetTransactionStatus.FAILED)
-    return new Rejected({ code: response.resultXdr.result.type });
+  if (response.status === rpc.Api.GetTransactionStatus.FAILED) {
+    const result = response.resultXdr.result;
+
+    const code =
+      result.type === "txFeeBumpInnerFailed"
+        ? result.innerResultPair.result.result.type
+        : result.type;
+
+    if (code === "txFailed") return new Rejected({ code });
+  }
 
   const envelope = TransactionBuilder.fromXDR(sealed.envelope, networkPassphrase);
   const inner = envelope instanceof FeeBumpTransaction ? envelope.innerTransaction : envelope;
@@ -74,6 +82,9 @@ export function settlementFromResponse(
 
   // RPC absence is proof only when its history covers the entire inclusion window.
   if (
+    Option.isSome(sender) &&
+    sender.value.ledger >= response.latestLedger &&
+    BigInt(sender.value.sequence) < BigInt(inner.sequence) &&
     response.oldestLedgerCloseTime <= minTime &&
     response.latestLedgerCloseTime * 1000 > DateTime.toEpochMillis(sealed.expiresAt)
   )
@@ -85,6 +96,8 @@ export function settlementFromResponse(
 export class Chain extends Context.Service<
   Chain,
   {
+    validAddress(address: AccountAddress): boolean;
+    pastOpeningWindow(sealed: Sealed): Effect.Effect<boolean, ChainUnreachable>;
     account(address: AccountAddress): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;
     balance(address: AccountAddress): Effect.Effect<Option.Option<Usdc>, ChainUnreachable>;
     draftOpening(address: AccountAddress): Effect.Effect<SigningRequest, ChainUnreachable>;
@@ -113,36 +126,42 @@ export class Chain extends Context.Service<
       const sponsorAddress = Schema.decodeSync(AccountAddress)(sponsor.publicKey());
 
       const account = Effect.fn("Chain.account")(function* (address: AccountAddress) {
+        const keys = [
+          xdr.LedgerKey.account(
+            new xdr.LedgerKeyAccount({ accountId: Keypair.fromPublicKey(address).xdrPublicKey() }),
+          ),
+          xdr.LedgerKey.trustline(
+            new xdr.LedgerKeyTrustLine({
+              accountId: Keypair.fromPublicKey(address).xdrAccountId(),
+              asset: usdc.toTrustLineXdrObject(),
+            }),
+          ),
+        ];
+
         const response = yield* Effect.tryPromise({
-          try: () =>
-            server.getLedgerEntries(
-              xdr.LedgerKey.account(
-                new xdr.LedgerKeyAccount({
-                  accountId: Keypair.fromPublicKey(address).xdrPublicKey(),
-                }),
-              ),
-              xdr.LedgerKey.trustline(
-                new xdr.LedgerKeyTrustLine({
-                  accountId: Keypair.fromPublicKey(address).xdrAccountId(),
-                  asset: usdc.toTrustLineXdrObject(),
-                }),
-              ),
-            ),
+          try: async () => {
+            const response = await fetch(settings.rpcUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 1,
+                method: "getLedgerEntries",
+                params: { keys: keys.map((key) => key.toXDR("base64")) },
+              }),
+            });
+
+            if (!response.ok) throw new Error("Ledger RPC request failed");
+
+            return Schema.decodeSync(LedgerResponse)(await response.text()).result;
+          },
           catch: (cause) => new ChainUnreachable({ cause }),
         });
 
-        const entry = response.entries.find((item) => item.val.type === "account")?.val;
-        const trust = response.entries.find((item) => item.val.type === "trustline")?.val;
-
-        if (!entry || entry.type !== "account") return Option.none<AccountState>();
-
-        return Option.some<AccountState>({
-          sequence: entry.value.seqNum.toString(),
-          nativeBalance: entry.value.balance,
-          balance:
-            trust?.type === "trustline"
-              ? Option.some(Schema.decodeSync(Usdc)(trust.value.balance.toString()))
-              : Option.none(),
+        return yield* Effect.try({
+          try: () =>
+            accountFromEntries(response.entries ?? [], response.latestLedger, sponsorAddress),
+          catch: (cause) => new ChainUnreachable({ cause }),
         });
       });
 
@@ -265,13 +284,25 @@ export class Chain extends Context.Service<
           catch: (cause) => new ChainUnreachable({ cause }),
         });
 
-      const settlement = (sealed: Sealed) =>
+      const transaction = (hash: string) =>
         Effect.tryPromise({
-          try: async () => settlementFromResponse(await server.getTransaction(sealed.hash), sealed),
+          try: () => server.getTransaction(hash),
+          catch: (cause) => new ChainUnreachable({ cause }),
+        });
+
+      const settlement = (sealed: Sealed) => resolveSettlement(sealed, { transaction, account });
+
+      const pastOpeningWindow = (sealed: Sealed) =>
+        Effect.tryPromise({
+          try: async () =>
+            Number((await server.getLatestLedger()).closeTime) * 1000 >
+            DateTime.toEpochMillis(sealed.expiresAt),
           catch: (cause) => new ChainUnreachable({ cause }),
         });
 
       return Chain.of({
+        validAddress: StrKey.isValidEd25519PublicKey,
+        pastOpeningWindow,
         account,
         balance: (address) =>
           account(address).pipe(Effect.map(Option.flatMap((state) => state.balance))),
@@ -285,3 +316,35 @@ export class Chain extends Context.Service<
     }),
   );
 }
+
+export interface SettlementReader {
+  transaction(hash: string): Effect.Effect<rpc.Api.GetTransactionResponse, ChainUnreachable>;
+  account(address: AccountAddress): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;
+}
+
+export const resolveSettlement = Effect.fn("Chain.resolveSettlement")(function* (
+  sealed: Sealed,
+  reader: SettlementReader,
+) {
+  const envelope = TransactionBuilder.fromXDR(sealed.envelope, networkPassphrase);
+  const inner = envelope instanceof FeeBumpTransaction ? envelope.innerTransaction : envelope;
+  const innerHash = Array.from(inner.hash(), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const outerResponse = yield* reader.transaction(sealed.hash);
+  const outer = settlementFromResponse(outerResponse, sealed, Option.none());
+
+  if (outer instanceof Applied || outer instanceof Rejected) return outer;
+
+  const innerResponse =
+    innerHash === sealed.hash ? outerResponse : yield* reader.transaction(innerHash);
+
+  const found = settlementFromResponse(innerResponse, sealed, Option.none());
+
+  if (found instanceof Applied || found instanceof Rejected) return found;
+
+  const sender = yield* reader.account(Schema.decodeSync(AccountAddress)(inner.source));
+
+  if (Option.isSome(sender) && sender.value.ledger < outerResponse.latestLedger)
+    return new Undecided();
+
+  return settlementFromResponse(innerResponse, sealed, sender);
+});

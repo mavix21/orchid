@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   check,
   integer,
   pgTable,
@@ -15,7 +16,9 @@ export const wallets = pgTable(
   {
     address: text().primaryKey(),
     username: text().notNull().unique(),
-    status: text({ enum: ["claimed", "opening", "active", "recovered"] }).notNull(),
+    status: text({ enum: ["claimed", "opening", "reopening", "active", "recovered"] }).notNull(),
+    ownershipBound: boolean().notNull().default(true),
+    sweepCheckedAt: timestamp({ withTimezone: true }),
     version: integer().notNull().default(0),
     network: text().notNull(),
     testnetEpoch: text().notNull(),
@@ -60,6 +63,7 @@ export const transfers = pgTable(
     expiresAt: timestamp({ withTimezone: true }).notNull(),
     failure: text({ enum: ["expired", "rejected"] }),
     concludedAt: timestamp({ withTimezone: true }),
+    sweepCheckedAt: timestamp({ withTimezone: true }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

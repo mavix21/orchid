@@ -11,6 +11,9 @@ import {
   Approval,
   ExternalRecipient,
   Holding,
+  InvalidAddress,
+  NotSponsored,
+  ExternalMemoRequired,
   InsufficientBalance,
   NeedsReopening,
   NotOpened,
@@ -36,7 +39,7 @@ import {
   WalletUnavailable,
 } from "../contract";
 import { RecoveryFacts, readEnvelope } from "../stellar/envelopes";
-import { approvalMargin, epochAt } from "../stellar/network";
+import { approvalMargin } from "../stellar/network";
 import { type AccountState, Chain, ChainUnreachable, Sealed } from "./Chain.server";
 import {
   Directory,
@@ -74,6 +77,18 @@ export class Wallet extends Context.Service<
       const live = (request: SigningRequest) =>
         DateTime.toEpochMillis(request.expiresAt) > Date.now() + approvalMargin * 1000;
 
+      // A single negative observation is not enough to destroy durable state.
+      const readAccount = Effect.fn("Wallet.readAccount")(function* (address: AccountAddress) {
+        const first = yield* chain.account(address);
+
+        return Option.isNone(first) || Option.isNone(first.value.balance)
+          ? yield* chain.account(address)
+          : first;
+      });
+
+      const readBalance = (address: AccountAddress) =>
+        readAccount(address).pipe(Effect.map(Option.flatMap((state) => state.balance)));
+
       const reconcile = Effect.fn("Wallet.reconcile")(function* (authorized: Authorized) {
         const settlement = yield* chain.settlement(authorized.sealed);
 
@@ -101,6 +116,8 @@ export class Wallet extends Context.Service<
         approval: Option.Option<Approval>,
       ): Effect.fn.Return<OpenStep, StoreFailure | ChainUnreachable> {
         const address = Schema.decodeSync(AccountAddress)(row.address);
+
+        if (!state.sponsored) return new NotSponsored();
 
         const stored =
           row.recoveryDraft && row.recoveryMaxTime
@@ -140,12 +157,13 @@ export class Wallet extends Context.Service<
 
         if (Option.isNone(sealed)) return new RecoveryDraft({ request: stored });
 
-        const fresh = yield* chain.account(address);
+        const fresh = yield* readAccount(address);
 
         if (
           Option.isNone(fresh) ||
           fresh.value.sequence !== state.sequence ||
-          Option.isNone(fresh.value.balance)
+          Option.isNone(fresh.value.balance) ||
+          !fresh.value.sponsored
         )
           return new OpeningPending();
 
@@ -158,16 +176,21 @@ export class Wallet extends Context.Service<
         claim: WalletClaim,
         approval: Option.Option<Approval>,
       ): Effect.fn.Return<OpenStep, StoreFailure | ChainUnreachable> {
+        if (!chain.validAddress(claim.address))
+          return new InvalidAddress({ address: claim.address });
+
+        const state = yield* readAccount(claim.address);
+
+        if (Option.isSome(state) && !state.value.accountSponsored) return new NotSponsored();
+
         const row = yield* directory.claim(claim);
 
         if (row instanceof Taken) return new UsernameTaken({ username: claim.username });
 
-        const state = yield* chain.account(claim.address);
         const usable = Option.isSome(state) && Option.isSome(state.value.balance);
 
         if (row.status === "active") {
-          if (usable && row.testnetEpoch === epochAt(Date.now()))
-            return new Opened({ profile: profile(row) });
+          if (usable) return new Opened({ profile: profile(row) });
 
           yield* directory.recover(row);
 
@@ -188,10 +211,19 @@ export class Wallet extends Context.Service<
             Expired: () => false,
           });
 
-          if (unfinished) {
+          const expiredOpening = unfinished && (yield* chain.pastOpeningWindow(attempt.value));
+
+          if (unfinished && !expiredOpening) {
             yield* chain.submit(attempt.value).pipe(Effect.ignore);
 
             return new OpeningPending();
+          }
+
+          if (expiredOpening) {
+            const confirmed = yield* readAccount(claim.address);
+
+            if (Option.isSome(confirmed) && Option.isSome(confirmed.value.balance))
+              return yield* recoveryStage(row, confirmed.value, Option.none());
           }
         }
 
@@ -240,6 +272,18 @@ export class Wallet extends Context.Service<
         order: TransferOrder,
         approval: Option.Option<Approval>,
       ): Effect.fn.Return<TransferStep, StoreFailure | ChainUnreachable> {
+        if (!chain.validAddress(order.from)) return new InvalidAddress({ address: order.from });
+
+        const invalidRecipient = Match.valueTags(order.to, {
+          Address: ({ value }) =>
+            chain.validAddress(value) ? Option.none<AccountAddress>() : Option.some(value),
+          Username: () => Option.none<AccountAddress>(),
+          Phone: () => Option.none<AccountAddress>(),
+        });
+
+        if (Option.isSome(invalidRecipient))
+          return new InvalidAddress({ address: invalidRecipient.value });
+
         if (
           Match.valueTags(order.to, {
             Phone: () => true,
@@ -260,6 +304,8 @@ export class Wallet extends Context.Service<
             });
 
           if (!(stored instanceof Proposed)) return yield* resumed(stored);
+
+          if (stored.recipient instanceof ExternalRecipient) return new ExternalMemoRequired();
 
           if (live(stored.request)) {
             if (Option.isNone(approval))
@@ -308,15 +354,22 @@ export class Wallet extends Context.Service<
                 ),
               ),
           Address: ({ value }) =>
-            Effect.succeed<ResolvedRecipient | UnknownRecipient>(
-              new ExternalRecipient({ address: value }),
-            ),
+            directory
+              .byAddress(value)
+              .pipe(
+                Effect.map((found) =>
+                  Option.isSome(found) && found.value.status === "active"
+                    ? profile(found.value)
+                    : new ExternalMemoRequired(),
+                ),
+              ),
           Phone: () => Effect.die("Phone was rejected before recipient resolution"),
         });
 
-        if (recipient instanceof UnknownRecipient) return recipient;
+        if (recipient instanceof UnknownRecipient || recipient instanceof ExternalMemoRequired)
+          return recipient;
 
-        const balance = yield* chain.balance(order.from);
+        const balance = yield* readBalance(order.from);
 
         if (Option.isNone(balance)) {
           yield* directory.recover(sender.value);
@@ -336,6 +389,8 @@ export class Wallet extends Context.Service<
       const overview = Effect.fn("Wallet.overview")(function* (
         address: AccountAddress,
       ): Effect.fn.Return<Overview, StoreFailure | ChainUnreachable> {
+        if (!chain.validAddress(address)) return new InvalidAddress({ address });
+
         const row = yield* directory.byAddress(address);
 
         if (Option.isNone(row)) return new NotOpened();
@@ -355,9 +410,9 @@ export class Wallet extends Context.Service<
           if (latest.value instanceof Concluded) receipt = Option.some(latest.value.receipt);
         }
 
-        const balance = yield* chain.balance(address);
+        const balance = yield* readBalance(address);
 
-        if (Option.isNone(balance) || row.value.testnetEpoch !== epochAt(Date.now())) {
+        if (Option.isNone(balance)) {
           yield* directory.recover(row.value);
 
           return new NeedsReopening({ profile: profile(row.value) });
@@ -372,7 +427,7 @@ export class Wallet extends Context.Service<
 
       const recoverWallet = Effect.fn("Wallet.recoverWallet")(function* (row: WalletRow) {
         const address = Schema.decodeSync(AccountAddress)(row.address);
-        const current = yield* chain.account(address);
+        const current = yield* readAccount(address);
 
         if (Option.isNone(current) || Option.isNone(current.value.balance)) {
           yield* directory.recover(row);
@@ -420,6 +475,7 @@ export class Wallet extends Context.Service<
           undecided &&
           row.recoveryMinTime.getTime() <= Date.now() &&
           row.recoveryMaxTime.getTime() > Date.now() &&
+          current.value.sponsored &&
           current.value.balance.value === 0n &&
           current.value.nativeBalance === 0n &&
           BigInt(current.value.sequence) + 1n === BigInt(row.recoverySequence ?? "0")
