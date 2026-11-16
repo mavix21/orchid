@@ -1,6 +1,6 @@
 # Key backup and recovery
 
-Design only, no code. It extends the approved base in `rationale.md` and settles its "Key backup" decision. The owner's decisions are in section 12. Option 3 is given: a SEP-0005 phrase is the source of truth, it is never shown at sign-up, and a passkey protects it.
+Design only, no code. This entire passkey/backup step, including `protect`, `recover` and the enrollment envelope layout, follows the server-first step in `sketch.md`. It extends the approved base in `rationale.md` and settles its "Key backup" decision. The owner's decisions are in section 12. Option 3 is given: a SEP-0005 phrase is the source of truth, it is never shown at sign-up, and a passkey protects it.
 
 Each claim is marked by how it was checked: **[spec]** read in the W3C or Stellar text, **[docs]** read in vendor documentation, **[unverified]** not confirmed from an official source. Section 11 collects the unverified ones.
 
