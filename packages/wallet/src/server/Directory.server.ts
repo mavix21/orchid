@@ -1,5 +1,5 @@
 import { makeDatabase } from "@workspace/db";
-import { and, eq, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -8,7 +8,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AccountAddress, Profile, SigningRequest, Username, WalletClaim } from "../contract";
 import { RecoveryFacts } from "../stellar/envelopes";
-import { claimLifetime, epochAt, network } from "../stellar/network";
+import { claimLifetime, epochAt, network, sweepBatchSize } from "../stellar/network";
 import { Sealed } from "./Chain.server";
 import { wallets } from "./tables.server";
 
@@ -91,7 +91,13 @@ export class Directory extends Context.Service<
       const claim = Effect.fn("Directory.claim")(function* (claim: WalletClaim) {
         const inserted = yield* db
           .insert(wallets)
-          .values({ ...claim, status: "claimed", network, testnetEpoch: epochAt(Date.now()) })
+          .values({
+            ...claim,
+            status: "claimed",
+            ownershipBound: false,
+            network,
+            testnetEpoch: epochAt(Date.now()),
+          })
           .onConflictDoNothing()
           .returning();
 
@@ -111,6 +117,7 @@ export class Directory extends Context.Service<
               scope,
               eq(wallets.username, claim.username),
               eq(wallets.status, "claimed"),
+              eq(wallets.ownershipBound, false),
               isNull(wallets.attemptHash),
               lt(wallets.claimedAt, new Date(Date.now() - claimLifetime * 1000)),
             ),
@@ -122,7 +129,7 @@ export class Directory extends Context.Service<
         const reopened = yield* db
           .update(wallets)
           .set({
-            status: "claimed",
+            status: "reopening",
             version: sql`${wallets.version} + 1`,
             testnetEpoch: epochAt(Date.now()),
             claimedAt: new Date(),
@@ -150,7 +157,10 @@ export class Directory extends Context.Service<
 
         const existing = yield* db
           .update(wallets)
-          .set({ username: claim.username })
+          .set({
+            username: claim.username,
+            claimedAt: sql`case when ${wallets.status} = 'claimed' and not ${wallets.ownershipBound} and ${wallets.attemptHash} is null then now() else ${wallets.claimedAt} end`,
+          })
           .where(
             and(scope, eq(wallets.address, claim.address), eq(wallets.username, claim.username)),
           )
@@ -166,7 +176,8 @@ export class Directory extends Context.Service<
         const written = yield* db
           .update(wallets)
           .set({
-            status: "claimed",
+            status: row.ownershipBound ? "reopening" : "claimed",
+            claimedAt: new Date(),
             version: row.version + 1,
             attemptEnvelope: request.envelope,
             attemptHash: request instanceof Sealed ? request.hash : null,
@@ -185,7 +196,7 @@ export class Directory extends Context.Service<
         const written = yield* db
           .update(wallets)
           .set({
-            status: "opening",
+            status: row.ownershipBound ? "reopening" : "opening",
             version: row.version + 1,
             recoveryDraft: request.envelope,
             recoveryMaxTime: DateTime.toDateUtc(request.expiresAt),
@@ -208,6 +219,7 @@ export class Directory extends Context.Service<
           .update(wallets)
           .set({
             status: "active",
+            ownershipBound: true,
             version: row.version + 1,
             recoveryEnvelope: sealed.envelope,
             recoveryHash: sealed.hash,
@@ -219,7 +231,7 @@ export class Directory extends Context.Service<
             and(
               scope,
               eq(wallets.address, row.address),
-              eq(wallets.status, "opening"),
+              or(eq(wallets.status, "opening"), eq(wallets.status, "reopening")),
               eq(wallets.version, row.version),
               eq(wallets.recoveryDraft, row.recoveryDraft ?? ""),
               isNull(wallets.recoveryEnvelope),
@@ -256,9 +268,35 @@ export class Directory extends Context.Service<
         recover: (row) => wrap(recover(row)),
         recoverable: wrap(
           db
-            .select()
-            .from(wallets)
-            .where(and(scope, eq(wallets.status, "active"), isNotNull(wallets.recoveryEnvelope))),
+            .update(wallets)
+            .set({ sweepCheckedAt: new Date() })
+            .where(
+              and(
+                scope,
+                eq(wallets.status, "active"),
+                lte(wallets.recoveryMinTime, new Date()),
+                gt(wallets.recoveryMaxTime, new Date()),
+                inArray(
+                  wallets.address,
+                  db
+                    .select({ address: wallets.address })
+                    .from(wallets)
+                    .where(
+                      and(
+                        scope,
+                        eq(wallets.testnetEpoch, epochAt(Date.now())),
+                        eq(wallets.status, "active"),
+                        isNotNull(wallets.recoveryEnvelope),
+                        lte(wallets.recoveryMinTime, new Date()),
+                        gt(wallets.recoveryMaxTime, new Date()),
+                      ),
+                    )
+                    .orderBy(sql`${wallets.sweepCheckedAt} asc nulls first`, wallets.address)
+                    .limit(sweepBatchSize),
+                ),
+              ),
+            )
+            .returning(),
         ),
       });
     }),

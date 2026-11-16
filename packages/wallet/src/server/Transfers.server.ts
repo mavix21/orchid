@@ -18,7 +18,7 @@ import {
   TransferId,
   TransferOrder,
 } from "../contract";
-import { approvalMargin, epochAt, network } from "../stellar/network";
+import { approvalMargin, epochAt, network, sweepBatchSize } from "../stellar/network";
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import { transfers } from "./tables.server";
@@ -323,8 +323,22 @@ export class Transfers extends Context.Service<
 
       const inFlight = db
         .update(transfers)
-        .set({ status: "authorized" })
-        .where(and(scope, eq(transfers.status, "authorized")))
+        .set({ sweepCheckedAt: new Date() })
+        .where(
+          and(
+            scope,
+            eq(transfers.status, "authorized"),
+            inArray(
+              transfers.id,
+              db
+                .select({ id: transfers.id })
+                .from(transfers)
+                .where(and(scope, eq(transfers.status, "authorized")))
+                .orderBy(sql`${transfers.sweepCheckedAt} asc nulls first`, transfers.id)
+                .limit(sweepBatchSize),
+            ),
+          ),
+        )
         .returning()
         .pipe(
           Effect.flatMap((rows) =>

@@ -1,5 +1,11 @@
 import { beforeAll, beforeEach, expect, test } from "bun:test";
-import { Account, FeeBumpTransaction, Keypair, TransactionBuilder } from "@stellar/stellar-sdk";
+import {
+  Account,
+  Transaction,
+  FeeBumpTransaction,
+  Keypair,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
 import { databaseLayer, makeDatabase } from "@workspace/db";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import { sql } from "drizzle-orm";
@@ -16,6 +22,9 @@ import {
   PhoneRecipient,
   Approval,
   ExternalRecipient,
+  ExternalMemoRequired,
+  InvalidAddress,
+  NotSponsored,
   Holding,
   NeedsReopening,
   Opened,
@@ -24,6 +33,7 @@ import {
   Pending,
   PhoneNotSupported,
   PositiveUsdc,
+  Profile,
   Recipient,
   RecoveryDraft,
   SenderBusy,
@@ -34,6 +44,7 @@ import {
   TransferOrder,
   Usdc,
   Username,
+  UsernameRecipient,
   WalletClaim,
 } from "../src/contract";
 import {
@@ -55,7 +66,7 @@ import {
   draftRecovery,
   signingPayload,
 } from "../src/stellar/envelopes";
-import { networkPassphrase } from "../src/stellar/network";
+import { networkPassphrase, sweepBatchSize } from "../src/stellar/network";
 
 // This suite has one fixed, disposable local database and never reads a deployment URL.
 const dbLayer = databaseLayer({
@@ -96,6 +107,8 @@ const fakeChain = Layer.effect(
     return Chain.of({
       ...real,
       account,
+      pastOpeningWindow: (sealed) =>
+        Effect.succeed(DateTime.toEpochMillis(sealed.expiresAt) < Date.now()),
       balance: (address) =>
         account(address).pipe(Effect.map(Option.flatMap((state) => state.balance))),
       draftOpening: (address) =>
@@ -158,6 +171,9 @@ const fakeChain = Layer.effect(
 
             world.accounts.set(address, {
               sequence: world.accounts.get(address)?.sequence ?? "1000",
+              ledger: 100,
+              accountSponsored: true,
+              sponsored: true,
               nativeBalance: 0n,
               balance: Option.some(Schema.decodeSync(Usdc)("0")),
             });
@@ -276,6 +292,9 @@ test("missing account and missing trustline reopen with the same username and ke
     else
       world.accounts.set(claim.address, {
         sequence: "2000",
+        ledger: 100,
+        accountSponsored: true,
+        sponsored: true,
         nativeBalance: 0n,
         balance: Option.none(),
       });
@@ -301,16 +320,19 @@ test("a signed transfer survives failed submit and sweep finishes without the de
   await create(key, "maria");
   world.accounts.set(addressOf(key), {
     sequence: "1000",
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: true,
     nativeBalance: 0n,
     balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
   });
 
-  const order = orderFor(key, AddressRecipient.make({ value: addressOf(Keypair.random()) }));
+  const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
   const draft = await send(order);
 
   if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
 
-  expect(draft.recipient).toBeInstanceOf(ExternalRecipient);
+  expect(draft.recipient).toBeInstanceOf(Profile);
   expect(await send(order)).toEqual(draft);
   world.failSubmit = true;
   expect(await send(order, approve(draft.request, key))).toBeInstanceOf(Pending);
@@ -338,11 +360,14 @@ test("concurrent approvals allow only one signed transfer per sender", async () 
   await create(key, "maria");
   world.accounts.set(addressOf(key), {
     sequence: "1000",
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: true,
     nativeBalance: 0n,
     balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
   });
 
-  const to = AddressRecipient.make({ value: addressOf(Keypair.random()) });
+  const to = AddressRecipient.make({ value: addressOf(key) });
   const orders = [orderFor(key, to), orderFor(key, to)];
   const drafts = await Promise.all(orders.map((order) => send(order)));
 
@@ -367,11 +392,14 @@ test("same id concurrent approvals keep one immutable sealed envelope", async ()
   await create(key, "maria");
   world.accounts.set(addressOf(key), {
     sequence: "1000",
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: true,
     nativeBalance: 0n,
     balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
   });
 
-  const order = orderFor(key, AddressRecipient.make({ value: addressOf(Keypair.random()) }));
+  const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
   const draft = await send(order);
 
   if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
@@ -417,6 +445,9 @@ test("recovery sweep checks time, balance and sequence before submitting", async
   );
   world.accounts.set(claim.address, {
     sequence: "1000",
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: true,
     nativeBalance: 0n,
     balance: Option.some(Schema.decodeSync(Usdc)("1")),
   });
@@ -424,6 +455,9 @@ test("recovery sweep checks time, balance and sequence before submitting", async
   expect(world.submitted).toHaveLength(initial);
   world.accounts.set(claim.address, {
     sequence: "1001",
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: true,
     nativeBalance: 0n,
     balance: Option.some(Schema.decodeSync(Usdc)("0")),
   });
@@ -431,6 +465,9 @@ test("recovery sweep checks time, balance and sequence before submitting", async
   expect(world.submitted).toHaveLength(initial);
   world.accounts.set(claim.address, {
     sequence: "1000",
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: true,
     nativeBalance: 1n,
     balance: Option.some(Schema.decodeSync(Usdc)("0")),
   });
@@ -438,6 +475,9 @@ test("recovery sweep checks time, balance and sequence before submitting", async
   expect(world.submitted).toHaveLength(initial);
   world.accounts.set(claim.address, {
     sequence: "1000",
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: true,
     nativeBalance: 0n,
     balance: Option.some(Schema.decodeSync(Usdc)("0")),
   });
@@ -463,11 +503,14 @@ test("near-expiry unsigned drafts refresh, while authorized bytes never change",
   await create(key, "maria");
   world.accounts.set(addressOf(key), {
     sequence: "1000",
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: true,
     nativeBalance: 0n,
     balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
   });
 
-  const order = orderFor(key, AddressRecipient.make({ value: addressOf(Keypair.random()) }));
+  const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
 
   await send(order);
   await Effect.runPromise(
@@ -529,11 +572,14 @@ test("database failure during authorization submits nothing", async () => {
   await create(key, "maria");
   world.accounts.set(addressOf(key), {
     sequence: "1000",
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: true,
     nativeBalance: 0n,
     balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
   });
 
-  const order = orderFor(key, AddressRecipient.make({ value: addressOf(Keypair.random()) }));
+  const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
   const draft = await send(order);
 
   if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
@@ -571,4 +617,383 @@ test("database failure during authorization submits nothing", async () => {
   expect(
     Option.getOrThrow(await runStores(Transfers.use((service) => service.find(order.id)))),
   ).toBeInstanceOf(Proposed);
+});
+
+test("reopening keeps the original username after the takeover lease expires", async () => {
+  const key = Keypair.random();
+  const claim = await create(key, "maria");
+
+  world.accounts.delete(claim.address);
+  await run(Wallet.use((wallet) => wallet.overview(claim.address)));
+  expect(await opening(claim)).toBeInstanceOf(OpeningDraft);
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const db = yield* makeDatabase();
+
+      yield* db.execute(
+        sql`update wallets set "claimedAt" = now() - interval '1 hour' where address = ${claim.address}`,
+      );
+    }).pipe(Effect.provide(dbLayer)),
+  );
+
+  const attacker = claimFor(Keypair.random(), "maria");
+
+  expect(await runStores(Directory.use((directory) => directory.claim(attacker)))).toBeInstanceOf(
+    Taken,
+  );
+
+  const row = Option.getOrThrow(
+    await runStores(Directory.use((directory) => directory.byAddress(claim.address))),
+  );
+
+  expect(row.status).toBe("reopening");
+  expect(row.ownershipBound).toBe(true);
+  expect(await opening(claim)).toBeInstanceOf(OpeningDraft);
+});
+
+test("an unsigned claim lease refreshes on activity but a truly stale first claim can expire", async () => {
+  const key = Keypair.random();
+  const claim = claimFor(key, "maria");
+
+  await opening(claim);
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const db = yield* makeDatabase();
+
+      yield* db.execute(
+        sql`update wallets set "claimedAt" = now() - interval '1 hour' where address = ${claim.address}`,
+      );
+    }).pipe(Effect.provide(dbLayer)),
+  );
+  await opening(claim);
+  expect(
+    await runStores(
+      Directory.use((directory) => directory.claim(claimFor(Keypair.random(), "maria"))),
+    ),
+  ).toBeInstanceOf(Taken);
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const db = yield* makeDatabase();
+
+      yield* db.execute(
+        sql`update wallets set "claimedAt" = now() - interval '1 hour' where address = ${claim.address}`,
+      );
+    }).pipe(Effect.provide(dbLayer)),
+  );
+
+  const replacement = claimFor(Keypair.random(), "maria");
+  const taken = await runStores(Directory.use((directory) => directory.claim(replacement)));
+
+  expect(taken).not.toBeInstanceOf(Taken);
+  expect(
+    Option.isSome(
+      await runStores(Directory.use((directory) => directory.byAddress(replacement.address))),
+    ),
+  ).toBe(true);
+});
+
+test("a sealed opening outside RPC history redrafts after the ledger passes maxTime", async () => {
+  const key = Keypair.random();
+  const claim = claimFor(key, "maria");
+  const row = await runStores(Directory.use((directory) => directory.claim(claim)));
+
+  if (row instanceof Taken) throw new Error("Expected claim");
+
+  const now = Math.floor(Date.now() / 1000);
+
+  const envelope = draftOpening({
+    source: new Account(reserveSponsor, "100"),
+    address: claim.address,
+    createAccount: true,
+    minTime: now - 200,
+    maxTime: now - 80,
+  });
+
+  const inner = TransactionBuilder.fromXDR(envelope, networkPassphrase);
+
+  if (!(inner instanceof Transaction)) throw new Error("Expected inner transaction");
+
+  inner.sign(sponsor, key);
+
+  const outer = TransactionBuilder.buildFeeBumpTransaction(
+    feePayer.publicKey(),
+    "100",
+    inner,
+    networkPassphrase,
+  );
+
+  outer.sign(feePayer);
+
+  const historical = new Sealed({
+    envelope: outer.toXDR(),
+    hash: Array.from(outer.hash(), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+    expiresAt: DateTime.makeUnsafe((now - 80) * 1000),
+  });
+
+  await runStores(Directory.use((directory) => directory.attempt(row, historical)));
+
+  const retry = await opening(claim);
+
+  expect(retry).toBeInstanceOf(OpeningDraft);
+  expect(world.submitted).toHaveLength(0);
+  expect(
+    Option.getOrThrow(
+      await runStores(Directory.use((directory) => directory.byAddress(claim.address))),
+    ).attemptHash,
+  ).toBeNull();
+});
+
+test("one missing RPC observation does not demote an active wallet", async () => {
+  const key = Keypair.random();
+  const claim = await create(key, "maria");
+  let reads = 0;
+
+  const transient = Layer.effect(
+    Chain,
+    Effect.gen(function* () {
+      const real = yield* Chain;
+
+      return Chain.of({
+        ...real,
+        account: (address) => {
+          reads++;
+
+          return reads === 1 ? Effect.succeed(Option.none()) : real.account(address);
+        },
+      });
+    }),
+  ).pipe(Layer.provide(fakeChain));
+
+  const transientWallet = Wallet.serviceLayer.pipe(Layer.provide(stores), Layer.provide(transient));
+
+  const result = await Effect.runPromise(
+    Wallet.use((wallet) => wallet.overview(claim.address)).pipe(Effect.provide(transientWallet)),
+  );
+
+  expect(result).toBeInstanceOf(Holding);
+  expect(reads).toBe(2);
+  expect(
+    Option.getOrThrow(
+      await runStores(Directory.use((directory) => directory.byAddress(claim.address))),
+    ).status,
+  ).toBe("active");
+});
+
+test("unsponsored and differently sponsored accounts never receive recovery drafts", async () => {
+  const key = Keypair.random();
+  const claim = claimFor(key, "maria");
+
+  world.accounts.set(claim.address, {
+    sequence: "1000",
+    nativeBalance: 0n,
+    balance: Option.some(Schema.decodeSync(Usdc)("0")),
+    ledger: 100,
+    accountSponsored: false,
+    sponsored: false,
+  });
+  expect(await opening(claim)).toBeInstanceOf(NotSponsored);
+  expect(
+    Option.isNone(
+      await runStores(Directory.use((directory) => directory.byAddress(claim.address))),
+    ),
+  ).toBe(true);
+  world.accounts.set(claim.address, {
+    sequence: "1000",
+    nativeBalance: 0n,
+    balance: Option.some(Schema.decodeSync(Usdc)("0")),
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: false,
+  });
+  expect(await opening(claim)).toBeInstanceOf(NotSponsored);
+  expect(world.submitted).toHaveLength(0);
+});
+
+test("bad address checksums are typed refusals before username claims or drafts", async () => {
+  const key = Keypair.random();
+  const valid = addressOf(key);
+
+  const bad = Schema.decodeSync(AccountAddress)(
+    `${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`,
+  );
+
+  const claim = new WalletClaim({ username: Schema.decodeSync(Username)("maria"), address: bad });
+
+  expect(await opening(claim)).toBeInstanceOf(InvalidAddress);
+  expect(await run(Wallet.use((wallet) => wallet.overview(bad)))).toBeInstanceOf(InvalidAddress);
+  expect(
+    Option.isNone(await runStores(Directory.use((directory) => directory.byAddress(bad)))),
+  ).toBe(true);
+  expect(await send(orderFor(key, AddressRecipient.make({ value: bad })))).toBeInstanceOf(
+    InvalidAddress,
+  );
+  expect(world.submitted).toHaveLength(0);
+});
+
+test("external payments are refused without creating a draft or asking for a signature", async () => {
+  const key = Keypair.random();
+
+  await create(key, "maria");
+
+  const order = orderFor(key, AddressRecipient.make({ value: addressOf(Keypair.random()) }));
+
+  expect(await send(order)).toBeInstanceOf(ExternalMemoRequired);
+  expect(Option.isNone(await runStores(Transfers.use((service) => service.find(order.id))))).toBe(
+    true,
+  );
+});
+
+test("recovery queue excludes future and expired windows, caps and rotates eligible work", async () => {
+  const addresses = new Array<AccountAddress>();
+
+  for (let index = 0; index < sweepBatchSize + 2; index++) {
+    const key = Keypair.random();
+    const claim = await create(key, `user_${index}`);
+
+    addresses.push(claim.address);
+  }
+
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const db = yield* makeDatabase();
+
+      yield* db.execute(
+        sql`update wallets set "recoveryMinTime" = now() - interval '1 minute', "recoveryMaxTime" = now() + interval '1 hour'`,
+      );
+      yield* db.execute(
+        sql`update wallets set "recoveryMinTime" = now() + interval '1 hour', "recoveryMaxTime" = now() + interval '2 hours' where address = ${addresses[0]}`,
+      );
+      yield* db.execute(
+        sql`update wallets set "recoveryMaxTime" = now() - interval '1 second' where address = ${addresses[1]}`,
+      );
+    }).pipe(Effect.provide(dbLayer)),
+  );
+
+  const first = await runStores(Directory.use((directory) => directory.recoverable));
+
+  expect(first).toHaveLength(sweepBatchSize);
+  expect(first.some((row) => row.address === addresses[0] || row.address === addresses[1])).toBe(
+    false,
+  );
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const db = yield* makeDatabase();
+
+      yield* db.execute(
+        sql`update wallets set "recoveryMinTime" = now() - interval '1 minute', "recoveryMaxTime" = now() + interval '1 hour' where address = ${addresses[0]}`,
+      );
+    }).pipe(Effect.provide(dbLayer)),
+  );
+
+  const second = await runStores(Directory.use((directory) => directory.recoverable));
+
+  expect(second).toHaveLength(sweepBatchSize);
+  expect(second.some((row) => row.address === addresses[0])).toBe(true);
+});
+
+test("username payments still pin the Orchid recipient and settle normally", async () => {
+  const key = Keypair.random();
+  const recipient = Keypair.random();
+
+  await create(key, "maria");
+  await create(recipient, "rosa");
+  world.accounts.set(addressOf(key), {
+    sequence: "1000",
+    nativeBalance: 0n,
+    balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: true,
+  });
+
+  const order = orderFor(
+    key,
+    UsernameRecipient.make({ value: Schema.decodeSync(Username)("rosa") }),
+  );
+
+  const draft = await send(order);
+
+  if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
+
+  expect(draft.recipient.address).toBe(addressOf(recipient));
+  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(Pending);
+
+  const stored = Option.getOrThrow(
+    await runStores(Transfers.use((service) => service.find(order.id))),
+  );
+
+  if (!(stored instanceof Authorized)) throw new Error("Expected authorization");
+
+  world.evidence.set(stored.sealed.hash, new Applied({ at: DateTime.nowUnsafe() }));
+  expect(await send(order)).toBeInstanceOf(Settled);
+});
+
+test("external draft refusal does not hide an already authorized external transfer", async () => {
+  const key = Keypair.random();
+
+  await create(key, "maria");
+
+  const recipient = new ExternalRecipient({ address: addressOf(Keypair.random()) });
+  const order = orderFor(key, AddressRecipient.make({ value: recipient.address }));
+
+  const request = await Effect.runPromise(
+    Chain.use((chain) => chain.draftPayment(order.from, recipient.address, order.amount)).pipe(
+      Effect.provide(fakeChain),
+    ),
+  );
+
+  const proposed = await runStores(
+    Transfers.use((service) => service.propose(order, recipient, request)),
+  );
+
+  if (!(proposed instanceof Proposed)) throw new Error("Expected proposal");
+
+  expect(await send(order, approve(request, key))).toBeInstanceOf(ExternalMemoRequired);
+
+  const sealed = await Effect.runPromise(
+    Chain.use((chain) =>
+      chain.seal(
+        request,
+        new Approval({ signature: key.sign(signingPayload(request.envelope)) }),
+        order.from,
+      ),
+    ).pipe(Effect.provide(fakeChain)),
+  );
+
+  await runStores(Transfers.use((service) => service.authorize(proposed, sealed)));
+  expect(await send(order)).toBeInstanceOf(Pending);
+});
+
+test("transfer sweep queue caps and rotates signed work across senders", async () => {
+  const ids = new Array<TransferId>();
+
+  for (let index = 0; index < sweepBatchSize + 1; index++) {
+    const key = Keypair.random();
+
+    await create(key, `sender_${index}`);
+    world.accounts.set(addressOf(key), {
+      sequence: "1000",
+      nativeBalance: 0n,
+      balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
+      ledger: 100,
+      accountSponsored: true,
+      sponsored: true,
+    });
+
+    const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
+    const draft = await send(order);
+
+    if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
+
+    await send(order, approve(draft.request, key));
+    ids.push(order.id);
+  }
+
+  const first = await runStores(Transfers.use((service) => service.inFlight));
+  const next = await runStores(Transfers.use((service) => service.inFlight));
+  const seen = new Set([...first, ...next].map((transfer) => transfer.order.id));
+
+  expect(first).toHaveLength(sweepBatchSize);
+  expect(next).toHaveLength(sweepBatchSize);
+  expect(seen.size).toBe(ids.length);
 });

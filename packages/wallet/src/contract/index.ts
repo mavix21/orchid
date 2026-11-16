@@ -74,6 +74,17 @@ export class Approval extends Schema.Class<Approval>("@workspace/wallet/Approval
   signature: Schema.Uint8ArrayFromBase64,
 }) {}
 
+export class InvalidAddress extends Schema.TaggedClass<InvalidAddress>()("InvalidAddress", {
+  address: AccountAddress,
+}) {}
+
+export class NotSponsored extends Schema.TaggedClass<NotSponsored>()("NotSponsored", {}) {}
+
+export class ExternalMemoRequired extends Schema.TaggedClass<ExternalMemoRequired>()(
+  "ExternalMemoRequired",
+  {},
+) {}
+
 // --- opening a wallet ---------------------------------------------------
 
 export class WalletClaim extends Schema.Class<WalletClaim>("@workspace/wallet/WalletClaim")({
@@ -103,6 +114,8 @@ export const OpenStep = Schema.Union([
   OpeningPending,
   Opened,
   UsernameTaken,
+  InvalidAddress,
+  NotSponsored,
 ]);
 
 export type OpenStep = typeof OpenStep.Type;
@@ -208,6 +221,8 @@ export const TransferStep = Schema.Union([
   PhoneNotSupported,
   InsufficientBalance,
   SenderBusy,
+  InvalidAddress,
+  ExternalMemoRequired,
 ]);
 
 export type TransferStep = typeof TransferStep.Type;
@@ -224,7 +239,7 @@ export class NeedsReopening extends Schema.TaggedClass<NeedsReopening>()("NeedsR
   profile: Profile,
 }) {}
 
-export const Overview = Schema.Union([NotOpened, Holding, NeedsReopening]);
+export const Overview = Schema.Union([NotOpened, Holding, NeedsReopening, InvalidAddress]);
 
 export type Overview = typeof Overview.Type;
 
