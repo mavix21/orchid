@@ -175,6 +175,16 @@ Google's Adam Langley says Google Password Manager passkeys return PRF ([WebAuth
 - Request a discoverable credential with `residentKey: "required"` so Android routes to Google Password Manager instead of the security-key chooser.
 - Do not rely on `getClientCapabilities()['extension:prf']` alone (Chrome 133+): it signals browser support for forwarding the extension, not a PRF result from the provider. See [MDN](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential/getClientCapabilities_static).
 
+### PRF across devices and desktop
+
+[WebAuthn Level 3](https://www.w3.org/TR/webauthn-3/#sctn-prf-extension) defines a PRF per credential: the same credential and salt yield the same output. CTAP `hmac-secret` has separate seeds with and without user verification; request `userVerification: "required"` on both `create()` and `get()`.
+
+Desktop Chrome supports PRF with Google Password Manager passkeys, but its local Chrome profile authenticator does not; Chromium also supports PRF over hybrid (QR). See [Adam Langley's Chromium discussion](https://groups.google.com/a/chromium.org/g/blink-dev/c/iTNOgLwD2bI). iCloud Keychain and Safari support PRF since iOS 18 and macOS 15. The iCloud platform path returns the same output on Mac, iPhone and iPad. Hybrid on iOS 18.0–18.3 returned a different output; Apple reported a fix in the iOS 18.4 / macOS 15.4 betas. Do not use hybrid recovery on older iOS. See [Stack Overflow](https://stackoverflow.com/questions/79026100) and the [Apple developer forum](https://developer.apple.com/forums/thread/764730).
+
+Google has not explicitly confirmed identical PRF output for a synced Google Password Manager passkey on Android and desktop Chrome [unverified]. Once code exists, create a passkey in Android Chrome and decrypt in desktop Chrome on a Mac; also test iPhone Safari to Mac Safari and back.
+
+`http://localhost` is a valid WebAuthn origin, but its passkeys are scoped to localhost. Decide the still-undefined testnet/production subdomain RP ID before creating real passkeys.
+
 ## 7. Showing the phrase (export)
 
 Settings → Security → Recovery phrase.
@@ -211,7 +221,7 @@ Effects on the approved transfer design, all already handled or small:
 
 **A phone from the other ecosystem (Android to iPhone or back).** Passkeys do not sync across. Two ways in:
 
-1. On the new phone choose "I already have a wallet". The system sheet offers "use a passkey from another device" and shows a QR code for the old phone. Whether PRF outputs travel over this cross-device path is [unverified]. If it works, the wallet restores, and the app then offers "Add a passkey on this phone".
+1. On the new phone choose "I already have a wallet". The system sheet offers "use a passkey from another device" and shows a QR code for the old phone. PRF support depends on the provider and OS; avoid hybrid recovery on iOS before 18.4 (section 6). If it works, the wallet restores, and the app then offers "Add a passkey on this phone".
 2. Type the recovery phrase. Then add a passkey.
 
 **Adding a passkey** (also the upgrade from device-only):
@@ -307,8 +317,8 @@ Tradeoffs accepted:
 ## 11. Not verified
 
 1. Google Password Manager PRF on low-end Android (Android 9 to 12, Go edition, old Play Services): no official device matrix was found.
-2. Whether a synced passkey gives the same PRF output on every device. The spec ties one PRF to a credential for its lifetime, and design and tests imply the same output, but no verbatim Google statement was found [unverified].
-3. PRF over the cross-device (QR) path, in either direction between Android and iOS.
+2. Whether Google Password Manager sync yields the same PRF output on Android and desktop Chrome; see the planned test in section 6.
+3. PRF recovery over the cross-device (QR) path between the target Android and iOS devices.
 4. Provider behaviour on target phones, including Samsung Pass, third-party providers, and Windows Hello. Corbado's results above are not an official guarantee.
 5. The MDN Safari `get()` PRF row contradicts WebKit.
 6. Import of a derived Ed25519 key as non-extractable on the target Android browsers. `ground.md` already lists the storage half as untested.

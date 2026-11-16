@@ -79,6 +79,14 @@ The caller never retries, polls, or sees a transaction.
 - **Sponsorship roles.** The reserve sponsor only sponsors account and trustline reserves with CAP-33 `beginSponsoringFutureReserves`; the fee payer only pays fees through CAP-15 fee bumps. Configure separate key roles in code and configuration, although both may use the same key for the hackathon/testnet. Mainnet can split them without code changes. Separate keys isolate an empty or compromised fee payer from reserve sponsorship and vice versa. Keep the sponsor balances small, top them up from a cold account, store keys in Cloudflare secrets, and alert on low balances.
 - **Key backup.** Decided in `backup.md`. A SEP-0005 phrase is the source of truth, is never shown at sign-up, and is encrypted with a key from the passkey's PRF output. Two things block implementation: the passkey domain is not defined, and PRF support on low-end Android must be tested on real phones first.
 
+## Environments and databases
+
+Plan, not yet implemented: one Neon project with root branch `main` for production, a copy-on-write child `dev` with its own connection string for local work, and an optional `testnet` branch. The free plan includes 10 branches per project. Resetting dev with `neon branches reset dev --parent` replaces its data and schema with its parent's. See [Neon reset](https://neon.com/docs/guides/reset-from-parent) and [plans](https://neon.com/docs/introduction/plans).
+
+Local `wrangler dev` connects directly to Neon dev using the uncommitted `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` environment variable; `hyperdrive[].localConnectionString` is an alternative. Hyperdrive pooling and caching do not apply locally. Each deployed Wrangler environment declares its own `hyperdrive` binding named `HYPERDRIVE`, with its own Hyperdrive ID pointing to its branch; bindings are not inherited. See [local development](https://developers.cloudflare.com/hyperdrive/configuration/local-development/) and [environments](https://developers.cloudflare.com/workers/wrangler/environments/).
+
+`wrangler dev --remote` ignores the local connection string and uses the deployed Hyperdrive configuration, which may point to production.
+
 ## Open questions and risks
 
 1. May Hyperdrive query caching be disabled? With it on, a status can read a minute stale.
