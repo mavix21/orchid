@@ -1,0 +1,11 @@
+{
+  "name": "orchid-testnet-sponsored-flow",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@stellar/stellar-sdk": "17.4.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.4"
+  }
+}
