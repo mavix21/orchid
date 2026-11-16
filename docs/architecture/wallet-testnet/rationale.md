@@ -49,7 +49,7 @@ The caller never retries, polls, or sees a transaction.
 
 **Grafted from C, contract accounts:** the account type is private to one module, so one can be added later behind the same port.
 
-**Grafted from the relay alternative:** the package `exports` map has two entries, `"."` at `./src/index.ts` and `"./server"` at `./src/server/index.server.ts`. Every server file is named `*.server.ts`, so Start import protection fails `bun run build` when client code imports one, including a relative import from `device/*` into `server/*`. These are planned entries; `packages/wallet` does not yet exist. The root also exposes the device client. The two entries are the only public surface, so `@workspace/wallet/src/...` fails module resolution in typecheck and in build. No `paths` alias may be added for this package; the existing `@workspace/ui/*` alias does bypass `exports`. The first implementation step proves, with a real build, that a client import of server code fails.
+**Grafted from the relay alternative:** the package `exports` map has two entries, `"."` at `./src/index.ts` and `"./server"` at `./src/server/index.server.ts`. Every server file is named `*.server.ts`, so Start import protection fails `bun run build` when client code imports one, including a relative import from `device/*` into `server/*`. These entries are implemented in `packages/wallet`; the build verifies both denied imports and a working client transport. The root also exposes the device client. The two entries are the only public surface, so `@workspace/wallet/src/...` fails module resolution in typecheck and in build. No `paths` alias may be added for this package; the existing `@workspace/ui/*` alias does bypass `exports`. The first implementation step proves, with a real build, that a client import of server code fails.
 
 **Rejected:** B's outbox as the source of truth. C as the base, because a contract call cannot carry a memo and exchanges do not reliably credit one.
 
@@ -93,13 +93,13 @@ A Neon dev branch cloned from main copies seed ciphertexts and, later, the phone
 ## Open questions and risks
 
 1. Answered: disable Hyperdrive query caching with `wrangler hyperdrive update <id> --caching-disabled` ([Cloudflare](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/)).
-2. Should the tables live inside `packages/wallet`, leaving `packages/db` as the driver only? The scaffold expected them in `packages/db/src/schema.ts`.
+2. Answered: tables and generated migrations live inside `packages/wallet`; `packages/db` remains the driver.
 3. Who operates sponsor funding and alerts? Each wallet locks 1.5 XLM in reserves.
 4. Answered: account creation and the trustline share one sponsorship sandwich; see the testnet spike results below.
-5. Does Cloudflare's documented `scheduled` entry work with TanStack Start 1.169.5 as written?
-6. Does the build fail when browser code imports `@workspace/wallet/server`? If not, what should enforce it?
-7. Should the app detect a testnet reset (next: 2026-12-16) and clear its tables?
-8. May `drizzle-kit` be added for migrations?
+5. Answered: the custom fetch + scheduled Worker entry builds and its scheduled handler succeeds in local workerd.
+6. Answered: production builds reject public and relative server imports. Start import protection explicitly includes the wallet workspace.
+7. Answered: preserve tables, mark missing wallets recovered, and scope new transfers to the known testnet epoch.
+8. Answered: owner requested official Drizzle Kit migration generation; version 1.0.0-rc.5 matches the installed ORM.
 9. Answered: missing account or USDC trustline returns `NeedsReopening`, marks the row `recovered`, and `open` repairs it with the same username and key before repeating recovery signing.
 
 ## Send-to-phone roadmap
@@ -113,7 +113,7 @@ Open gaps: refund can fail if the sender removes the trustline or is merged; res
 ## Pending spikes
 
 1. Test PRF on real cheap Android devices on the final domain.
-2. Prove a client import of server code fails `bun run build`.
+2. Completed: the build runs permanent negative imports and a positive transport check.
 3. Fee-bump a Soroban call from a zero-XLM G account pulling USDC; record who pays what.
 4. Claim escrow with an attester signature and secret; test refund after expiry with the sender's trustline removed.
 5. Test a recovery transaction with `maxTime` and re-opening a merged account under the same username.

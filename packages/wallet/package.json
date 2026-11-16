@@ -9,7 +9,10 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "bun ../../tools/wallet/check-boundary.mjs"
+    "test": "bun test test && bun ../../tools/wallet/check-boundary.mjs",
+    "db:generate": "drizzle-kit generate",
+    "testnet:prepare": "bun scripts/prepare-testnet.server.ts",
+    "testnet:verify": "bun --env-file=.dev.vars scripts/testnet.server.ts"
   },
   "dependencies": {
     "@effect/sql-pg": "4.1.4",
@@ -20,6 +23,7 @@
   },
   "devDependencies": {
     "@types/bun": "1.4.4",
+    "drizzle-kit": "1.0.0-rc.5",
     "typescript": "7.0.2"
   }
 }

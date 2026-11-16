@@ -12,6 +12,17 @@ These owner-approved decisions take precedence over the illustrative service sig
 - If an active wallet loses its account or USDC trustline, `overview` returns `NeedsReopening` and marks the row `recovered`; replayable `open` repairs the account and/or trustline under the same username and device key, then repeats recovery signing.
 - A resolved transfer recipient is either an Orchid `Profile` (username and address) or an external address without a username. Drafts, stored transfers and receipts retain that resolved recipient. `transfers.recipient` is nullable for external addresses; their destination address must still be stored. `Phone` resolves to a typed not-supported-yet outcome; no phone implementation is added.
 
+## Implementation decisions for review
+
+- Opening repair uses the same sponsorship layout without `createAccount` when the account survives but its trustline is missing. The strict reader accepts these two opening variants only.
+- Testnet defaults: recovery after one day, a seven-day recovery submission window, and ten minutes for an unsigned username claim. These are in `stellar/network.ts`; production timing is not implemented.
+- `NeedsReopening` carries the retained profile. Reopening never changes its username or device address. Wallet transitions compare a version to prevent stale requests from overwriting newer state.
+- Transfer locks and reads are scoped to network and testnet epoch; the known 2026-12-16 reset starts a new epoch. Old unresolved transfers remain unchanged rather than acquiring an invented final result. A new epoch permits new intents.
+- RPC `NOT_FOUND` only proves expiry while history covers the whole transaction inclusion window. Otherwise keep `Undecided`; operator reconciliation may be needed after a long outage. A submit response never concludes a transfer.
+- Recovery also skips accounts observed holding native XLM. An XLM deposit racing the final check remains an account-merge limitation; USDC removal is protected atomically on-chain.
+- The router context holds the app port so all three server functions are included in normal builds before the device UI is implemented.
+- The server-facing device seam is types only in this step. Key persistence, the UI replay loop and passkey backup follow later; no working-looking device stubs are shipped.
+
 ## 1. Three candidates
 
 Each candidate is a whole design, starting from what the UI calls.
@@ -370,7 +381,11 @@ export class Holding extends Schema.TaggedClass<Holding>()("Holding", {
   latest: Schema.OptionFromNullOr(Receipt), // the sender's most recent transfer, any state
 }) {}
 
-export const Overview = Schema.Union([NotOpened, Holding]);
+export class NeedsReopening extends Schema.TaggedClass<NeedsReopening>()("NeedsReopening", {
+  profile: Profile,
+}) {}
+
+export const Overview = Schema.Union([NotOpened, Holding, NeedsReopening]);
 export type Overview = typeof Overview.Type;
 
 // --- failure and the port ----------------------------------------------
@@ -427,7 +442,7 @@ export class UnsupportedDevice extends Schema.TaggedClass<UnsupportedDevice>()(
 /** The server's transaction did not do exactly what was asked. Nothing was signed. */
 export class DraftRejected extends Schema.TaggedClass<DraftRejected>()("DraftRejected", {}) {}
 
-export type DeviceOverview = Holding | NoWallet | Offline;
+export type DeviceOverview = Holding | NeedsReopening | NoWallet | Offline;
 export type CreateOutcome =
   | Opened
   | UsernameTaken
