@@ -26,7 +26,7 @@ The caller never retries, polls, or sees a transaction.
 
 **Load-bearing decisions.**
 
-1. The server drafts every transaction. The phone checks each draft does exactly what was asked and returns only signatures (opening and recovery together at creation).
+1. The server drafts every transaction. The phone checks each draft does exactly what was asked and returns only signatures (opening first, then recovery from the confirmed account sequence, behind one user action).
 2. One transfer id maps to one signed transaction, forever, stored before it is first submitted.
 3. One sender has at most one signed, unfinished transfer, enforced by a unique index. That also removes sequence-number races.
 4. A final state is written only from ledger evidence. `Failed` means the ledger clock passed the transaction's time bound.
@@ -125,3 +125,7 @@ Stellar testnet verified that `createAccount` with 0 XLM and the USDC `changeTru
 For abandoned accounts, the device pre-signs a recovery transaction at creation: source is the user, sequence is current + 1, and `minTime` is creation + delay (about 90 days in production). It sets the USDC trustline limit to 0 and merges the account into the reserve sponsor; Orchid stores it unsubmitted. Testnet rejected it with `tx_too_early` before `minTime`; afterward it [succeeded and released the sponsored reserve](https://stellar.expert/explorer/testnet/tx/3b540ba1ab0a6619667cec39ec57381e8798b7bd9d6cc516833173eb91f158f3). If the user has transacted, it fails with `tx_bad_seq`. If the account holds USDC, it fails atomically (`op_invalid_limit` / `op_has_sub_entries`), leaving funds intact; the consumed sequence permanently invalidates it.
 
 Recovery covers only accounts that never transacted, such as curiosity sign-ups. There is no re-signing after each transaction for now. The stored recovery transaction must also have `maxTime` (the spike used 0, meaning no expiry). Check balance and sequence before submitting: a failed submit consumes the sequence and costs a fee. Mark a merged wallet `recovered` and allow its user to re-open under the same username. CAP-21 `minSeqNum` / `minSeqAge` is an untested alternative, not adopted. The spike script was removed; it remains in history at commit `18b10998a397e816903f193981bfbfd3e95327a5`.
+
+## Accepted opening limitation (2026-11-16)
+
+Account creation precedes recovery signing because the initial sequence depends on its inclusion ledger. The wallet stays `opening` until signed recovery is stored; the next app session resumes the same `open` operation. If the device never returns, the reserve remains locked. This is accepted: the server cannot manufacture the missing signature.
