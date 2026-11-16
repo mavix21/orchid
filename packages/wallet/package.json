@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun ../../tools/wallet/check-boundary.mjs"
   },
   "dependencies": {
     "@effect/sql-pg": "4.1.4",
