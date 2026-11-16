@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 
 for (const probe of ["server", "relative", "private"]) {
   const result = spawnSync("bun", ["run", "--cwd", "apps/web", "build"], {
+    cwd: new URL("../../", import.meta.url),
     env: { ...process.env, ORCHID_WALLET_BOUNDARY_PROBE: probe },
     encoding: "utf8",
   });
