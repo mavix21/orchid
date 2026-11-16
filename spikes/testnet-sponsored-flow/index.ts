@@ -1,5 +1,8 @@
-// Run: cd spikes/testnet-sponsored-flow && bun install --frozen-lockfile && bun index.ts
-// Throwaway TESTNET ONLY. No seeds, mnemonics, or secret keys are logged or saved.
+// Phase 1 (default): bun index.ts phase1 — prepare sponsor, then stop for manual USDC funding.
+// Phase 2 (explicit): bun index.ts phase2 — spend 2 testnet USDC and prove a 1 USDC payment.
+// Run from this folder after bun install --frozen-lockfile. TESTNET ONLY.
+// Sponsor secret persists in .sponsor.local (0600, ignored by root *.local). Never logged.
+// User mnemonics and secrets remain ephemeral; never logged or saved.
 // Official sources:
 // https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves
 // https://developers.stellar.org/docs/build/guides/transactions/fee-bump-transactions
@@ -14,17 +17,23 @@
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 import { Buffer } from "node:buffer";
 import assert from "node:assert/strict";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import {
   Asset,
   Horizon,
   Keypair,
   Networks,
+  NotFoundError,
+  StrKey,
+  Transaction,
   Operation,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
 
 const server = new Horizon.Server("https://horizon-testnet.stellar.org");
 const usdc = new Asset("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+const sponsorFile = new URL(".sponsor.local", import.meta.url);
+
 const explorer = "https://stellar.expert/explorer/testnet";
 
 async function fetchText(url: string) {
@@ -111,31 +120,112 @@ async function printAccount(label: string, key: Keypair, baseReserve: number) {
   return account;
 }
 
-async function main() {
-  const vector = derivePrimaryKey(
-    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+function loadSponsor() {
+  chmodSync(sponsorFile, 0o600);
+  const [network, secret, extra] = readFileSync(sponsorFile, "utf8").trim().split("\n");
+  assert.ok(network === Networks.TESTNET && extra === undefined, "Invalid testnet sponsor file.");
+  assert.ok(secret && StrKey.isValidEd25519SecretSeed(secret), "Invalid sponsor secret format.");
+
+  return Keypair.fromSecret(secret);
+}
+
+function createSponsor() {
+  const sponsor = Keypair.random();
+  writeFileSync(sponsorFile, `${Networks.TESTNET}\n${sponsor.secret()}\n`, {
+    mode: 0o600,
+    flag: "wx",
+  });
+  console.log("Saved new testnet sponsor to ignored .sponsor.local (0600).");
+
+  return sponsor;
+}
+
+async function phase1() {
+  const sponsor = existsSync(sponsorFile) ? loadSponsor() : createSponsor();
+  console.log(`Sponsor: ${sponsor.publicKey()}`);
+
+  // A saved key survives interruption before funding, and can be re-funded after a testnet reset.
+  try {
+    await server.loadAccount(sponsor.publicKey());
+    console.log("Sponsor already exists on testnet; Friendbot skipped.");
+  } catch (error) {
+    if (!(error instanceof NotFoundError)) throw error;
+
+    await fetchText(`https://friendbot.stellar.org/?addr=${sponsor.publicKey()}`);
+
+    const funding = await server
+      .transactions()
+      .forAccount(sponsor.publicKey())
+      .order("desc")
+      .limit(1)
+      .call();
+
+    assert.equal(funding.records.length, 1);
+    printTransaction("Friendbot", funding.records[0].hash);
+  }
+
+  const account = await server.loadAccount(sponsor.publicKey());
+
+  if (usdcBalance(account) === undefined) {
+    const fee = await server.fetchBaseFee();
+
+    const transaction = new TransactionBuilder(account, {
+      fee: String(fee),
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(Operation.changeTrust({ asset: usdc }))
+      .setTimeout(180)
+      .build();
+
+    transaction.sign(sponsor);
+    const result = await server.submitTransaction(transaction);
+    assert.equal(result.successful, true);
+    printTransaction("Sponsor USDC trustline", result.hash);
+  } else {
+    console.log("Sponsor already has the Circle testnet USDC trustline; changeTrust skipped.");
+  }
+
+  const ready = await server.loadAccount(sponsor.publicKey());
+  assert.ok(usdcBalance(ready));
+  console.log(`Sponsor USDC balance: ${usdcBalance(ready)?.balance}`);
+  console.log(
+    `Phase 1 complete. Fund ${sponsor.publicKey()} with USDC / Stellar Testnet at https://faucet.circle.com/`,
+  );
+  console.log("Stopped. Phase 2 was not run. After funding, explicitly run: bun index.ts phase2");
+}
+
+function usdcBalance(account: Horizon.AccountResponse) {
+  const trustline = account.balances.find(
+    (balance) =>
+      balance.asset_type === "credit_alphanum4" &&
+      balance.asset_code === usdc.code &&
+      balance.asset_issuer === usdc.issuer,
   );
 
-  assert.equal(vector.publicKey(), "GB3JDWCQJCWMJ3IILWIGDTQJJC5567PGVEVXSCVPEQOTDN64VJBDQBYX");
-  assert.equal(vector.secret(), "SBUV3MRWKNS6AYKZ6E6MOUVF2OYMON3MIUASWL3JLY5E3ISDJFELYBRZ");
-  console.log("SEP-0005 test 5: primary public and secret keys match.");
+  return trustline?.asset_type === "credit_alphanum4" ? trustline : undefined;
+}
 
-  const sponsor = Keypair.random();
-  console.log(`Sponsor: ${sponsor.publicKey()}`);
-  await fetchText(`https://friendbot.stellar.org/?addr=${sponsor.publicKey()}`);
+async function submitFeeBump(inner: Transaction, sponsor: Keypair, label: string) {
+  const baseFee = await server.fetchBaseFee();
 
-  const funding = await server
-    .transactions()
-    .forAccount(sponsor.publicKey())
-    .order("desc")
-    .limit(1)
-    .call();
+  const outer = TransactionBuilder.buildFeeBumpTransaction(
+    sponsor.publicKey(),
+    String(baseFee),
+    inner,
+    Networks.TESTNET,
+  );
 
-  assert.equal(funding.records.length, 1);
-  printTransaction("Friendbot", funding.records[0].hash);
+  outer.sign(sponsor);
+  const result = await server.submitTransaction(outer);
+  assert.equal(result.successful, true);
+  printTransaction(`${label} inner`, Buffer.from(inner.hash()).toString("hex"));
+  printTransaction(`${label} fee bump`, result.hash);
+  console.log(`Confirmed ledger: ${result.ledger}`);
+}
 
+async function openSponsored(sponsor: Keypair) {
   const user = await generateUser();
-  console.log(`User: ${user.publicKey()}`);
+  console.log(`Fresh sponsored account: ${user.publicKey()}`);
   const source = await server.loadAccount(sponsor.publicKey());
   const baseFee = await server.fetchBaseFee();
 
@@ -166,64 +256,102 @@ async function main() {
   // Required for beginSponsoringFutureReserves, createAccount, and the transaction source.
   inner.sign(sponsor);
 
-  const outer = TransactionBuilder.buildFeeBumpTransaction(
-    sponsor.publicKey(),
-    String(baseFee),
-    inner,
-    Networks.TESTNET,
+  await submitFeeBump(inner, sponsor, "Sponsored opening");
+
+  return user;
+}
+
+async function sendUsdc(sender: Keypair, recipient: Keypair, sponsor: Keypair, amount: string) {
+  const source = await server.loadAccount(sender.publicKey());
+  const fee = await server.fetchBaseFee();
+
+  const inner = new TransactionBuilder(source, {
+    fee: String(fee),
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(Operation.payment({ destination: recipient.publicKey(), asset: usdc, amount }))
+    .setTimeout(180)
+    .build();
+
+  inner.sign(sender);
+  await submitFeeBump(inner, sponsor, `${amount} USDC payment`);
+}
+
+function assertSponsored(account: Horizon.AccountResponse, sponsor: Keypair) {
+  assert.equal(
+    account.balances.find((balance) => balance.asset_type === "native")?.balance,
+    "0.0000000",
+  );
+  assert.equal(account.num_sponsored, 3);
+  assert.equal(account.sponsor, sponsor.publicKey());
+  const trustline = usdcBalance(account);
+  assert.ok(trustline && trustline.asset_type === "credit_alphanum4");
+  assert.equal(trustline.sponsor, sponsor.publicKey());
+}
+
+async function phase2() {
+  if (!existsSync(sponsorFile)) {
+    console.log(
+      "No persistent sponsor. Run phase 1 and fund it with testnet USDC first. No transactions submitted.",
+    );
+
+    return;
+  }
+
+  const sponsor = loadSponsor();
+  const before = await server.loadAccount(sponsor.publicKey());
+  const balance = usdcBalance(before);
+
+  // Check funding before creating either account or spending any XLM.
+  if (!balance || Number(balance.balance) - Number(balance.selling_liabilities) < 2) {
+    console.log(
+      `Sponsor ${sponsor.publicKey()} needs at least 2 spendable testnet USDC (balance: ${balance?.balance ?? "0"}).`,
+    );
+    console.log(
+      "Fund it at https://faucet.circle.com/ with USDC / Stellar Testnet. No transactions submitted.",
+    );
+
+    return;
+  }
+
+  const vector = derivePrimaryKey(
+    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
   );
 
-  outer.sign(sponsor);
-  printTransaction("Opening inner", Buffer.from(inner.hash()).toString("hex"));
-  printTransaction("Opening fee bump", Buffer.from(outer.hash()).toString("hex"));
-  const result = await server.submitTransaction(outer);
-  assert.equal(result.successful, true);
-  printTransaction("Confirmed opening", result.hash);
-  console.log(`Opening ledger: ${result.ledger}`);
+  assert.equal(vector.publicKey(), "GB3JDWCQJCWMJ3IILWIGDTQJJC5567PGVEVXSCVPEQOTDN64VJBDQBYX");
+  assert.equal(vector.secret(), "SBUV3MRWKNS6AYKZ6E6MOUVF2OYMON3MIUASWL3JLY5E3ISDJFELYBRZ");
+  console.log("SEP-0005 test 5: primary public and secret keys match.");
+
+  const user = await openSponsored(sponsor);
+  const recipient = await openSponsored(sponsor);
+  assertSponsored(await server.loadAccount(user.publicKey()), sponsor);
+  assertSponsored(await server.loadAccount(recipient.publicKey()), sponsor);
+  await sendUsdc(sponsor, user, sponsor, "2");
+  assert.equal(usdcBalance(await server.loadAccount(user.publicKey()))?.balance, "2.0000000");
+  await sendUsdc(user, recipient, sponsor, "1");
 
   const ledgers = await server.ledgers().order("desc").limit(1).call();
   const baseReserve = ledgers.records[0].base_reserve_in_stroops;
   const sponsorAccount = await printAccount("sponsor", sponsor, baseReserve);
   const userAccount = await printAccount("user", user, baseReserve);
-  assert.equal(sponsorAccount.num_sponsoring, 3);
-  assert.equal(userAccount.num_sponsored, 3);
-  assert.equal(userAccount.sponsor, sponsor.publicKey());
-  assert.equal(
-    userAccount.balances.find((balance) => balance.asset_type === "native")?.balance,
-    "0.0000000",
-  );
-
-  const trustline = userAccount.balances.find(
-    (balance) =>
-      balance.asset_type === "credit_alphanum4" &&
-      balance.asset_code === usdc.code &&
-      balance.asset_issuer === usdc.issuer,
-  );
-
-  assert.ok(trustline);
-  assert.equal(trustline.asset_type, "credit_alphanum4");
-  assert.ok(trustline.asset_type === "credit_alphanum4");
-  assert.equal(trustline.sponsor, sponsor.publicKey());
-  assert.equal(trustline.balance, "0.0000000");
+  const recipientAccount = await printAccount("recipient", recipient, baseReserve);
+  assert.equal(sponsorAccount.num_sponsoring, before.num_sponsoring + 6);
+  assertSponsored(userAccount, sponsor);
+  assertSponsored(recipientAccount, sponsor);
+  assert.equal(usdcBalance(userAccount)?.balance, "1.0000000");
+  assert.equal(usdcBalance(recipientAccount)?.balance, "1.0000000");
   console.log(
-    "PASS: account + USDC trustline in ONE sponsorship sandwich; user owns exactly 0 XLM.",
+    "PASS: user received 2 USDC and paid 1 USDC; both sponsored accounts still have exactly 0 XLM.",
   );
-  console.log(
-    "BLOCKED before step 5: no documented official programmatic faucet for this independently generated Stellar G account was found.",
-  );
-  console.log(
-    `Owner action: select USDC / Stellar Testnet at https://faucet.circle.com/ and request 20 USDC for ${user.publicKey()} (reCAPTCHA).`,
-  );
-  console.log(
-    "USDC issuer source: https://developers.circle.com/stablecoins/usdc-contract-addresses#testnet",
-  );
-  console.log(
-    "USDC transfer, second sponsored account, and payment with 0 XLM remain UNVERIFIED. No recipient was created.",
-  );
-  console.log(
-    "Keys are ephemeral: this run cannot resume after exit. A later payment proof needs a retained testnet signer and manual funding during that run, or an official supported programmatic funding source.",
-  );
-  process.exitCode = 2;
 }
 
-await main();
+const mode = process.argv[2] ?? "phase1";
+
+if (process.argv.length > 3 || (mode !== "phase1" && mode !== "phase2")) {
+  console.error("Usage: bun index.ts [phase1|phase2]");
+  process.exitCode = 1;
+} else if (mode === "phase1") {
+  await phase1();
+} else {
+  await phase2();
+}
