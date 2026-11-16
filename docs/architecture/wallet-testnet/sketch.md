@@ -51,7 +51,7 @@ No trustline, no sponsorship sandwich, no device key to store.
 | Pass-through method    | App adapters only move data, but they also bind transport and layers. Accepted                        | `directory.resolve` forwards to a table                                                                         | Not assessed                                             |
 | Split ownership        | Each table has one writer                                                                             | Transfer state lives in the phone's outbox and on chain. Any later server-driven flow adds a second writer      | State split between contract, relayer and app            |
 | Two ways               | One path for every signed action                                                                      | Payment links and refunds must run on the server, so a second submission path appears                           | Classic accounts are still needed for exchange memos     |
-| Importable internals   | Package `exports` hide everything but three entries                                                   | Same mechanism available                                                                                        | Same                                                     |
+| Importable internals   | Package `exports` hide everything but two entries                                                     | Same mechanism available                                                                                        | Same                                                     |
 | Hand-synced list       | The method list is defined once and derived elsewhere                                                 | Sponsor's allowed layouts must mirror the phone's builder by hand                                               | Not assessed                                             |
 
 Outcome:
@@ -68,22 +68,22 @@ One new package. Nothing else is added.
 
 ```text
 packages/wallet/                    @workspace/wallet
-  package.json                      exports ".", "./server", "./device" and nothing else
+  package.json                      exports "." and "./server" and nothing else
   src/
-    index.ts                        CONTRACT   types shared by phone, server and app
+    index.ts                        CONTRACT   shared types and device client exports
     contract/                       internal   schema files behind index.ts
     stellar/                        internal   the only code that knows Stellar's format
       network.ts                               passphrase, USDC asset, time-bound policy
       envelopes.ts                             draft a transaction; read one back
     server/
-      index.ts                      SERVER     exports Wallet, WalletSettings
+      index.server.ts               SERVER     exports Wallet, WalletSettings
       Wallet.ts                                orchestrates the three below
       Directory.ts                  internal   usernames and addresses. Only writer of `wallets`
       Transfers.ts                  internal   exactly-once record. Only writer of `transfers`
       Chain.ts                      internal   RPC calls, sponsor signatures, settlement
       tables.ts                     internal   Drizzle tables
     device/
-      index.ts                      DEVICE     exports connectWallet, WalletClient
+      index.ts                      DEVICE     re-exported by the root entry
       client.ts                     internal   the approve-and-replay loop
       Keyring.ts                    internal   the key, and the only code that signs
 
@@ -99,7 +99,7 @@ What each module knows that no other module does:
 | Module      | Its secret                                                                          |
 | ----------- | ----------------------------------------------------------------------------------- |
 | `stellar/`  | Operation layouts, the sponsorship sandwich, fee bumps, XDR, the network passphrase |
-| `Chain`     | The RPC API, the sponsor key, how to tell applied from rejected from expired        |
+| `Chain`     | The RPC API, reserve sponsor and fee payer keys, and settlement evidence            |
 | `Transfers` | The state machine, the one-in-flight rule, the SQL that makes transitions atomic    |
 | `Directory` | Username rules, claim expiry, the mapping table                                     |
 | `Keyring`   | Where the key lives, how it is created, what must be true before it signs           |
@@ -265,14 +265,21 @@ export type OpenStep = typeof OpenStep.Type;
 export const TransferId = Schema.String.check(Schema.isUUID(4)).pipe(Schema.brand("TransferId"));
 export type TransferId = typeof TransferId.Type;
 
+// Recipient variants carry a username, phone or address; phone support is deferred.
+export const Recipient = Schema.Union([
+  Schema.TaggedStruct("Username", { value: Username }),
+  Schema.TaggedStruct("Phone", { value: Schema.String }),
+  Schema.TaggedStruct("Address", { value: AccountAddress }),
+]);
+
 export class TransferOrder extends Schema.Class<TransferOrder>("@workspace/wallet/TransferOrder")({
   id: TransferId,
   from: AccountAddress,
-  to: Username,
+  to: Recipient,
   amount: PositiveUsdc,
 }) {}
 
-const transferFields = { id: TransferId, to: Username, amount: PositiveUsdc };
+const transferFields = { id: TransferId, to: Recipient, amount: PositiveUsdc };
 
 /** Signed, stored, on its way. It will become Settled or Failed without the phone. */
 export class Pending extends Schema.TaggedClass<Pending>()("Pending", {
@@ -289,7 +296,11 @@ export class Failed extends Schema.TaggedClass<Failed>()("Failed", {
   reason: Schema.Literals(["expired", "rejected"]),
 }) {}
 
-export const Receipt = Schema.Union([Pending, Settled, Failed]);
+// Escrow-specific fields and transitions are defined when phone transfers are implemented.
+export class Reserved extends Schema.TaggedClass<Reserved>()("Reserved", transferFields) {}
+export class Claimed extends Schema.TaggedClass<Claimed>()("Claimed", transferFields) {}
+export class Refunded extends Schema.TaggedClass<Refunded>()("Refunded", transferFields) {}
+export const Receipt = Schema.Union([Pending, Settled, Failed, Reserved, Claimed, Refunded]);
 export type Receipt = typeof Receipt.Type;
 
 export class TransferDraft extends Schema.TaggedClass<TransferDraft>()("TransferDraft", {
@@ -340,7 +351,7 @@ export class WalletUnavailable extends Schema.TaggedError<WalletUnavailable>()(
 ) {}
 
 /**
- * The three calls a phone can make. Defined once. The server service implements it,
+ * The port a phone can call. Defined once. The server service implements it,
  * the app's server functions carry it, and the device client consumes it.
  */
 export interface WalletPort {
@@ -349,12 +360,15 @@ export interface WalletPort {
     claim: WalletClaim,
     approval: Option.Option<Approval>,
   ): Effect.Effect<OpenStep, WalletUnavailable>;
+  // protect(enrollment, approval) and recover(assertion): schemas pending; see backup.md.
   transfer(
     order: TransferOrder,
     approval: Option.Option<Approval>,
   ): Effect.Effect<TransferStep, WalletUnavailable>;
 }
 ```
+
+`WalletPort` also gains replayable `protect` and `recover` operations for passkey backup, including their transport implementations; their draft/approval and challenge/assertion flows are specified in `backup.md` sections 5 and 8. Their concrete schemas are pending.
 
 Two rules are visible in these types.
 
@@ -364,7 +378,7 @@ Two rules are visible in these types.
 
 ## 5. The device entry
 
-`@workspace/wallet/device`. Browser only.
+`@workspace/wallet` root entry. Browser client exports are browser only.
 
 ```ts
 export class NoWallet extends Schema.TaggedClass<NoWallet>()("NoWallet", {}) {}
@@ -491,7 +505,8 @@ export class WalletSettings extends Context.Service<
   WalletSettings,
   {
     readonly rpcUrl: string;
-    readonly sponsorSecret: Redacted.Redacted<string>;
+    readonly reserveSponsorSecret: Redacted.Redacted<string>;
+    readonly feePayerSecret: Redacted.Redacted<string>;
   }
 >()("@workspace/wallet/server/WalletSettings") {}
 
@@ -509,7 +524,7 @@ export class Wallet extends Context.Service<
 }
 ```
 
-That is the whole public server surface: four operations and one settings service.
+The planned server surface comprises the five port operations, the scheduled sweep and settings; passkey schemas remain to be specified.
 
 ### Internal services
 
@@ -668,7 +683,7 @@ class Directory extends Context.Service<
 export const wallets = pgTable("wallets", {
   address: text().primaryKey(),
   username: text().notNull().unique(),
-  status: text({ enum: ["claimed", "active"] }).notNull(),
+  status: text({ enum: ["claimed", "active", "recovered"] }).notNull(),
   claimedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   attemptEnvelope: text(), // the opening draft, then the sealed opening
   attemptHash: text(), // set once sealed
@@ -682,9 +697,7 @@ export const transfers = pgTable(
     sender: text()
       .notNull()
       .references(() => wallets.address),
-    recipient: text()
-      .notNull()
-      .references(() => wallets.address),
+    recipient: text(), // nullable; phone and external addresses need not be wallet rows
     amount: bigint({ mode: "bigint" }).notNull(),
     status: text({ enum: ["proposed", "authorized", "settled", "failed"] }).notNull(),
     envelope: text().notNull(), // unsigned while proposed; sealed and frozen from authorized on
@@ -703,6 +716,8 @@ export const transfers = pgTable(
 );
 ```
 
+Record network, testnet epoch and contract ID on relevant rows; the testnet reset is 2026-12-16. Defer `phone_identities`, `otp_challenges` and `pending_transfers`.
+
 Each transition is one conditional statement that returns the row, for example `UPDATE transfers SET status = 'authorized', envelope = …, hash = … WHERE id = … AND status = 'proposed' AND expires_at > now() RETURNING *`. No decision is made from a plain `SELECT`, because Hyperdrive may serve one from cache.
 
 ### Stellar code
@@ -712,6 +727,11 @@ Each transition is one conditional statement that returns the row, for example `
 
 class OpeningFacts extends Schema.TaggedClass<OpeningFacts>()("OpeningFacts", {
   address: AccountAddress,
+}) {}
+class RecoveryFacts extends Schema.TaggedClass<RecoveryFacts>()("RecoveryFacts", {
+  address: AccountAddress,
+  reserveSponsor: AccountAddress,
+  // Include sequence, minTime and maxTime in the concrete schema.
 }) {}
 class PaymentFacts extends Schema.TaggedClass<PaymentFacts>()("PaymentFacts", {
   from: AccountAddress,
@@ -726,10 +746,15 @@ export declare function draftOpening(
 /** Holder is the source. Exactly one USDC payment, no memo, a time bound. */
 export declare function draftPayment(/* holder account, facts, time bound */): UnsignedEnvelope;
 
-/** None unless the envelope is exactly one of the two layouts above, with nothing extra. */
+/** Recovery: user source, next sequence, minTime and maxTime, USDC limit 0, merge to reserve sponsor. */
+export declare function draftRecovery(
+  /* user, reserve sponsor, sequence, time bounds */
+): UnsignedEnvelope;
+
+/** None unless the envelope is exactly an allowed layout, with nothing extra. */
 export declare function readEnvelope(
   envelope: UnsignedEnvelope,
-): Option.Option<OpeningFacts | PaymentFacts>;
+): Option.Option<OpeningFacts | PaymentFacts | RecoveryFacts>;
 
 /** The 32 bytes a signature covers. */
 export declare function signingPayload(envelope: UnsignedEnvelope): Uint8Array;
@@ -748,7 +773,8 @@ const requestWalletLayer = Layer.suspend(() =>
     Layer.provide(
       Layer.succeed(WalletSettings, {
         rpcUrl: env.STELLAR_RPC_URL,
-        sponsorSecret: Redacted.make(env.SPONSOR_SECRET),
+        reserveSponsorSecret: Redacted.make(env.RESERVE_SPONSOR_SECRET),
+        feePayerSecret: Redacted.make(env.FEE_PAYER_SECRET),
       }),
     ),
     Layer.provide(databaseLayer(env.HYPERDRIVE)),
@@ -785,6 +811,7 @@ export const port: WalletPort = {
   overview: (address) => Effect.die("not implemented"),
   open: (claim, approval) => Effect.die("not implemented"),
   transfer: (order, approval) => Effect.die("not implemented"),
+  // Add protect and recover transports when their schemas are defined; see backup.md.
 };
 ```
 
@@ -801,7 +828,7 @@ export default {
 };
 ```
 
-The app holds no wallet rules. It binds a transport and two secrets.
+The app holds no wallet rules. It binds a transport and the reserve sponsor and fee payer secrets. A separate attester key is a future third role; see `rationale.md`.
 
 ## 8. Flows
 
@@ -886,7 +913,7 @@ They live in `stellar/network.ts` and nowhere else: the testnet passphrase, the 
 
 | Rule                                              | What enforces it                                                                                   |
 | ------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Nothing outside the package imports its internals | `exports` lists three entries. Any other path fails to resolve in `tsc` and in Vite                |
+| Nothing outside the package imports its internals | The planned `exports` lists two entries. Any other path fails to resolve in `tsc` and in Vite      |
 | Tables are written by one module each             | `tables.ts` is not exported, so no other package can reach it. Inside the package it is convention |
 | No signature without a check                      | `Keyring` is not exported and has no raw sign method                                               |
 | The server signs only what it drafted             | `seal` takes a stored `SigningRequest`; `Approval` has no envelope field                           |

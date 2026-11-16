@@ -39,7 +39,7 @@ The caller never retries, polls, or sees a transaction.
 
 **Deliberately not done.** Sessions, activity history, memos, payment links, pots, agent accounts, channel accounts (so about one sign-up per ledger), mainnet.
 
-**Interface depth.** The UI sees three functions; the server exposes four operations. Behind them sit sponsorship, trustlines, fee bumps, sequence numbers, time bounds, idempotency, reconciliation and the database. None of it appears in a signature a caller can see.
+**Interface depth.** The UI sees three functions; the server exposes five operations plus a scheduled sweep. Behind them sit sponsorship, trustlines, fee bumps, sequence numbers, time bounds, idempotency, reconciliation and the database. None of it appears in a signature a caller can see.
 
 ## Synthesis decision
 
@@ -49,7 +49,7 @@ The caller never retries, polls, or sees a transaction.
 
 **Grafted from C, contract accounts:** the account type is private to one module, so one can be added later behind the same port.
 
-**Grafted from the relay alternative:** the package `exports` map has two entries, `"."` at `./src/index.ts` and `"./server"` at `./src/server/index.server.ts`. Every server file is named `*.server.ts`, so Start import protection fails `bun run build` when client code imports one, including a relative import from `device/*` into `server/*`. The two entries are the only public surface, so `@workspace/wallet/src/...` fails module resolution in typecheck and in build. No `paths` alias may be added for this package; the existing `@workspace/ui/*` alias does bypass `exports`. The first implementation step proves, with a real build, that a client import of server code fails.
+**Grafted from the relay alternative:** the package `exports` map has two entries, `"."` at `./src/index.ts` and `"./server"` at `./src/server/index.server.ts`. Every server file is named `*.server.ts`, so Start import protection fails `bun run build` when client code imports one, including a relative import from `device/*` into `server/*`. These are planned entries; `packages/wallet` does not yet exist. The root also exposes the device client. The two entries are the only public surface, so `@workspace/wallet/src/...` fails module resolution in typecheck and in build. No `paths` alias may be added for this package; the existing `@workspace/ui/*` alias does bypass `exports`. The first implementation step proves, with a real build, that a client import of server code fails.
 
 **Rejected:** B's outbox as the source of truth. C as the base, because a contract call cannot carry a memo and exchanges do not reliably credit one.
 
@@ -77,7 +77,8 @@ The caller never retries, polls, or sees a transaction.
 - **Unauthenticated reads.** Balance and overview without authentication are acceptable on testnet.
 - **Testnet funding.** A fund button in the app. Friendbot gives only testnet XLM. Test USDC comes from an Orchid-funded endpoint.
 - **Sponsorship roles.** The reserve sponsor only sponsors account and trustline reserves with CAP-33 `beginSponsoringFutureReserves`; the fee payer only pays fees through CAP-15 fee bumps. Configure separate key roles in code and configuration, although both may use the same key for the hackathon/testnet. Mainnet can split them without code changes. Separate keys isolate an empty or compromised fee payer from reserve sponsorship and vice versa. Keep the sponsor balances small, top them up from a cold account, store keys in Cloudflare secrets, and alert on low balances.
-- **Key backup.** Decided in `backup.md`. A SEP-0005 phrase is the source of truth, is never shown at sign-up, and is encrypted with a key from the passkey's PRF output. Two things block implementation: the passkey domain is not defined, and PRF support on low-end Android must be tested on real phones first.
+- **Public opening.** Before public access, protect `open` with Turnstile or per-IP limits and a daily reserve-sponsor cap.
+- **Key backup.** Decided in `backup.md`. A SEP-0005 phrase is the source of truth, is never shown at sign-up, and is encrypted with a key from the passkey's PRF output. Non-disposable passkeys require the real domain and PRF testing on cheap Android phones; demo wallets are disposable (see D7).
 
 ## Environments and databases
 
@@ -85,23 +86,37 @@ Plan, not yet implemented: one Neon project with root branch `main` for producti
 
 Local `wrangler dev` connects directly to Neon dev using the uncommitted `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` environment variable; `hyperdrive[].localConnectionString` is an alternative. Hyperdrive pooling and caching do not apply locally. Each deployed Wrangler environment declares its own `hyperdrive` binding named `HYPERDRIVE`, with its own Hyperdrive ID pointing to its branch; bindings are not inherited. See [local development](https://developers.cloudflare.com/hyperdrive/configuration/local-development/) and [environments](https://developers.cloudflare.com/workers/wrangler/environments/).
 
+A Neon dev branch cloned from main copies seed ciphertexts and, later, the phone directory; treat the clone accordingly.
+
 `wrangler dev --remote` ignores the local connection string and uses the deployed Hyperdrive configuration, which may point to production.
 
 ## Open questions and risks
 
-1. May Hyperdrive query caching be disabled? With it on, a status can read a minute stale.
+1. Answered: disable Hyperdrive query caching with `wrangler hyperdrive update <id> --caching-disabled` ([Cloudflare](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/)).
 2. Should the tables live inside `packages/wallet`, leaving `packages/db` as the driver only? The scaffold expected them in `packages/db/src/schema.ts`.
 3. Who operates sponsor funding and alerts? Each wallet locks 1.5 XLM in reserves.
-4. Can account creation and the trustline share one sponsorship sandwich? The docs imply it; no example shows it.
+4. Answered: account creation and the trustline share one sponsorship sandwich; see the testnet spike results below.
 5. Does Cloudflare's documented `scheduled` entry work with TanStack Start 1.169.5 as written?
 6. Does the build fail when browser code imports `@workspace/wallet/server`? If not, what should enforce it?
 7. Should the app detect a testnet reset (next: 2026-12-16) and clear its tables?
 8. May `drizzle-kit` be added for migrations?
 9. A user who exports the phrase can remove the USDC trustline or merge the account in another wallet. The wallet is then `active` in the database with no balance on the ledger. What should `overview` answer? See `backup.md` section 7.
 
-## Next implementation step
+## Send-to-phone roadmap
 
-Prove, with a real `bun run build`, that a client import of server code fails. Then prove the Stellar half alone with a testnet script that drafts, signs, sponsors and settles one opening and one fee-bumped USDC payment. The script measures free-plan CPU and tests the sponsorship sandwich.
+The escrow claim requires both Orchid's attester signature and the preimage of a claim-secret hash set at deposit. The sender's device generates the secret and shares it in the recipient notification; Orchid never sees it. Attester-only claims would be custody: a leaked key could drain every open escrow, and the contract has no admin. The attester is a third key role, separate from the reserve sponsor and fee payer; it is never a Stellar account key.
+
+Use persistent contract storage, cap expiry in the contract (default 30 days), reject duplicate `escrow_id` or key by `(sender, escrow_id)`, and domain-tag the signed payload. Soroban from a zero-XLM classic account via fee bump remains unproven. A Soroban transaction permits one operation and no memo: open and claim are separate transactions, and the device verifies the contract-call layout before signing.
+
+Open gaps: refund can fail if the sender removes the trustline or is merged; resolve a recipient once and pin it in the draft if registration races submission; OTP proves phone control, not address ownership, so bind the address with a device signature; account for SIM swap or recycling during expiry. Sending to a number reveals user existence: rate limit per funded sender. Store a versioned pepper outside Postgres; send OTP only when money is waiting or an account exists. Phone tables are deferred; server data seams are in `sketch.md`.
+
+## Pending spikes
+
+1. Test PRF on real cheap Android devices on the final domain.
+2. Prove a client import of server code fails `bun run build`.
+3. Fee-bump a Soroban call from a zero-XLM G account pulling USDC; record who pays what.
+4. Claim escrow with an attester signature and secret; test refund after expiry with the sender's trustline removed.
+5. Test a recovery transaction with `maxTime` and re-opening a merged account under the same username.
 
 ## Testnet spike results
 
@@ -109,4 +124,4 @@ Stellar testnet verified that `createAccount` with 0 XLM and the USDC `changeTru
 
 For abandoned accounts, the device pre-signs a recovery transaction at creation: source is the user, sequence is current + 1, and `minTime` is creation + delay (about 90 days in production). It sets the USDC trustline limit to 0 and merges the account into the reserve sponsor; Orchid stores it unsubmitted. Testnet rejected it with `tx_too_early` before `minTime`; afterward it [succeeded and released the sponsored reserve](https://stellar.expert/explorer/testnet/tx/3b540ba1ab0a6619667cec39ec57381e8798b7bd9d6cc516833173eb91f158f3). If the user has transacted, it fails with `tx_bad_seq`. If the account holds USDC, it fails atomically (`op_invalid_limit` / `op_has_sub_entries`), leaving funds intact; the consumed sequence permanently invalidates it.
 
-Recovery covers only accounts that never transacted, such as curiosity sign-ups. There is no re-signing after each transaction for now. The spike script was removed; it remains in history at commit `18b10998a397e816903f193981bfbfd3e95327a5`.
+Recovery covers only accounts that never transacted, such as curiosity sign-ups. There is no re-signing after each transaction for now. The stored recovery transaction must also have `maxTime` (the spike used 0, meaning no expiry). Check balance and sequence before submitting: a failed submit consumes the sequence and costs a fee. Mark a merged wallet `recovered` and allow its user to re-open under the same username. CAP-21 `minSeqNum` / `minSeqAge` is an untested alternative, not adopted. The spike script was removed; it remains in history at commit `18b10998a397e816903f193981bfbfd3e95327a5`.

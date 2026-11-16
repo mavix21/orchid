@@ -183,7 +183,7 @@ Desktop Chrome supports PRF with Google Password Manager passkeys, but its local
 
 Google has not explicitly confirmed identical PRF output for a synced Google Password Manager passkey on Android and desktop Chrome [unverified]. Once code exists, create a passkey in Android Chrome and decrypt in desktop Chrome on a Mac; also test iPhone Safari to Mac Safari and back.
 
-`http://localhost` is a valid WebAuthn origin, but its passkeys are scoped to localhost. Decide the still-undefined testnet/production subdomain RP ID before creating real passkeys.
+`http://localhost` is a valid WebAuthn origin, but its passkeys are scoped to localhost. The demo uses a disposable `workers.dev` host; see D7 before creating passkeys.
 
 ## 7. Showing the phrase (export)
 
@@ -276,7 +276,7 @@ The UI call does not change: `wallet.create("maria")`. The passkey sheet happens
 - `stellar/envelopes.ts` gains the enrolment layout and its reader, covered by the same round-trip test.
 - `open` and `transfer` do not change.
 
-**Package entries.** `rationale.md` names two entries (`.` and `./server`); `sketch.md` section 2 lists a third, `./device`. This design does not depend on which is right. All new browser code sits beside `Keyring`.
+**Package entries.** The planned root and `./server` entries are described in `rationale.md`; browser code sits beside `Keyring`.
 
 ### Changes to `rationale.md`
 
@@ -300,7 +300,7 @@ The six load-bearing decisions and the synthesis are untouched.
 | The passkey provider loses or deletes a passkey | Recovery by passkey is gone.                                          | The phrase, if saved. A gentle, optional reminder for passkey users too.                                               |
 | Phone stolen, unlocked                          | Payments possible, as in the base design. Reveal needs the passkey.   | A payment prompt would close it. Decision D2: none on testnet.                                                         |
 | Phishing for the phrase                         | Total loss.                                                           | Passkeys are bound to the domain; phrases are not. Reveal copy says Orchid never asks for it.                          |
-| Orchid's domain changes                         | Every passkey stops working, because a passkey is bound to its RP id. | Fix the domain before any passkey is created. Decision D7.                                                             |
+| Orchid's domain changes                         | Every passkey stops working, because a passkey is bound to its RP id. | Demo wallets are disposable; see D7 before creating non-disposable passkeys.                                           |
 | Browser storage evicted                         | PRF wallet: none, restore by passkey. Device-only wallet: total loss. | `persist()`, the install prompt, the funds-arrive nudge.                                                               |
 | Testnet reset                                   | Accounts vanish, seeds do not.                                        | The same address can be opened again from the same seed.                                                               |
 
@@ -340,7 +340,7 @@ Accepted by the owner on 2026-11-15.
 - **D4. Recovery authentication.** The server verifies the passkey assertion before it returns a ciphertext.
 - **D5. Banner threshold.** 20 USDC.
 - **D6. Device-key copy of the seed on PRF phones.** No. The gap in section 8 is accepted.
-- **D7. Passkey RP id.** Testnet will live on a subdomain of the Orchid domain. The domain is not defined yet. **Blocker:** no passkey code is implemented until it is, because the RP id is permanent.
+- **D7. Passkey RP ID.** No domain has been bought. The demo uses a `workers.dev` host and its full host as RP ID, never `<account>.workers.dev`. Demo wallets are disposable: a domain change breaks passkey restore, and device-only wallets without a saved phrase lose funds. Buy the real domain before creating non-disposable passkeys. Related Origin Requests may bridge domains, but browser support is conflicting.
 - **D8. PRF device test.** Run it on cheap Android phones before implementation.
 
 Still open: the mainnet amount in D2 and the domain in D7.
