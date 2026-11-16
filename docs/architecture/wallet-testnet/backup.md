@@ -79,15 +79,15 @@ create(username):
   3. navigator.credentials.create      rp.id = Orchid's domain, user.name = username,
                                          user.id = 32 random bytes, residentKey "required",
                                          userVerification "required", prf.eval.first = constant
-       prf.enabled false or no PRF     → section 6, the fallback
-       prf.results present             → use them
-       prf.results absent              → navigator.credentials.get with the same input (second sheet)
+       prf.results.first present       → use it
+       prf.results.first absent        → navigator.credentials.get with the same input (second sheet)
+       no PRF output from get()        → section 6, the fallback
   4. wrap E; store the wrap in IndexedDB; drop E from memory
   5. approve the opening draft; port.open(claim, approval) → replay until Opened
   6. port.protect(enrollment, …)       → upload the wrap (section 8). Replayed on next launch if it fails
 ```
 
-- **One sheet or two.** The spec says not all authenticators evaluate the PRF at creation, and then "an assertion is needed in order to obtain the outputs" [spec]. MDN repeats it [docs]. Which phones return results at creation is [unverified]. Worst case is two sheets back to back.
+- **One sheet or two.** The spec says not all authenticators evaluate the PRF at creation, and then "an assertion is needed in order to obtain the outputs" [spec]. MDN repeats it [docs]. Provider results vary: see the Android implementation rules below. Worst case is two sheets back to back.
 - **Username first.** Step 2 runs before step 3 so a taken name never leaves an orphan passkey in the user's password manager.
 - **`user.id` is random.** The spec forbids personal data in the user handle [spec].
 - **Crash safety.** The signing handle is saved in step 1 and the wrap in step 4, so every later step is a replay. If the app dies between 1 and 4, `E` is lost while the username is only claimed, not active. The stale-claim takeover in `Directory.claim` already covers that.
@@ -121,7 +121,7 @@ This is the first authenticated call in the system. It is also the natural base 
 Three cases, detected in this order:
 
 1. `PublicKeyCredential.getClientCapabilities()` reports no platform authenticator, or the browser has no WebAuthn. No passkey is attempted.
-2. `create()` returns `prf.enabled: false`. The passkey exists but is useless to us and is ignored.
+2. `create()` returns no PRF output and a subsequent `get()` also returns none. The passkey exists but cannot protect the backup.
 3. The user cancels the passkey sheet twice.
 
 In all three the wallet is still created. The result is a **device-only wallet**:
@@ -154,16 +154,26 @@ This keeps the rule: no words at sign-up, and words appear only when there is so
 
 ### PRF support: what is known
 
-| Source                              | What it says                                                                                                                                              |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| WebAuthn Level 3                    | A W3C Recommendation since 2026-08-25. PRF is section 10.1.4 [spec].                                                                                      |
-| WebKit                              | "WebKit for Safari 18.0 adds support for the WebAuthn prf extension" [docs].                                                                              |
-| MDN compat data, `create()` + `prf` | Chrome 116, Chrome Android and Edge mirror it, Firefox 139 (135 to 138 partial, not on macOS), Firefox Android 149, Safari 18, Android WebView no [docs]. |
-| MDN compat data, `get()` + `prf`    | Chrome 116, Firefox 139, but Safari "no" and Firefox Android "no" [docs]. This contradicts the WebKit post and the `create()` row. Treat it as unknown.   |
-| MDN compat data, capabilities       | `getClientCapabilities()`: Chrome 133, Firefox 135, Safari 17.4 [docs].                                                                                   |
-| passkeys.dev                        | No PRF row in the device matrix. Android 9+ creates passkeys backed up to Google Password Manager [docs].                                                 |
+| Source                              | What it says                                                                                                                                                    |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WebAuthn Level 3                    | A W3C Recommendation since 2026-08-25. PRF is section 10.1.4 [spec].                                                                                            |
+| WebKit                              | "WebKit for Safari 18.0 adds support for the WebAuthn prf extension" [docs].                                                                                    |
+| MDN compat data, `create()` + `prf` | Chrome 116, Chrome Android and Edge mirror it, Firefox 139 (135 to 138 partial, not on macOS), Firefox Android 149, Safari 18, Android WebView no [docs].       |
+| MDN compat data, `get()` + `prf`    | Chrome 116 and Firefox 139 [docs]. Its Firefox Android "no" row is stale; Mozilla fixed Android support in Firefox 149. Its Safari "no" row contradicts WebKit. |
+| MDN compat data, capabilities       | `getClientCapabilities()`: Chrome 133, Firefox 135, Safari 17.4 [docs].                                                                                         |
+| passkeys.dev                        | No PRF row in the device matrix. Android 9+ creates passkeys backed up to Google Password Manager [docs].                                                       |
 
 A browser version is not enough. PRF also depends on the passkey provider and the OS, and no official matrix covers that. See section 11.
+
+### PRF on Android: implementation rules
+
+Chrome supports `prf` for `create()` and `get()` on Android since Chrome 116 (August 2023); Android WebView does not. Samsung Internet and Edge mirror Chrome. Firefox Android supports PRF since 149; MDN's Firefox Android `get()` row is stale. See [Chromium](https://groups.google.com/a/chromium.org/g/blink-dev/c/iTNOgLwD2bI), [MDN compat data](https://github.com/mdn/browser-compat-data/blob/main/api/CredentialsContainer.json), and [Mozilla](https://bugzilla.mozilla.org/show_bug.cgi?id=1958716).
+
+Google's Adam Langley says Google Password Manager passkeys return PRF ([WebAuthn issue](https://github.com/w3c/webauthn/issues/1830#issuecomment-1774092530), [Chromium discussion](https://groups.google.com/a/chromium.org/g/blink-dev/c/iTNOgLwD2bI)). Independent [Corbado tests](https://www.corbado.com/blog/passkeys-prf-webauthn) in 2026 report Google Password Manager success of 91–100% at `create()` and 100% at `get()`. They also report Samsung Pass often returns no value at `create()` but does at `get()`, Bitwarden is unreliable on Android, and Dashlane returns none. These provider results are independent tests, not official guarantees.
+
+- Request `prf.eval` at `create()`. If `results.first` is missing, call `get()` with the same input before concluding PRF is unavailable; only then show a second sheet.
+- Request a discoverable credential with `residentKey: "required"` so Android routes to Google Password Manager instead of the security-key chooser.
+- Do not rely on `getClientCapabilities()['extension:prf']` alone (Chrome 133+): it signals browser support for forwarding the extension, not a PRF result from the provider. See [MDN](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential/getClientCapabilities_static).
 
 ## 7. Showing the phrase (export)
 
@@ -296,21 +306,19 @@ Tradeoffs accepted:
 
 ## 11. Not verified
 
-1. Whether Google Password Manager on low-end Android (Android 9 to 12, Go edition, old Play Services) supports PRF at all. No official matrix was found. Chrome's own PRF pages returned 404.
-2. Whether a synced passkey gives the same PRF output on every device. The spec ties one PRF to a credential "for the lifetime of the credential" [spec]; real sync behaviour was not tested.
-3. Which authenticators return PRF results at `create()`.
-4. PRF over the cross-device (QR) path, in either direction between Android and iOS.
-5. PRF with Samsung Pass, with third-party providers (Android 14+), and with Windows Hello.
-6. The MDN contradiction on Safari and Firefox Android for `get()` with PRF.
-7. Whether `getClientCapabilities()` reports an `extension:prf` key reliably. The spec defines the `extension:` prefix; MDN does not list `prf`. The design therefore trusts `prf.enabled` from `create()`, not the capability.
-8. Import of a derived Ed25519 key as non-extractable on the target Android browsers. `ground.md` already lists the storage half as untested.
-9. ECDSA P-256 verification CPU on the Workers free plan, and whether a maintained WebAuthn server library runs there.
-10. Whether Safari's seven-day storage rule from 2020 is unchanged.
-11. Freighter and Lobstr importing a 12-word phrase, and how they show a sponsored account with 0 XLM.
-12. Where the account's own reserve goes on merge, and the exact revoke failure.
-13. Family: the page read does not say a passkey prompt precedes the reveal, and does not mention iCloud. Cavos: its page does not mention PRF, Google, Apple or email. Both differ from the research summary in the brief.
+1. Google Password Manager PRF on low-end Android (Android 9 to 12, Go edition, old Play Services): no official device matrix was found.
+2. Whether a synced passkey gives the same PRF output on every device. The spec ties one PRF to a credential for its lifetime, and design and tests imply the same output, but no verbatim Google statement was found [unverified].
+3. PRF over the cross-device (QR) path, in either direction between Android and iOS.
+4. Provider behaviour on target phones, including Samsung Pass, third-party providers, and Windows Hello. Corbado's results above are not an official guarantee.
+5. The MDN Safari `get()` PRF row contradicts WebKit.
+6. Import of a derived Ed25519 key as non-extractable on the target Android browsers. `ground.md` already lists the storage half as untested.
+7. ECDSA P-256 verification CPU on the Workers free plan, and whether a maintained WebAuthn server library runs there.
+8. Whether Safari's seven-day storage rule from 2020 is unchanged.
+9. Freighter and Lobstr importing a 12-word phrase, and how they show a sponsored account with 0 XLM.
+10. Where the account's own reserve goes on merge, and the exact revoke failure.
+11. Family: the page read does not say a passkey prompt precedes the reveal, and does not mention iCloud. Cavos: its page does not mention PRF, Google, Apple or email. Both differ from the research summary in the brief.
 
-Items 1 to 5 need a test page and a handful of real phones. That test should run before any of this is built.
+Items 1 to 4 need a test page and a handful of real phones. That test should run before any of this is built.
 
 ## 12. Decisions
 
