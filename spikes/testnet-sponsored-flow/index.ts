@@ -1,5 +1,6 @@
 // Phase 1 (default): bun index.ts phase1 — prepare sponsor, then stop for manual USDC funding.
 // Phase 2 (explicit): bun index.ts phase2 — spend 2 testnet USDC and prove a 1 USDC payment.
+// Phase 3: bun index.ts phase3 — three pre-signed reserve recovery scenarios (1 USDC total).
 // Run from this folder after bun install --frozen-lockfile. TESTNET ONLY.
 // Sponsor secret persists in .sponsor.local (0600, ignored by root *.local). Never logged.
 // User mnemonics and secrets remain ephemeral; never logged or saved.
@@ -26,9 +27,14 @@ import {
   NotFoundError,
   StrKey,
   Transaction,
+  TransactionFailedError,
+  xdr,
   Operation,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
+
+// Spike delay only; production would use approximately 90 days.
+const RECOVERY_DELAY_SECONDS = 60;
 
 const server = new Horizon.Server("https://horizon-testnet.stellar.org");
 const usdc = new Asset("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
@@ -345,13 +351,275 @@ async function phase2() {
   );
 }
 
+// Official timebound and result APIs:
+// https://stellar.github.io/js-stellar-sdk/reference/core-transactions/
+// https://stellar.github.io/js-stellar-sdk/guides/handle-errors/
+// https://developers.stellar.org/docs/learn/fundamentals/transactions/list-of-operations
+async function prepareRecovery(user: Keypair, sponsor: Keypair) {
+  const source = await server.loadAccount(user.publicKey());
+
+  const creations = await server
+    .transactions()
+    .forAccount(user.publicKey())
+    .order("asc")
+    .limit(1)
+    .call();
+
+  const creation = creations.records[0];
+  assert.equal(creation.ledger_attr, source.last_modified_ledger);
+  const minTime = Math.floor(Date.parse(creation.created_at) / 1000) + RECOVERY_DELAY_SECONDS;
+  const fee = await server.fetchBaseFee();
+  const sequence = source.sequenceNumber();
+
+  const recovery = new TransactionBuilder(source, {
+    fee: String(fee),
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(Operation.changeTrust({ asset: usdc, limit: "0" }))
+    .addOperation(Operation.accountMerge({ destination: sponsor.publicKey() }))
+    .setTimebounds(minTime, 0)
+    .build();
+
+  recovery.sign(user);
+  assert.equal(recovery.sequence, String(BigInt(sequence) + 1n));
+  assert.equal(recovery.signatures.length, 1);
+  const file = new URL(`.recovery-${user.publicKey()}.local`, import.meta.url);
+  writeFileSync(file, recovery.toXDR(), { mode: 0o600, flag: "wx" });
+  const stored = TransactionBuilder.fromXDR(readFileSync(file, "utf8"), Networks.TESTNET);
+  assert.ok(stored instanceof Transaction);
+  assert.equal(
+    Buffer.from(stored.hash()).toString("hex"),
+    Buffer.from(recovery.hash()).toString("hex"),
+  );
+  console.log(
+    JSON.stringify({
+      creationLedger: creation.ledger_attr,
+      createdAt: creation.created_at,
+      minTime,
+      eligibleAt: new Date(minTime * 1000).toISOString(),
+      currentSequence: sequence,
+      recoverySequence: stored.sequence,
+      signatures: stored.signatures.length,
+      storedUnsubmitted: file.pathname,
+    }),
+  );
+
+  return { transaction: stored, minTime, sequence };
+}
+
+function decodedRecoveryResult(result: xdr.TransactionResult) {
+  const outer = result.result;
+  assert.ok(outer.type === "txFeeBumpInnerSuccess" || outer.type === "txFeeBumpInnerFailed");
+  const inner = outer.innerResultPair.result.result;
+  console.log(`XDR result: ${JSON.stringify(result.toJson())}`);
+
+  return inner;
+}
+
+async function attemptRecovery(recovery: Transaction, sponsor: Keypair, label: string) {
+  const fee = await server.fetchBaseFee();
+
+  const outer = TransactionBuilder.buildFeeBumpTransaction(
+    sponsor.publicKey(),
+    String(fee),
+    recovery,
+    Networks.TESTNET,
+  );
+
+  outer.sign(sponsor);
+  printTransaction(`${label} inner`, Buffer.from(recovery.hash()).toString("hex"));
+  const hash = Buffer.from(outer.hash()).toString("hex");
+  printTransaction(`${label} fee bump`, hash);
+  let decoded: xdr.TransactionResult;
+
+  try {
+    const result = await server.submitTransaction(outer);
+    console.log(`Submission successful=${result.successful}; ledger=${result.ledger}`);
+    decoded = xdr.TransactionResult.fromXdr(result.result_xdr, "base64");
+  } catch (error) {
+    if (!(error instanceof TransactionFailedError)) throw error;
+
+    console.log(`Horizon result codes: ${JSON.stringify(error.getResultCodes())}`);
+    const result = error.getTransactionResult();
+    assert.ok(result, "Horizon must supply result XDR.");
+    decoded = result;
+  }
+
+  const inner = decodedRecoveryResult(decoded);
+  let ledger: number | null = null;
+  let feeCharged = "0";
+
+  try {
+    const record = await server.transactions().transaction(hash).call();
+    ledger = record.ledger_attr;
+    feeCharged = String(record.fee_charged);
+    console.log(
+      `Ledger evidence: ledger=${ledger}; successful=${record.successful}; feeChargedStroops=${feeCharged}`,
+    );
+  } catch (error) {
+    if (!(error instanceof NotFoundError)) throw error;
+
+    const latest = await server.ledgers().order("desc").limit(1).call();
+    console.log(
+      `No ledger inclusion (Horizon 404); latest observed ledger=${latest.records[0].sequence}; no charged fee. Explorer link is a candidate hash only.`,
+    );
+  }
+
+  return { inner, ledger, feeCharged };
+}
+
+async function waitForRecovery(minTime: number) {
+  const deadline = Date.now() + (RECOVERY_DELAY_SECONDS + 120) * 1000;
+  console.log(`Waiting for a closed ledger timestamp >= ${minTime}...`);
+
+  while (Date.now() < deadline) {
+    const latest = await server.ledgers().order("desc").limit(1).call();
+    const ledger = latest.records[0];
+
+    if (Date.parse(ledger.closed_at) / 1000 >= minTime) {
+      console.log(`Timebound reached: ledger=${ledger.sequence}; closedAt=${ledger.closed_at}`);
+
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+
+  throw new Error("Timed out waiting for ledger time to reach recovery minTime.");
+}
+
+function nativeStroops(account: Horizon.AccountResponse) {
+  const balance = account.balances.find((line) => line.asset_type === "native");
+  assert.ok(balance);
+
+  return BigInt(balance.balance.replace(".", ""));
+}
+
+async function recoveryScenario(scenario: string, sponsor: Keypair) {
+  console.log(`SCENARIO ${scenario}`);
+  const ledgers = await server.ledgers().order("desc").limit(1).call();
+  const baseReserve = ledgers.records[0].base_reserve_in_stroops;
+  const baseline = await printAccount(`${scenario} sponsor before opening`, sponsor, baseReserve);
+  const user = await openSponsored(sponsor);
+  const recovery = await prepareRecovery(user, sponsor);
+  const opened = await printAccount(`${scenario} sponsor after opening`, sponsor, baseReserve);
+  assert.equal(opened.num_sponsoring, baseline.num_sponsoring + 3);
+  assertSponsored(await printAccount(`${scenario} user after opening`, user, baseReserve), sponsor);
+
+  if (scenario === "A") {
+    const early = await attemptRecovery(recovery.transaction, sponsor, "A before minTime");
+    assert.equal(early.inner.type, "txTooEarly");
+    assert.equal(early.ledger, null);
+    assert.equal((await server.loadAccount(user.publicKey())).sequenceNumber(), recovery.sequence);
+    assert.equal(
+      nativeStroops(await server.loadAccount(sponsor.publicKey())),
+      nativeStroops(opened),
+    );
+  } else if (scenario === "B") {
+    const source = await server.loadAccount(user.publicKey());
+    const fee = await server.fetchBaseFee();
+
+    const activity = new TransactionBuilder(source, {
+      fee: String(fee),
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(Operation.setOptions({ homeDomain: "active.orchid.test" }))
+      .setTimeout(180)
+      .build();
+
+    activity.sign(user);
+    await submitFeeBump(activity, sponsor, "B user activity");
+    assert.equal(
+      (await server.loadAccount(user.publicKey())).sequenceNumber(),
+      recovery.transaction.sequence,
+    );
+  } else {
+    await sendUsdc(sponsor, user, sponsor, "1");
+    assert.equal((await server.loadAccount(user.publicKey())).sequenceNumber(), recovery.sequence);
+  }
+
+  const before = await printAccount(`${scenario} sponsor before recovery`, sponsor, baseReserve);
+  await printAccount(`${scenario} user before recovery`, user, baseReserve);
+  await waitForRecovery(recovery.minTime);
+  const result = await attemptRecovery(recovery.transaction, sponsor, `${scenario} after minTime`);
+  const after = await printAccount(`${scenario} sponsor after recovery`, sponsor, baseReserve);
+  assert.equal(nativeStroops(before) - nativeStroops(after), BigInt(result.feeCharged));
+
+  if (scenario === "A") {
+    assert.equal(result.inner.type, "txSuccess");
+    assert.ok(result.ledger);
+    assert.equal(after.num_sponsoring, baseline.num_sponsoring);
+
+    try {
+      await server.loadAccount(user.publicKey());
+      throw new Error("A: merged user unexpectedly still exists.");
+    } catch (error) {
+      if (!(error instanceof NotFoundError)) throw error;
+
+      console.log(
+        "A: user account absent (Horizon 404); all 3 sponsored reserves released. XLM balance changed only by fee, not by 1.5 XLM: the minimum balance fell by 1.5 XLM.",
+      );
+    }
+  } else {
+    const intact = await printAccount(`${scenario} user after recovery`, user, baseReserve);
+    assertSponsored(intact, sponsor);
+    assert.equal(after.num_sponsoring, opened.num_sponsoring);
+    assert.equal(intact.sequenceNumber(), recovery.transaction.sequence);
+
+    if (scenario === "B") {
+      assert.equal(result.inner.type, "txBadSeq");
+      assert.equal(result.ledger, null);
+      assert.equal(usdcBalance(intact)?.balance, "0.0000000");
+      assert.equal(intact.home_domain, "active.orchid.test");
+    } else {
+      assert.equal(result.inner.type, "txFailed");
+      assert.ok(result.ledger);
+
+      if (result.inner.type === "txFailed") {
+        const first = result.inner.results[0];
+        assert.ok(first.type === "opInner" && first.tr.type === "changeTrust");
+        assert.equal(first.tr.changeTrustResult.type, "changeTrustInvalidLimit");
+      }
+
+      assert.equal(usdcBalance(intact)?.balance, "1.0000000");
+      assert.ok(BigInt(result.feeCharged) > 0n);
+      console.log(
+        `C: atomic failure retained account, sponsored trustline and 1 USDC. User sequence advanced ${recovery.sequence} -> ${intact.sequenceNumber()}; sponsor paid ${result.feeCharged} stroops. Stored recovery is permanently stale.`,
+      );
+    }
+  }
+
+  console.log(`PASS scenario ${scenario}`);
+}
+
+async function phase3() {
+  assert.ok(existsSync(sponsorFile), "Run phase1 first.");
+  const sponsor = loadSponsor();
+  const account = await server.loadAccount(sponsor.publicKey());
+  const balance = usdcBalance(account);
+  assert.ok(
+    balance && Number(balance.balance) - Number(balance.selling_liabilities) >= 1,
+    "Phase3 needs 1 spendable sponsor USDC.",
+  );
+
+  for (const scenario of ["A", "B", "C"]) {
+    await recoveryScenario(scenario, sponsor);
+  }
+
+  console.log(
+    "PASS phase3: time gate, sequence invalidation, atomic USDC protection and charged failure fee verified.",
+  );
+}
+
 const mode = process.argv[2] ?? "phase1";
 
-if (process.argv.length > 3 || (mode !== "phase1" && mode !== "phase2")) {
-  console.error("Usage: bun index.ts [phase1|phase2]");
+if (process.argv.length > 3 || (mode !== "phase1" && mode !== "phase2" && mode !== "phase3")) {
+  console.error("Usage: bun index.ts [phase1|phase2|phase3]");
   process.exitCode = 1;
 } else if (mode === "phase1") {
   await phase1();
-} else {
+} else if (mode === "phase2") {
   await phase2();
+} else {
+  await phase3();
 }
