@@ -1,1 +1,3 @@
-export const walletPackage = "@workspace/wallet";
+export * from "./contract";
+
+export * from "./device/client";
