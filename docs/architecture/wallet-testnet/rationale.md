@@ -94,3 +94,11 @@ The caller never retries, polls, or sees a transaction.
 ## Next implementation step
 
 Prove, with a real `bun run build`, that a client import of server code fails. Then prove the Stellar half alone with a testnet script that drafts, signs, sponsors and settles one opening and one fee-bumped USDC payment. The script measures free-plan CPU and tests the sponsorship sandwich.
+
+## Testnet spike results
+
+Stellar testnet verified that `createAccount` with 0 XLM and the USDC `changeTrust` fit in one `beginSponsoringFutureReserves` / `endSponsoringFutureReserves` sandwich. The reserve sponsor co-signs the inner transaction and carries 1.5 XLM in reserves per account with a trustline. A user with exactly 0 XLM [paid USDC through a fee bump](https://stellar.expert/explorer/testnet/tx/abbdefb28bc8c0c08584e5493a8799e64e217ea4ad9ad4444aa5d1cb7832bdb9) paid by the fee payer.
+
+For abandoned accounts, the device pre-signs a recovery transaction at creation: source is the user, sequence is current + 1, and `minTime` is creation + delay (about 90 days in production). It sets the USDC trustline limit to 0 and merges the account into the reserve sponsor; Orchid stores it unsubmitted. Testnet rejected it with `tx_too_early` before `minTime`; afterward it [succeeded and released the sponsored reserve](https://stellar.expert/explorer/testnet/tx/3b540ba1ab0a6619667cec39ec57381e8798b7bd9d6cc516833173eb91f158f3). If the user has transacted, it fails with `tx_bad_seq`. If the account holds USDC, it fails atomically (`op_invalid_limit` / `op_has_sub_entries`), leaving funds intact; the consumed sequence permanently invalidates it.
+
+Recovery covers only accounts that never transacted, such as curiosity sign-ups. There is no re-signing after each transaction for now. The spike script was removed; it remains in history at commit `18b10998a397e816903f193981bfbfd3e95327a5`.
