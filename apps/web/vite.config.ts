@@ -16,11 +16,14 @@ function walletBoundaryProbe(): Plugin {
 
       const source = Match.value(probe).pipe(
         Match.when("relative", () => "../../../../packages/wallet/src/device/boundary.fixture"),
+        Match.when("transport", () => "../wallet/port.functions"),
         Match.when("private", () => "@workspace/wallet/src/server/index.server"),
         Match.orElse(() => "@workspace/wallet/server"),
       );
 
-      return `${code}\nimport { WalletSettings } from "${source}"; console.log(WalletSettings.key);`;
+      const symbol = probe === "transport" ? "port" : "WalletSettings";
+
+      return `${code}\nimport { ${symbol} as boundaryValue } from "${source}"; console.log(boundaryValue);`;
     },
   };
 }
