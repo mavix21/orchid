@@ -2,9 +2,9 @@
 
 ## Username binding round (owner decision, 2026-11-17)
 
-Fable's advisor review replaced the claim lease with permanent binding at the signed opening. Implemented in `6ba0e4b`.
+Fable's advisor review replaced expiring unsigned claims with permanent binding at the signed opening. Implemented in `6ba0e4b`.
 
-- **Table.** `usernames(username primary key, address unique, boundAt)` is insert-only: one name per address, never recycled. `wallets.username`, `claimedAt` and `ownershipBound`, the `claimed` and `reopening` states, `claimLifetime`, the ten-minute takeover and lease refresh are gone. Two lease-only tests were removed.
+- **Table.** `usernames(username primary key, address unique, boundAt)` is insert-only: one name per address, never recycled. `wallets.username`, `claimedAt` and `ownershipBound`, the `claimed` and `reopening` states, `claimLifetime` and the claim-expiry takeover are gone, along with the two tests that only covered it.
 - **Binding.** `open` makes a soft availability check before signing; drafts reserve nothing. `Directory.seal` binds the name and stores the signed opening in one transaction. A name already bound elsewhere returns `UsernameTaken` and nothing is stored or submitted. Activation repeats the bind, normally as a no-op, so an account that existed before its row was named is still bound before it becomes active.
 - **Bug fix.** A key that drafted `maria` and then asks for `maria2` now gets a draft for `maria2`, and `maria` stays free.
 - **Decision: new `AddressBound` outcome.** An address that already holds a name and asks for a different one gets `AddressBound { profile }`. `UsernameTaken` would be false (the other name may be free), and silently using the bound name would have the device sign under a name it did not ask for. This adds one member to `OpenStep` and the device `CreateOutcome`.
