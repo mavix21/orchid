@@ -70,7 +70,7 @@ The caller never retries, polls, or sees a transaction.
 
 ## Decisions
 
-- **Usernames.** `[a-z0-9_]`, 3-20 characters, lowercase, and permanent. Once claimed, a name cannot be changed or released.
+- **Usernames.** `[a-z0-9_]`, 3-20 characters, lowercase, and permanent. A name is bound when the signed opening is stored. Once bound, it cannot be changed, released or used by another address. Reserved words such as `orchid`, `support` and `admin` cannot be bound.
 - **Registration.** Open, with no invite and no quota for now.
 - **Cloudflare.** Try the Workers free plan first and measure CPU. Upgrade only if the measurement requires it.
 - **Browser minimum.** Native Ed25519 is acceptable: Chrome 137, Safari 17, Firefox 129. Passkey backup has its own, higher floor (the WebAuthn PRF extension). Phones below it get a device-only wallet; see `backup.md` section 6.

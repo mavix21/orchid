@@ -12,6 +12,18 @@ These owner-approved decisions take precedence over the illustrative service sig
 - If an active wallet loses its account or USDC trustline, `overview` returns `NeedsReopening` and marks the row `recovered`; replayable `open` repairs the account and/or trustline under the same username and device key, then repeats recovery signing.
 - A resolved transfer recipient is either an Orchid `Profile` (username and address, no memo) or an external address without a username (text/id memo optional unless the address is a known memo-requiring exchange; see the 2026-11-16 memo decision below). Drafts, stored transfers and receipts retain that resolved recipient. `transfers.recipient` is nullable for external addresses; their destination address must still be stored. `Phone` resolves to a typed not-supported-yet outcome; no phone implementation is added.
 
+## Username binding decision (owner, 2026-11-17)
+
+This supersedes the earlier claim lease, `claimed`/`reopening` states and `ownershipBound` flag.
+
+- Names live in their own table, `usernames(username primary key, address unique, boundAt)`. A row is inserted once and never updated or deleted, so a name is never recycled and an address has at most one name. Renames are out of scope.
+- A name is either available or bound. It is bound in the same transaction that stores the signed opening, because that signature already proves key control. If the name is already bound to another address, `open` returns `UsernameTaken` and stores and submits nothing, so the loser of a race costs Orchid nothing. If the address already holds another name, `open` returns `AddressBound` with that profile rather than signing under a name the device did not ask for.
+- Before signing, `open` makes only a soft availability check. Drafts reserve nothing, and a key may change its requested name until it signs. An account that already exists without a name (for example, after a database restore) is bound in the transaction that activates it.
+- A short constant list of reserved words (`orchid`, `support`, `admin`, `security`, `wallet`, `official`, `team`, `root`, `system` and similar) can never be bound. It blocks new bindings only.
+- Wallet status is `opening`, `active` or `recovered`. A recovered wallet stays `recovered` while it is repaired, so `overview` returns `NeedsReopening` until activation. Marking a wallet recovered drops its spent opening and recovery data; activation records the current testnet epoch. The two confirming reads before demotion remain.
+- A name resolves to a payable recipient only while its wallet is `active`. Bound forever does not mean always payable. Reopening after reserve recovery or a testnet reset reuses the bound name, and only the original address can use it.
+- The migration binds every existing name except unsigned, never-bound first claims, which the old rules could still hand to another key. `claimed` rows become `opening`, `reopening` rows become `recovered` with their in-progress attempt kept, and already `recovered` rows drop stale opening and recovery data.
+
 ## External memo decision (owner, 2026-11-16)
 
 This supersedes the earlier rule that every external send requires a memo.
@@ -23,21 +35,21 @@ This supersedes the earlier rule that every external send requires a memo.
 
 ## Fable review fixes and decisions
 
-- Reopening stays `reopening` and retains permanent `ownershipBound`. Only never-bound, unsigned first claims can expire, ten minutes after their last claim/draft activity. The migration conservatively binds every pre-existing row because its complete activation history is unavailable.
+- Reopening keeps its original username and address; see the username binding decision above.
 - A sealed opening may be replaced once the ledger clock passes its maximum time and a fresh account observation still requires opening/repair. Transfer settlement queries outer and inner hashes. `Expired` still requires a current sender sequence below the transaction sequence and complete inclusion-window history. A consumed sequence concludes rejected only when an inner-hash absence read has retained history from `minTime` through the observed account ledger; otherwise it stays undecided. Included failures that never executed the inner operations alone do not prove rejection.
 - Two independent negative account/trustline observations are required before demotion. A wall-clock epoch boundary alone does not demote a positively observed wallet.
 - `InvalidAddress` is a server checksum refusal before any username claim. `NotSponsored` refuses recovery consent unless the account and USDC trustline both name the configured reserve sponsor. Missing sponsorship metadata fails closed; sponsored counts alone are insufficient.
 - Sweeps take at most four transfers and four wallets per scheduled run, rotate oldest-checked work, and read queues using conditional `UPDATE ... RETURNING`. Recovery wallets must be active, in the current epoch, and inside their recovery window. Expired windows leave background work; later overview still detects a missing account.
 - Payments have exactly one USDC operation. The order optionally carries a Stellar `text` (nonempty UTF-8, at most 28 bytes) or `id` (canonical decimal uint64) memo; external payments accept one, Orchid profiles refuse one (`MemoNotAllowed`), and only known memo-requiring exchange addresses refuse a missing one (`ExternalMemoRequired`; see the memo decision below). The strict reader, sealing, stored order and receipts preserve it; hash/return memos remain unsupported. This replaces the earlier blanket external-send refusal.
 - Unsigned drafts refresh whenever the current account sequence + 1 differs from the draft sequence, including before authorization and after a completed `SlotTaken` holder. Compare the previous draft when storing a replacement; signed bytes remain immutable. A race after the final read is resolved by settlement evidence.
-- `overview` returns `NeedsReopening` throughout `reopening`. Its latest receipt includes only authorized or concluded transfers; unsigned drafts cannot hide it.
+- `overview` returns `NeedsReopening` while a recovered wallet is repaired. Its latest receipt includes only authorized or concluded transfers; unsigned drafts cannot hide it.
 - The official RPC implementation indexes both fee-bump hashes ([inspected source](https://github.com/stellar/stellar-rpc/blob/cacf18510507762fe3ae827f237658d4c61b6456/cmd/stellar-rpc/internal/rpcv1/sqlitedb/transaction.go#L85)). Consumed-sequence rejection relies on that index and its reported history range; history gaps remain undecided.
 - Sponsor identity is read from the official RPC `extXdr` ledger extensions, which SDK 17.4.0's parsed ledger response omits. The official wire format is decoded with Schema and the installed XDR classes, without patching SDK types.
 
 ## Implementation decisions for review
 
 - Opening repair uses the same sponsorship layout without `createAccount` when the account survives but its trustline is missing. The strict reader accepts these two opening variants only.
-- Testnet defaults: recovery one day after its draft is built, a seven-day recovery submission window, and ten minutes for an unsigned username claim. These are in `stellar/network.ts`; production timing is not implemented.
+- Testnet defaults: recovery one day after its draft is built, and a seven-day recovery submission window. These are in `stellar/network.ts`; production timing is not implemented.
 - `NeedsReopening` carries the retained profile. Reopening never changes its username or device address. Wallet transitions compare a version to prevent stale requests from overwriting newer state.
 - Authorization accepts the stored proposed record, compares its draft when writing, and acquires the sender lock before any row lock.
 - Transfer locks and reads are scoped to network and testnet epoch; the known 2026-12-16 reset starts a new epoch. Old unresolved transfers remain unchanged rather than acquiring an invented final result. A new epoch permits new intents.
@@ -717,26 +729,31 @@ The state union carries the invariants. A `Sealed` envelope exists only on `Auth
 ```ts
 // server/Directory.ts — who is who
 
-class Claimed extends Schema.TaggedClass<Claimed>()("Claimed", {
-  claim: WalletClaim,
-  attempt: Schema.OptionFromNullOr(Schema.Union([SigningRequest, Sealed])),
-}) {}
-class Active extends Schema.TaggedClass<Active>()("Active", { profile: Profile }) {}
-class Taken extends Schema.TaggedClass<Taken>()("Taken", {}) {}
+class Available extends Schema.TaggedClass<Available>()("Available", {}) {}
+type Unavailable = UsernameTaken | AddressBound;
 
 class Directory extends Context.Service<
   Directory,
   {
-    byAddress(address: AccountAddress): Effect.Effect<Option.Option<Profile>, StoreFailure>;
+    byAddress(address: AccountAddress): Effect.Effect<Option.Option<WalletRow>, StoreFailure>;
+    /** Resolves only while the bound wallet is active. */
     byUsername(username: Username): Effect.Effect<Option.Option<Profile>, StoreFailure>;
-    /** Reserve the pair, or return what already holds it. A stale claim can be taken over. */
-    claim(claim: WalletClaim): Effect.Effect<Claimed | Active | Taken, StoreFailure>;
-    /** Remember the current opening attempt for this claim. */
-    attempt(
-      address: AccountAddress,
-      attempt: SigningRequest | Sealed,
-    ): Effect.Effect<void, StoreFailure>;
-    activate(address: AccountAddress): Effect.Effect<Profile, StoreFailure>;
+    /** Soft check before signing; reserves nothing. */
+    available(claim: WalletClaim): Effect.Effect<Available | Unavailable, StoreFailure>;
+    /** The wallet row for an address, created as `opening`. It carries no name. */
+    start(address: AccountAddress): Effect.Effect<WalletRow, StoreFailure>;
+    draft(row: WalletRow, request: SigningRequest): Effect.Effect<WalletRow, StoreFailure>;
+    /** Bind the name and store the signed opening in one transaction, or store nothing. */
+    seal(
+      row: WalletRow,
+      sealed: Sealed,
+      claim: WalletClaim,
+    ): Effect.Effect<WalletRow | Unavailable, StoreFailure>;
+    activate(/* row, signed recovery, claim */): Effect.Effect<
+      Option.Option<Profile> | Unavailable,
+      StoreFailure
+    >;
+    recover(row: WalletRow): Effect.Effect<void, StoreFailure>;
   }
 >()("@workspace/wallet/server/Directory") {
   static readonly layer: Layer.Layer<Directory, never, PgClient.PgClient> = Layer.effect(
@@ -753,12 +770,20 @@ class Directory extends Context.Service<
 
 export const wallets = pgTable("wallets", {
   address: text().primaryKey(),
-  username: text().notNull().unique(),
-  status: text({ enum: ["claimed", "opening", "active", "recovered"] }).notNull(),
-  claimedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  status: text({ enum: ["opening", "active", "recovered"] }).notNull(),
   attemptEnvelope: text(), // the opening draft, then the sealed opening
   attemptHash: text(), // set once sealed
   attemptExpiresAt: timestamp({ withTimezone: true }),
+});
+
+// Inserted once when the signed opening is stored; never updated or deleted.
+export const usernames = pgTable("usernames", {
+  username: text().primaryKey(),
+  address: text()
+    .notNull()
+    .unique()
+    .references(() => wallets.address),
+  boundAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
 export const transfers = pgTable(
@@ -958,20 +983,24 @@ reconcile(authorized):
 
 ```text
 open(claim, approval):
-  Directory.claim(claim):
-    Taken                          → UsernameTaken
-    Active(profile)                → Opened(profile)
-    Claimed(attempt):
+  Directory.available(claim):      // soft check, reserves nothing
+    name bound to another address, or reserved → UsernameTaken
+    address bound to another name               → AddressBound(profile)
+  row = Directory.start(address):
+    active                         → Opened(profile)
+    opening | recovered (attempt):
       Chain.balance(address) is some → keep status opening; load confirmed sequence
                                      → draft recovery if absent; return RecoveryDraft
                                      → verify approval against stored recovery draft
-                                     → store signed recovery unsubmitted; activate → Opened
+                                     → bind name if unbound, store signed recovery unsubmitted, activate → Opened
       attempt is Sealed            → Chain.settlement:
                                        Undecided → submit again → OpeningPending
                                        Rejected | Expired → draft again (below)
       attempt is a live draft and approval is some
-                                   → Chain.seal → Directory.attempt(sealed) → Chain.submit → OpeningPending
-      otherwise                    → request = Chain.draftOpening(address); Directory.attempt(request)
+                                   → Chain.seal → Directory.seal (binds the name in the same write)
+                                       UsernameTaken | AddressBound → return it; nothing is submitted
+                                       stored → Chain.submit → OpeningPending
+      otherwise                    → request = Chain.draftOpening(address); Directory.draft(request)
                                      → OpeningDraft(request)
 ```
 

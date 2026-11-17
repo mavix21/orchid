@@ -1,5 +1,21 @@
 # Fable review verification
 
+## Username binding round (owner decision, 2026-11-17)
+
+Fable's advisor review replaced the claim lease with permanent binding at the signed opening. Implemented in `6ba0e4b`.
+
+- **Table.** `usernames(username primary key, address unique, boundAt)` is insert-only: one name per address, never recycled. `wallets.username`, `claimedAt` and `ownershipBound`, the `claimed` and `reopening` states, `claimLifetime`, the ten-minute takeover and lease refresh are gone. Two lease-only tests were removed.
+- **Binding.** `open` makes a soft availability check before signing; drafts reserve nothing. `Directory.seal` binds the name and stores the signed opening in one transaction. A name already bound elsewhere returns `UsernameTaken` and nothing is stored or submitted. Activation repeats the bind, normally as a no-op, so an account that existed before its row was named is still bound before it becomes active.
+- **Bug fix.** A key that drafted `maria` and then asks for `maria2` now gets a draft for `maria2`, and `maria` stays free.
+- **Decision: new `AddressBound` outcome.** An address that already holds a name and asks for a different one gets `AddressBound { profile }`. `UsernameTaken` would be false (the other name may be free), and silently using the bound name would have the device sign under a name it did not ask for. This adds one member to `OpenStep` and the device `CreateOutcome`.
+- **Decision: `reopening` folds into `recovered`.** The old state existed so that the reopening claim could clear stale data exactly once. That reset now happens in `recover()`, which runs once per active-to-recovered transition, and activation records the current testnet epoch. A recovered row stays `recovered` while it is repaired, so `overview` still returns `NeedsReopening` throughout. No behavior was lost: the reopening and repair tests and the live reopening/repair still pass.
+- **Reserved words.** `server/usernames.server.ts` is a plain constant set. It blocks new bindings only and lives on the server, not in the `Username` schema, so a name bound before it was reserved still decodes.
+- **Resolution.** `byUsername` resolves only active wallets. A recovered wallet's name returns `UnknownRecipient` to senders and `UsernameTaken` to other keys, and is reusable only by its original address.
+- **Reads.** Name rows are immutable, so lookups use plain `SELECT`, which relies on Hyperdrive query caching being disabled as the README requires. Binding reads its result inside its transaction after `INSERT … ON CONFLICT DO NOTHING`, so a concurrent winner is seen after it commits.
+- **Migrations.** All three come from `drizzle-kit generate`: add `usernames`, a `--custom` data step, then drop the old columns. Every existing name is bound except unsigned, never-bound first claims, which the old rules could still hand over. `claimed` becomes `opening`. `reopening` becomes `recovered` and keeps its in-progress attempt. Already `recovered` rows drop stale attempt and recovery data so they can reopen. A test applies the two earlier migrations to a scratch database, seeds one row per old state, applies the rest, checks names and statuses, and reopens the migrated recovered wallet end to end. `db:generate` afterwards reports no schema changes.
+- **New tests.** Abandoned-draft rename; a concurrent race (one bind, one `UsernameTaken`, one submission, then the loser opens under another name); reserved words; a recovered name that stays bound but is unpayable until reactivated, with `AddressBound` for a different name; binding an existing unnamed account at activation.
+- **Live testnet.** The driver now drafts the same name from a second key, binds it with the first, and confirms that the second approval returns `UsernameTaken` and the second account does not exist. Fresh keys were generated into gitignored `.dev.vars`; the previous file was moved, unread, outside the repository. Results are in [testnet.json](./testnet.json) and [checks.txt](./checks.txt).
+
 ## Memo registry round (owner decision, 2026-11-16)
 
 A memo is now required only for addresses known to belong to exchanges that need one. Every other external send accepts an optional text/id memo, validated when present. Orchid-to-Orchid sends still refuse memos.

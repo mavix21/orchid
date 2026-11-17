@@ -1,41 +1,42 @@
 {
-  "verifiedAt": "2026-11-17T00:01:48.063Z",
+  "verifiedAt": "2026-11-17T02:08:53.537Z",
   "network": "testnet",
-  "reserveSponsor": "GCCQ7QZCLXMSBRYDZCHVFJJO2H3XVUBKN5B4OQBSJZWY6PY4P7HUPAOS",
-  "feePayer": "GDQB3IEEZOQD6YSAZAFRHKH2FU7BTMGGGRIYEEN4TVIQIKR6R4U7KM2A",
+  "reserveSponsor": "GAU2OLVOSGAKBFU5RVCR5DOLL6STDV23IMGBKVZRS7EYPWNDY6VMHM5R",
+  "feePayer": "GB5RVM4XWJRQPH4AJFIKETOLS23TMONJDCP727OKV6WXRKZDMTTFBL3F",
   "hashes": [
     {
       "label": "verify_recovery opening",
-      "hash": "0d04610baf4b61ddb3916ac131b165c2b0909fca756e4bef2d7e5f553dbc5ac2"
+      "hash": "9bf58a0ac0a6717293c0c64fddece54bf38b39c30734198e97942b7144d0afa9"
     },
     {
       "label": "bounded recovery",
-      "hash": "c4841c63e1377cf5de91b08097ff3e2232427c800de82d50521dcee3d1e663c5"
+      "hash": "4a95734ab1fa8981cbf4c9d5f411e12b84d9ffa73e8563264070ed2cd40ebd63"
     },
     {
       "label": "same-key same-username reopening",
-      "hash": "7da00cfe2e1663d284f2e14ab93c49a2127b9770f27f89a6373a15b67292c532"
+      "hash": "431243921e51ff2eb054d0ed1f6dcce9278975ff981f0c664d918c196fd8af1b"
     },
     {
       "label": "external trustline removal",
-      "hash": "188f487c79d64d828180dee2f9205025c60eeb9cb359572051c9dbe1daa17487"
+      "hash": "ab826680246f978f5e30efdedb7e3d4f33b2f82b219fac09657772d5a2e3ba67"
     },
     {
       "label": "sponsored trustline-only repair",
-      "hash": "3ee5a9293106d8799010d5144fefd10f4d0a46eb99b5d01c1137063f912ccbe6"
+      "hash": "9ad912f9cfd50f44c1aa5e1aa521e41927e1d6f5d751101373ede2bc03a5c36a"
     },
     {
       "label": "verify_activity opening",
-      "hash": "9dbae3ca4ce2d6d71b949a19831a89d70dc194b8c136da64b46f6b3b2ee78070"
+      "hash": "0b98206172957f79e5611bcaac015783ec2a072ba83f022f5f81a8a62922d565"
     },
     {
       "label": "device activity under alternate fee payer",
-      "hash": "71105fc9bfee0344ae7b8fd7733a681cd8133cd6811e97ef5833381a122facf2"
+      "hash": "49e2af3f6d2c5c735f66ae96e84b3e582ce1514e98ce262532c039e237cae42e"
     }
   ],
   "checks": [
     "raw getLedgerEntries extXdr identifies configured sponsor on account and trustline",
     "unsponsored Friendbot account refused before username claim",
+    "username bound with the signed opening; race loser refused before submission",
     "0 XLM sponsored opening + USDC trustline",
     "two-stage opening stores recovery unsubmitted",
     "recovery txTooEarly before minTime",
