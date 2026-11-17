@@ -8,6 +8,12 @@ const source = await readFile(filename, "utf8");
 
 await writeFile(filename, removeComments(filename, source));
 
+const formatted = spawnSync("bun", ["x", "oxfmt", filename], {
+  stdio: "inherit",
+});
+
 if (result.error) throw result.error;
 
-process.exitCode = result.status ?? 1;
+if (formatted.error) throw formatted.error;
+
+process.exitCode = (result.status ?? 1) || (formatted.status ?? 1);
