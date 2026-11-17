@@ -9,19 +9,23 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  Asset,
   PaymentMemo,
-  PositiveUsdc,
+  PositiveAmount,
   UnsignedEnvelope,
-  formatUsdc,
-  parseUsdc,
+  formatAmount,
+  parseAmount,
 } from "../contract";
+import { type AssetFacts, readAssetEnvelope } from "./asset-envelopes";
+import { fromStellarAsset, toStellarAsset } from "./assets";
+import { bounds } from "./bounds";
 import { baseFee, networkPassphrase, usdc } from "./network";
 
-const bounds = {
-  sequence: Schema.String,
-  minTime: Schema.Number,
-  maxTime: Schema.Number,
-};
+export type EnvelopeFacts =
+  | OpeningFacts
+  | PaymentFacts
+  | RecoveryFacts
+  | AssetFacts;
 
 export class OpeningFacts extends Schema.TaggedClass<OpeningFacts>()(
   "OpeningFacts",
@@ -39,7 +43,8 @@ export class PaymentFacts extends Schema.TaggedClass<PaymentFacts>()(
     ...bounds,
     from: AccountAddress,
     to: AccountAddress,
-    amount: PositiveUsdc,
+    asset: Asset,
+    amount: PositiveAmount,
     memo: Schema.optional(PaymentMemo),
   },
 ) {}
@@ -64,7 +69,8 @@ export interface OpeningInput {
 export interface PaymentInput {
   readonly source: Account;
   readonly to: AccountAddress;
-  readonly amount: PositiveUsdc;
+  readonly asset: Asset;
+  readonly amount: PositiveAmount;
   readonly memo?: PaymentMemo;
   readonly minTime: number;
   readonly maxTime: number;
@@ -122,8 +128,8 @@ export function draftPayment(input: PaymentInput): UnsignedEnvelope {
       .addOperation(
         Operation.payment({
           destination: input.to,
-          asset: usdc,
-          amount: formatUsdc(input.amount),
+          asset: toStellarAsset(input.asset),
+          amount: formatAmount(input.amount),
         }),
       )
       .setTimebounds(input.minTime, input.maxTime)
@@ -147,7 +153,7 @@ export function draftRecovery(input: RecoveryInput): UnsignedEnvelope {
 
 export function readEnvelope(
   envelope: UnsignedEnvelope,
-): Option.Option<OpeningFacts | PaymentFacts | RecoveryFacts> {
+): Option.Option<EnvelopeFacts> {
   try {
     const tx = TransactionBuilder.fromXDR(envelope, networkPassphrase);
 
@@ -221,7 +227,8 @@ export function readEnvelope(
             });
 
       const payment = reference ? { memo: reference } : {};
-      const amount = parseUsdc(first.amount);
+      const amount = parseAmount(first.amount);
+      const asset = fromStellarAsset(first.asset);
       const from = Schema.decodeSync(AccountAddress)(tx.source);
       const to = Schema.decodeSync(AccountAddress)(first.destination);
 
@@ -230,6 +237,7 @@ export function readEnvelope(
         draftPayment({
           source: source(),
           to,
+          asset,
           amount: amount.value,
           minTime,
           maxTime,
@@ -241,6 +249,7 @@ export function readEnvelope(
             ...fields,
             from,
             to,
+            asset,
             amount: amount.value,
             ...payment,
           }),
@@ -268,7 +277,7 @@ export function readEnvelope(
         );
     }
 
-    return Option.none();
+    return readAssetEnvelope(tx, envelope, fields);
   } catch {
     return Option.none();
   }

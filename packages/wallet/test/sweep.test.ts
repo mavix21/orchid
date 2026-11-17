@@ -11,7 +11,7 @@ import {
   AddressRecipient,
   TransferDraft,
   TransferId,
-  Usdc,
+  Amount,
 } from "../src/contract";
 import { Applied } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
@@ -55,7 +55,7 @@ test("recovery sweep checks time, balance and sequence before submitting", async
     accountSponsored: true,
     sponsored: true,
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("1")),
+    balance: Option.some(Schema.decodeSync(Amount)("1")),
   });
   await run(Wallet.use((wallet) => wallet.sweep));
   expect(world.submitted).toHaveLength(initial);
@@ -65,7 +65,7 @@ test("recovery sweep checks time, balance and sequence before submitting", async
     accountSponsored: true,
     sponsored: true,
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("0")),
+    balance: Option.some(Schema.decodeSync(Amount)("0")),
   });
   await run(Wallet.use((wallet) => wallet.sweep));
   expect(world.submitted).toHaveLength(initial);
@@ -75,7 +75,7 @@ test("recovery sweep checks time, balance and sequence before submitting", async
     accountSponsored: true,
     sponsored: true,
     nativeBalance: 1n,
-    balance: Option.some(Schema.decodeSync(Usdc)("0")),
+    balance: Option.some(Schema.decodeSync(Amount)("0")),
   });
   await run(Wallet.use((wallet) => wallet.sweep));
   expect(world.submitted).toHaveLength(initial);
@@ -85,7 +85,7 @@ test("recovery sweep checks time, balance and sequence before submitting", async
     accountSponsored: true,
     sponsored: true,
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("0")),
+    balance: Option.some(Schema.decodeSync(Amount)("0")),
   });
   await run(Wallet.use((wallet) => wallet.sweep));
   expect(world.submitted).toHaveLength(initial + 1);
@@ -169,7 +169,7 @@ test("transfer sweep queue caps and rotates signed work across senders", async (
     world.accounts.set(addressOf(key), {
       sequence: "1000",
       nativeBalance: 0n,
-      balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
+      balance: Option.some(Schema.decodeSync(Amount)("50000000")),
       ledger: 100,
       accountSponsored: true,
       sponsored: true,

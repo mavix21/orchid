@@ -20,14 +20,14 @@ import {
   Opened,
   OpeningDraft,
   OpeningPending,
-  PositiveUsdc,
+  PositiveAmount,
   Recipient,
   RecoveryDraft,
   SigningRequest,
   TransferDraft,
   TransferId,
   TransferOrder,
-  Usdc,
+  Amount,
   Username,
   WalletClaim,
 } from "../src/contract";
@@ -198,7 +198,7 @@ export const fakeChain = Layer.effect(
               accountSponsored: true,
               sponsored: true,
               nativeBalance: 0n,
-              balance: Option.some(Schema.decodeSync(Usdc)("0")),
+              balance: Option.some(Schema.decodeSync(Amount)("0")),
             });
           }
         }),
@@ -281,7 +281,7 @@ export const orderFor = (sender: Keypair, to: Recipient) =>
     id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
     from: addressOf(sender),
     to,
-    amount: Schema.decodeSync(PositiveUsdc)("10000000"),
+    amount: Schema.decodeSync(PositiveAmount)("10000000"),
   });
 
 export const send = (
@@ -310,7 +310,7 @@ export const fundHolder = (key: Keypair, sequence = "1000") =>
     accountSponsored: true,
     sponsored: true,
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
+    balance: Option.some(Schema.decodeSync(Amount)("50000000")),
   });
 
 export const paymentSequence = (draft: TransferDraft) => {
