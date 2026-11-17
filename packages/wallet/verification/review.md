@@ -1,5 +1,14 @@
 # Fable review verification
 
+## File size round (2026-11-17)
+
+This is a pure refactor so that every file this PR changes is within the 5,000-token limit (bytes / 4) of the pre-commit check proposed in PR #2. Files on that check's ignore list are exempt. The refactor is in `c9cba2b` (code and tests) and `b0b1137` (docs).
+
+- `Wallet.server.ts` keeps transfer, overview and sweep. The `open` flow moved to `wallet-opening.server.ts`, and the confirming account reads and `live` moved to `wallet-reads.server.ts`. Both are Effects that yield their own services.
+- `store.test.ts` was split into a shared `wallet-harness.ts` (fake chain, layers, helpers and `useDisposableDatabase()`) and seven files: opening, usernames, username-migration, transfers, transfer-drafts, transfer-memos and sweep. Every test is unchanged; the suite still has 47 tests and 612 assertions.
+- `sketch.md` and `backup.md` are now indexes. Their sections moved unchanged into `sketch-*.md` and `backup-*.md`, keeping their section numbers. Cross-file "section N" mentions became links, and a script confirmed that all 74 relative links and anchors resolve.
+- Lint, fmt check, typecheck, build, the package tests and `db:generate` (no schema changes) all exited 0 after the split. PR #2's script, run over all 75 files changed against `origin/main`, exited 0 with no output. Live testnet was not rerun for this refactor.
+
 ## Username binding round (owner decision, 2026-11-17)
 
 Fable's advisor review replaced expiring unsigned claims with permanent binding at the signed opening. Implemented in `6ba0e4b` and `b8550de` (row lock). Verified at `b8550de`: lint, fmt check, typecheck, build, package tests (47 pass, 0 fail, 612 assertions), `db:generate` (no schema changes) and live `testnet:verify` all exited 0.
