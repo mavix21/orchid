@@ -12,6 +12,7 @@ import {
   ExternalRecipient,
   Holding,
   InvalidAddress,
+  MemoNotAllowed,
   NotSponsored,
   ExternalMemoRequired,
   InsufficientBalance,
@@ -38,7 +39,7 @@ import {
   type WalletPort,
   WalletUnavailable,
 } from "../contract";
-import { RecoveryFacts, readEnvelope } from "../stellar/envelopes";
+import { PaymentFacts, RecoveryFacts, readEnvelope } from "../stellar/envelopes";
 import { approvalMargin } from "../stellar/network";
 import { type AccountState, Chain, ChainUnreachable, Sealed } from "./Chain.server";
 import {
@@ -268,6 +269,29 @@ export class Wallet extends Context.Service<
         return new TransferDraft({ request: transfer.request, recipient: transfer.recipient });
       });
 
+      const refreshDraft = Effect.fn("Wallet.refreshDraft")(function* (stored: Proposed) {
+        const request = yield* chain.draftPayment(
+          stored.order.from,
+          stored.recipient.address,
+          stored.order.amount,
+          stored.order.memo,
+        );
+
+        return yield* transfers.redraft(stored, request);
+      });
+
+      const currentDraft = Effect.fn("Wallet.currentDraft")(function* (stored: Proposed) {
+        const state = yield* chain.account(stored.order.from);
+        const facts = readEnvelope(stored.request.envelope);
+
+        return (
+          Option.isSome(state) &&
+          Option.isSome(facts) &&
+          facts.value instanceof PaymentFacts &&
+          BigInt(state.value.sequence) + 1n === BigInt(facts.value.sequence)
+        );
+      });
+
       const transfer = Effect.fn("Wallet.transfer")(function* (
         order: TransferOrder,
         approval: Option.Option<Approval>,
@@ -305,7 +329,13 @@ export class Wallet extends Context.Service<
 
           if (!(stored instanceof Proposed)) return yield* resumed(stored);
 
-          if (stored.recipient instanceof ExternalRecipient) return new ExternalMemoRequired();
+          if (stored.recipient instanceof ExternalRecipient && !order.memo)
+            return new ExternalMemoRequired();
+
+          if (!(stored.recipient instanceof ExternalRecipient) && order.memo)
+            return new MemoNotAllowed();
+
+          if (!(yield* currentDraft(stored))) return yield* resumed(yield* refreshDraft(stored));
 
           if (live(stored.request)) {
             if (Option.isNone(approval))
@@ -318,6 +348,8 @@ export class Wallet extends Context.Service<
             if (Option.isNone(sealed))
               return new TransferDraft({ request: stored.request, recipient: stored.recipient });
 
+            if (!(yield* currentDraft(stored))) return yield* resumed(yield* refreshDraft(stored));
+
             const authorized = yield* transfers.authorize(stored, sealed.value);
 
             if (authorized instanceof SlotTaken) {
@@ -325,7 +357,9 @@ export class Wallet extends Context.Service<
 
               return receipt instanceof Pending
                 ? new SenderBusy({ inFlight: receipt })
-                : new TransferDraft({ request: stored.request, recipient: stored.recipient });
+                : yield* resumed(
+                    (yield* currentDraft(stored)) ? stored : yield* refreshDraft(stored),
+                  );
             }
 
             return yield* resumed(authorized);
@@ -360,14 +394,18 @@ export class Wallet extends Context.Service<
                 Effect.map((found) =>
                   Option.isSome(found) && found.value.status === "active"
                     ? profile(found.value)
-                    : new ExternalMemoRequired(),
+                    : new ExternalRecipient({ address: value }),
                 ),
               ),
           Phone: () => Effect.die("Phone was rejected before recipient resolution"),
         });
 
-        if (recipient instanceof UnknownRecipient || recipient instanceof ExternalMemoRequired)
-          return recipient;
+        if (recipient instanceof UnknownRecipient) return recipient;
+
+        if (recipient instanceof ExternalRecipient && !order.memo)
+          return new ExternalMemoRequired();
+
+        if (!(recipient instanceof ExternalRecipient) && order.memo) return new MemoNotAllowed();
 
         const balance = yield* readBalance(order.from);
 
@@ -380,7 +418,13 @@ export class Wallet extends Context.Service<
         if (balance.value < order.amount)
           return new InsufficientBalance({ available: balance.value });
 
-        const request = yield* chain.draftPayment(order.from, recipient.address, order.amount);
+        const request = yield* chain.draftPayment(
+          order.from,
+          recipient.address,
+          order.amount,
+          order.memo,
+        );
+
         const proposed = yield* transfers.propose(order, recipient, request);
 
         return yield* resumed(proposed);
@@ -395,7 +439,7 @@ export class Wallet extends Context.Service<
 
         if (Option.isNone(row)) return new NotOpened();
 
-        if (row.value.status === "recovered")
+        if (row.value.status === "recovered" || row.value.status === "reopening")
           return new NeedsReopening({ profile: profile(row.value) });
 
         if (row.value.status !== "active") return new NotOpened();

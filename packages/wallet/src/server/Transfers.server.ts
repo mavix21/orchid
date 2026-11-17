@@ -126,6 +126,7 @@ export class Transfers extends Context.Service<
       recipient: ResolvedRecipient,
       request: SigningRequest,
     ): Effect.Effect<Transfer, StoreFailure>;
+    redraft(proposed: Proposed, request: SigningRequest): Effect.Effect<Transfer, StoreFailure>;
     authorize(
       proposed: Proposed,
       sealed: Sealed,
@@ -164,7 +165,13 @@ export class Transfers extends Context.Service<
         const selected = db
           .select({ id: transfers.id })
           .from(transfers)
-          .where(and(scope, eq(transfers.sender, sender)))
+          .where(
+            and(
+              scope,
+              eq(transfers.sender, sender),
+              inArray(transfers.status, ["authorized", "settled", "failed"]),
+            ),
+          )
           .orderBy(desc(sql`${transfers.status} = 'authorized'`), desc(transfers.createdAt))
           .limit(1);
 
@@ -218,6 +225,38 @@ export class Transfers extends Context.Service<
         if (Option.isNone(existing))
           return yield* new StoreFailure({
             cause: new Error("Transfer id belongs to another network epoch"),
+          });
+
+        return existing.value;
+      });
+
+      const redraft = Effect.fn("Transfers.redraft")(function* (
+        proposed: Proposed,
+        request: SigningRequest,
+      ) {
+        const rows = yield* db
+          .update(transfers)
+          .set({
+            envelope: request.envelope,
+            expiresAt: DateTime.toDateUtc(request.expiresAt),
+          })
+          .where(
+            and(
+              scope,
+              eq(transfers.id, proposed.order.id),
+              eq(transfers.status, "proposed"),
+              eq(transfers.envelope, proposed.request.envelope),
+            ),
+          )
+          .returning();
+
+        if (rows[0]) return yield* decode(rows[0]);
+
+        const existing = yield* find(proposed.order.id);
+
+        if (Option.isNone(existing))
+          return yield* new StoreFailure({
+            cause: new Error("Transfer disappeared during redraft"),
           });
 
         return existing.value;
@@ -360,6 +399,7 @@ export class Transfers extends Context.Service<
         find: (id) => wrap(find(id)),
         latestFrom: (sender) => wrap(latest(sender)),
         propose: (order, recipient, request) => wrap(propose(order, recipient, request)),
+        redraft: (proposed, request) => wrap(redraft(proposed, request)),
         authorize: (proposed, sealed) => wrap(authorize(proposed, sealed)),
         conclude: (id, settlement) => wrap(conclude(id, settlement)),
         inFlight: wrap(inFlight),

@@ -1,7 +1,14 @@
-import { Account, Operation, Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
+import { Account, Memo, Operation, Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { AccountAddress, PositiveUsdc, UnsignedEnvelope, formatUsdc, parseUsdc } from "../contract";
+import {
+  AccountAddress,
+  PaymentMemo,
+  PositiveUsdc,
+  UnsignedEnvelope,
+  formatUsdc,
+  parseUsdc,
+} from "../contract";
 import { baseFee, networkPassphrase, usdc } from "./network";
 
 const bounds = { sequence: Schema.String, minTime: Schema.Number, maxTime: Schema.Number };
@@ -18,6 +25,7 @@ export class PaymentFacts extends Schema.TaggedClass<PaymentFacts>()("PaymentFac
   from: AccountAddress,
   to: AccountAddress,
   amount: PositiveUsdc,
+  memo: Schema.optional(PaymentMemo),
 }) {}
 
 export class RecoveryFacts extends Schema.TaggedClass<RecoveryFacts>()("RecoveryFacts", {
@@ -38,6 +46,7 @@ export interface PaymentInput {
   readonly source: Account;
   readonly to: AccountAddress;
   readonly amount: PositiveUsdc;
+  readonly memo?: PaymentMemo;
   readonly minTime: number;
   readonly maxTime: number;
 }
@@ -72,7 +81,16 @@ export function draftOpening(input: OpeningInput): UnsignedEnvelope {
 
 export function draftPayment(input: PaymentInput): UnsignedEnvelope {
   return Schema.decodeSync(UnsignedEnvelope)(
-    new TransactionBuilder(input.source, { fee: baseFee, networkPassphrase })
+    new TransactionBuilder(input.source, {
+      fee: baseFee,
+      networkPassphrase,
+      memo:
+        input.memo?.type === "text"
+          ? Memo.text(input.memo.value)
+          : input.memo
+            ? Memo.id(input.memo.value)
+            : Memo.none(),
+    })
       .addOperation(
         Operation.payment({ destination: input.to, asset: usdc, amount: formatUsdc(input.amount) }),
       )
@@ -117,7 +135,7 @@ export function readEnvelope(
     )
       return Option.none();
 
-    // The complete rebuild rejects extra operations, sources, memos, signatures,
+    // The complete rebuild rejects extra operations, sources, unsupported memos, signatures,
     // preconditions, fees and extensions, including fields the reader never uses.
     if (first?.type === "beginSponsoringFutureReserves") {
       const address = Schema.decodeSync(AccountAddress)(first.sponsoredId);
@@ -129,15 +147,39 @@ export function readEnvelope(
     }
 
     if (first?.type === "payment") {
+      const memo = tx.memo;
+      const value = memo.value;
+
+      const reference =
+        memo.type === "none"
+          ? undefined
+          : Schema.decodeUnknownSync(PaymentMemo)({
+              type: memo.type,
+              value:
+                value instanceof Uint8Array
+                  ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(value)
+                  : value,
+            });
+
+      const payment = reference ? { memo: reference } : {};
       const amount = parseUsdc(first.amount);
       const from = Schema.decodeSync(AccountAddress)(tx.source);
       const to = Schema.decodeSync(AccountAddress)(first.destination);
 
       if (
         Option.isSome(amount) &&
-        draftPayment({ source: source(), to, amount: amount.value, minTime, maxTime }) === envelope
+        draftPayment({
+          source: source(),
+          to,
+          amount: amount.value,
+          minTime,
+          maxTime,
+          ...payment,
+        }) === envelope
       )
-        return Option.some(new PaymentFacts({ ...fields, from, to, amount: amount.value }));
+        return Option.some(
+          new PaymentFacts({ ...fields, from, to, amount: amount.value, ...payment }),
+        );
     }
 
     if (first?.type === "changeTrust" && second?.type === "accountMerge") {

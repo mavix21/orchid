@@ -24,6 +24,9 @@ import {
   ExternalRecipient,
   ExternalMemoRequired,
   InvalidAddress,
+  MemoNotAllowed,
+  PaymentMemo,
+  Failed,
   NotSponsored,
   Holding,
   NeedsReopening,
@@ -53,14 +56,23 @@ import {
   Chain,
   ChainUnreachable,
   Sealed,
+  Rejected,
   type Settlement,
   Undecided,
 } from "../src/server/Chain.server";
 import { Directory, StoreFailure, Taken } from "../src/server/Directory.server";
-import { Authorized, Concluded, Proposed, Transfers } from "../src/server/Transfers.server";
+import {
+  Authorized,
+  Concluded,
+  Proposed,
+  SlotTaken,
+  Transfers,
+} from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { WalletSettings } from "../src/server/settings.server";
 import {
+  PaymentFacts,
+  readEnvelope,
   draftOpening,
   draftPayment,
   draftRecovery,
@@ -126,7 +138,7 @@ const fakeChain = Layer.effect(
             now + 120,
           );
         }),
-      draftPayment: (from, to, amount) =>
+      draftPayment: (from, to, amount, memo) =>
         Effect.sync(() => {
           const now = Math.floor(Date.now() / 1000);
 
@@ -135,6 +147,7 @@ const fakeChain = Layer.effect(
               source: new Account(from, world.accounts.get(from)?.sequence ?? "100"),
               to,
               amount,
+              memo,
               minTime: now,
               maxTime: now + 120,
             }),
@@ -646,6 +659,9 @@ test("reopening keeps the original username after the takeover lease expires", a
     await runStores(Directory.use((directory) => directory.byAddress(claim.address))),
   );
 
+  expect(await run(Wallet.use((wallet) => wallet.overview(claim.address)))).toEqual(
+    new NeedsReopening({ profile: new Profile(claim) }),
+  );
   expect(row.status).toBe("reopening");
   expect(row.ownershipBound).toBe(true);
   expect(await opening(claim)).toBeInstanceOf(OpeningDraft);
@@ -996,4 +1012,341 @@ test("transfer sweep queue caps and rotates signed work across senders", async (
   expect(first).toHaveLength(sweepBatchSize);
   expect(next).toHaveLength(sweepBatchSize);
   expect(seen.size).toBe(ids.length);
+});
+
+const fundHolder = (key: Keypair, sequence = "1000") =>
+  world.accounts.set(addressOf(key), {
+    sequence,
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: true,
+    nativeBalance: 0n,
+    balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
+  });
+
+const paymentSequence = (draft: TransferDraft) => {
+  const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
+
+  if (!(facts instanceof PaymentFacts)) throw new Error("Expected payment facts");
+
+  return facts.sequence;
+};
+
+test("double tap redrafts a still-live stale sequence before accepting its approval", async () => {
+  const key = Keypair.random();
+
+  await create(key, "maria");
+  fundHolder(key);
+
+  const orders = [
+    orderFor(key, AddressRecipient.make({ value: addressOf(key) })),
+    orderFor(key, AddressRecipient.make({ value: addressOf(key) })),
+  ];
+
+  const first = orders[0];
+  const second = orders[1];
+
+  if (!first || !second) throw new Error("Expected two orders");
+
+  const firstDraft = await send(first);
+  const secondDraft = await send(second);
+
+  if (!(firstDraft instanceof TransferDraft) || !(secondDraft instanceof TransferDraft))
+    throw new Error("Expected drafts");
+
+  expect(paymentSequence(firstDraft)).toBe("1001");
+  expect(paymentSequence(secondDraft)).toBe("1001");
+  await send(first, approve(firstDraft.request, key));
+
+  const signed = Option.getOrThrow(
+    await runStores(Transfers.use((service) => service.find(first.id))),
+  );
+
+  if (!(signed instanceof Authorized)) throw new Error("Expected authorization");
+
+  fundHolder(key, "1001");
+  world.evidence.set(signed.sealed.hash, new Applied({ at: DateTime.nowUnsafe() }));
+  expect(await send(first)).toBeInstanceOf(Settled);
+
+  const redrafted = await send(second, approve(secondDraft.request, key));
+
+  if (!(redrafted instanceof TransferDraft)) throw new Error("Expected redraft");
+
+  expect(paymentSequence(redrafted)).toBe("1002");
+  expect(
+    Option.getOrThrow(await runStores(Transfers.use((service) => service.find(second.id)))),
+  ).toBeInstanceOf(Proposed);
+  expect(await send(second, approve(redrafted.request, key))).toBeInstanceOf(Pending);
+});
+
+test("SlotTaken reconciliation refreshes the waiting draft after the holder consumes its sequence", async () => {
+  const key = Keypair.random();
+
+  await create(key, "maria");
+  fundHolder(key);
+
+  const first = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
+  const second = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
+  const firstDraft = await send(first);
+  const secondDraft = await send(second);
+
+  if (!(firstDraft instanceof TransferDraft) || !(secondDraft instanceof TransferDraft))
+    throw new Error("Expected drafts");
+
+  await send(first, approve(firstDraft.request, key));
+
+  const finishing = Layer.effect(
+    Transfers,
+    Effect.gen(function* () {
+      const actual = yield* Transfers;
+
+      return Transfers.of({
+        ...actual,
+        authorize: (proposal, sealed) =>
+          Effect.gen(function* () {
+            const result = yield* actual.authorize(proposal, sealed);
+
+            if (result instanceof SlotTaken) {
+              fundHolder(key, "1001");
+              world.evidence.set(
+                result.holder.sealed.hash,
+                new Applied({ at: DateTime.nowUnsafe() }),
+              );
+            }
+
+            return result;
+          }),
+      });
+    }),
+  ).pipe(Layer.provide(Transfers.layer));
+
+  const finishingWallet = Wallet.serviceLayer.pipe(
+    Layer.provide(Layer.merge(Directory.layer, finishing)),
+    Layer.provide(fakeChain),
+    Layer.provide(dbLayer),
+  );
+
+  const result = await Effect.runPromise(
+    Wallet.use((wallet) => wallet.transfer(second, approve(secondDraft.request, key))).pipe(
+      Effect.provide(finishingWallet),
+    ),
+  );
+
+  if (!(result instanceof TransferDraft)) throw new Error("Expected redraft");
+
+  expect(paymentSequence(result)).toBe("1002");
+  expect(await send(second, approve(result.request, key))).toBeInstanceOf(Pending);
+});
+
+test("a proven consumed authorization concludes and releases the sender slot", async () => {
+  const key = Keypair.random();
+
+  await create(key, "maria");
+  fundHolder(key);
+
+  const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
+  const draft = await send(order);
+
+  if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
+
+  await send(order, approve(draft.request, key));
+
+  const signed = Option.getOrThrow(
+    await runStores(Transfers.use((service) => service.find(order.id))),
+  );
+
+  if (!(signed instanceof Authorized)) throw new Error("Expected authorization");
+
+  fundHolder(key, "1001");
+  world.evidence.set(signed.sealed.hash, new Rejected({ code: "sequence_consumed" }));
+  await run(Wallet.use((wallet) => wallet.sweep));
+  expect(await send(order)).toBeInstanceOf(Failed);
+  expect(await runStores(Transfers.use((service) => service.inFlight))).toHaveLength(0);
+
+  const next = await send(orderFor(key, AddressRecipient.make({ value: addressOf(key) })));
+
+  if (!(next instanceof TransferDraft)) throw new Error("Expected next draft");
+
+  expect(paymentSequence(next)).toBe("1002");
+});
+
+test("an unsigned newer draft cannot hide the latest authorized or settled receipt", async () => {
+  const key = Keypair.random();
+
+  await create(key, "maria");
+  fundHolder(key);
+
+  const first = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
+  const second = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
+  const draft = await send(first);
+
+  if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
+
+  await send(second);
+  await send(first, approve(draft.request, key));
+
+  const signed = Option.getOrThrow(
+    await runStores(Transfers.use((service) => service.find(first.id))),
+  );
+
+  if (!(signed instanceof Authorized)) throw new Error("Expected authorization");
+
+  world.evidence.set(signed.sealed.hash, new Applied({ at: DateTime.nowUnsafe() }));
+
+  expect(await send(first)).toBeInstanceOf(Settled);
+
+  const overview = await run(Wallet.use((wallet) => wallet.overview(addressOf(key))));
+
+  if (!(overview instanceof Holding)) throw new Error("Expected holding");
+
+  expect(Option.getOrThrow(overview.latest).id).toBe(first.id);
+  expect(Option.getOrThrow(overview.latest)).toBeInstanceOf(Settled);
+});
+
+test("external text/id memos survive draft, signature, durable order and receipt; Orchid memos are refused", async () => {
+  const key = Keypair.random();
+
+  await create(key, "maria");
+  fundHolder(key);
+
+  const memos: ReadonlyArray<PaymentMemo> = [
+    { type: "text", value: "deposit-123" },
+    { type: "id", value: "18446744073709551615" },
+  ];
+
+  for (const memo of memos) {
+    const destination = addressOf(Keypair.random());
+
+    const order = new TransferOrder({
+      ...orderFor(key, AddressRecipient.make({ value: destination })),
+      memo: Schema.decodeUnknownSync(PaymentMemo)(memo),
+    });
+
+    const draft = await send(order);
+
+    if (!(draft instanceof TransferDraft)) throw new Error("Expected memo draft");
+
+    expect(draft.recipient).toBeInstanceOf(ExternalRecipient);
+    const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
+
+    if (!(facts instanceof PaymentFacts)) throw new Error("Expected payment facts");
+
+    expect(facts.memo).toEqual(memo);
+    await send(order, approve(draft.request, key));
+
+    const signed = Option.getOrThrow(
+      await runStores(Transfers.use((service) => service.find(order.id))),
+    );
+
+    if (!(signed instanceof Authorized)) throw new Error("Expected authorization");
+
+    expect(signed.order.memo).toEqual(memo);
+    world.evidence.set(signed.sealed.hash, new Applied({ at: DateTime.nowUnsafe() }));
+
+    const receipt = await send(order);
+
+    if (!(receipt instanceof Settled)) throw new Error("Expected receipt");
+
+    expect(receipt.memo).toEqual(memo);
+    expect(receipt.recipient).toEqual(new ExternalRecipient({ address: destination }));
+
+    const rows = await Effect.runPromise(
+      Effect.gen(function* () {
+        const db = yield* makeDatabase();
+
+        return yield* db.execute(sql`select recipient from transfers where id = ${order.id}`);
+      }).pipe(Effect.provide(dbLayer)),
+    );
+
+    expect(rows.rows[0]?.recipient).toBeNull();
+  }
+
+  const orchid = new TransferOrder({
+    ...orderFor(key, AddressRecipient.make({ value: addressOf(key) })),
+    memo: Schema.decodeSync(PaymentMemo)({ type: "text", value: "unwanted" }),
+  });
+
+  expect(await send(orchid)).toBeInstanceOf(MemoNotAllowed);
+  expect(Option.isNone(await runStores(Transfers.use((service) => service.find(orchid.id))))).toBe(
+    true,
+  );
+});
+
+test("a sequence change during signing redrafts before durable authorization", async () => {
+  const key = Keypair.random();
+
+  await create(key, "maria");
+  fundHolder(key);
+
+  const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
+  const draft = await send(order);
+
+  if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
+
+  const advancing = Layer.effect(
+    Chain,
+    Effect.gen(function* () {
+      const actual = yield* Chain;
+
+      return Chain.of({
+        ...actual,
+        seal: (request, approval, holder) =>
+          actual
+            .seal(request, approval, holder)
+            .pipe(Effect.tap(() => Effect.sync(() => fundHolder(key, "1001")))),
+      });
+    }),
+  ).pipe(Layer.provide(fakeChain));
+
+  const advancingWallet = Wallet.serviceLayer.pipe(Layer.provide(stores), Layer.provide(advancing));
+
+  const result = await Effect.runPromise(
+    Wallet.use((wallet) => wallet.transfer(order, approve(draft.request, key))).pipe(
+      Effect.provide(advancingWallet),
+    ),
+  );
+
+  if (!(result instanceof TransferDraft)) throw new Error("Expected redraft");
+
+  expect(paymentSequence(result)).toBe("1002");
+  expect(
+    Option.getOrThrow(await runStores(Transfers.use((service) => service.find(order.id)))),
+  ).toBeInstanceOf(Proposed);
+  expect(await runStores(Transfers.use((service) => service.inFlight))).toHaveLength(0);
+});
+
+test("a stale redraft cannot replace a concurrent durable authorization", async () => {
+  const key = Keypair.random();
+
+  await create(key, "maria");
+  fundHolder(key);
+
+  const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
+  const draft = await send(order);
+
+  const proposed = Option.getOrThrow(
+    await runStores(Transfers.use((service) => service.find(order.id))),
+  );
+
+  if (!(draft instanceof TransferDraft) || !(proposed instanceof Proposed))
+    throw new Error("Expected draft");
+
+  await send(order, approve(draft.request, key));
+  fundHolder(key, "1001");
+
+  const replacement = await Effect.runPromise(
+    Chain.use((chain) => chain.draftPayment(order.from, addressOf(key), order.amount)).pipe(
+      Effect.provide(fakeChain),
+    ),
+  );
+
+  const saved = await runStores(Transfers.use((service) => service.redraft(proposed, replacement)));
+
+  if (!(saved instanceof Authorized)) throw new Error("Expected frozen authorization");
+
+  const outer = TransactionBuilder.fromXDR(saved.sealed.envelope, networkPassphrase);
+
+  if (!(outer instanceof FeeBumpTransaction)) throw new Error("Expected fee bump");
+
+  expect(outer.innerTransaction.sequence).toBe("1001");
 });

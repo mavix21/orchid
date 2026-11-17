@@ -16,7 +16,14 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import { AccountAddress, Approval, PositiveUsdc, SigningRequest, Usdc } from "../contract";
+import {
+  AccountAddress,
+  Approval,
+  PaymentMemo,
+  PositiveUsdc,
+  SigningRequest,
+  Usdc,
+} from "../contract";
 import { draftOpening, draftPayment, draftRecovery, readEnvelope } from "../stellar/envelopes";
 import {
   approvalMargin,
@@ -90,6 +97,17 @@ export function settlementFromResponse(
   )
     return new Expired();
 
+  // Official RPC indexes fee bumps by both hashes. Complete retained history
+  // through an observed consumed sequence proves this inner transaction absent.
+  if (
+    response.status === rpc.Api.GetTransactionStatus.NOT_FOUND &&
+    Option.isSome(sender) &&
+    response.latestLedger >= sender.value.ledger &&
+    BigInt(sender.value.sequence) >= BigInt(inner.sequence) &&
+    response.oldestLedgerCloseTime <= minTime
+  )
+    return new Rejected({ code: "sequence_consumed" });
+
   return new Undecided();
 }
 
@@ -105,6 +123,7 @@ export class Chain extends Context.Service<
       from: AccountAddress,
       to: AccountAddress,
       amount: PositiveUsdc,
+      memo?: PaymentMemo,
     ): Effect.Effect<SigningRequest, ChainUnreachable>;
     draftRecovery(address: AccountAddress): Effect.Effect<SigningRequest, ChainUnreachable>;
     seal(
@@ -198,6 +217,7 @@ export class Chain extends Context.Service<
         from: AccountAddress,
         to: AccountAddress,
         amount: PositiveUsdc,
+        memo?: PaymentMemo,
       ) {
         const holder = yield* source(from);
         const now = Math.floor(Date.now() / 1000);
@@ -207,6 +227,7 @@ export class Chain extends Context.Service<
             source: holder,
             to,
             amount,
+            memo,
             minTime: now,
             maxTime: now + paymentLifetime,
           }),
@@ -343,8 +364,8 @@ export const resolveSettlement = Effect.fn("Chain.resolveSettlement")(function* 
 
   const sender = yield* reader.account(Schema.decodeSync(AccountAddress)(inner.source));
 
-  if (Option.isSome(sender) && sender.value.ledger < outerResponse.latestLedger)
-    return new Undecided();
+  // Query after the account observation so ingestion can cover its ledger.
+  const confirmed = yield* reader.transaction(innerHash);
 
-  return settlementFromResponse(innerResponse, sealed, sender);
+  return settlementFromResponse(confirmed, sealed, sender);
 });

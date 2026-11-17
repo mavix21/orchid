@@ -29,7 +29,7 @@ The caller never retries, polls, or sees a transaction.
 1. The server drafts every transaction. The phone checks each draft does exactly what was asked and returns only signatures (opening first, then recovery from the confirmed account sequence, behind one user action).
 2. One transfer id maps to one signed transaction, forever, stored before it is first submitted.
 3. One sender has at most one signed, unfinished transfer, enforced by a unique index. That also removes sequence-number races.
-4. A final state is written only from ledger evidence. `Failed` requires an included rejection or expiry proved while RPC history covers the inclusion window.
+4. A final state is written only from ledger evidence. `Failed` requires an included rejection or expiry proved while RPC history covers the inclusion window. A consumed sequence also concludes rejected when complete retained inner-hash absence evidence covers that consumption; missing history stays undecided.
 5. `open` and `transfer` are replayable. Retry, resume and status are the same call.
 6. Classic accounts; the reserve sponsor carries reserves and the fee payer pays fees.
 
@@ -37,7 +37,7 @@ The caller never retries, polls, or sees a transaction.
 
 **Validation** lives in the contract schemas, run where input enters: user text on the phone, the wire on the server. Services accept only branded types.
 
-**Deliberately not done.** Sessions, activity history, memos, payment links, pots, agent accounts, channel accounts (so about one sign-up per ledger), mainnet.
+**Deliberately not done.** Sessions, activity history, hash/return memos, payment links, pots, agent accounts, channel accounts (so about one sign-up per ledger), mainnet.
 
 **Interface depth.** The UI sees three functions; the server exposes three operations plus a scheduled sweep in this step; passkey backup adds two operations later. Behind them sit sponsorship, trustlines, fee bumps, sequence numbers, time bounds, idempotency, reconciliation and the database. None of it appears in a signature a caller can see.
 
@@ -74,6 +74,7 @@ The caller never retries, polls, or sees a transaction.
 - **Registration.** Open, with no invite and no quota for now.
 - **Cloudflare.** Try the Workers free plan first and measure CPU. Upgrade only if the measurement requires it.
 - **Browser minimum.** Native Ed25519 is acceptable: Chrome 137, Safari 17, Firefox 129. Passkey backup has its own, higher floor (the WebAuthn PRF extension). Phones below it get a device-only wallet; see `backup.md` section 6.
+- **External memos.** External sends require a text or numeric ID memo; Orchid sends carry none. Unsigned drafts do not contribute to overview history.
 - **Unauthenticated reads.** Balance and overview without authentication are acceptable on testnet.
 - **Testnet funding.** A fund button in the app. Friendbot gives only testnet XLM. Test USDC comes from an Orchid-funded endpoint.
 - **Sponsorship roles.** The reserve sponsor only sponsors account and trustline reserves with CAP-33 `beginSponsoringFutureReserves`; the fee payer only pays fees through CAP-15 fee bumps. Configure separate key roles in code and configuration, although both may use the same key for the hackathon/testnet. Mainnet can split them without code changes. Separate keys isolate an empty or compromised fee payer from reserve sponsorship and vice versa. Keep the sponsor balances small, top them up from a cold account, store keys in Cloudflare secrets, and alert on low balances.
