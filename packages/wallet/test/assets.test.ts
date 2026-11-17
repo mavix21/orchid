@@ -1,0 +1,295 @@
+import { Transfers } from "../src/server/Transfers.server";
+import { expect, test } from "bun:test";
+import { Claimant, Keypair } from "@stellar/stellar-sdk";
+import * as DateTime from "effect/DateTime";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import {
+  TransferOrder,
+  Username,
+  NativeAsset,
+  Pending,
+  Amount,
+  AssetCode,
+  AssetOrder,
+  AssetOrderId,
+  AssetDraft,
+  AssetPending,
+  AssetSettled,
+  AssetBusy,
+  ClaimBalance,
+  IssuedAsset,
+  OpenTrustline,
+  CloseTrustline,
+  TrustlineLimitReached,
+  TrustlineNotEmpty,
+  UsernameRecipient,
+  TransferDraft,
+  PositiveAmount,
+} from "../src/contract";
+import { Wallet } from "../src/server/Wallet.server";
+import { Applied } from "../src/server/Chain.server";
+import {
+  ClaimableFacts,
+  ClaimFacts,
+  TrustlineFacts,
+} from "../src/stellar/asset-envelopes";
+import { readEnvelope } from "../src/stellar/envelopes";
+import {
+  addressOf,
+  approve,
+  create,
+  fundHolder,
+  orderFor,
+  run,
+  runStores,
+  send,
+  useDisposableDatabase,
+  world,
+} from "./wallet-harness";
+
+useDisposableDatabase();
+
+const asset = IssuedAsset.make({
+  code: Schema.decodeSync(AssetCode)("EUR"),
+  issuer: addressOf(Keypair.random()),
+});
+
+const manage = (
+  order: AssetOrder,
+  approval = Option.none<import("../src/contract").Approval>(),
+) => run(Wallet.use((wallet) => wallet.manage(order, approval)));
+
+const order = (key: Keypair, action: AssetOrder["action"]) =>
+  new AssetOrder({
+    id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
+    wallet: addressOf(key),
+    action,
+  });
+
+test("sponsored trustline approval survives submit failure and sweep records settlement", async () => {
+  const key = Keypair.random();
+
+  await create(key, "assetowner");
+  fundHolder(key);
+
+  const opening = order(key, OpenTrustline.make({ asset }));
+  const draft = await manage(opening);
+
+  expect(draft).toBeInstanceOf(AssetDraft);
+
+  if (!(draft instanceof AssetDraft)) throw new Error("Expected asset draft");
+
+  expect(
+    Option.getOrThrow(readEnvelope(draft.request.envelope)),
+  ).toBeInstanceOf(TrustlineFacts);
+  world.failSubmit = true;
+  expect(await manage(opening, approve(draft.request, key))).toBeInstanceOf(
+    AssetPending,
+  );
+
+  const competing = order(key, OpenTrustline.make({ asset }));
+
+  expect(await manage(competing)).toBeInstanceOf(AssetBusy);
+  world.failSubmit = false;
+  await run(Wallet.use((wallet) => wallet.sweep));
+
+  const submitted = world.submitted.at(-1);
+
+  if (!submitted) throw new Error("Expected submission");
+
+  world.evidence.set(submitted.hash, new Applied({ at: DateTime.nowUnsafe() }));
+  await run(Wallet.use((wallet) => wallet.sweep));
+  expect(await manage(opening)).toBeInstanceOf(AssetSettled);
+});
+
+test("ledger reserve cap and nonzero trustline prevent new sponsored entries and removal", async () => {
+  const key = Keypair.random();
+
+  await create(key, "limitowner");
+  fundHolder(key);
+
+  const account = world.accounts.get(addressOf(key));
+
+  if (!account) throw new Error("Missing account");
+
+  world.holdings.set(addressOf(key), {
+    account,
+    native: Schema.decodeSync(Amount)("0"),
+    reserves: { subentries: 6, sponsored: 8, sponsoring: 0 },
+    lines: [],
+  });
+  expect(
+    await manage(order(key, OpenTrustline.make({ asset }))),
+  ).toBeInstanceOf(TrustlineLimitReached);
+  world.holdings.set(addressOf(key), {
+    account,
+    native: Schema.decodeSync(Amount)("0"),
+    reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
+    lines: [
+      {
+        asset,
+        balance: Schema.decodeSync(Amount)("1"),
+        spendable: Schema.decodeSync(Amount)("1"),
+        authorized: true,
+        sponsored: true,
+      },
+    ],
+  });
+  expect(
+    await manage(order(key, CloseTrustline.make({ asset }))),
+  ).toBeInstanceOf(TrustlineNotEmpty);
+});
+
+test("missing recipient trustline uses a sponsored claimable and claim opens the line atomically", async () => {
+  const sender = Keypair.random();
+  const recipient = Keypair.random();
+
+  await create(sender, "assetsender");
+  await create(recipient, "assetrecipient");
+  fundHolder(sender);
+  fundHolder(recipient);
+
+  const account = world.accounts.get(addressOf(sender));
+
+  if (!account) throw new Error("Missing account");
+
+  world.holdings.set(addressOf(sender), {
+    account,
+    native: Schema.decodeSync(Amount)("0"),
+    reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
+    lines: [
+      {
+        asset,
+        balance: Schema.decodeSync(Amount)("50000000"),
+        spendable: Schema.decodeSync(Amount)("50000000"),
+        authorized: true,
+        sponsored: true,
+      },
+    ],
+  });
+
+  const payment = new TransferOrder({
+    ...orderFor(
+      sender,
+      UsernameRecipient.make({
+        value: Schema.decodeSync(Username)("assetrecipient"),
+      }),
+    ),
+    asset,
+  });
+
+  const draft = await send(payment);
+
+  if (!(draft instanceof TransferDraft))
+    throw new Error("Expected transfer draft");
+
+  const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
+
+  if (!(facts instanceof ClaimableFacts)) throw new Error("Expected claimable");
+
+  expect(await send(payment, approve(draft.request, sender))).toBeInstanceOf(
+    Pending,
+  );
+  await run(Wallet.use((wallet) => wallet.sweep));
+  expect(
+    await runStores(
+      Transfers.use((service) => service.openClaimables(addressOf(sender))),
+    ),
+  ).toBe(1);
+
+  world.claimables.set(facts.balance, {
+    balance: facts.balance,
+    asset,
+    amount: Schema.decodeSync(PositiveAmount)("10000000"),
+    sponsored: true,
+    claimants: [
+      new Claimant(addressOf(recipient), Claimant.predicateUnconditional()),
+    ],
+  });
+
+  const claim = await manage(
+    order(recipient, ClaimBalance.make({ balance: facts.balance })),
+  );
+
+  if (!(claim instanceof AssetDraft)) throw new Error("Expected claim draft");
+
+  const claimed = Option.getOrThrow(readEnvelope(claim.request.envelope));
+
+  expect(claimed).toBeInstanceOf(ClaimFacts);
+
+  if (!(claimed instanceof ClaimFacts)) throw new Error("Expected claim facts");
+
+  expect(claimed.opens).toEqual(asset);
+
+  const claimOrder = order(
+    recipient,
+    ClaimBalance.make({ balance: facts.balance }),
+  );
+
+  const claimDraft = await manage(claimOrder);
+
+  if (!(claimDraft instanceof AssetDraft))
+    throw new Error("Expected claim draft");
+
+  expect(
+    await manage(claimOrder, approve(claimDraft.request, recipient)),
+  ).toBeInstanceOf(AssetPending);
+});
+
+test("native sends spend only available XLM and empty trustline removal stays holder signed", async () => {
+  const key = Keypair.random();
+
+  await create(key, "nativeowner");
+  fundHolder(key);
+
+  const account = world.accounts.get(addressOf(key));
+
+  if (!account) throw new Error("Missing account");
+
+  world.holdings.set(addressOf(key), {
+    account,
+    native: Schema.decodeSync(Amount)("50000000"),
+    reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
+    lines: [
+      {
+        asset,
+        balance: Schema.decodeSync(Amount)("0"),
+        spendable: Schema.decodeSync(Amount)("0"),
+        authorized: true,
+        sponsored: true,
+      },
+    ],
+  });
+
+  const native = new TransferOrder({
+    ...orderFor(
+      key,
+      UsernameRecipient.make({
+        value: Schema.decodeSync(Username)("nativeowner"),
+      }),
+    ),
+    asset: NativeAsset.make({}),
+  });
+
+  const draft = await send(native);
+
+  expect(draft).toBeInstanceOf(TransferDraft);
+
+  if (!(draft instanceof TransferDraft))
+    throw new Error("Expected native draft");
+
+  const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
+
+  expect(facts).toMatchObject({ asset: NativeAsset.make({}) });
+
+  const close = order(key, CloseTrustline.make({ asset }));
+  const removal = await manage(close);
+
+  if (!(removal instanceof AssetDraft))
+    throw new Error("Expected removal draft");
+
+  expect(await manage(close, approve(removal.request, key))).toBeInstanceOf(
+    AssetPending,
+  );
+});
