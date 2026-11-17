@@ -8,7 +8,7 @@ export function Screen({ children }: { children: React.ReactNode }) {
 
 export function ScreenActions({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-2 px-5 pt-4 pb-8.5">
+    <div className="flex flex-col items-center gap-2 px-5 pt-4 pb-safe">
       {children}
     </div>
   );

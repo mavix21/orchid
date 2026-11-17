@@ -13,7 +13,7 @@ export function TabBar() {
   return (
     <nav
       aria-label="Principal"
-      className="fixed bottom-7 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border bg-card p-1.5"
+      className="fixed bottom-safe left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border bg-card p-1"
     >
       <Link to="/inicio" aria-label="Inicio" className={itemClass}>
         <HouseIcon />

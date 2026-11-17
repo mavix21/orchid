@@ -4,7 +4,7 @@ import type { AssetId } from "@/fixtures/assets";
 
 const tokenIcons: Record<AssetId, () => React.ReactNode> = {
   usdc: () => (
-    <span className="flex size-6 items-center justify-center rounded-full bg-token-usdc text-lg leading-none font-semibold text-token-usdc-foreground">
+    <span className="flex size-6 items-center justify-center rounded-full bg-token-usdc text-label-lg leading-none text-token-usdc-foreground">
       $
     </span>
   ),

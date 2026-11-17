@@ -31,7 +31,7 @@ export function ActivityRow({ activity }: { activity: Activity }) {
         <div className="flex flex-col items-end gap-1">
           <span
             className={cn(
-              "text-numeric-lg tabular-nums",
+              "text-label-lg tabular-nums",
               activity.received ? "text-positive" : "text-foreground",
             )}
           >

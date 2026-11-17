@@ -30,12 +30,14 @@ function EligeTuUsuario() {
         icon={<ChevronLeftIcon />}
         link={<Link to="/" />}
       />
-      <main className="flex flex-1 flex-col gap-6 px-5 pt-4">
-        <h1 className="font-display text-h1">Elige tu @usuario</h1>
-        <p className="text-body text-muted-foreground">
-          Así te encuentran para enviarte plata.
-        </p>
-        <div className="flex justify-center pt-4 pb-2">
+      <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
+        <div className="flex flex-col gap-2">
+          <h1 className="font-display text-h1">Elige tu @usuario</h1>
+          <p className="text-body text-muted-foreground">
+            Así te encuentran para enviarte plata.
+          </p>
+        </div>
+        <div className="flex justify-center">
           <UserAvatar profile={me} size="xl" />
         </div>
         <Field>

@@ -12,7 +12,7 @@ export function TopNav({
   link: React.ReactElement;
 }) {
   return (
-    <header className="flex h-14 items-center gap-2 px-4">
+    <header className="flex h-14 items-center gap-2 px-5">
       <Button
         variant="secondary"
         size="icon"

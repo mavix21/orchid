@@ -15,9 +15,9 @@ function Inicio() {
     <Screen>
       <main className="flex flex-1 flex-col gap-10 px-5 pt-2 pb-30">
         <BalanceHeader />
-        <section className="flex flex-col gap-1">
-          <div className="flex items-center justify-between pb-1">
-            <h2 className="text-h3">Actividad</h2>
+        <section className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-label-lg">Actividad</h2>
             <button
               type="button"
               className="rounded-xs text-label text-accent-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"

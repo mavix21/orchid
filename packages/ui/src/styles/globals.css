@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+
 @import "@fontsource-variable/bricolage-grotesque";
 @import "./tokens.css";
 
@@ -57,6 +58,7 @@
   --color-avatar-durazno-foreground: var(--avatar-durazno-foreground);
   --color-token-usdc: var(--token-usdc);
   --color-token-usdc-foreground: var(--token-usdc-foreground);
+
   --radius-xs: calc(var(--radius) * 0.3);
   --radius-sm: calc(var(--radius) * 0.5);
   --radius-md: calc(var(--radius) * 0.7);
@@ -65,6 +67,7 @@
   --shadow-raised: 0 1px 2px var(--shadow-color-raised);
   --shadow-overlay: 0 2px 8px var(--shadow-color-overlay);
 }
+
 @theme {
   --spacing: 0.25rem;
 
@@ -72,66 +75,48 @@
   --font-display: "Bricolage Grotesque Variable", sans-serif;
   --font-heading: var(--font-display);
 
-  --text-display-balance: 3.5rem;
-  --text-display-balance--line-height: 3.75rem;
-  --text-display-balance--letter-spacing: -0.04em;
-  --text-display-balance--font-weight: 700;
-  --text-display-amount: 4rem;
-  --text-display-amount--line-height: 4.25rem;
-  --text-display-amount--letter-spacing: -0.04em;
-  --text-display-amount--font-weight: 600;
+  --text-display: 3.5rem;
+  --text-display--line-height: 3.75rem;
+  --text-display--letter-spacing: -0.04em;
+  --text-display--font-weight: 700;
   --text-h1: 2rem;
   --text-h1--line-height: 2.375rem;
-  --text-h1--letter-spacing: -0.025em;
+  --text-h1--letter-spacing: -0.02em;
   --text-h1--font-weight: 700;
   --text-h2: 1.5rem;
   --text-h2--line-height: 1.875rem;
-  --text-h2--letter-spacing: -0.015em;
+  --text-h2--letter-spacing: -0.02em;
   --text-h2--font-weight: 600;
-  --text-h3: 1.1875rem;
-  --text-h3--line-height: 1.625rem;
-  --text-h3--letter-spacing: -0.01em;
-  --text-h3--font-weight: 600;
   --text-body-lg: 1.0625rem;
   --text-body-lg--line-height: 1.5rem;
-  --text-body-lg--letter-spacing: -0.005em;
   --text-body-lg--font-weight: 400;
   --text-body: 0.9375rem;
   --text-body--line-height: 1.375rem;
-  --text-body--letter-spacing: -0.002em;
   --text-body--font-weight: 400;
-  --text-body-strong: 0.9375rem;
-  --text-body-strong--line-height: 1.375rem;
-  --text-body-strong--letter-spacing: -0.002em;
-  --text-body-strong--font-weight: 500;
   --text-label-lg: 1.0625rem;
   --text-label-lg--line-height: 1.375rem;
-  --text-label-lg--letter-spacing: -0.005em;
   --text-label-lg--font-weight: 600;
   --text-label: 0.9375rem;
   --text-label--line-height: 1.25rem;
-  --text-label--letter-spacing: -0.002em;
   --text-label--font-weight: 500;
-  --text-label-sm: 0.75rem;
-  --text-label-sm--line-height: 1rem;
+  --text-label-sm: 0.8125rem;
+  --text-label-sm--line-height: 1.125rem;
   --text-label-sm--font-weight: 500;
   --text-caption: 0.8125rem;
   --text-caption--line-height: 1.125rem;
   --text-caption--font-weight: 400;
-  --text-numeric-lg: 1.0625rem;
-  --text-numeric-lg--line-height: 1.375rem;
-  --text-numeric-lg--letter-spacing: -0.005em;
-  --text-numeric-lg--font-weight: 600;
-  --text-numeric: 0.9375rem;
-  --text-numeric--line-height: 1.25rem;
-  --text-numeric--font-weight: 500;
-  --text-keypad: 1.75rem;
-  --text-keypad--line-height: 2rem;
-  --text-keypad--letter-spacing: -0.01em;
-  --text-keypad--font-weight: 500;
 }
+
 @utility pt-safe {
   padding-top: max(env(safe-area-inset-top), --spacing(4));
+}
+
+@utility pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), --spacing(4));
+}
+
+@utility bottom-safe {
+  bottom: max(env(safe-area-inset-bottom), --spacing(4));
 }
 
 @layer base {

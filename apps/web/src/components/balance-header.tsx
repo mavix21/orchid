@@ -26,7 +26,7 @@ export function BalanceHeader() {
         </button>
       </div>
       <div className="flex flex-col gap-1">
-        <p className="flex items-baseline font-display text-display-balance">
+        <p className="flex items-baseline font-display text-display">
           <span>{balance.whole}</span>
           <span className="text-muted-foreground">{balance.cents}</span>
         </p>
