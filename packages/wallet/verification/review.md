@@ -1,22 +1,31 @@
 # Fable review verification
 
-## Cache-safe binding round (Fable review, 2026-11-17)
+## Plain reads round (Fable review, owner decision, 2026-11-17)
 
-Fable found two problems in the username binding round.
+Fable judged the cache-safe round's no-op `UPDATE … RETURNING` reads (below) a workaround. Every name lookup wrote to and locked the holder's wallet row, so an unauthenticated soft check could cause writes on anyone's wallet. The owner approved the official path from [Cloudflare's query caching docs](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/), which the repo had already chosen in `rationale.md`, `ground.md` and the README: query caching disabled on the single existing Hyperdrive configuration (`wrangler hyperdrive update <id> --caching-disabled`).
 
-- **The race was decided by a plain `SELECT`.** `bind` read `usernames` with a plain `SELECT` before and after its insert, and the soft check ran the same query. Hyperdrive caches eligible read-only queries for 60 seconds by default and "does not cache writes"; its [query caching page](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/) says nothing about transactions. A race loser could therefore read a cached empty result after its no-op insert, be sealed and submitted with no name, and end up `active` with `profile()` failing permanently.
-  - **Fix.** The insert decides the binding with `INSERT … ON CONFLICT DO NOTHING RETURNING`: a returned row means this call bound the name. On conflict, the holder is read with a no-op `UPDATE wallets SET address = address FROM usernames … RETURNING`, the write-returning pattern `Directory` already uses. `usernames` stays insert-only. A conflict with no visible holder fails with `StoreFailure` instead of reporting the name available. The activation bind uses the same code.
-  - **Other name reads.** The soft check, `profile` and `byUsername` use the same write-returning read. `byUsername` is now a single statement that also requires the wallet to be `active`, so a new user can be paid by name right after activation. The `seal`/`activate` row locks are now no-op `UPDATE … RETURNING` writes instead of `SELECT … FOR UPDATE`. That takes the same row lock, and as a write it is never cached.
-  - **Why this fix.** The docs' other option, a second cache-disabled Hyperdrive binding for fresh reads, needs new Worker configuration. The write-returning read needs none and matches the rest of `Directory`. The README still asks for caching to be disabled, but name correctness no longer depends on it.
-- **Reserved words matched exactly.** Names containing `orchid` are now refused. Spanish words were added: soporte, ayuda, seguridad, oficial, equipo, billetera, cartera, monedero, administrador, administracion, sistema, moderador, operador, propietario, servicio, pagos, facturacion, verificar, verificado, cuenta, cuentas, contacto. A name bound before it was reserved still works for its own address.
-- **Tests.**
-  - Reserved refusals: `orchid_help`, `orchidsupport`, `orchid_oficial`, `my_orchid`, Spanish words, nothing stored or submitted.
-  - A name bound before it was reserved can still be sealed by its address and stays refused to other keys.
-  - The activation bind refuses a name another key bound after the soft check, and the wallet stays `opening`.
-  - A new user is payable by username straight after activation.
-  - The existing race and stale-write tests still pass.
-- **Verification at `06c6a4d`.** Lint, fmt check, typecheck, build, package tests (50 pass, 0 fail, 635 assertions), `db:generate` (no schema changes) and live `testnet:verify` all exited 0. Output is in [checks.txt](./checks.txt) and hashes are in [testnet.json](./testnet.json).
-- **Not reproducible locally.** Local Postgres has no Hyperdrive cache, so these tests check behaviour and ordering, not cache immunity. Cache immunity rests on there being no plain `SELECT` on `usernames` in `Directory`, which code review can check.
+- **Kept.** `INSERT … ON CONFLICT DO NOTHING RETURNING` still decides the name race. A conflict with no holder still fails. Transitions stay conditional `UPDATE … WHERE version = … RETURNING`, and queue selection stays a real rotating write.
+- **Plain reads again.** The following are now plain `SELECT`s: name lookups, the soft check, `profile`, `byUsername` (one joined read requiring an `active` wallet), `Directory` and `Transfers` `find`, `Transfers.latestFrom`, the authorize holder check and its re-read. The seal/activate locks are `SELECT … FOR UPDATE` again.
+- **Checked prerequisite.** `apps/web`'s `deploy` script now runs `check:hyperdrive` first (`tools/wallet/check-hyperdrive-caching.mjs`). For each Hyperdrive binding in `wrangler.jsonc`, the check:
+  - refuses the placeholder id;
+  - runs the official `wrangler hyperdrive get <id>`, which in installed wrangler 4.162.0 prints the configuration JSON, where `--caching-disabled` is stored as `caching.disabled`;
+  - stops unless that field is `true`.
+
+  Verified without Cloudflare access: the real config exits 1 on the placeholder id; a fake `wrangler` on `PATH` exits 0 for `disabled: true` and 1 for `false`. The owner runs the update; nothing here touches Cloudflare.
+
+- **Verification at `46f98cd`.** Lint, fmt check, typecheck, build, package tests (50 pass, 0 fail, 635 assertions), `db:generate` (no schema changes) and live `testnet:verify` all exited 0. As intended, `check:hyperdrive` exited 1 on the placeholder id. Output is in [checks.txt](./checks.txt).
+- **Correction.** The cache-safe round said the docs' alternative was "a second cache-disabled Hyperdrive binding". The docs offer two official options: disable caching on a configuration (`--caching-disabled`), which this repo already uses, or add a second cache-disabled configuration for fresh reads. That round's plain-`SELECT` concern now depends on the prerequisite, as the docs intend.
+
+## Cache-safe binding round (superseded by the plain reads round)
+
+Fable found that `bind` decided the name race from a plain `SELECT`, which a caching Hyperdrive could serve stale. The round introduced `INSERT … ON CONFLICT DO NOTHING RETURNING` as the race decision, which is kept. It also replaced name reads, `profile`, `byUsername` and row locks with no-op `UPDATE … RETURNING` writes, which have since been reverted. Reserved names were widened: anything containing `orchid` is refused, and Spanish words were added (soporte, ayuda, seguridad, oficial, equipo, billetera, cartera, monedero, administrador, administracion, sistema, moderador, operador, propietario, servicio, pagos, facturacion, verificar, verificado, cuenta, cuentas, contacto). A name bound before it was reserved still works for its own address. Tests added then still run:
+
+- reserved and substring refusals;
+- a pre-reserved name staying usable by its owner;
+- the activation bind refusing a name bound after the soft check;
+- a new user being payable by username straight after activation.
+
+That round verified at `06c6a4d`: 50 tests passed, and live `testnet:verify` exited 0.
 
 ## File size round (2026-11-17)
 

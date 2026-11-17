@@ -104,7 +104,7 @@ Three Hyperdrive facts change how the database may be used:
 2. **Query caching is on by default.** Read queries are cached for 60 seconds, and "a later matching `SELECT` can return the cached result". A write does not invalidate the cache. A state machine that reads its own row after writing it can see the old state for a minute.
 3. **Local development does not cache** [repo, README]. So a bug caused by fact 2 appears only in production.
 
-The design responds in two ways. Every decision is made by a conditional write that returns the row, never by a read followed by a write. And the wallet's Hyperdrive configuration should have caching disabled, which Cloudflare supports per configuration.
+The design responds in two ways. Every decision is made by a conditional write that returns the row, never by a read followed by a write. And the wallet's Hyperdrive configuration must have caching disabled, which Cloudflare supports per configuration. A pre-deploy check verifies this (see `packages/wallet/README.md`).
 
 Workers WebCrypto supports Ed25519 for sign, verify, generate, import and export [docs]. Signing with the platform's native implementation costs almost no CPU budget.
 

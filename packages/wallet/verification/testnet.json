@@ -1,36 +1,36 @@
 {
-  "verifiedAt": "2026-11-17T03:01:28.256Z",
+  "verifiedAt": "2026-11-17T03:21:52.680Z",
   "network": "testnet",
-  "reserveSponsor": "GCZSPCDIHKIWND3DCRG5PTOH3T33PG4LYMNWXVFUFVUQVAXYCHDHTWMY",
-  "feePayer": "GCSONAOA27RYKRAGKAB5BXV6VSPJXSDJQQMCUHJ6EDPH35VQKFBYVM2B",
+  "reserveSponsor": "GC62ELUOFWALSAIJHIUSHYITYPHXXU5L7YFENRTXSGQMDHNDSPODQDEB",
+  "feePayer": "GBJCIN7DL3VFLCELF36LA22YUGCXJEKYNMSGHIOK6WC2XQMU4J5FT7LF",
   "hashes": [
     {
       "label": "verify_recovery opening",
-      "hash": "bb377aa2c0ff7a29e8c7ec51699acc10b7c80ce2d6fc83ffb8e2697f30284171"
+      "hash": "e9bb02dde59ba1b2745d41d6ba19a55bfd4b66914638d419878d59dd718889a7"
     },
     {
       "label": "bounded recovery",
-      "hash": "86125bb71bac777e8ea01142c5daadf3e68b24c9112c29afad3ca25ccb0990f6"
+      "hash": "8d9b19a5eb567dc88829abd578204afe5c5c2e4abbec6b0f93cc4ddf7bc864a6"
     },
     {
       "label": "same-key same-username reopening",
-      "hash": "117036d447a9073a7bcabfb53262960b0af14229fd6f0db302570f777315713c"
+      "hash": "e7a6c987178411a9f798566b18c32151581aa489e0b81428ea7c930437d5b627"
     },
     {
       "label": "external trustline removal",
-      "hash": "e3371c06e25c4c03495bee3747b995ea3cbb3e03d70307155b300fdf537cd727"
+      "hash": "4b7089c6e5ea0c38d04d204029ff03011e17f9b08742ca34a62eff8b98077d00"
     },
     {
       "label": "sponsored trustline-only repair",
-      "hash": "e16eefe859fb903d49ca7717d0991db50ff86fdfbdaf8342a6eb3a5276bd40c0"
+      "hash": "d09778c4498e34a243f834a023f77acdb7494dcbec4859b1b3cb3b51e0f7bdf0"
     },
     {
       "label": "verify_activity opening",
-      "hash": "db01f1a049f54fd950a33457f9a68b67f5d769a93bd8405032a2f3ae3aa0b3ea"
+      "hash": "8e0547f469cc8c6b69f5c4ffc2527f85814cf701fb29210e603c257258465d60"
     },
     {
       "label": "device activity under alternate fee payer",
-      "hash": "332418e7525fb05b2472611176ae5e3cc1af8bf1144bc69db4ca87a08f89c531"
+      "hash": "a7dc3c0da5a9d7ae614df6defeb7597db0d3355102f0c65ac632a63c59a0af13"
     }
   ],
   "checks": [

@@ -93,7 +93,7 @@ A Neon dev branch cloned from main copies seed ciphertexts and, later, the phone
 
 ## Open questions and risks
 
-1. Answered: disable Hyperdrive query caching with `wrangler hyperdrive update <id> --caching-disabled` ([Cloudflare](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/)).
+1. Answered: disable Hyperdrive query caching with `wrangler hyperdrive update <id> --caching-disabled` ([Cloudflare](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/)). `apps/web` deploys run a check that refuses to continue unless `wrangler hyperdrive get <id>` reports caching disabled.
 2. Answered: tables and generated migrations live inside `packages/wallet`; `packages/db` remains the driver.
 3. Who operates sponsor funding and alerts? Each wallet locks 1.5 XLM in reserves.
 4. Answered: account creation and the trustline share one sponsorship sandwich; see the testnet spike results below.
