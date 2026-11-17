@@ -5,23 +5,25 @@ import * as Schema from "effect/Schema";
 // --- identity -----------------------------------------------------------
 
 /** Lowercase, 3 to 20 of a–z 0–9 underscore. The "@" is display only. */
-export const Username = Schema.String.check(Schema.isPattern(/^[a-z0-9_]{3,20}$/)).pipe(
-  Schema.brand("Username"),
-);
+export const Username = Schema.String.check(
+  Schema.isPattern(/^[a-z0-9_]{3,20}$/),
+).pipe(Schema.brand("Username"));
 
 export type Username = typeof Username.Type;
 
 /** A Stellar account address. Syntax only; the checksum is verified where the SDK is loaded. */
-export const AccountAddress = Schema.String.check(Schema.isPattern(/^G[A-Z2-7]{55}$/)).pipe(
-  Schema.brand("AccountAddress"),
-);
+export const AccountAddress = Schema.String.check(
+  Schema.isPattern(/^G[A-Z2-7]{55}$/),
+).pipe(Schema.brand("AccountAddress"));
 
 export type AccountAddress = typeof AccountAddress.Type;
 
-export class Profile extends Schema.Class<Profile>("@workspace/wallet/Profile")({
-  username: Username,
-  address: AccountAddress,
-}) {}
+export class Profile extends Schema.Class<Profile>("@workspace/wallet/Profile")(
+  {
+    username: Username,
+    address: AccountAddress,
+  },
+) {}
 
 // --- money --------------------------------------------------------------
 
@@ -40,7 +42,8 @@ export type PositiveUsdc = typeof PositiveUsdc.Type;
 
 /** "5", "5.5", "5.50" → base units. None when it is not a positive amount with ≤ 7 decimals. */
 export function parseUsdc(text: string): Option.Option<PositiveUsdc> {
-  if (!/^[0-9]+(?:\.[0-9]{1,7})?$/.test(text) || text.length > 32) return Option.none();
+  if (!/^[0-9]+(?:\.[0-9]{1,7})?$/.test(text) || text.length > 32)
+    return Option.none();
 
   const [whole = "0", fraction = ""] = text.split(".");
 
@@ -50,7 +53,10 @@ export function parseUsdc(text: string): Option.Option<PositiveUsdc> {
 }
 
 export function formatUsdc(amount: Usdc): string {
-  const fraction = (amount % 10000000n).toString().padStart(7, "0").replace(/0+$/, "");
+  const fraction = (amount % 10000000n)
+    .toString()
+    .padStart(7, "0")
+    .replace(/0+$/, "");
 
   return `${amount / 10000000n}${fraction ? `.${fraction}` : ""}`;
 }
@@ -58,7 +64,9 @@ export function formatUsdc(amount: Usdc): string {
 // --- approval -----------------------------------------------------------
 
 /** A transaction the server built and nobody has signed. Opaque outside `stellar/`. */
-export const UnsignedEnvelope = Schema.String.pipe(Schema.brand("UnsignedEnvelope"));
+export const UnsignedEnvelope = Schema.String.pipe(
+  Schema.brand("UnsignedEnvelope"),
+);
 
 export type UnsignedEnvelope = typeof UnsignedEnvelope.Type;
 
@@ -70,48 +78,79 @@ export class SigningRequest extends Schema.Class<SigningRequest>(
 }) {}
 
 /** Each signing stage returns one signature and no envelope. */
-export class Approval extends Schema.Class<Approval>("@workspace/wallet/Approval")({
+export class Approval extends Schema.Class<Approval>(
+  "@workspace/wallet/Approval",
+)({
   signature: Schema.Uint8ArrayFromBase64,
 }) {}
 
-export class InvalidAddress extends Schema.TaggedClass<InvalidAddress>()("InvalidAddress", {
-  address: AccountAddress,
-}) {}
+export class InvalidAddress extends Schema.TaggedClass<InvalidAddress>()(
+  "InvalidAddress",
+  {
+    address: AccountAddress,
+  },
+) {}
 
-export class NotSponsored extends Schema.TaggedClass<NotSponsored>()("NotSponsored", {}) {}
+export class NotSponsored extends Schema.TaggedClass<NotSponsored>()(
+  "NotSponsored",
+  {},
+) {}
 
 export class ExternalMemoRequired extends Schema.TaggedClass<ExternalMemoRequired>()(
   "ExternalMemoRequired",
-  { address: AccountAddress, exchange: Schema.NonEmptyString, source: Schema.String },
+  {
+    address: AccountAddress,
+    exchange: Schema.NonEmptyString,
+    source: Schema.String,
+  },
 ) {}
 
 // --- opening a wallet ---------------------------------------------------
 
-export class WalletClaim extends Schema.Class<WalletClaim>("@workspace/wallet/WalletClaim")({
+export class WalletClaim extends Schema.Class<WalletClaim>(
+  "@workspace/wallet/WalletClaim",
+)({
   username: Username,
   address: AccountAddress,
 }) {}
 
-export class OpeningDraft extends Schema.TaggedClass<OpeningDraft>()("OpeningDraft", {
-  request: SigningRequest,
-}) {}
+export class OpeningDraft extends Schema.TaggedClass<OpeningDraft>()(
+  "OpeningDraft",
+  {
+    request: SigningRequest,
+  },
+) {}
 
-export class RecoveryDraft extends Schema.TaggedClass<RecoveryDraft>()("RecoveryDraft", {
-  request: SigningRequest,
-}) {}
+export class RecoveryDraft extends Schema.TaggedClass<RecoveryDraft>()(
+  "RecoveryDraft",
+  {
+    request: SigningRequest,
+  },
+) {}
 
-export class OpeningPending extends Schema.TaggedClass<OpeningPending>()("OpeningPending", {}) {}
+export class OpeningPending extends Schema.TaggedClass<OpeningPending>()(
+  "OpeningPending",
+  {},
+) {}
 
-export class Opened extends Schema.TaggedClass<Opened>()("Opened", { profile: Profile }) {}
-
-export class UsernameTaken extends Schema.TaggedClass<UsernameTaken>()("UsernameTaken", {
-  username: Username,
-}) {}
-
-/** This address is already bound to another username. Names never change hands or get renamed. */
-export class AddressBound extends Schema.TaggedClass<AddressBound>()("AddressBound", {
+export class Opened extends Schema.TaggedClass<Opened>()("Opened", {
   profile: Profile,
 }) {}
+
+export class UsernameTaken extends Schema.TaggedClass<UsernameTaken>()(
+  "UsernameTaken",
+  {
+    username: Username,
+  },
+) {}
+
+/** This address is already bound to another username. Names never change hands or get renamed. */
+export class AddressBound extends Schema.TaggedClass<AddressBound>()(
+  "AddressBound",
+  {
+    profile: Profile,
+  },
+) {}
 
 export const OpenStep = Schema.Union([
   OpeningDraft,
@@ -147,7 +186,8 @@ export const PaymentMemo = Schema.Union([
     value: Schema.String.check(
       Schema.isPattern(/^(0|[1-9][0-9]{0,19})$/),
       Schema.makeFilter(
-        (value) => /^[0-9]+$/.test(value) && BigInt(value) <= 18446744073709551615n,
+        (value) =>
+          /^[0-9]+$/.test(value) && BigInt(value) <= 18446744073709551615n,
       ),
     ),
   }),
@@ -155,24 +195,44 @@ export const PaymentMemo = Schema.Union([
 
 export type PaymentMemo = typeof PaymentMemo.Type;
 
-export class MemoNotAllowed extends Schema.TaggedClass<MemoNotAllowed>()("MemoNotAllowed", {}) {}
+export class MemoNotAllowed extends Schema.TaggedClass<MemoNotAllowed>()(
+  "MemoNotAllowed",
+  {},
+) {}
 
 // --- transfers ----------------------------------------------------------
 
 /** Minted on the phone with crypto.randomUUID() before any network call. */
-export const TransferId = Schema.String.check(Schema.isUUID(4)).pipe(Schema.brand("TransferId"));
+export const TransferId = Schema.String.check(Schema.isUUID(4)).pipe(
+  Schema.brand("TransferId"),
+);
 
 export type TransferId = typeof TransferId.Type;
 
 // Recipient variants carry a username, phone or address; phone support is deferred.
-export const UsernameRecipient = Schema.TaggedStruct("Username", { value: Username });
-export const PhoneRecipient = Schema.TaggedStruct("Phone", { value: Schema.String });
-export const AddressRecipient = Schema.TaggedStruct("Address", { value: AccountAddress });
-export const Recipient = Schema.Union([UsernameRecipient, PhoneRecipient, AddressRecipient]);
+export const UsernameRecipient = Schema.TaggedStruct("Username", {
+  value: Username,
+});
+
+export const PhoneRecipient = Schema.TaggedStruct("Phone", {
+  value: Schema.String,
+});
+
+export const AddressRecipient = Schema.TaggedStruct("Address", {
+  value: AccountAddress,
+});
+
+export const Recipient = Schema.Union([
+  UsernameRecipient,
+  PhoneRecipient,
+  AddressRecipient,
+]);
 
 export type Recipient = typeof Recipient.Type;
 
-export class TransferOrder extends Schema.Class<TransferOrder>("@workspace/wallet/TransferOrder")({
+export class TransferOrder extends Schema.Class<TransferOrder>(
+  "@workspace/wallet/TransferOrder",
+)({
   id: TransferId,
   from: AccountAddress,
   to: Recipient,
@@ -215,27 +275,52 @@ export class Failed extends Schema.TaggedClass<Failed>()("Failed", {
 }) {}
 
 // Escrow-specific fields and transitions are defined when phone transfers are implemented.
-export class Reserved extends Schema.TaggedClass<Reserved>()("Reserved", transferFields) {}
+export class Reserved extends Schema.TaggedClass<Reserved>()(
+  "Reserved",
+  transferFields,
+) {}
 
-export class Claimed extends Schema.TaggedClass<Claimed>()("Claimed", transferFields) {}
+export class Claimed extends Schema.TaggedClass<Claimed>()(
+  "Claimed",
+  transferFields,
+) {}
 
-export class Refunded extends Schema.TaggedClass<Refunded>()("Refunded", transferFields) {}
+export class Refunded extends Schema.TaggedClass<Refunded>()(
+  "Refunded",
+  transferFields,
+) {}
 
-export const Receipt = Schema.Union([Pending, Settled, Failed, Reserved, Claimed, Refunded]);
+export const Receipt = Schema.Union([
+  Pending,
+  Settled,
+  Failed,
+  Reserved,
+  Claimed,
+  Refunded,
+]);
 
 export type Receipt = typeof Receipt.Type;
 
-export class TransferDraft extends Schema.TaggedClass<TransferDraft>()("TransferDraft", {
-  request: SigningRequest,
-  recipient: ResolvedRecipient,
-  memoRequired: Schema.Boolean,
-}) {}
+export class TransferDraft extends Schema.TaggedClass<TransferDraft>()(
+  "TransferDraft",
+  {
+    request: SigningRequest,
+    recipient: ResolvedRecipient,
+    memoRequired: Schema.Boolean,
+  },
+) {}
 
-export class NotOpened extends Schema.TaggedClass<NotOpened>()("NotOpened", {}) {}
+export class NotOpened extends Schema.TaggedClass<NotOpened>()(
+  "NotOpened",
+  {},
+) {}
 
-export class UnknownRecipient extends Schema.TaggedClass<UnknownRecipient>()("UnknownRecipient", {
-  username: Username,
-}) {}
+export class UnknownRecipient extends Schema.TaggedClass<UnknownRecipient>()(
+  "UnknownRecipient",
+  {
+    username: Username,
+  },
+) {}
 
 export class PhoneNotSupported extends Schema.TaggedClass<PhoneNotSupported>()(
   "PhoneNotSupported",
@@ -276,11 +361,19 @@ export class Holding extends Schema.TaggedClass<Holding>()("Holding", {
   latest: Schema.OptionFromNullOr(Receipt), // the sender's latest authorized or concluded transfer
 }) {}
 
-export class NeedsReopening extends Schema.TaggedClass<NeedsReopening>()("NeedsReopening", {
-  profile: Profile,
-}) {}
+export class NeedsReopening extends Schema.TaggedClass<NeedsReopening>()(
+  "NeedsReopening",
+  {
+    profile: Profile,
+  },
+) {}
 
-export const Overview = Schema.Union([NotOpened, Holding, NeedsReopening, InvalidAddress]);
+export const Overview = Schema.Union([
+  NotOpened,
+  Holding,
+  NeedsReopening,
+  InvalidAddress,
+]);
 
 export type Overview = typeof Overview.Type;
 

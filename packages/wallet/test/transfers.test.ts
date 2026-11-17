@@ -19,7 +19,12 @@ import {
 } from "../src/contract";
 import { Applied } from "../src/server/Chain.server";
 import { Directory, StoreFailure } from "../src/server/Directory.server";
-import { Authorized, Concluded, Proposed, Transfers } from "../src/server/Transfers.server";
+import {
+  Authorized,
+  Concluded,
+  Proposed,
+  Transfers,
+} from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import {
   dbLayer,
@@ -58,22 +63,30 @@ test("a signed transfer survives failed submit and sweep finishes without the de
   expect(draft.recipient).toBeInstanceOf(Profile);
   expect(await send(order)).toEqual(draft);
   world.failSubmit = true;
-  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(Pending);
+  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(
+    Pending,
+  );
 
   const stored = Option.getOrThrow(
     await runStores(Transfers.use((transfers) => transfers.find(order.id))),
   );
 
-  if (!(stored instanceof Authorized)) throw new Error("Expected durable authorization");
+  if (!(stored instanceof Authorized))
+    throw new Error("Expected durable authorization");
 
   world.failSubmit = false;
   await run(Wallet.use((wallet) => wallet.sweep));
   expect(world.submitted.at(-1)?.hash).toBe(stored.sealed.hash);
-  world.evidence.set(stored.sealed.hash, new Applied({ at: DateTime.nowUnsafe() }));
+  world.evidence.set(
+    stored.sealed.hash,
+    new Applied({ at: DateTime.nowUnsafe() }),
+  );
   await run(Wallet.use((wallet) => wallet.sweep));
   expect(await send(order)).toBeInstanceOf(Settled);
   expect(
-    Option.getOrThrow(await runStores(Transfers.use((transfers) => transfers.find(order.id)))),
+    Option.getOrThrow(
+      await runStores(Transfers.use((transfers) => transfers.find(order.id))),
+    ),
   ).toBeInstanceOf(Concluded);
 });
 
@@ -105,8 +118,12 @@ test("concurrent approvals allow only one signed transfer per sender", async () 
   );
 
   expect(results.filter((result) => result instanceof Pending)).toHaveLength(1);
-  expect(results.filter((result) => result instanceof SenderBusy)).toHaveLength(1);
-  expect(await runStores(Transfers.use((transfers) => transfers.inFlight))).toHaveLength(1);
+  expect(results.filter((result) => result instanceof SenderBusy)).toHaveLength(
+    1,
+  );
+  expect(
+    await runStores(Transfers.use((transfers) => transfers.inFlight)),
+  ).toHaveLength(1);
 });
 
 test("same id concurrent approvals keep one immutable sealed envelope", async () => {
@@ -133,7 +150,9 @@ test("same id concurrent approvals keep one immutable sealed envelope", async ()
   ]);
 
   expect(results.every((result) => result instanceof Pending)).toBe(true);
-  expect(await runStores(Transfers.use((transfers) => transfers.inFlight))).toHaveLength(1);
+  expect(
+    await runStores(Transfers.use((transfers) => transfers.inFlight)),
+  ).toHaveLength(1);
 });
 
 test("database failure during authorization submits nothing", async () => {
@@ -164,7 +183,9 @@ test("database failure during authorization submits nothing", async () => {
       return Transfers.of({
         ...actual,
         authorize: () =>
-          Effect.fail(new StoreFailure({ cause: new Error("Database unavailable") })),
+          Effect.fail(
+            new StoreFailure({ cause: new Error("Database unavailable") }),
+          ),
       });
     }),
   ).pipe(Layer.provide(Transfers.layer));
@@ -176,16 +197,17 @@ test("database failure during authorization submits nothing", async () => {
   );
 
   const result = await Effect.runPromise(
-    Wallet.use((wallet) => wallet.transfer(order, approve(draft.request, key))).pipe(
-      Effect.result,
-      Effect.provide(brokenWallet),
-    ),
+    Wallet.use((wallet) =>
+      wallet.transfer(order, approve(draft.request, key)),
+    ).pipe(Effect.result, Effect.provide(brokenWallet)),
   );
 
   expect(Result.isFailure(result)).toBe(true);
   expect(world.submitted).toHaveLength(initial);
   expect(
-    Option.getOrThrow(await runStores(Transfers.use((service) => service.find(order.id)))),
+    Option.getOrThrow(
+      await runStores(Transfers.use((service) => service.find(order.id))),
+    ),
   ).toBeInstanceOf(Proposed);
 });
 
@@ -214,14 +236,20 @@ test("username payments still pin the Orchid recipient and settle normally", asy
   if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
 
   expect(draft.recipient.address).toBe(addressOf(recipient));
-  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(Pending);
+  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(
+    Pending,
+  );
 
   const stored = Option.getOrThrow(
     await runStores(Transfers.use((service) => service.find(order.id))),
   );
 
-  if (!(stored instanceof Authorized)) throw new Error("Expected authorization");
+  if (!(stored instanceof Authorized))
+    throw new Error("Expected authorization");
 
-  world.evidence.set(stored.sealed.hash, new Applied({ at: DateTime.nowUnsafe() }));
+  world.evidence.set(
+    stored.sealed.hash,
+    new Applied({ at: DateTime.nowUnsafe() }),
+  );
   expect(await send(order)).toBeInstanceOf(Settled);
 });

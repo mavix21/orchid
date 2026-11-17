@@ -9,7 +9,8 @@ import { dirname, resolve } from "node:path";
 // `caching.disabled` in the printed JSON.
 
 const configPath = resolve(
-  process.argv[2] ?? new URL("../../apps/web/wrangler.jsonc", import.meta.url).pathname,
+  process.argv[2] ??
+    new URL("../../apps/web/wrangler.jsonc", import.meta.url).pathname,
 );
 
 const { default: config } = await import(configPath);
@@ -42,11 +43,24 @@ for (const { binding, id, env } of targets) {
       `${label} still has the placeholder id. Create the Hyperdrive configuration with --caching-disabled and set its id first.`,
     );
 
-  const args = ["hyperdrive", "get", id, "--config", configPath, ...(env ? ["--env", env] : [])];
-  const result = spawnSync("wrangler", args, { cwd: dirname(configPath), encoding: "utf8" });
+  const args = [
+    "hyperdrive",
+    "get",
+    id,
+    "--config",
+    configPath,
+    ...(env ? ["--env", env] : []),
+  ];
+
+  const result = spawnSync("wrangler", args, {
+    cwd: dirname(configPath),
+    encoding: "utf8",
+  });
 
   if (result.status !== 0)
-    fail(`wrangler hyperdrive get ${id} exited with ${result.status}.\n${result.stderr}`);
+    fail(
+      `wrangler hyperdrive get ${id} exited with ${result.status}.\n${result.stderr}`,
+    );
 
   const start = result.stdout.indexOf("{");
 
@@ -67,5 +81,7 @@ for (const { binding, id, env } of targets) {
 
   if (disabled !== true) unreadableOutput(label, id);
 
-  process.stdout.write(`Hyperdrive ${label} (${id}): query caching disabled.\n`);
+  process.stdout.write(
+    `Hyperdrive ${label} (${id}): query caching disabled.\n`,
+  );
 }

@@ -45,7 +45,8 @@ import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 const secret = (name: string) => {
   const value = process.env[name];
 
-  if (!value) throw new Error(`Missing verification environment variable ${name}`);
+  if (!value)
+    throw new Error(`Missing verification environment variable ${name}`);
 
   return value;
 };
@@ -59,10 +60,15 @@ const server = new rpc.Server("https://soroban-testnet.stellar.org");
 const horizon = new Horizon.Server("https://horizon-testnet.stellar.org");
 
 const dbLayer = databaseLayer({
-  connectionString: "postgres://orchid:orchid-local@127.0.0.1:55433/wallet_live",
+  connectionString:
+    "postgres://orchid:orchid-local@127.0.0.1:55433/wallet_live",
 });
 
-const dependencies = Layer.mergeAll(Chain.layer, Directory.layer, Transfers.layer);
+const dependencies = Layer.mergeAll(
+  Chain.layer,
+  Directory.layer,
+  Transfers.layer,
+);
 
 const services = Layer.merge(
   Wallet.serviceLayer.pipe(Layer.provide(dependencies)),
@@ -78,13 +84,17 @@ const services = Layer.merge(
   Layer.provide(dbLayer),
 );
 
-const run = <A, E>(program: Effect.Effect<A, E, Wallet | Chain | Directory | Transfers>) =>
-  Effect.runPromise(program.pipe(Effect.provide(services)));
+const run = <A, E>(
+  program: Effect.Effect<A, E, Wallet | Chain | Directory | Transfers>,
+) => Effect.runPromise(program.pipe(Effect.provide(services)));
 
-const addressOf = (key: Keypair) => Schema.decodeSync(AccountAddress)(key.publicKey());
+const addressOf = (key: Keypair) =>
+  Schema.decodeSync(AccountAddress)(key.publicKey());
 
 const approve = (request: SigningRequest, key: Keypair) =>
-  Option.some(new Approval({ signature: key.sign(signingPayload(request.envelope)) }));
+  Option.some(
+    new Approval({ signature: key.sign(signingPayload(request.envelope)) }),
+  );
 
 const hashes: Array<{ label: string; hash: string }> = [];
 
@@ -94,20 +104,28 @@ const remember = (label: string, hash: string) => {
 };
 
 const walletRow = async (address: AccountAddress): Promise<WalletRow> =>
-  Option.getOrThrow(await run(Directory.use((directory) => directory.byAddress(address))));
+  Option.getOrThrow(
+    await run(Directory.use((directory) => directory.byAddress(address))),
+  );
 
 const fund = async (key: Keypair) => {
-  const response = await fetch(`https://friendbot.stellar.org/?addr=${key.publicKey()}`);
+  const response = await fetch(
+    `https://friendbot.stellar.org/?addr=${key.publicKey()}`,
+  );
 
   assert.equal(response.status, 200, "Friendbot funding failed");
 };
 
-const opening = (claim: WalletClaim, approval: Option.Option<Approval> = Option.none()) =>
-  run(Wallet.use((wallet) => wallet.open(claim, approval)));
+const opening = (
+  claim: WalletClaim,
+  approval: Option.Option<Approval> = Option.none(),
+) => run(Wallet.use((wallet) => wallet.open(claim, approval)));
 
 const waitApplied = async (sealed: Sealed) => {
   for (let attempt = 0; attempt < 60; attempt++) {
-    const settlement = await run(Chain.use((chain) => chain.settlement(sealed)));
+    const settlement = await run(
+      Chain.use((chain) => chain.settlement(sealed)),
+    );
 
     if (settlement instanceof Applied) return;
 
@@ -123,7 +141,12 @@ const waitApplied = async (sealed: Sealed) => {
 
 const createWithShortRecovery = async (key: Keypair, name: string) => {
   const address = addressOf(key);
-  const claim = new WalletClaim({ address, username: Schema.decodeSync(Username)(name) });
+
+  const claim = new WalletClaim({
+    address,
+    username: Schema.decodeSync(Username)(name),
+  });
+
   const draft = await opening(claim);
 
   assert.ok(draft instanceof OpeningDraft);
@@ -131,7 +154,9 @@ const createWithShortRecovery = async (key: Keypair, name: string) => {
 
   const stored = await walletRow(address);
 
-  assert.ok(stored.attemptEnvelope && stored.attemptHash && stored.attemptExpiresAt);
+  assert.ok(
+    stored.attemptEnvelope && stored.attemptHash && stored.attemptExpiresAt,
+  );
 
   const sealed = new Sealed({
     envelope: stored.attemptEnvelope,
@@ -142,7 +167,9 @@ const createWithShortRecovery = async (key: Keypair, name: string) => {
   await waitApplied(sealed);
   remember(`${name} opening`, sealed.hash);
 
-  const sponsorship = Option.getOrThrow(await run(Chain.use((chain) => chain.account(address))));
+  const sponsorship = Option.getOrThrow(
+    await run(Chain.use((chain) => chain.account(address))),
+  );
 
   assert.ok(
     sponsorship.accountSponsored && sponsorship.sponsored,
@@ -150,7 +177,10 @@ const createWithShortRecovery = async (key: Keypair, name: string) => {
   );
 
   const account = await horizon.loadAccount(address);
-  const native = account.balances.find((balance) => balance.asset_type === "native");
+
+  const native = account.balances.find(
+    (balance) => balance.asset_type === "native",
+  );
 
   assert.equal(native?.balance, "0.0000000");
   assert.equal(account.num_sponsored, 3);
@@ -170,13 +200,17 @@ const createWithShortRecovery = async (key: Keypair, name: string) => {
     expiresAt: DateTime.makeUnsafe(maxTime * 1000),
   });
 
-  await run(Directory.use((directory) => directory.recoveryDraft(stored, recovery)));
+  await run(
+    Directory.use((directory) => directory.recoveryDraft(stored, recovery)),
+  );
   assert.ok((await opening(claim)) instanceof RecoveryDraft);
   assert.ok((await opening(claim, approve(recovery, key))) instanceof Opened);
 
   const active = await walletRow(address);
 
-  assert.ok(active.recoveryEnvelope && active.recoveryHash && active.recoveryMaxTime);
+  assert.ok(
+    active.recoveryEnvelope && active.recoveryHash && active.recoveryMaxTime,
+  );
   assert.equal(
     (await server.getTransaction(active.recoveryHash)).status,
     rpc.Api.GetTransactionStatus.NOT_FOUND,
@@ -220,7 +254,9 @@ assert.ok((await opening(outsiderClaim)) instanceof NotSponsored);
 
 assert.ok(
   Option.isNone(
-    await run(Directory.use((directory) => directory.byAddress(outsiderClaim.address))),
+    await run(
+      Directory.use((directory) => directory.byAddress(outsiderClaim.address)),
+    ),
   ),
 );
 
@@ -243,11 +279,20 @@ assert.ok(racerDraft instanceof OpeningDraft);
 const first = await createWithShortRecovery(user, "verify_recovery");
 
 // The race loser's signature arrives after the name was bound with the winner's signed opening.
-assert.ok((await opening(racerClaim, approve(racerDraft.request, racer))) instanceof UsernameTaken);
+assert.ok(
+  (await opening(racerClaim, approve(racerDraft.request, racer))) instanceof
+    UsernameTaken,
+);
 
-assert.ok(Option.isNone(await run(Chain.use((chain) => chain.account(racerClaim.address)))));
+assert.ok(
+  Option.isNone(
+    await run(Chain.use((chain) => chain.account(racerClaim.address))),
+  ),
+);
 
-console.log("PASS name race loser refused before submission; its account was never created.");
+console.log(
+  "PASS name race loser refused before submission; its account was never created.",
+);
 
 const early = await server.sendTransaction(
   TransactionBuilder.fromXDR(first.sealed.envelope, networkPassphrase),
@@ -262,9 +307,12 @@ const earlyCode =
 
 assert.equal(earlyCode, "txTooEarly");
 
-console.log("Stored recovery was unsubmitted; early probe rejected txTooEarly.");
+console.log(
+  "Stored recovery was unsubmitted; early probe rejected txTooEarly.",
+);
 
-while (Number((await server.getLatestLedger()).closeTime) < first.minTime) await Bun.sleep(1000);
+while (Number((await server.getLatestLedger()).closeTime) < first.minTime)
+  await Bun.sleep(1000);
 
 await run(Wallet.use((wallet) => wallet.sweep));
 
@@ -277,8 +325,9 @@ remember("bounded recovery", first.sealed.hash);
 assert.equal((await walletRow(first.claim.address)).status, "recovered");
 
 assert.ok(
-  (await run(Wallet.use((wallet) => wallet.overview(first.claim.address)))) instanceof
-    NeedsReopening,
+  (await run(
+    Wallet.use((wallet) => wallet.overview(first.claim.address)),
+  )) instanceof NeedsReopening,
 );
 
 const reopened = await opening(first.claim);
@@ -294,20 +343,29 @@ assert.ok(reopenedHash);
 
 let step = await opening(first.claim);
 
-for (let attempt = 0; attempt < 60 && !(step instanceof RecoveryDraft); attempt++) {
+for (
+  let attempt = 0;
+  attempt < 60 && !(step instanceof RecoveryDraft);
+  attempt++
+) {
   await Bun.sleep(1000);
   step = await opening(first.claim);
 }
 
 assert.ok(step instanceof RecoveryDraft);
 
-assert.ok((await opening(first.claim, approve(step.request, user))) instanceof Opened);
+assert.ok(
+  (await opening(first.claim, approve(step.request, user))) instanceof Opened,
+);
 
 remember("same-key same-username reopening", reopenedHash);
 
 const repairSource = await server.getAccount(first.claim.address);
 
-const removeTrust = new TransactionBuilder(repairSource, { fee: baseFee, networkPassphrase })
+const removeTrust = new TransactionBuilder(repairSource, {
+  fee: baseFee,
+  networkPassphrase,
+})
   .addOperation(Operation.changeTrust({ asset: usdc, limit: "0" }))
   .setTimeout(120)
   .build();
@@ -325,7 +383,9 @@ removeOuter.sign(feePayer);
 
 const removal = new Sealed({
   envelope: removeOuter.toXDR(),
-  hash: Array.from(removeOuter.hash(), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+  hash: Array.from(removeOuter.hash(), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join(""),
   expiresAt: DateTime.makeUnsafe(Date.now() + 120000),
 });
 
@@ -334,8 +394,9 @@ await waitApplied(removal);
 remember("external trustline removal", removal.hash);
 
 assert.ok(
-  (await run(Wallet.use((wallet) => wallet.overview(first.claim.address)))) instanceof
-    NeedsReopening,
+  (await run(
+    Wallet.use((wallet) => wallet.overview(first.claim.address)),
+  )) instanceof NeedsReopening,
 );
 
 const repair = await opening(first.claim);
@@ -356,14 +417,21 @@ assert.ok(repairHash);
 
 let repairStep = await opening(first.claim);
 
-for (let attempt = 0; attempt < 60 && !(repairStep instanceof RecoveryDraft); attempt++) {
+for (
+  let attempt = 0;
+  attempt < 60 && !(repairStep instanceof RecoveryDraft);
+  attempt++
+) {
   await Bun.sleep(1000);
   repairStep = await opening(first.claim);
 }
 
 assert.ok(repairStep instanceof RecoveryDraft);
 
-assert.ok((await opening(first.claim, approve(repairStep.request, user))) instanceof Opened);
+assert.ok(
+  (await opening(first.claim, approve(repairStep.request, user))) instanceof
+    Opened,
+);
 
 remember("sponsored trustline-only repair", repairHash);
 
@@ -372,7 +440,9 @@ const holder = await server.getAccount(second.claim.address);
 
 const bump = new TransactionBuilder(holder, { fee: baseFee, networkPassphrase })
   .addOperation(
-    Operation.bumpSequence({ bumpTo: (BigInt(holder.sequenceNumber()) + 1n).toString() }),
+    Operation.bumpSequence({
+      bumpTo: (BigInt(holder.sequenceNumber()) + 1n).toString(),
+    }),
   )
   .setTimeout(120)
   .build();
@@ -390,7 +460,9 @@ feeBump.sign(feePayer);
 
 const activity = new Sealed({
   envelope: feeBump.toXDR(),
-  hash: Array.from(feeBump.hash(), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+  hash: Array.from(feeBump.hash(), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join(""),
   expiresAt: DateTime.makeUnsafe(Date.now() + 120000),
 });
 
@@ -406,7 +478,9 @@ alternate.sign(sponsor);
 
 const replacement = new Sealed({
   envelope: alternate.toXDR(),
-  hash: Array.from(alternate.hash(), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+  hash: Array.from(alternate.hash(), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join(""),
   expiresAt: activity.expiresAt,
 });
 
@@ -419,7 +493,10 @@ assert.equal(
   rpc.Api.GetTransactionStatus.NOT_FOUND,
 );
 
-assert.ok((await run(Chain.use((chain) => chain.settlement(activity)))) instanceof Applied);
+assert.ok(
+  (await run(Chain.use((chain) => chain.settlement(activity)))) instanceof
+    Applied,
+);
 
 console.log(
   "PASS settlement resolves the original intent through its included inner hash under an alternate fee payer.",
@@ -427,7 +504,11 @@ console.log(
 
 let consumed = await run(Chain.use((chain) => chain.settlement(second.sealed)));
 
-for (let attempt = 0; attempt < 30 && !(consumed instanceof Rejected); attempt++) {
+for (
+  let attempt = 0;
+  attempt < 30 && !(consumed instanceof Rejected);
+  attempt++
+) {
   await Bun.sleep(1000);
   consumed = await run(Chain.use((chain) => chain.settlement(second.sealed)));
 }
@@ -440,7 +521,8 @@ console.log(
   "PASS absent recovery reaches sequence_consumed after a different transaction consumes its sequence.",
 );
 
-while (Number((await server.getLatestLedger()).closeTime) < second.minTime) await Bun.sleep(1000);
+while (Number((await server.getLatestLedger()).closeTime) < second.minTime)
+  await Bun.sleep(1000);
 
 await run(Wallet.use((wallet) => wallet.sweep));
 

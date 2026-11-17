@@ -6,7 +6,13 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { AccountAddress, AddressRecipient, TransferDraft, TransferId, Usdc } from "../src/contract";
+import {
+  AccountAddress,
+  AddressRecipient,
+  TransferDraft,
+  TransferId,
+  Usdc,
+} from "../src/contract";
 import { Applied } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
 import { Transfers } from "../src/server/Transfers.server";
@@ -91,9 +97,11 @@ test("recovery sweep checks time, balance and sequence before submitting", async
   world.evidence.set(submitted.hash, new Applied({ at: DateTime.nowUnsafe() }));
   await run(Wallet.use((wallet) => wallet.sweep));
   expect(
-    (await runStores(Directory.use((directory) => directory.byAddress(claim.address)))).pipe(
-      Option.map((row) => row.status),
-    ),
+    (
+      await runStores(
+        Directory.use((directory) => directory.byAddress(claim.address)),
+      )
+    ).pipe(Option.map((row) => row.status)),
   ).toEqual(Option.some("recovered"));
 });
 
@@ -123,12 +131,16 @@ test("recovery queue excludes future and expired windows, caps and rotates eligi
     }).pipe(Effect.provide(dbLayer)),
   );
 
-  const first = await runStores(Directory.use((directory) => directory.recoverable));
+  const first = await runStores(
+    Directory.use((directory) => directory.recoverable),
+  );
 
   expect(first).toHaveLength(sweepBatchSize);
-  expect(first.some((row) => row.address === addresses[0] || row.address === addresses[1])).toBe(
-    false,
-  );
+  expect(
+    first.some(
+      (row) => row.address === addresses[0] || row.address === addresses[1],
+    ),
+  ).toBe(false);
   await Effect.runPromise(
     Effect.gen(function* () {
       const db = yield* makeDatabase();
@@ -139,7 +151,9 @@ test("recovery queue excludes future and expired windows, caps and rotates eligi
     }).pipe(Effect.provide(dbLayer)),
   );
 
-  const second = await runStores(Directory.use((directory) => directory.recoverable));
+  const second = await runStores(
+    Directory.use((directory) => directory.recoverable),
+  );
 
   expect(second).toHaveLength(sweepBatchSize);
   expect(second.some((row) => row.address === addresses[0])).toBe(true);
@@ -161,7 +175,11 @@ test("transfer sweep queue caps and rotates signed work across senders", async (
       sponsored: true,
     });
 
-    const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
+    const order = orderFor(
+      key,
+      AddressRecipient.make({ value: addressOf(key) }),
+    );
+
     const draft = await send(order);
 
     if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
@@ -172,7 +190,10 @@ test("transfer sweep queue caps and rotates signed work across senders", async (
 
   const first = await runStores(Transfers.use((service) => service.inFlight));
   const next = await runStores(Transfers.use((service) => service.inFlight));
-  const seen = new Set([...first, ...next].map((transfer) => transfer.order.id));
+
+  const seen = new Set(
+    [...first, ...next].map((transfer) => transfer.order.id),
+  );
 
   expect(first).toHaveLength(sweepBatchSize);
   expect(next).toHaveLength(sweepBatchSize);

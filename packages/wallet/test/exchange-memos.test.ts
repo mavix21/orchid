@@ -3,11 +3,17 @@ import { Keypair } from "@stellar/stellar-sdk";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AccountAddress } from "../src/contract";
-import { KnownExchangeMemo, exchangeMemoFor } from "../src/server/exchange-memos.server";
+import {
+  KnownExchangeMemo,
+  exchangeMemoFor,
+} from "../src/server/exchange-memos.server";
 import { network } from "../src/stellar/network";
 
 test("memo requirements match exact registered addresses and retain source evidence", () => {
-  const address = Schema.decodeSync(AccountAddress)(Keypair.random().publicKey());
+  const address = Schema.decodeSync(AccountAddress)(
+    Keypair.random().publicKey(),
+  );
+
   const other = Schema.decodeSync(AccountAddress)(Keypair.random().publicKey());
 
   const entry = new KnownExchangeMemo({
@@ -32,7 +38,9 @@ test("registry entries require testnet, checksum-valid addresses and a public HT
     source: "https://example.com/fixtures/stellar-testnet-memo-required",
   };
 
-  expect(Option.isSome(Schema.decodeUnknownOption(KnownExchangeMemo)(entry))).toBe(true);
+  expect(
+    Option.isSome(Schema.decodeUnknownOption(KnownExchangeMemo)(entry)),
+  ).toBe(true);
 
   const bad = `${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`;
 
@@ -43,5 +51,7 @@ test("registry entries require testnet, checksum-valid addresses and a public HT
     { ...entry, source: "file:///not-public" },
     { ...entry, exchange: "" },
   ])
-    expect(Option.isNone(Schema.decodeUnknownOption(KnownExchangeMemo)(invalid))).toBe(true);
+    expect(
+      Option.isNone(Schema.decodeUnknownOption(KnownExchangeMemo)(invalid)),
+    ).toBe(true);
 });

@@ -58,12 +58,16 @@ export class Wallet extends Context.Service<
       const transfers = yield* Transfers;
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
-        program.pipe(Effect.mapError((cause) => new WalletUnavailable({ cause })));
+        program.pipe(
+          Effect.mapError((cause) => new WalletUnavailable({ cause })),
+        );
 
       const { readAccount, readBalance } = yield* confirmedReads;
       const open = yield* openingFlow;
 
-      const reconcile = Effect.fn("Wallet.reconcile")(function* (authorized: Authorized) {
+      const reconcile = Effect.fn("Wallet.reconcile")(function* (
+        authorized: Authorized,
+      ) {
         const settlement = yield* chain.settlement(authorized.sealed);
 
         return yield* Match.valueTags(settlement, {
@@ -80,7 +84,9 @@ export class Wallet extends Context.Service<
               .conclude(authorized.order.id, evidence)
               .pipe(Effect.map((done) => done.receipt)),
           Undecided: () =>
-            chain.submit(authorized.sealed).pipe(Effect.ignore, Effect.as(pending(authorized))),
+            chain
+              .submit(authorized.sealed)
+              .pipe(Effect.ignore, Effect.as(pending(authorized))),
         });
       });
 
@@ -130,7 +136,9 @@ export class Wallet extends Context.Service<
         return proposedStep(transfer);
       });
 
-      const refreshDraft = Effect.fn("Wallet.refreshDraft")(function* (stored: Proposed) {
+      const refreshDraft = Effect.fn("Wallet.refreshDraft")(function* (
+        stored: Proposed,
+      ) {
         const request = yield* chain.draftPayment(
           stored.order.from,
           stored.recipient.address,
@@ -141,7 +149,9 @@ export class Wallet extends Context.Service<
         return yield* transfers.redraft(stored, request);
       });
 
-      const currentDraft = Effect.fn("Wallet.currentDraft")(function* (stored: Proposed) {
+      const currentDraft = Effect.fn("Wallet.currentDraft")(function* (
+        stored: Proposed,
+      ) {
         const state = yield* chain.account(stored.order.from);
         const facts = readEnvelope(stored.request.envelope);
 
@@ -157,11 +167,14 @@ export class Wallet extends Context.Service<
         order: TransferOrder,
         approval: Option.Option<Approval>,
       ): Effect.fn.Return<TransferStep, StoreFailure | ChainUnreachable> {
-        if (!chain.validAddress(order.from)) return new InvalidAddress({ address: order.from });
+        if (!chain.validAddress(order.from))
+          return new InvalidAddress({ address: order.from });
 
         const invalidRecipient = Match.valueTags(order.to, {
           Address: ({ value }) =>
-            chain.validAddress(value) ? Option.none<AccountAddress>() : Option.some(value),
+            chain.validAddress(value)
+              ? Option.none<AccountAddress>()
+              : Option.some(value),
           Username: () => Option.none<AccountAddress>(),
           Phone: () => Option.none<AccountAddress>(),
         });
@@ -183,7 +196,10 @@ export class Wallet extends Context.Service<
         if (Option.isSome(existing)) {
           const stored = existing.value;
 
-          if (Schema.encodeSync(OrderJson)(stored.order) !== Schema.encodeSync(OrderJson)(order))
+          if (
+            Schema.encodeSync(OrderJson)(stored.order) !==
+            Schema.encodeSync(OrderJson)(order)
+          )
             return yield* new StoreFailure({
               cause: new Error("Transfer id cannot identify a different order"),
             });
@@ -194,7 +210,8 @@ export class Wallet extends Context.Service<
 
           if (Option.isSome(refusal)) return refusal.value;
 
-          if (!(yield* currentDraft(stored))) return yield* resumed(yield* refreshDraft(stored));
+          if (!(yield* currentDraft(stored)))
+            return yield* resumed(yield* refreshDraft(stored));
 
           if (live(stored.request)) {
             if (Option.isNone(approval)) return proposedStep(stored);
@@ -205,7 +222,8 @@ export class Wallet extends Context.Service<
 
             if (Option.isNone(sealed)) return proposedStep(stored);
 
-            if (!(yield* currentDraft(stored))) return yield* resumed(yield* refreshDraft(stored));
+            if (!(yield* currentDraft(stored)))
+              return yield* resumed(yield* refreshDraft(stored));
 
             const authorized = yield* transfers.authorize(stored, sealed.value);
 
@@ -215,7 +233,9 @@ export class Wallet extends Context.Service<
               return receipt instanceof Pending
                 ? new SenderBusy({ inFlight: receipt })
                 : yield* resumed(
-                    (yield* currentDraft(stored)) ? stored : yield* refreshDraft(stored),
+                    (yield* currentDraft(stored))
+                      ? stored
+                      : yield* refreshDraft(stored),
                   );
             }
 
@@ -225,14 +245,16 @@ export class Wallet extends Context.Service<
 
         const sender = yield* directory.byAddress(order.from);
 
-        if (Option.isNone(sender) || sender.value.status !== "active") return new NotOpened();
+        if (Option.isNone(sender) || sender.value.status !== "active")
+          return new NotOpened();
 
         const held = yield* transfers.latestFrom(order.from);
 
         if (Option.isSome(held) && held.value instanceof Authorized) {
           const receipt = yield* reconcile(held.value);
 
-          if (receipt instanceof Pending) return new SenderBusy({ inFlight: receipt });
+          if (receipt instanceof Pending)
+            return new SenderBusy({ inFlight: receipt });
         }
 
         const recipient = yield* Match.valueTags(order.to, {
@@ -241,20 +263,26 @@ export class Wallet extends Context.Service<
               .byUsername(value)
               .pipe(
                 Effect.map((found): ResolvedRecipient | UnknownRecipient =>
-                  Option.isSome(found) ? found.value : new UnknownRecipient({ username: value }),
+                  Option.isSome(found)
+                    ? found.value
+                    : new UnknownRecipient({ username: value }),
                 ),
               ),
           Address: ({ value }) =>
             directory
               .byAddress(value)
               .pipe(
-                Effect.flatMap((found): Effect.Effect<ResolvedRecipient, StoreFailure> =>
-                  Option.isSome(found) && found.value.status === "active"
-                    ? directory.profile(found.value)
-                    : Effect.succeed(new ExternalRecipient({ address: value })),
+                Effect.flatMap(
+                  (found): Effect.Effect<ResolvedRecipient, StoreFailure> =>
+                    Option.isSome(found) && found.value.status === "active"
+                      ? directory.profile(found.value)
+                      : Effect.succeed(
+                          new ExternalRecipient({ address: value }),
+                        ),
                 ),
               ),
-          Phone: () => Effect.die("Phone was rejected before recipient resolution"),
+          Phone: () =>
+            Effect.die("Phone was rejected before recipient resolution"),
         });
 
         if (recipient instanceof UnknownRecipient) return recipient;
@@ -289,14 +317,17 @@ export class Wallet extends Context.Service<
       const overview = Effect.fn("Wallet.overview")(function* (
         address: AccountAddress,
       ): Effect.fn.Return<Overview, StoreFailure | ChainUnreachable> {
-        if (!chain.validAddress(address)) return new InvalidAddress({ address });
+        if (!chain.validAddress(address))
+          return new InvalidAddress({ address });
 
         const row = yield* directory.byAddress(address);
 
         if (Option.isNone(row)) return new NotOpened();
 
         if (row.value.status === "recovered")
-          return new NeedsReopening({ profile: yield* directory.profile(row.value) });
+          return new NeedsReopening({
+            profile: yield* directory.profile(row.value),
+          });
 
         if (row.value.status !== "active") return new NotOpened();
 
@@ -308,7 +339,8 @@ export class Wallet extends Context.Service<
           if (latest.value instanceof Authorized)
             receipt = Option.some(yield* reconcile(latest.value));
 
-          if (latest.value instanceof Concluded) receipt = Option.some(latest.value.receipt);
+          if (latest.value instanceof Concluded)
+            receipt = Option.some(latest.value.receipt);
         }
 
         const balance = yield* readBalance(address);
@@ -326,7 +358,9 @@ export class Wallet extends Context.Service<
         });
       });
 
-      const recoverWallet = Effect.fn("Wallet.recoverWallet")(function* (row: WalletRow) {
+      const recoverWallet = Effect.fn("Wallet.recoverWallet")(function* (
+        row: WalletRow,
+      ) {
         const address = Schema.decodeSync(AccountAddress)(row.address);
         const current = yield* readAccount(address);
 
@@ -379,7 +413,8 @@ export class Wallet extends Context.Service<
           current.value.sponsored &&
           current.value.balance.value === 0n &&
           current.value.nativeBalance === 0n &&
-          BigInt(current.value.sequence) + 1n === BigInt(row.recoverySequence ?? "0")
+          BigInt(current.value.sequence) + 1n ===
+            BigInt(row.recoverySequence ?? "0")
         )
           yield* chain.submit(sealed).pipe(Effect.ignore);
       });
@@ -399,7 +434,9 @@ export class Wallet extends Context.Service<
         for (const result of results) {
           if (Result.isFailure(result))
             return yield* new WalletUnavailable({
-              cause: new Error("One or more sweep records could not be reconciled"),
+              cause: new Error(
+                "One or more sweep records could not be reconciled",
+              ),
             });
         }
       });

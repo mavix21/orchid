@@ -63,7 +63,9 @@ export const transfers = pgTable(
     network: text().notNull(),
     testnetEpoch: text().notNull(),
     contractId: text(),
-    status: text({ enum: ["proposed", "authorized", "settled", "failed"] }).notNull(),
+    status: text({
+      enum: ["proposed", "authorized", "settled", "failed"],
+    }).notNull(),
     envelope: text().notNull(),
     hash: text(),
     expiresAt: timestamp({ withTimezone: true }).notNull(),

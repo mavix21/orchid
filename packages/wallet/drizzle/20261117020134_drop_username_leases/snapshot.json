@@ -15,7 +15,11 @@
         "n|con|public.wallets.wallets_username_key",
         "n|rel|public.wallets_username_key"
       ],
-      "reads": ["n|tbl|public.wallets", "n|sch|public", "e|col|public.wallets.username"],
+      "reads": [
+        "n|tbl|public.wallets",
+        "n|sch|public",
+        "e|col|public.wallets.username"
+      ],
       "sharedWrites": ["e|uniqueness|public.wallets.username"]
     },
     {

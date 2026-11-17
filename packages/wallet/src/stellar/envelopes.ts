@@ -1,4 +1,10 @@
-import { Account, Memo, Operation, Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
+import {
+  Account,
+  Memo,
+  Operation,
+  Transaction,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
@@ -11,28 +17,41 @@ import {
 } from "../contract";
 import { baseFee, networkPassphrase, usdc } from "./network";
 
-const bounds = { sequence: Schema.String, minTime: Schema.Number, maxTime: Schema.Number };
+const bounds = {
+  sequence: Schema.String,
+  minTime: Schema.Number,
+  maxTime: Schema.Number,
+};
 
-export class OpeningFacts extends Schema.TaggedClass<OpeningFacts>()("OpeningFacts", {
-  ...bounds,
-  address: AccountAddress,
-  reserveSponsor: AccountAddress,
-  createAccount: Schema.Boolean,
-}) {}
+export class OpeningFacts extends Schema.TaggedClass<OpeningFacts>()(
+  "OpeningFacts",
+  {
+    ...bounds,
+    address: AccountAddress,
+    reserveSponsor: AccountAddress,
+    createAccount: Schema.Boolean,
+  },
+) {}
 
-export class PaymentFacts extends Schema.TaggedClass<PaymentFacts>()("PaymentFacts", {
-  ...bounds,
-  from: AccountAddress,
-  to: AccountAddress,
-  amount: PositiveUsdc,
-  memo: Schema.optional(PaymentMemo),
-}) {}
+export class PaymentFacts extends Schema.TaggedClass<PaymentFacts>()(
+  "PaymentFacts",
+  {
+    ...bounds,
+    from: AccountAddress,
+    to: AccountAddress,
+    amount: PositiveUsdc,
+    memo: Schema.optional(PaymentMemo),
+  },
+) {}
 
-export class RecoveryFacts extends Schema.TaggedClass<RecoveryFacts>()("RecoveryFacts", {
-  ...bounds,
-  address: AccountAddress,
-  reserveSponsor: AccountAddress,
-}) {}
+export class RecoveryFacts extends Schema.TaggedClass<RecoveryFacts>()(
+  "RecoveryFacts",
+  {
+    ...bounds,
+    address: AccountAddress,
+    reserveSponsor: AccountAddress,
+  },
+) {}
 
 export interface OpeningInput {
   readonly source: Account;
@@ -62,17 +81,26 @@ export function draftOpening(input: OpeningInput): UnsignedEnvelope {
   const builder = new TransactionBuilder(input.source, {
     fee: baseFee,
     networkPassphrase,
-  }).addOperation(Operation.beginSponsoringFutureReserves({ sponsoredId: input.address }));
+  }).addOperation(
+    Operation.beginSponsoringFutureReserves({ sponsoredId: input.address }),
+  );
 
   if (input.createAccount)
     builder.addOperation(
-      Operation.createAccount({ destination: input.address, startingBalance: "0" }),
+      Operation.createAccount({
+        destination: input.address,
+        startingBalance: "0",
+      }),
     );
 
   return Schema.decodeSync(UnsignedEnvelope)(
     builder
-      .addOperation(Operation.changeTrust({ source: input.address, asset: usdc }))
-      .addOperation(Operation.endSponsoringFutureReserves({ source: input.address }))
+      .addOperation(
+        Operation.changeTrust({ source: input.address, asset: usdc }),
+      )
+      .addOperation(
+        Operation.endSponsoringFutureReserves({ source: input.address }),
+      )
       .setTimebounds(input.minTime, input.maxTime)
       .build()
       .toXDR(),
@@ -92,7 +120,11 @@ export function draftPayment(input: PaymentInput): UnsignedEnvelope {
             : Memo.none(),
     })
       .addOperation(
-        Operation.payment({ destination: input.to, asset: usdc, amount: formatUsdc(input.amount) }),
+        Operation.payment({
+          destination: input.to,
+          asset: usdc,
+          amount: formatUsdc(input.amount),
+        }),
       )
       .setTimebounds(input.minTime, input.maxTime)
       .build()
@@ -104,7 +136,9 @@ export function draftRecovery(input: RecoveryInput): UnsignedEnvelope {
   return Schema.decodeSync(UnsignedEnvelope)(
     new TransactionBuilder(input.source, { fee: baseFee, networkPassphrase })
       .addOperation(Operation.changeTrust({ asset: usdc, limit: "0" }))
-      .addOperation(Operation.accountMerge({ destination: input.reserveSponsor }))
+      .addOperation(
+        Operation.accountMerge({ destination: input.reserveSponsor }),
+      )
       .setTimebounds(input.minTime, input.maxTime)
       .build()
       .toXDR(),
@@ -117,12 +151,19 @@ export function readEnvelope(
   try {
     const tx = TransactionBuilder.fromXDR(envelope, networkPassphrase);
 
-    if (!(tx instanceof Transaction) || tx.signatures.length !== 0 || !tx.timeBounds)
+    if (
+      !(tx instanceof Transaction) ||
+      tx.signatures.length !== 0 ||
+      !tx.timeBounds
+    )
       return Option.none();
 
     const minTime = Number(tx.timeBounds.minTime);
     const maxTime = Number(tx.timeBounds.maxTime);
-    const source = () => new Account(tx.source, (BigInt(tx.sequence) - 1n).toString());
+
+    const source = () =>
+      new Account(tx.source, (BigInt(tx.sequence) - 1n).toString());
+
     const fields = { sequence: tx.sequence, minTime, maxTime };
     const [first, second] = tx.operations;
 
@@ -142,8 +183,23 @@ export function readEnvelope(
       const reserveSponsor = Schema.decodeSync(AccountAddress)(tx.source);
       const createAccount = second?.type === "createAccount";
 
-      if (draftOpening({ source: source(), address, minTime, maxTime, createAccount }) === envelope)
-        return Option.some(new OpeningFacts({ ...fields, address, reserveSponsor, createAccount }));
+      if (
+        draftOpening({
+          source: source(),
+          address,
+          minTime,
+          maxTime,
+          createAccount,
+        }) === envelope
+      )
+        return Option.some(
+          new OpeningFacts({
+            ...fields,
+            address,
+            reserveSponsor,
+            createAccount,
+          }),
+        );
     }
 
     if (first?.type === "payment") {
@@ -157,7 +213,10 @@ export function readEnvelope(
               type: memo.type,
               value:
                 value instanceof Uint8Array
-                  ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(value)
+                  ? new TextDecoder("utf-8", {
+                      fatal: true,
+                      ignoreBOM: true,
+                    }).decode(value)
                   : value,
             });
 
@@ -178,19 +237,35 @@ export function readEnvelope(
         }) === envelope
       )
         return Option.some(
-          new PaymentFacts({ ...fields, from, to, amount: amount.value, ...payment }),
+          new PaymentFacts({
+            ...fields,
+            from,
+            to,
+            amount: amount.value,
+            ...payment,
+          }),
         );
     }
 
     if (first?.type === "changeTrust" && second?.type === "accountMerge") {
       const address = Schema.decodeSync(AccountAddress)(tx.source);
-      const reserveSponsor = Schema.decodeSync(AccountAddress)(second.destination);
+
+      const reserveSponsor = Schema.decodeSync(AccountAddress)(
+        second.destination,
+      );
 
       if (
         minTime > 0 &&
-        draftRecovery({ source: source(), reserveSponsor, minTime, maxTime }) === envelope
+        draftRecovery({
+          source: source(),
+          reserveSponsor,
+          minTime,
+          maxTime,
+        }) === envelope
       )
-        return Option.some(new RecoveryFacts({ ...fields, address, reserveSponsor }));
+        return Option.some(
+          new RecoveryFacts({ ...fields, address, reserveSponsor }),
+        );
     }
 
     return Option.none();

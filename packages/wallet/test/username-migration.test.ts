@@ -54,8 +54,15 @@ test("existing wallet rows migrate into permanent name bindings", async () => {
 
   const keys = Array.from({ length: 7 }, () => Keypair.random());
 
-  const [unsigned, signedClaim, legacyClaim, opened, reopening, active, recovered] =
-    keys.map(addressOf);
+  const [
+    unsigned,
+    signedClaim,
+    legacyClaim,
+    opened,
+    reopening,
+    active,
+    recovered,
+  ] = keys.map(addressOf);
 
   // The two migrations that existed before usernames moved to their own table.
   for (const name of (await readdir(folder)).sort().slice(0, 2))
@@ -134,21 +141,28 @@ test("existing wallet rows migrate into permanent name bindings", async () => {
     const migrated = await Effect.runPromise(
       Effect.gen(function* () {
         const db = yield* makeDatabase();
-        const names = yield* db.select().from(usernames).orderBy(usernames.username);
+
+        const names = yield* db
+          .select()
+          .from(usernames)
+          .orderBy(usernames.username);
+
         const rows = yield* db.select().from(wallets);
 
         return { names, rows };
       }).pipe(Effect.provide(scratchLayer)),
     );
 
-    expect(migrated.names.map((name) => [name.username, name.address])).toEqual([
-      ["active", active],
-      ["legacy", legacyClaim],
-      ["opened", opened],
-      ["recovered", recovered],
-      ["reopening", reopening],
-      ["signed", signedClaim],
-    ]);
+    expect(migrated.names.map((name) => [name.username, name.address])).toEqual(
+      [
+        ["active", active],
+        ["legacy", legacyClaim],
+        ["opened", opened],
+        ["recovered", recovered],
+        ["reopening", reopening],
+        ["signed", signedClaim],
+      ],
+    );
 
     const status = new Map(migrated.rows.map((row) => [row.address, row]));
 
@@ -166,39 +180,54 @@ test("existing wallet rows migrate into permanent name bindings", async () => {
     // The released name is free; the migrated recovered wallet reopens with its own name.
     const scratchWallet = Wallet.serviceLayer.pipe(
       Layer.provide(
-        Layer.mergeAll(Directory.layer, Transfers.layer).pipe(Layer.provide(scratchLayer)),
+        Layer.mergeAll(Directory.layer, Transfers.layer).pipe(
+          Layer.provide(scratchLayer),
+        ),
       ),
       Layer.provide(fakeChain),
     );
 
-    const reopen = (claim: WalletClaim, approval: Option.Option<Approval> = Option.none()) =>
+    const reopen = (
+      claim: WalletClaim,
+      approval: Option.Option<Approval> = Option.none(),
+    ) =>
       Effect.runPromise(
-        Wallet.use((wallet) => wallet.open(claim, approval)).pipe(Effect.provide(scratchWallet)),
+        Wallet.use((wallet) => wallet.open(claim, approval)).pipe(
+          Effect.provide(scratchWallet),
+        ),
       );
 
     const recoveredKey = keys[6] ?? Keypair.random();
     const claim = claimFor(recoveredKey, "recovered");
 
-    expect(await reopen(claimFor(Keypair.random(), "unsigned"))).toBeInstanceOf(OpeningDraft);
-    expect(await reopen(claimFor(Keypair.random(), "signed"))).toBeInstanceOf(UsernameTaken);
+    expect(await reopen(claimFor(Keypair.random(), "unsigned"))).toBeInstanceOf(
+      OpeningDraft,
+    );
+    expect(await reopen(claimFor(Keypair.random(), "signed"))).toBeInstanceOf(
+      UsernameTaken,
+    );
 
     const draft = await reopen(claim);
 
-    if (!(draft instanceof OpeningDraft)) throw new Error("Expected reopening draft");
+    if (!(draft instanceof OpeningDraft))
+      throw new Error("Expected reopening draft");
 
-    expect(await reopen(claim, approve(draft.request, recoveredKey))).toBeInstanceOf(
-      OpeningPending,
-    );
+    expect(
+      await reopen(claim, approve(draft.request, recoveredKey)),
+    ).toBeInstanceOf(OpeningPending);
 
     const recoveryStep = await reopen(claim);
 
-    if (!(recoveryStep instanceof RecoveryDraft)) throw new Error("Expected recovery draft");
+    if (!(recoveryStep instanceof RecoveryDraft))
+      throw new Error("Expected recovery draft");
 
-    expect(await reopen(claim, approve(recoveryStep.request, recoveredKey))).toEqual(
-      new Opened({ profile: new Profile(claim) }),
-    );
+    expect(
+      await reopen(claim, approve(recoveryStep.request, recoveredKey)),
+    ).toEqual(new Opened({ profile: new Profile(claim) }));
   } finally {
-    await control(sql.raw(`drop database if exists ${scratchName} with (force)`));
+    await control(
+      sql.raw(`drop database if exists ${scratchName} with (force)`),
+    );
     await rm(before, { recursive: true, force: true });
   }
 });

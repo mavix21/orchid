@@ -12,31 +12,35 @@ import * as Schema from "effect/Schema";
 // --- identity -----------------------------------------------------------
 
 /** Lowercase, 3 to 20 of a–z 0–9 underscore. The "@" is display only. */
-export const Username = Schema.String.check(Schema.isPattern(/^[a-z0-9_]{3,20}$/)).pipe(
-  Schema.brand("Username"),
-);
+export const Username = Schema.String.check(
+  Schema.isPattern(/^[a-z0-9_]{3,20}$/),
+).pipe(Schema.brand("Username"));
 export type Username = typeof Username.Type;
 
 /** A Stellar account address. Syntax only; the checksum is verified where the SDK is loaded. */
-export const AccountAddress = Schema.String.check(Schema.isPattern(/^G[A-Z2-7]{55}$/)).pipe(
-  Schema.brand("AccountAddress"),
-);
+export const AccountAddress = Schema.String.check(
+  Schema.isPattern(/^G[A-Z2-7]{55}$/),
+).pipe(Schema.brand("AccountAddress"));
 export type AccountAddress = typeof AccountAddress.Type;
 
-export class Profile extends Schema.Class<Profile>("@workspace/wallet/Profile")({
-  username: Username,
-  address: AccountAddress,
-}) {}
+export class Profile extends Schema.Class<Profile>("@workspace/wallet/Profile")(
+  {
+    username: Username,
+    address: AccountAddress,
+  },
+) {}
 
 // --- money --------------------------------------------------------------
 
 /** USDC in base units: 1 USDC = 10_000_000. A bigint in memory, digits on the wire. */
-export const Usdc = Schema.BigIntFromString.check(/* 0 ≤ units ≤ int64 max */).pipe(
-  Schema.brand("Usdc"),
-);
+export const Usdc = Schema.BigIntFromString.check(
+  /* 0 ≤ units ≤ int64 max */
+).pipe(Schema.brand("Usdc"));
 export type Usdc = typeof Usdc.Type;
 
-export const PositiveUsdc = Usdc.check(/* units > 0 */).pipe(Schema.brand("PositiveUsdc"));
+export const PositiveUsdc = Usdc.check(/* units > 0 */).pipe(
+  Schema.brand("PositiveUsdc"),
+);
 export type PositiveUsdc = typeof PositiveUsdc.Type;
 
 /** "5", "5.5", "5.50" → base units. None when it is not a positive amount with ≤ 7 decimals. */
@@ -46,7 +50,9 @@ export declare function formatUsdc(amount: Usdc): string;
 // --- approval -----------------------------------------------------------
 
 /** A transaction the server built and nobody has signed. Opaque outside `stellar/`. */
-export const UnsignedEnvelope = Schema.String.pipe(Schema.brand("UnsignedEnvelope"));
+export const UnsignedEnvelope = Schema.String.pipe(
+  Schema.brand("UnsignedEnvelope"),
+);
 export type UnsignedEnvelope = typeof UnsignedEnvelope.Type;
 
 export class SigningRequest extends Schema.Class<SigningRequest>(
@@ -57,32 +63,53 @@ export class SigningRequest extends Schema.Class<SigningRequest>(
 }) {}
 
 /** Each signing stage returns one signature and no envelope. */
-export class Approval extends Schema.Class<Approval>("@workspace/wallet/Approval")({
+export class Approval extends Schema.Class<Approval>(
+  "@workspace/wallet/Approval",
+)({
   signature: Schema.Uint8ArrayFromBase64,
 }) {}
 
 // --- opening a wallet ---------------------------------------------------
 
-export class WalletClaim extends Schema.Class<WalletClaim>("@workspace/wallet/WalletClaim")({
+export class WalletClaim extends Schema.Class<WalletClaim>(
+  "@workspace/wallet/WalletClaim",
+)({
   username: Username,
   address: AccountAddress,
 }) {}
 
-export class OpeningDraft extends Schema.TaggedClass<OpeningDraft>()("OpeningDraft", {
-  request: SigningRequest,
-}) {}
-export class RecoveryDraft extends Schema.TaggedClass<RecoveryDraft>()("RecoveryDraft", {
-  request: SigningRequest,
-}) {}
-export class OpeningPending extends Schema.TaggedClass<OpeningPending>()("OpeningPending", {}) {}
-export class Opened extends Schema.TaggedClass<Opened>()("Opened", { profile: Profile }) {}
-export class UsernameTaken extends Schema.TaggedClass<UsernameTaken>()("UsernameTaken", {
-  username: Username,
-}) {}
-/** This address is already bound to another username. */
-export class AddressBound extends Schema.TaggedClass<AddressBound>()("AddressBound", {
+export class OpeningDraft extends Schema.TaggedClass<OpeningDraft>()(
+  "OpeningDraft",
+  {
+    request: SigningRequest,
+  },
+) {}
+export class RecoveryDraft extends Schema.TaggedClass<RecoveryDraft>()(
+  "RecoveryDraft",
+  {
+    request: SigningRequest,
+  },
+) {}
+export class OpeningPending extends Schema.TaggedClass<OpeningPending>()(
+  "OpeningPending",
+  {},
+) {}
+export class Opened extends Schema.TaggedClass<Opened>()("Opened", {
   profile: Profile,
 }) {}
+export class UsernameTaken extends Schema.TaggedClass<UsernameTaken>()(
+  "UsernameTaken",
+  {
+    username: Username,
+  },
+) {}
+/** This address is already bound to another username. */
+export class AddressBound extends Schema.TaggedClass<AddressBound>()(
+  "AddressBound",
+  {
+    profile: Profile,
+  },
+) {}
 
 export const OpenStep = Schema.Union([
   OpeningDraft,
@@ -97,7 +124,9 @@ export type OpenStep = typeof OpenStep.Type;
 // --- transfers ----------------------------------------------------------
 
 /** Minted on the phone with crypto.randomUUID() before any network call. */
-export const TransferId = Schema.String.check(Schema.isUUID(4)).pipe(Schema.brand("TransferId"));
+export const TransferId = Schema.String.check(Schema.isUUID(4)).pipe(
+  Schema.brand("TransferId"),
+);
 export type TransferId = typeof TransferId.Type;
 
 // Recipient variants carry a username, phone or address; phone support is deferred.
@@ -107,7 +136,9 @@ export const Recipient = Schema.Union([
   Schema.TaggedStruct("Address", { value: AccountAddress }),
 ]);
 
-export class TransferOrder extends Schema.Class<TransferOrder>("@workspace/wallet/TransferOrder")({
+export class TransferOrder extends Schema.Class<TransferOrder>(
+  "@workspace/wallet/TransferOrder",
+)({
   id: TransferId,
   from: AccountAddress,
   to: Recipient,
@@ -144,22 +175,47 @@ export class Failed extends Schema.TaggedClass<Failed>()("Failed", {
 }) {}
 
 // Escrow-specific fields and transitions are defined when phone transfers are implemented.
-export class Reserved extends Schema.TaggedClass<Reserved>()("Reserved", transferFields) {}
-export class Claimed extends Schema.TaggedClass<Claimed>()("Claimed", transferFields) {}
-export class Refunded extends Schema.TaggedClass<Refunded>()("Refunded", transferFields) {}
-export const Receipt = Schema.Union([Pending, Settled, Failed, Reserved, Claimed, Refunded]);
+export class Reserved extends Schema.TaggedClass<Reserved>()(
+  "Reserved",
+  transferFields,
+) {}
+export class Claimed extends Schema.TaggedClass<Claimed>()(
+  "Claimed",
+  transferFields,
+) {}
+export class Refunded extends Schema.TaggedClass<Refunded>()(
+  "Refunded",
+  transferFields,
+) {}
+export const Receipt = Schema.Union([
+  Pending,
+  Settled,
+  Failed,
+  Reserved,
+  Claimed,
+  Refunded,
+]);
 export type Receipt = typeof Receipt.Type;
 
-export class TransferDraft extends Schema.TaggedClass<TransferDraft>()("TransferDraft", {
-  request: SigningRequest,
-  recipient: ResolvedRecipient,
-  /** True only for a known memo-requiring exchange address; false is not a completeness claim. */
-  memoRequired: Schema.Boolean,
-}) {}
-export class NotOpened extends Schema.TaggedClass<NotOpened>()("NotOpened", {}) {}
-export class UnknownRecipient extends Schema.TaggedClass<UnknownRecipient>()("UnknownRecipient", {
-  username: Username,
-}) {}
+export class TransferDraft extends Schema.TaggedClass<TransferDraft>()(
+  "TransferDraft",
+  {
+    request: SigningRequest,
+    recipient: ResolvedRecipient,
+    /** True only for a known memo-requiring exchange address; false is not a completeness claim. */
+    memoRequired: Schema.Boolean,
+  },
+) {}
+export class NotOpened extends Schema.TaggedClass<NotOpened>()(
+  "NotOpened",
+  {},
+) {}
+export class UnknownRecipient extends Schema.TaggedClass<UnknownRecipient>()(
+  "UnknownRecipient",
+  {
+    username: Username,
+  },
+) {}
 export class InsufficientBalance extends Schema.TaggedClass<InsufficientBalance>()(
   "InsufficientBalance",
   { available: Usdc },
@@ -188,9 +244,12 @@ export class Holding extends Schema.TaggedClass<Holding>()("Holding", {
   latest: Schema.OptionFromNullOr(Receipt), // the sender's most recent transfer, any state
 }) {}
 
-export class NeedsReopening extends Schema.TaggedClass<NeedsReopening>()("NeedsReopening", {
-  profile: Profile,
-}) {}
+export class NeedsReopening extends Schema.TaggedClass<NeedsReopening>()(
+  "NeedsReopening",
+  {
+    profile: Profile,
+  },
+) {}
 
 export const Overview = Schema.Union([NotOpened, Holding, NeedsReopening]);
 export type Overview = typeof Overview.Type;
@@ -236,18 +295,27 @@ Two rules are visible in these types.
 ```ts
 export class NoWallet extends Schema.TaggedClass<NoWallet>()("NoWallet", {}) {}
 export class Offline extends Schema.TaggedClass<Offline>()("Offline", {}) {}
-export class InvalidUsername extends Schema.TaggedClass<InvalidUsername>()("InvalidUsername", {}) {}
+export class InvalidUsername extends Schema.TaggedClass<InvalidUsername>()(
+  "InvalidUsername",
+  {},
+) {}
 export class InvalidRecipient extends Schema.TaggedClass<InvalidRecipient>()(
   "InvalidRecipient",
   {},
 ) {}
-export class InvalidAmount extends Schema.TaggedClass<InvalidAmount>()("InvalidAmount", {}) {}
+export class InvalidAmount extends Schema.TaggedClass<InvalidAmount>()(
+  "InvalidAmount",
+  {},
+) {}
 export class UnsupportedDevice extends Schema.TaggedClass<UnsupportedDevice>()(
   "UnsupportedDevice",
   {},
 ) {}
 /** The server's transaction did not do exactly what was asked. Nothing was signed. */
-export class DraftRejected extends Schema.TaggedClass<DraftRejected>()("DraftRejected", {}) {}
+export class DraftRejected extends Schema.TaggedClass<DraftRejected>()(
+  "DraftRejected",
+  {},
+) {}
 
 export type DeviceOverview = Holding | NeedsReopening | NoWallet | Offline;
 export type CreateOutcome =
@@ -286,25 +354,37 @@ Internal to the entry:
 ```ts
 // device/Keyring.ts — not exported from the package
 
-class ExpectOpening extends Schema.TaggedClass<ExpectOpening>()("ExpectOpening", {
-  address: AccountAddress,
-}) {}
-class ExpectPayment extends Schema.TaggedClass<ExpectPayment>()("ExpectPayment", {
-  from: AccountAddress,
-  to: AccountAddress,
-  amount: PositiveUsdc,
-}) {}
+class ExpectOpening extends Schema.TaggedClass<ExpectOpening>()(
+  "ExpectOpening",
+  {
+    address: AccountAddress,
+  },
+) {}
+class ExpectPayment extends Schema.TaggedClass<ExpectPayment>()(
+  "ExpectPayment",
+  {
+    from: AccountAddress,
+    to: AccountAddress,
+    amount: PositiveUsdc,
+  },
+) {}
 type Expectation = ExpectOpening | ExpectPayment;
 
-class KeyringUnavailable extends Schema.TaggedError<KeyringUnavailable>()("KeyringUnavailable", {
-  cause: Schema.Defect(),
-}) {}
+class KeyringUnavailable extends Schema.TaggedError<KeyringUnavailable>()(
+  "KeyringUnavailable",
+  {
+    cause: Schema.Defect(),
+  },
+) {}
 
 class Keyring extends Context.Service<
   Keyring,
   {
     /** None until a key exists on this device. */
-    readonly address: Effect.Effect<Option.Option<AccountAddress>, KeyringUnavailable>;
+    readonly address: Effect.Effect<
+      Option.Option<AccountAddress>,
+      KeyringUnavailable
+    >;
     /** Creates the key if there is none. Returns the same address every time after. */
     readonly enroll: Effect.Effect<AccountAddress, KeyringUnavailable>;
     /** The only path to a signature. Fails unless the envelope is exactly what is expected. */

@@ -1,6 +1,10 @@
 import type * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import type { OpeningFacts, PaymentFacts, RecoveryFacts } from "../stellar/envelopes";
+import type {
+  OpeningFacts,
+  PaymentFacts,
+  RecoveryFacts,
+} from "../stellar/envelopes";
 import type {
   AddressBound,
   Approval,
@@ -36,14 +40,20 @@ export class NoWallet extends Schema.TaggedClass<NoWallet>()("NoWallet", {}) {}
 
 export class Offline extends Schema.TaggedClass<Offline>()("Offline", {}) {}
 
-export class InvalidUsername extends Schema.TaggedClass<InvalidUsername>()("InvalidUsername", {}) {}
+export class InvalidUsername extends Schema.TaggedClass<InvalidUsername>()(
+  "InvalidUsername",
+  {},
+) {}
 
 export class InvalidRecipient extends Schema.TaggedClass<InvalidRecipient>()(
   "InvalidRecipient",
   {},
 ) {}
 
-export class InvalidAmount extends Schema.TaggedClass<InvalidAmount>()("InvalidAmount", {}) {}
+export class InvalidAmount extends Schema.TaggedClass<InvalidAmount>()(
+  "InvalidAmount",
+  {},
+) {}
 
 export class UnsupportedDevice extends Schema.TaggedClass<UnsupportedDevice>()(
   "UnsupportedDevice",
@@ -51,9 +61,17 @@ export class UnsupportedDevice extends Schema.TaggedClass<UnsupportedDevice>()(
 ) {}
 
 /** The server's transaction did not do exactly what was asked. Nothing was signed. */
-export class DraftRejected extends Schema.TaggedClass<DraftRejected>()("DraftRejected", {}) {}
+export class DraftRejected extends Schema.TaggedClass<DraftRejected>()(
+  "DraftRejected",
+  {},
+) {}
 
-export type DeviceOverview = Holding | NeedsReopening | InvalidAddress | NoWallet | Offline;
+export type DeviceOverview =
+  | Holding
+  | NeedsReopening
+  | InvalidAddress
+  | NoWallet
+  | Offline;
 
 export type CreateOutcome =
   | InvalidAddress
@@ -87,5 +105,9 @@ export type SendOutcome =
 export interface WalletClient {
   overview(): Promise<DeviceOverview>;
   create(usernameText: string): Promise<CreateOutcome>;
-  send(recipientText: string, amountText: string, memo?: PaymentMemo): Promise<SendOutcome>;
+  send(
+    recipientText: string,
+    amountText: string,
+    memo?: PaymentMemo,
+  ): Promise<SendOutcome>;
 }

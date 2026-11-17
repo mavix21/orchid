@@ -72,7 +72,11 @@ function Home() {
     NoWallet: () => <Welcome />,
     Offline: () => <OfflineNotice />,
     Holding: ({ profile, balance, latest }) => (
-      <Balance username={profile.username} amount={formatUsdc(balance)} latest={latest} />
+      <Balance
+        username={profile.username}
+        amount={formatUsdc(balance)}
+        latest={latest}
+      />
     ),
   });
 }

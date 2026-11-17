@@ -4,4 +4,6 @@ import * as Layer from "effect/Layer";
 
 export { makeDatabase } from "@workspace/db";
 
-export const requestDatabaseLayer = Layer.suspend(() => databaseLayer(env.HYPERDRIVE));
+export const requestDatabaseLayer = Layer.suspend(() =>
+  databaseLayer(env.HYPERDRIVE),
+);
