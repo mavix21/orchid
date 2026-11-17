@@ -1,6 +1,6 @@
 # Orchid
 
-A self-custodial “Yape crypto” wallet on Stellar, planned as a mobile-first PWA.
+A self-custodial “Yape crypto” wallet on Stellar.
 
 ## Problem
 
@@ -14,8 +14,7 @@ Make these payment flows accessible from a mobile browser. The wallet server for
 
 - Usernames and USDC transfers on Stellar testnet — server implemented; UI not built.
 - Exchange withdrawals with memo — server accepts text and ID memos; the known-exchange registry is empty.
-- Self-custody — the server never holds user keys; device key storage and passkey backup ([design](docs/architecture/wallet-testnet/backup.md)) are not built.
-- Payment links, PWA support and agent access via MCP — planned.
+- Self-custody — the server never holds user keys; device key storage and passkey backup are not built.
 
 ## Tech stack
 
