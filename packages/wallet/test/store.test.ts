@@ -708,6 +708,63 @@ test("concurrent signed openings bind a name once and the loser submits nothing"
   expect(world.submitted).toHaveLength(2);
 });
 
+// Store-level fixtures; these bytes are never submitted.
+const placeholderRequest = () =>
+  new SigningRequest({
+    envelope: Schema.decodeSync(SigningRequest.fields.envelope)("AAAA"),
+    expiresAt: DateTime.makeUnsafe(Date.now() + 60_000),
+  });
+
+const placeholderSealed = () =>
+  new Sealed({
+    envelope: "AAAA",
+    hash: "00".repeat(32),
+    expiresAt: DateTime.makeUnsafe(Date.now() + 60_000),
+  });
+
+test("the binding write refuses a taken name even when the soft check is skipped", async () => {
+  await create(Keypair.random(), "maria");
+
+  const key = Keypair.random();
+  const claim = claimFor(key, "maria");
+  const row = await runStores(Directory.use((directory) => directory.start(claim.address)));
+
+  const draft = await runStores(
+    Directory.use((directory) => directory.draft(row, placeholderRequest())),
+  );
+
+  const sealed = placeholderSealed();
+
+  expect(
+    await runStores(Directory.use((directory) => directory.seal(draft, sealed, claim))),
+  ).toEqual(new UsernameTaken({ username: claim.username }));
+
+  const stored = Option.getOrThrow(
+    await runStores(Directory.use((directory) => directory.byAddress(claim.address))),
+  );
+
+  expect(stored.attemptHash).toBeNull();
+  expect(stored.version).toBe(draft.version);
+});
+
+test("a stale binding write stores neither the attempt nor the name", async () => {
+  const key = Keypair.random();
+  const claim = claimFor(key, "maria");
+  const row = await runStores(Directory.use((directory) => directory.start(claim.address)));
+
+  const sealed = placeholderSealed();
+
+  await runStores(Directory.use((directory) => directory.draft(row, placeholderRequest())));
+
+  const written = await runStores(Directory.use((directory) => directory.seal(row, sealed, claim)));
+
+  if (written instanceof UsernameTaken || written instanceof AddressBound)
+    throw new Error("Expected the current row back");
+
+  expect(written.attemptHash).toBeNull();
+  expect(await opening(claimFor(Keypair.random(), "maria"))).toBeInstanceOf(OpeningDraft);
+});
+
 test("reserved names are never bound", async () => {
   const key = Keypair.random();
 

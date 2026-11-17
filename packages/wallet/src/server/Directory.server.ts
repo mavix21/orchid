@@ -187,8 +187,19 @@ export class Directory extends Context.Service<
         sealed: Sealed,
         claim: WalletClaim,
       ) {
+        const unchanged = and(
+          scope,
+          eq(wallets.address, row.address),
+          eq(wallets.version, row.version),
+        );
+
         const outcome = yield* db.transaction((tx) =>
           Effect.gen(function* () {
+            // Lock the row first so the name is bound only if the attempt is stored too.
+            const locked = yield* tx.select().from(wallets).where(unchanged).for("update");
+
+            if (!locked[0]) return undefined;
+
             const bound = yield* bind(tx, claim);
 
             if (!(bound instanceof Available)) return bound;
@@ -201,7 +212,7 @@ export class Directory extends Context.Service<
                 attemptHash: sealed.hash,
                 attemptExpiresAt: DateTime.toDateUtc(sealed.expiresAt),
               })
-              .where(and(scope, eq(wallets.address, row.address), eq(wallets.version, row.version)))
+              .where(unchanged)
               .returning();
 
             return written[0];
@@ -237,9 +248,27 @@ export class Directory extends Context.Service<
         return written[0] ?? (yield* current(row));
       });
 
-      const activate = (row: WalletRow, sealed: Sealed, facts: RecoveryFacts, claim: WalletClaim) =>
-        db.transaction((tx) =>
+      const activate = (
+        row: WalletRow,
+        sealed: Sealed,
+        facts: RecoveryFacts,
+        claim: WalletClaim,
+      ) => {
+        const activatable = and(
+          scope,
+          eq(wallets.address, row.address),
+          or(eq(wallets.status, "opening"), eq(wallets.status, "recovered")),
+          eq(wallets.version, row.version),
+          eq(wallets.recoveryDraft, row.recoveryDraft ?? ""),
+          isNull(wallets.recoveryEnvelope),
+        );
+
+        return db.transaction((tx) =>
           Effect.gen(function* () {
+            const locked = yield* tx.select().from(wallets).where(activatable).for("update");
+
+            if (!locked[0]) return Option.none<Profile>();
+
             // Normally a no-op: the name was bound with the signed opening. An account that
             // already existed skips that step, so binding is repeated before activation.
             const bound = yield* bind(tx, claim);
@@ -258,21 +287,13 @@ export class Directory extends Context.Service<
                 recoveryMinTime: new Date(facts.minTime * 1000),
                 recoveryMaxTime: new Date(facts.maxTime * 1000),
               })
-              .where(
-                and(
-                  scope,
-                  eq(wallets.address, row.address),
-                  or(eq(wallets.status, "opening"), eq(wallets.status, "recovered")),
-                  eq(wallets.version, row.version),
-                  eq(wallets.recoveryDraft, row.recoveryDraft ?? ""),
-                  isNull(wallets.recoveryEnvelope),
-                ),
-              )
+              .where(activatable)
               .returning();
 
             return written[0] ? Option.some(new Profile(claim)) : Option.none();
           }),
         );
+      };
 
       const recover = (row: WalletRow) =>
         db
