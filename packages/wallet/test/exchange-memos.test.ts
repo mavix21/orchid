@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, it } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -9,7 +9,7 @@ import {
 } from "../src/server/exchange-memos.server";
 import { network } from "../src/stellar/network";
 
-test("memo requirements match exact registered addresses and retain source evidence", () => {
+it("memo requirements match exact registered addresses and retain source evidence", () => {
   const address = Schema.decodeSync(AccountAddress)(
     Keypair.random().publicKey(),
   );
@@ -27,7 +27,7 @@ test("memo requirements match exact registered addresses and retain source evide
   expect(Option.isNone(exchangeMemoFor(other, [entry]))).toBe(true);
 });
 
-test("registry entries require testnet, checksum-valid addresses and a public HTTPS source", () => {
+it("registry entries require testnet, checksum-valid addresses and a public HTTPS source", () => {
   const valid = Keypair.random().publicKey();
 
   const entry = {

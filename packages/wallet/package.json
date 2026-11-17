@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "bun test test && bun ../../tools/wallet/check-boundary.mjs",
+    "test": "vitest run && bun ../../tools/wallet/check-boundary.mjs",
     "db:generate": "drizzle-kit generate",
     "testnet:prepare": "bun scripts/prepare-testnet.server.ts",
     "testnet:verify": "bun --env-file=.dev.vars scripts/testnet.server.ts"
@@ -22,8 +22,10 @@
     "effect": "4.1.4"
   },
   "devDependencies": {
+    "@effect/vitest": "4.1.4",
     "@types/bun": "1.4.4",
     "drizzle-kit": "1.0.0-rc.5",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
   }
 }

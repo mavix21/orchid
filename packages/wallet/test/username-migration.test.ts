@@ -1,5 +1,5 @@
 import { AssetOrders } from "../src/server/AssetOrders.server";
-import { expect, test } from "bun:test";
+import { expect, it } from "@effect/vitest";
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,123 +36,135 @@ import {
 
 useDisposableDatabase();
 
-test("existing wallet rows migrate into permanent name bindings", async () => {
-  const folder = `${import.meta.dir}/../drizzle`;
-  const before = await mkdtemp(join(tmpdir(), "orchid-wallet-migrations-"));
-  const scratchName = `wallet_migration_${crypto.randomUUID().replaceAll("-", "")}`;
+it.live("existing wallet rows migrate into permanent name bindings", () =>
+  Effect.gen(function* () {
+    const folder = `${import.meta.dirname}/../drizzle`;
 
-  const control = (statement: ReturnType<typeof sql>) =>
-    Effect.runPromise(
+    const before = yield* Effect.acquireRelease(
+      Effect.promise(() =>
+        mkdtemp(join(tmpdir(), "orchid-wallet-migrations-")),
+      ),
+      (folder) =>
+        Effect.promise(() => rm(folder, { recursive: true, force: true })),
+    );
+
+    const scratchName = `wallet_migration_${crypto.randomUUID().replaceAll("-", "")}`;
+
+    const control = (statement: ReturnType<typeof sql>) =>
       makeDatabase().pipe(
         Effect.flatMap((db) => db.execute(statement)),
         Effect.provide(dbLayer),
-      ),
+      );
+
+    const scratchLayer = databaseLayer({
+      connectionString: `postgres://orchid:orchid-local@127.0.0.1:55433/${scratchName}`,
+    });
+
+    const keys = Array.from({ length: 7 }, () => Keypair.random());
+
+    const [
+      unsigned,
+      signedClaim,
+      legacyClaim,
+      opened,
+      reopening,
+      active,
+      recovered,
+    ] = keys.map(addressOf);
+
+    // The two migrations that existed before usernames moved to their own table.
+    for (const name of (yield* Effect.promise(() => readdir(folder)))
+      .sort()
+      .slice(0, 2))
+      yield* Effect.promise(() =>
+        cp(join(folder, name), join(before, name), { recursive: true }),
+      );
+
+    yield* Effect.acquireRelease(
+      control(sql.raw(`create database ${scratchName}`)),
+      () =>
+        control(
+          sql.raw(`drop database if exists ${scratchName} with (force)`),
+        ).pipe(Effect.orDie),
     );
 
-  const scratchLayer = databaseLayer({
-    connectionString: `postgres://orchid:orchid-local@127.0.0.1:55433/${scratchName}`,
-  });
+    yield* Effect.gen(function* () {
+      const db = yield* makeDatabase();
 
-  const keys = Array.from({ length: 7 }, () => Keypair.random());
+      yield* migrate(db, { migrationsFolder: before });
 
-  const [
-    unsigned,
-    signedClaim,
-    legacyClaim,
-    opened,
-    reopening,
-    active,
-    recovered,
-  ] = keys.map(addressOf);
-
-  // The two migrations that existed before usernames moved to their own table.
-  for (const name of (await readdir(folder)).sort().slice(0, 2))
-    await cp(join(folder, name), join(before, name), { recursive: true });
-
-  await control(sql.raw(`create database ${scratchName}`));
-
-  try {
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const db = yield* makeDatabase();
-
-        yield* migrate(db, { migrationsFolder: before });
-
-        const row = (
-          address: AccountAddress | undefined,
-          username: string,
-          status: string,
-          extra: string,
-        ) =>
-          db.execute(
-            sql.raw(
-              `insert into wallets (address, username, status, "ownershipBound", network, "testnetEpoch", "attemptEnvelope", "attemptHash", "attemptExpiresAt", "recoveryDraft", "recoveryEnvelope", "recoveryHash", "recoverySequence", "recoveryMinTime", "recoveryMaxTime") values ('${address}', '${username}', '${status}', ${extra})`,
-            ),
-          );
-
-        const recovery = `'draft', 'envelope', 'hash', '1001', now(), now() + interval '1 day'`;
-
-        yield* row(
-          unsigned,
-          "unsigned",
-          "claimed",
-          `false, 'testnet', 'before-2026-12-16', 'draft', null, now(), null, null, null, null, null, null`,
-        );
-        yield* row(
-          signedClaim,
-          "signed",
-          "claimed",
-          `false, 'testnet', 'before-2026-12-16', 'sealed', 'hash', now(), null, null, null, null, null, null`,
-        );
-        yield* row(
-          legacyClaim,
-          "legacy",
-          "claimed",
-          `true, 'testnet', 'before-2026-12-16', 'draft', null, now(), null, null, null, null, null, null`,
-        );
-        yield* row(
-          opened,
-          "opened",
-          "opening",
-          `true, 'testnet', 'before-2026-12-16', 'sealed', 'hash', now(), 'draft', null, null, null, null, now() + interval '1 day'`,
-        );
-        yield* row(
-          reopening,
-          "reopening",
-          "reopening",
-          `true, 'testnet', 'before-2026-12-16', 'draft', null, now(), null, null, null, null, null, null`,
-        );
-        yield* row(
-          active,
-          "active",
-          "active",
-          `true, 'testnet', 'before-2026-12-16', 'sealed', 'hash', now(), ${recovery}`,
-        );
-        yield* row(
-          recovered,
-          "recovered",
-          "recovered",
-          `true, 'testnet', 'before-2026-12-16', 'sealed', 'hash', now(), ${recovery}`,
+      const row = (
+        address: AccountAddress | undefined,
+        username: string,
+        status: string,
+        extra: string,
+      ) =>
+        db.execute(
+          sql.raw(
+            `insert into wallets (address, username, status, "ownershipBound", network, "testnetEpoch", "attemptEnvelope", "attemptHash", "attemptExpiresAt", "recoveryDraft", "recoveryEnvelope", "recoveryHash", "recoverySequence", "recoveryMinTime", "recoveryMaxTime") values ('${address}', '${username}', '${status}', ${extra})`,
+          ),
         );
 
-        yield* migrate(db, { migrationsFolder: folder });
-      }).pipe(Effect.provide(scratchLayer)),
-    );
+      const recovery = `'draft', 'envelope', 'hash', '1001', now(), now() + interval '1 day'`;
 
-    const migrated = await Effect.runPromise(
-      Effect.gen(function* () {
-        const db = yield* makeDatabase();
+      yield* row(
+        unsigned,
+        "unsigned",
+        "claimed",
+        `false, 'testnet', 'before-2026-12-16', 'draft', null, now(), null, null, null, null, null, null`,
+      );
+      yield* row(
+        signedClaim,
+        "signed",
+        "claimed",
+        `false, 'testnet', 'before-2026-12-16', 'sealed', 'hash', now(), null, null, null, null, null, null`,
+      );
+      yield* row(
+        legacyClaim,
+        "legacy",
+        "claimed",
+        `true, 'testnet', 'before-2026-12-16', 'draft', null, now(), null, null, null, null, null, null`,
+      );
+      yield* row(
+        opened,
+        "opened",
+        "opening",
+        `true, 'testnet', 'before-2026-12-16', 'sealed', 'hash', now(), 'draft', null, null, null, null, now() + interval '1 day'`,
+      );
+      yield* row(
+        reopening,
+        "reopening",
+        "reopening",
+        `true, 'testnet', 'before-2026-12-16', 'draft', null, now(), null, null, null, null, null, null`,
+      );
+      yield* row(
+        active,
+        "active",
+        "active",
+        `true, 'testnet', 'before-2026-12-16', 'sealed', 'hash', now(), ${recovery}`,
+      );
+      yield* row(
+        recovered,
+        "recovered",
+        "recovered",
+        `true, 'testnet', 'before-2026-12-16', 'sealed', 'hash', now(), ${recovery}`,
+      );
 
-        const names = yield* db
-          .select()
-          .from(usernames)
-          .orderBy(usernames.username);
+      yield* migrate(db, { migrationsFolder: folder });
+    }).pipe(Effect.provide(scratchLayer));
 
-        const rows = yield* db.select().from(wallets);
+    const migrated = yield* Effect.gen(function* () {
+      const db = yield* makeDatabase();
 
-        return { names, rows };
-      }).pipe(Effect.provide(scratchLayer)),
-    );
+      const names = yield* db
+        .select()
+        .from(usernames)
+        .orderBy(usernames.username);
+
+      const rows = yield* db.select().from(wallets);
+
+      return { names, rows };
+    }).pipe(Effect.provide(scratchLayer));
 
     expect(migrated.names.map((name) => [name.username, name.address])).toEqual(
       [
@@ -164,9 +176,7 @@ test("existing wallet rows migrate into permanent name bindings", async () => {
         ["signed", signedClaim],
       ],
     );
-
     const status = new Map(migrated.rows.map((row) => [row.address, row]));
-
     expect(status.get(unsigned)?.status).toBe("opening");
     expect(status.get(signedClaim)?.status).toBe("opening");
     expect(status.get(legacyClaim)?.status).toBe("opening");
@@ -178,7 +188,6 @@ test("existing wallet rows migrate into permanent name bindings", async () => {
     expect(status.get(recovered)?.recoveryEnvelope).toBeNull();
     expect(status.get(recovered)?.attemptHash).toBeNull();
 
-    // The released name is free; the migrated recovered wallet reopens with its own name.
     const scratchWallet = Wallet.serviceLayer.pipe(
       Layer.provide(
         Layer.mergeAll(
@@ -194,43 +203,31 @@ test("existing wallet rows migrate into permanent name bindings", async () => {
       claim: WalletClaim,
       approval: Option.Option<Approval> = Option.none(),
     ) =>
-      Effect.runPromise(
-        Wallet.use((wallet) => wallet.open(claim, approval)).pipe(
-          Effect.provide(scratchWallet),
-        ),
+      Wallet.use((wallet) => wallet.open(claim, approval)).pipe(
+        Effect.provide(scratchWallet),
       );
 
     const recoveredKey = keys[6] ?? Keypair.random();
     const claim = claimFor(recoveredKey, "recovered");
-
-    expect(await reopen(claimFor(Keypair.random(), "unsigned"))).toBeInstanceOf(
-      OpeningDraft,
-    );
-    expect(await reopen(claimFor(Keypair.random(), "signed"))).toBeInstanceOf(
+    expect(
+      yield* reopen(claimFor(Keypair.random(), "unsigned")),
+    ).toBeInstanceOf(OpeningDraft);
+    expect(yield* reopen(claimFor(Keypair.random(), "signed"))).toBeInstanceOf(
       UsernameTaken,
     );
-
-    const draft = await reopen(claim);
+    const draft = yield* reopen(claim);
 
     if (!(draft instanceof OpeningDraft))
       throw new Error("Expected reopening draft");
-
     expect(
-      await reopen(claim, approve(draft.request, recoveredKey)),
+      yield* reopen(claim, approve(draft.request, recoveredKey)),
     ).toBeInstanceOf(OpeningPending);
-
-    const recoveryStep = await reopen(claim);
+    const recoveryStep = yield* reopen(claim);
 
     if (!(recoveryStep instanceof RecoveryDraft))
       throw new Error("Expected recovery draft");
-
     expect(
-      await reopen(claim, approve(recoveryStep.request, recoveredKey)),
+      yield* reopen(claim, approve(recoveryStep.request, recoveredKey)),
     ).toEqual(new Opened({ profile: new Profile(claim) }));
-  } finally {
-    await control(
-      sql.raw(`drop database if exists ${scratchName} with (force)`),
-    );
-    await rm(before, { recursive: true, force: true });
-  }
-});
+  }),
+);

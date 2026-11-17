@@ -1,5 +1,5 @@
 import { baseAsset } from "../src/stellar/assets";
-import { expect, test } from "bun:test";
+import { expect, it } from "@effect/vitest";
 import {
   FeeBumpTransaction,
   xdr,
@@ -69,20 +69,18 @@ const layer = Chain.layer.pipe(
 );
 
 const seal = (envelope: UnsignedEnvelope, expires: number) =>
-  Effect.runPromise(
-    Chain.use((chain) =>
-      chain.seal(
-        new SigningRequest({
-          envelope,
-          expiresAt: DateTime.makeUnsafe(expires * 1000),
-        }),
-        new Approval({ signature: holder.sign(signingPayload(envelope)) }),
-        address,
-      ),
-    ).pipe(Effect.provide(layer)),
-  );
+  Chain.use((chain) =>
+    chain.seal(
+      new SigningRequest({
+        envelope,
+        expiresAt: DateTime.makeUnsafe(expires * 1000),
+      }),
+      new Approval({ signature: holder.sign(signingPayload(envelope)) }),
+      address,
+    ),
+  ).pipe(Effect.provide(layer));
 
-test("money parsing preserves all seven decimals and int64 limits", () => {
+it("money parsing preserves all seven decimals and int64 limits", () => {
   for (const value of [
     "0",
     "-1",
@@ -108,7 +106,7 @@ test("money parsing preserves all seven decimals and int64 limits", () => {
   ).toBe("922337203685.4775807");
 });
 
-test("payment envelopes preserve amount, destination, bounds and next sequence", () => {
+it("payment envelopes preserve amount, destination, bounds and next sequence", () => {
   const amount = Schema.decodeSync(PositiveAmount)("55000001");
 
   const envelope = draftPayment({
@@ -139,7 +137,7 @@ test("payment envelopes preserve amount, destination, bounds and next sequence",
   );
 });
 
-test("opening supports exactly the creation and trustline-repair sandwiches", () => {
+it("opening supports exactly the creation and trustline-repair sandwiches", () => {
   for (const createAccount of [true, false]) {
     const envelope = draftOpening({
       source: new Account(reserveSponsor, "123"),
@@ -162,7 +160,7 @@ test("opening supports exactly the creation and trustline-repair sandwiches", ()
   }
 });
 
-test("recovery contains bounded next-sequence trustline removal and merge", () => {
+it("recovery contains bounded next-sequence trustline removal and merge", () => {
   const envelope = draftRecovery({
     source: new Account(address, "123"),
     reserveSponsor,
@@ -193,7 +191,7 @@ test("recovery contains bounded next-sequence trustline removal and merge", () =
   ).toBe(true);
 });
 
-test("reader rejects unsupported memos, extra operations, operation source and unbounded envelopes", () => {
+it("reader rejects unsupported memos, extra operations, operation source and unbounded envelopes", () => {
   const payment = Operation.payment({
     destination: to,
     asset: usdc,
@@ -245,303 +243,319 @@ test("reader rejects unsupported memos, extra operations, operation source and u
   ).toBe(true);
 });
 
-test("seal verifies the holder and uses a distinct fee payer without modifying the draft", async () => {
-  const now = Math.floor(Date.now() / 1000);
+it.live(
+  "seal verifies the holder and uses a distinct fee payer without modifying the draft",
+  () =>
+    Effect.gen(function* () {
+      const now = Math.floor(Date.now() / 1000);
 
-  const envelope = draftOpening({
-    source: new Account(reserveSponsor, "123"),
-    address,
-    createAccount: true,
-    minTime: now,
-    maxTime: now + 120,
-  });
-
-  const sealed = await seal(envelope, now + 120);
-  const outer = TransactionBuilder.fromXDR(sealed.envelope, networkPassphrase);
-
-  expect("feeSource" in outer && outer.feeSource).toBe(feePayer.publicKey());
-  expect(Option.isSome(readEnvelope(envelope))).toBe(true);
-  expect(
-    Option.isNone(
-      readEnvelope(Schema.decodeSync(UnsignedEnvelope)(sealed.envelope)),
-    ),
-  ).toBe(true);
-
-  const invalid = await Effect.runPromise(
-    Chain.use((chain) =>
-      chain.seal(
-        new SigningRequest({
-          envelope,
-          expiresAt: DateTime.makeUnsafe((now + 120) * 1000),
-        }),
-        new Approval({ signature: new Uint8Array(64) }),
+      const envelope = draftOpening({
+        source: new Account(reserveSponsor, "123"),
         address,
-      ),
-    ).pipe(Effect.result, Effect.provide(layer)),
-  );
+        createAccount: true,
+        minTime: now,
+        maxTime: now + 120,
+      });
 
-  expect(Result.isFailure(invalid)).toBe(true);
-});
+      const sealed = yield* seal(envelope, now + 120);
 
-test("NOT_FOUND only proves expiry when RPC history covers the inclusion window", async () => {
-  const now = Math.floor(Date.now() / 1000);
+      const outer = TransactionBuilder.fromXDR(
+        sealed.envelope,
+        networkPassphrase,
+      );
 
-  const envelope = draftPayment({
-    asset: baseAsset,
-    source: new Account(address, "123"),
-    to,
-    amount: Schema.decodeSync(PositiveAmount)("1"),
-    minTime: now,
-    maxTime: now + 120,
-  });
+      expect("feeSource" in outer && outer.feeSource).toBe(
+        feePayer.publicKey(),
+      );
+      expect(Option.isSome(readEnvelope(envelope))).toBe(true);
+      expect(
+        Option.isNone(
+          readEnvelope(Schema.decodeSync(UnsignedEnvelope)(sealed.envelope)),
+        ),
+      ).toBe(true);
 
-  const sealed = await seal(envelope, now + 120);
+      const invalid = yield* Chain.use((chain) =>
+        chain.seal(
+          new SigningRequest({
+            envelope,
+            expiresAt: DateTime.makeUnsafe((now + 120) * 1000),
+          }),
+          new Approval({ signature: new Uint8Array(64) }),
+          address,
+        ),
+      ).pipe(Effect.result, Effect.provide(layer));
 
-  const missing: rpc.Api.GetMissingTransactionResponse = {
-    status: rpc.Api.GetTransactionStatus.NOT_FOUND,
-    txHash: sealed.hash,
-    latestLedger: 100,
-    latestLedgerCloseTime: now + 121,
-    oldestLedger: 1,
-    oldestLedgerCloseTime: now - 1,
-  };
-
-  expect(
-    settlementFromResponse(
-      missing,
-      sealed,
-      Option.some({
-        sequence: "123",
-        nativeBalance: 0n,
-        balance: Option.none(),
-        ledger: 100,
-        accountSponsored: true,
-        sponsored: true,
-      }),
-    ),
-  ).toBeInstanceOf(Expired);
-  expect(
-    settlementFromResponse(
-      { ...missing, oldestLedgerCloseTime: now + 1 },
-      sealed,
-      Option.some({
-        sequence: "123",
-        nativeBalance: 0n,
-        balance: Option.none(),
-        ledger: 100,
-        accountSponsored: true,
-        sponsored: true,
-      }),
-    ),
-  ).toBeInstanceOf(Undecided);
-  expect(
-    settlementFromResponse(
-      { ...missing, latestLedgerCloseTime: now + 120 },
-      sealed,
-      Option.some({
-        sequence: "123",
-        nativeBalance: 0n,
-        balance: Option.none(),
-        ledger: 100,
-        accountSponsored: true,
-        sponsored: true,
-      }),
-    ),
-  ).toBeInstanceOf(Undecided);
-});
-
-test("consumed sequence only concludes with complete inner-hash absence evidence", async () => {
-  const now = Math.floor(Date.now() / 1000);
-
-  const envelope = draftPayment({
-    asset: baseAsset,
-    source: new Account(address, "123"),
-    to,
-    amount: Schema.decodeSync(PositiveAmount)("1"),
-    minTime: now,
-    maxTime: now + 120,
-  });
-
-  const sealed = await seal(envelope, now + 120);
-
-  const reader: SettlementReader = {
-    transaction: (hash) =>
-      Effect.succeed({
-        status: rpc.Api.GetTransactionStatus.NOT_FOUND,
-        txHash: hash,
-        latestLedger: 100,
-        latestLedgerCloseTime: now + 121,
-        oldestLedger: 1,
-        oldestLedgerCloseTime: now - 1,
-      }),
-    account: () =>
-      Effect.succeed(
-        Option.some({
-          sequence: "124",
-          nativeBalance: 0n,
-          balance: Option.none(),
-          ledger: 100,
-          accountSponsored: true,
-          sponsored: true,
-        }),
-      ),
-  };
-
-  expect(await Effect.runPromise(resolveSettlement(sealed, reader))).toEqual(
-    new Rejected({ code: "sequence_consumed" }),
-  );
-
-  const outsideHistory: SettlementReader = {
-    ...reader,
-    transaction: (hash: string) =>
-      Effect.succeed({
-        status: rpc.Api.GetTransactionStatus.NOT_FOUND,
-        txHash: hash,
-        latestLedger: 100,
-        latestLedgerCloseTime: now + 121,
-        oldestLedger: 90,
-        oldestLedgerCloseTime: now + 1,
-      }),
-  };
-
-  expect(
-    await Effect.runPromise(resolveSettlement(sealed, outsideHistory)),
-  ).toBeInstanceOf(Undecided);
-
-  const behind: SettlementReader = {
-    ...reader,
-    transaction: (hash: string) =>
-      Effect.succeed({
-        status: rpc.Api.GetTransactionStatus.NOT_FOUND,
-        txHash: hash,
-        latestLedger: 99,
-        latestLedgerCloseTime: now + 121,
-        oldestLedger: 1,
-        oldestLedgerCloseTime: now - 1,
-      }),
-  };
-
-  expect(
-    await Effect.runPromise(resolveSettlement(sealed, behind)),
-  ).toBeInstanceOf(Undecided);
-
-  const absent = {
-    ...reader,
-    account: () =>
-      Effect.succeed(
-        Option.some({
-          sequence: "123",
-          nativeBalance: 0n,
-          balance: Option.none(),
-          ledger: 100,
-          accountSponsored: true,
-          sponsored: true,
-        }),
-      ),
-  };
-
-  expect(
-    await Effect.runPromise(resolveSettlement(sealed, absent)),
-  ).toBeInstanceOf(Expired);
-
-  const stale = {
-    ...absent,
-    account: () =>
-      Effect.succeed(
-        Option.some({
-          sequence: "123",
-          nativeBalance: 0n,
-          balance: Option.none(),
-          ledger: 99,
-          accountSponsored: true,
-          sponsored: true,
-        }),
-      ),
-  };
-
-  expect(
-    await Effect.runPromise(resolveSettlement(sealed, stale)),
-  ).toBeInstanceOf(Undecided);
-});
-
-test("settlement discovers the same inner transaction under a different fee payer", async () => {
-  const now = Math.floor(Date.now() / 1000);
-
-  const envelope = draftPayment({
-    asset: baseAsset,
-    source: new Account(address, "123"),
-    to,
-    amount: Schema.decodeSync(PositiveAmount)("1"),
-    minTime: now,
-    maxTime: now + 120,
-  });
-
-  const sealed = await seal(envelope, now + 120);
-
-  const original = TransactionBuilder.fromXDR(
-    sealed.envelope,
-    networkPassphrase,
-  );
-
-  if (!(original instanceof FeeBumpTransaction))
-    throw new Error("Expected fee bump");
-
-  const other = Keypair.random();
-
-  const replacement = TransactionBuilder.buildFeeBumpTransaction(
-    other.publicKey(),
-    baseFee,
-    original.innerTransaction,
-    networkPassphrase,
-  );
-
-  replacement.sign(other);
-
-  const applied: rpc.Api.GetSuccessfulTransactionResponse = {
-    status: rpc.Api.GetTransactionStatus.SUCCESS,
-    txHash: "alternate fee bump",
-    latestLedger: 100,
-    latestLedgerCloseTime: now + 121,
-    oldestLedger: 1,
-    oldestLedgerCloseTime: now - 1,
-    ledger: 90,
-    createdAt: now + 20,
-    applicationOrder: 1,
-    feeBump: true,
-    envelopeXdr: replacement.toEnvelope(),
-    resultXdr: new xdr.TransactionResult({
-      feeCharged: 200n,
-      result: xdr.TransactionResultResult.txSuccess([]),
-      ext: xdr.TransactionResultExt.v0(),
+      expect(Result.isFailure(invalid)).toBe(true);
     }),
-    resultMetaXdr: xdr.TransactionMeta.operations([]),
-    events: { contractEventsXdr: [], transactionEventsXdr: [] },
-  };
+);
 
-  const reader: SettlementReader = {
-    transaction: (hash) =>
-      Effect.succeed(
-        hash === sealed.hash
-          ? {
-              status: rpc.Api.GetTransactionStatus.NOT_FOUND,
-              txHash: hash,
-              latestLedger: 100,
-              latestLedgerCloseTime: now + 121,
-              oldestLedger: 1,
-              oldestLedgerCloseTime: now - 1,
-            }
-          : applied,
-      ),
-    account: () =>
-      Effect.die("A confirmed inner result needs no sequence inference"),
-  };
+it.live(
+  "NOT_FOUND only proves expiry when RPC history covers the inclusion window",
+  () =>
+    Effect.gen(function* () {
+      const now = Math.floor(Date.now() / 1000);
 
-  expect(await Effect.runPromise(resolveSettlement(sealed, reader))).toEqual(
-    new Applied({ at: DateTime.makeUnsafe((now + 20) * 1000) }),
-  );
-});
+      const envelope = draftPayment({
+        asset: baseAsset,
+        source: new Account(address, "123"),
+        to,
+        amount: Schema.decodeSync(PositiveAmount)("1"),
+        minTime: now,
+        maxTime: now + 120,
+      });
 
-test("recovery sponsorship requires matching account and trustline sponsors, not sponsored counts", () => {
+      const sealed = yield* seal(envelope, now + 120);
+
+      const missing: rpc.Api.GetMissingTransactionResponse = {
+        status: rpc.Api.GetTransactionStatus.NOT_FOUND,
+        txHash: sealed.hash,
+        latestLedger: 100,
+        latestLedgerCloseTime: now + 121,
+        oldestLedger: 1,
+        oldestLedgerCloseTime: now - 1,
+      };
+
+      expect(
+        settlementFromResponse(
+          missing,
+          sealed,
+          Option.some({
+            sequence: "123",
+            nativeBalance: 0n,
+            balance: Option.none(),
+            ledger: 100,
+            accountSponsored: true,
+            sponsored: true,
+          }),
+        ),
+      ).toBeInstanceOf(Expired);
+      expect(
+        settlementFromResponse(
+          { ...missing, oldestLedgerCloseTime: now + 1 },
+          sealed,
+          Option.some({
+            sequence: "123",
+            nativeBalance: 0n,
+            balance: Option.none(),
+            ledger: 100,
+            accountSponsored: true,
+            sponsored: true,
+          }),
+        ),
+      ).toBeInstanceOf(Undecided);
+      expect(
+        settlementFromResponse(
+          { ...missing, latestLedgerCloseTime: now + 120 },
+          sealed,
+          Option.some({
+            sequence: "123",
+            nativeBalance: 0n,
+            balance: Option.none(),
+            ledger: 100,
+            accountSponsored: true,
+            sponsored: true,
+          }),
+        ),
+      ).toBeInstanceOf(Undecided);
+    }),
+);
+
+it.live(
+  "consumed sequence only concludes with complete inner-hash absence evidence",
+  () =>
+    Effect.gen(function* () {
+      const now = Math.floor(Date.now() / 1000);
+
+      const envelope = draftPayment({
+        asset: baseAsset,
+        source: new Account(address, "123"),
+        to,
+        amount: Schema.decodeSync(PositiveAmount)("1"),
+        minTime: now,
+        maxTime: now + 120,
+      });
+
+      const sealed = yield* seal(envelope, now + 120);
+
+      const reader: SettlementReader = {
+        transaction: (hash) =>
+          Effect.succeed({
+            status: rpc.Api.GetTransactionStatus.NOT_FOUND,
+            txHash: hash,
+            latestLedger: 100,
+            latestLedgerCloseTime: now + 121,
+            oldestLedger: 1,
+            oldestLedgerCloseTime: now - 1,
+          }),
+        account: () =>
+          Effect.succeed(
+            Option.some({
+              sequence: "124",
+              nativeBalance: 0n,
+              balance: Option.none(),
+              ledger: 100,
+              accountSponsored: true,
+              sponsored: true,
+            }),
+          ),
+      };
+
+      expect(yield* resolveSettlement(sealed, reader)).toEqual(
+        new Rejected({ code: "sequence_consumed" }),
+      );
+
+      const outsideHistory: SettlementReader = {
+        ...reader,
+        transaction: (hash: string) =>
+          Effect.succeed({
+            status: rpc.Api.GetTransactionStatus.NOT_FOUND,
+            txHash: hash,
+            latestLedger: 100,
+            latestLedgerCloseTime: now + 121,
+            oldestLedger: 90,
+            oldestLedgerCloseTime: now + 1,
+          }),
+      };
+
+      expect(yield* resolveSettlement(sealed, outsideHistory)).toBeInstanceOf(
+        Undecided,
+      );
+
+      const behind: SettlementReader = {
+        ...reader,
+        transaction: (hash: string) =>
+          Effect.succeed({
+            status: rpc.Api.GetTransactionStatus.NOT_FOUND,
+            txHash: hash,
+            latestLedger: 99,
+            latestLedgerCloseTime: now + 121,
+            oldestLedger: 1,
+            oldestLedgerCloseTime: now - 1,
+          }),
+      };
+
+      expect(yield* resolveSettlement(sealed, behind)).toBeInstanceOf(
+        Undecided,
+      );
+
+      const absent = {
+        ...reader,
+        account: () =>
+          Effect.succeed(
+            Option.some({
+              sequence: "123",
+              nativeBalance: 0n,
+              balance: Option.none(),
+              ledger: 100,
+              accountSponsored: true,
+              sponsored: true,
+            }),
+          ),
+      };
+
+      expect(yield* resolveSettlement(sealed, absent)).toBeInstanceOf(Expired);
+
+      const stale = {
+        ...absent,
+        account: () =>
+          Effect.succeed(
+            Option.some({
+              sequence: "123",
+              nativeBalance: 0n,
+              balance: Option.none(),
+              ledger: 99,
+              accountSponsored: true,
+              sponsored: true,
+            }),
+          ),
+      };
+
+      expect(yield* resolveSettlement(sealed, stale)).toBeInstanceOf(Undecided);
+    }),
+);
+
+it.live(
+  "settlement discovers the same inner transaction under a different fee payer",
+  () =>
+    Effect.gen(function* () {
+      const now = Math.floor(Date.now() / 1000);
+
+      const envelope = draftPayment({
+        asset: baseAsset,
+        source: new Account(address, "123"),
+        to,
+        amount: Schema.decodeSync(PositiveAmount)("1"),
+        minTime: now,
+        maxTime: now + 120,
+      });
+
+      const sealed = yield* seal(envelope, now + 120);
+
+      const original = TransactionBuilder.fromXDR(
+        sealed.envelope,
+        networkPassphrase,
+      );
+
+      if (!(original instanceof FeeBumpTransaction))
+        throw new Error("Expected fee bump");
+
+      const other = Keypair.random();
+
+      const replacement = TransactionBuilder.buildFeeBumpTransaction(
+        other.publicKey(),
+        baseFee,
+        original.innerTransaction,
+        networkPassphrase,
+      );
+
+      replacement.sign(other);
+
+      const applied: rpc.Api.GetSuccessfulTransactionResponse = {
+        status: rpc.Api.GetTransactionStatus.SUCCESS,
+        txHash: "alternate fee bump",
+        latestLedger: 100,
+        latestLedgerCloseTime: now + 121,
+        oldestLedger: 1,
+        oldestLedgerCloseTime: now - 1,
+        ledger: 90,
+        createdAt: now + 20,
+        applicationOrder: 1,
+        feeBump: true,
+        envelopeXdr: replacement.toEnvelope(),
+        resultXdr: new xdr.TransactionResult({
+          feeCharged: 200n,
+          result: xdr.TransactionResultResult.txSuccess([]),
+          ext: xdr.TransactionResultExt.v0(),
+        }),
+        resultMetaXdr: xdr.TransactionMeta.operations([]),
+        events: { contractEventsXdr: [], transactionEventsXdr: [] },
+      };
+
+      const reader: SettlementReader = {
+        transaction: (hash) =>
+          Effect.succeed(
+            hash === sealed.hash
+              ? {
+                  status: rpc.Api.GetTransactionStatus.NOT_FOUND,
+                  txHash: hash,
+                  latestLedger: 100,
+                  latestLedgerCloseTime: now + 121,
+                  oldestLedger: 1,
+                  oldestLedgerCloseTime: now - 1,
+                }
+              : applied,
+          ),
+        account: () =>
+          Effect.die("A confirmed inner result needs no sequence inference"),
+      };
+
+      expect(yield* resolveSettlement(sealed, reader)).toEqual(
+        new Applied({ at: DateTime.makeUnsafe((now + 20) * 1000) }),
+      );
+    }),
+);
+
+it("recovery sponsorship requires matching account and trustline sponsors, not sponsored counts", () => {
   const account = xdr.LedgerEntryData.account(
     new xdr.AccountEntry({
       accountId: holder.xdrPublicKey(),
@@ -613,64 +627,69 @@ test("recovery sponsorship requires matching account and trustline sponsors, not
   ).toBe(false);
 });
 
-test("text and id memos validate at the boundary and survive reading and sealing", async () => {
-  const now = Math.floor(Date.now() / 1000);
+it.live(
+  "text and id memos validate at the boundary and survive reading and sealing",
+  () =>
+    Effect.gen(function* () {
+      const now = Math.floor(Date.now() / 1000);
 
-  for (const memo of [
-    { type: "text", value: "exchange dépôt 🪷" },
-    { type: "text", value: "\uFEFFdeposit" },
-    { type: "id", value: "18446744073709551615" },
-    { type: "id", value: "0" },
-  ]) {
-    const checked = Schema.decodeUnknownSync(PaymentMemo)(memo);
+      for (const memo of [
+        { type: "text", value: "exchange dépôt 🪷" },
+        { type: "text", value: "\uFEFFdeposit" },
+        { type: "id", value: "18446744073709551615" },
+        { type: "id", value: "0" },
+      ]) {
+        const checked = Schema.decodeUnknownSync(PaymentMemo)(memo);
 
-    const envelope = draftPayment({
-      asset: baseAsset,
-      source: new Account(address, "123"),
-      to,
-      amount: Schema.decodeSync(PositiveAmount)("1"),
-      minTime: now,
-      maxTime: now + 120,
-      memo: checked,
-    });
+        const envelope = draftPayment({
+          asset: baseAsset,
+          source: new Account(address, "123"),
+          to,
+          amount: Schema.decodeSync(PositiveAmount)("1"),
+          minTime: now,
+          maxTime: now + 120,
+          memo: checked,
+        });
 
-    const facts = Option.getOrThrow(readEnvelope(envelope));
+        const facts = Option.getOrThrow(readEnvelope(envelope));
 
-    if (!(facts instanceof PaymentFacts)) throw new Error("Expected payment");
+        if (!(facts instanceof PaymentFacts))
+          throw new Error("Expected payment");
 
-    expect(facts.memo).toEqual(checked);
+        expect(facts.memo).toEqual(checked);
 
-    const sealed = await seal(envelope, now + 120);
+        const sealed = yield* seal(envelope, now + 120);
 
-    const outer = TransactionBuilder.fromXDR(
-      sealed.envelope,
-      networkPassphrase,
-    );
+        const outer = TransactionBuilder.fromXDR(
+          sealed.envelope,
+          networkPassphrase,
+        );
 
-    if (!(outer instanceof FeeBumpTransaction))
-      throw new Error("Expected fee bump");
+        if (!(outer instanceof FeeBumpTransaction))
+          throw new Error("Expected fee bump");
 
-    expect(outer.innerTransaction.memo.toXdrObject().toXDR("base64")).toBe(
-      (checked.type === "text"
-        ? Memo.text(checked.value)
-        : Memo.id(checked.value)
-      )
-        .toXdrObject()
-        .toXDR("base64"),
-    );
-  }
+        expect(outer.innerTransaction.memo.toXdrObject().toXDR("base64")).toBe(
+          (checked.type === "text"
+            ? Memo.text(checked.value)
+            : Memo.id(checked.value)
+          )
+            .toXdrObject()
+            .toXDR("base64"),
+        );
+      }
 
-  for (const memo of [
-    { type: "text", value: "" },
-    { type: "text", value: "é".repeat(15) },
-    { type: "text", value: "\uD800" },
-    { type: "id", value: "18446744073709551616" },
-    { type: "id", value: "-1" },
-    { type: "id", value: "01" },
-    { type: "id", value: "1e3" },
-    { type: "hash", value: "abc" },
-  ])
-    expect(Option.isNone(Schema.decodeUnknownOption(PaymentMemo)(memo))).toBe(
-      true,
-    );
-});
+      for (const memo of [
+        { type: "text", value: "" },
+        { type: "text", value: "é".repeat(15) },
+        { type: "text", value: "\uD800" },
+        { type: "id", value: "18446744073709551616" },
+        { type: "id", value: "-1" },
+        { type: "id", value: "01" },
+        { type: "id", value: "1e3" },
+        { type: "hash", value: "abc" },
+      ])
+        expect(
+          Option.isNone(Schema.decodeUnknownOption(PaymentMemo)(memo)),
+        ).toBe(true);
+    }),
+);

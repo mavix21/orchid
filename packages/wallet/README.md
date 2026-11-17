@@ -66,7 +66,7 @@ docker run -d --rm --name orchid-wallet-verification \
 bun run --cwd packages/wallet test
 ```
 
-Tests use only this fixed local database, apply the official Effect Postgres migrator twice to check replay, and truncate its wallet tables between cases. Do not point it at application data. Stop the disposable database with `docker stop orchid-wallet-verification`.
+Tests run with `@effect/vitest`. Database suites run serially with scoped shared layers and the live clock because wallet code and SQL use wall time. They use only this fixed local database, apply the official Effect Postgres migrator twice to check replay, and truncate its wallet tables between cases. Do not point it at application data. Stop the disposable database with `docker stop orchid-wallet-verification`.
 
 Generate migrations with the official Drizzle Kit release matching the installed ORM:
 

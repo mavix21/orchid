@@ -6,7 +6,7 @@ import type {
 } from "../src/server/ledger-assets.server";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { baseAsset } from "../src/stellar/assets";
-import { beforeAll, beforeEach, expect } from "bun:test";
+import { beforeAll, beforeEach, expect } from "@effect/vitest";
 import {
   Account,
   FeeBumpTransaction,
@@ -301,12 +301,8 @@ export const walletLayer = Wallet.serviceLayer.pipe(
   Layer.provide(fakeChain),
 );
 
-export const run = <A, E>(program: Effect.Effect<A, E, Wallet>) =>
-  Effect.runPromise(program.pipe(Effect.provide(walletLayer)));
-
-export const runStores = <A, E>(
-  program: Effect.Effect<A, E, Directory | Transfers>,
-) => Effect.runPromise(program.pipe(Effect.provide(stores)));
+// Tests and wallet services share one scoped database pool within each suite.
+export const walletTestLayer = Layer.mergeAll(walletLayer, stores, dbLayer);
 
 export const addressOf = (key: Keypair) =>
   Schema.decodeSync(AccountAddress)(key.publicKey());
@@ -339,30 +335,30 @@ export const claimFor = (key: Keypair, name: string) =>
 export const opening = (
   claim: WalletClaim,
   approval: Option.Option<Approval> = Option.none(),
-) => run(Wallet.use((wallet) => wallet.open(claim, approval)));
+) => Wallet.use((wallet) => wallet.open(claim, approval));
 
-export const create = async (key: Keypair, name: string) => {
+export const create = Effect.fn(function* (key: Keypair, name: string) {
   const claim = claimFor(key, name);
-  const draft = await opening(claim);
+  const draft = yield* opening(claim);
 
   if (!(draft instanceof OpeningDraft))
     throw new Error("Expected opening draft");
 
-  expect(await opening(claim, approve(draft.request, key))).toBeInstanceOf(
+  expect(yield* opening(claim, approve(draft.request, key))).toBeInstanceOf(
     OpeningPending,
   );
 
-  const recovery = await opening(claim);
+  const recovery = yield* opening(claim);
 
   if (!(recovery instanceof RecoveryDraft))
     throw new Error("Expected recovery draft");
 
-  expect(await opening(claim, approve(recovery.request, key))).toBeInstanceOf(
+  expect(yield* opening(claim, approve(recovery.request, key))).toBeInstanceOf(
     Opened,
   );
 
   return claim;
-};
+});
 
 export const orderFor = (sender: Keypair, to: Recipient) =>
   new TransferOrder({
@@ -376,7 +372,7 @@ export const orderFor = (sender: Keypair, to: Recipient) =>
 export const send = (
   order: TransferOrder,
   approval: Option.Option<Approval> = Option.none(),
-) => run(Wallet.use((wallet) => wallet.transfer(order, approval)));
+) => Wallet.use((wallet) => wallet.transfer(order, approval));
 
 // Store-level fixtures; these bytes are never submitted.
 export const placeholderRequest = () =>
@@ -419,10 +415,10 @@ export function useDisposableDatabase() {
         const db = yield* makeDatabase();
 
         yield* migrate(db, {
-          migrationsFolder: `${import.meta.dir}/../drizzle`,
+          migrationsFolder: `${import.meta.dirname}/../drizzle`,
         });
         yield* migrate(db, {
-          migrationsFolder: `${import.meta.dir}/../drizzle`,
+          migrationsFolder: `${import.meta.dirname}/../drizzle`,
         });
       }).pipe(Effect.provide(dbLayer)),
     );

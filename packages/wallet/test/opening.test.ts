@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, layer } from "@effect/vitest";
 import {
   Account,
   Transaction,
@@ -37,8 +37,6 @@ import {
   reserveSponsor,
   world,
   fakeChain,
-  run,
-  runStores,
   addressOf,
   approve,
   claimFor,
@@ -47,238 +45,262 @@ import {
   orderFor,
   send,
   useDisposableDatabase,
+  walletTestLayer,
 } from "./wallet-harness";
 
 useDisposableDatabase();
 
-test("opening resumes missing recovery and never activates without a valid signature", async () => {
-  const key = Keypair.random();
-  const claim = claimFor(key, "maria");
-  const draft = await opening(claim);
+layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
+  (it) => {
+    it.effect(
+      "opening resumes missing recovery and never activates without a valid signature",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+          const claim = claimFor(key, "maria");
+          const draft = yield* opening(claim);
 
-  if (!(draft instanceof OpeningDraft)) throw new Error("Expected draft");
+          if (!(draft instanceof OpeningDraft))
+            throw new Error("Expected draft");
 
-  await opening(claim, approve(draft.request, key));
+          yield* opening(claim, approve(draft.request, key));
 
-  const recovery = await opening(claim);
-  const repeated = await opening(claim);
+          const recovery = yield* opening(claim);
+          const repeated = yield* opening(claim);
 
-  expect(repeated).toEqual(recovery);
-  expect(recovery).toBeInstanceOf(RecoveryDraft);
-  expect(
-    (
-      await runStores(
-        Directory.use((directory) => directory.byAddress(claim.address)),
-      )
-    ).pipe(Option.map((row) => row.status)),
-  ).toEqual(Option.some("opening"));
+          expect(repeated).toEqual(recovery);
+          expect(recovery).toBeInstanceOf(RecoveryDraft);
+          expect(
+            (yield* Directory.use((directory) =>
+              directory.byAddress(claim.address),
+            )).pipe(Option.map((row) => row.status)),
+          ).toEqual(Option.some("opening"));
 
-  if (!(recovery instanceof RecoveryDraft))
-    throw new Error("Expected recovery");
+          if (!(recovery instanceof RecoveryDraft))
+            throw new Error("Expected recovery");
 
-  expect(
-    await opening(claim, approve(recovery.request, Keypair.random())),
-  ).toEqual(recovery);
-  expect(await opening(claim, approve(recovery.request, key))).toBeInstanceOf(
-    Opened,
-  );
-  expect(world.submitted).toHaveLength(1);
-});
+          expect(
+            yield* opening(claim, approve(recovery.request, Keypair.random())),
+          ).toEqual(recovery);
+          expect(
+            yield* opening(claim, approve(recovery.request, key)),
+          ).toBeInstanceOf(Opened);
+          expect(world.submitted).toHaveLength(1);
+        }),
+    );
 
-test("missing account and missing trustline reopen with the same username and key", async () => {
-  const key = Keypair.random();
-  const claim = await create(key, "maria");
+    it.effect(
+      "missing account and missing trustline reopen with the same username and key",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+          const claim = yield* create(key, "maria");
 
-  for (const missing of ["account", "trustline"]) {
-    if (missing === "account") world.accounts.delete(claim.address);
-    else
-      world.accounts.set(claim.address, {
-        sequence: "2000",
-        ledger: 100,
-        accountSponsored: true,
-        sponsored: true,
-        nativeBalance: 0n,
-        balance: Option.none(),
-      });
+          for (const missing of ["account", "trustline"]) {
+            if (missing === "account") world.accounts.delete(claim.address);
+            else
+              world.accounts.set(claim.address, {
+                sequence: "2000",
+                ledger: 100,
+                accountSponsored: true,
+                sponsored: true,
+                nativeBalance: 0n,
+                balance: Option.none(),
+              });
 
-    expect(
-      await run(Wallet.use((wallet) => wallet.overview(claim.address))),
-    ).toBeInstanceOf(NeedsReopening);
-    expect(
-      (
-        await runStores(
-          Directory.use((directory) => directory.byAddress(claim.address)),
-        )
-      ).pipe(Option.map((row) => row.status)),
-    ).toEqual(Option.some("recovered"));
-    await create(key, "maria");
-    expect(
-      await run(Wallet.use((wallet) => wallet.overview(claim.address))),
-    ).toBeInstanceOf(Holding);
-  }
-});
+            expect(
+              yield* Wallet.use((wallet) => wallet.overview(claim.address)),
+            ).toBeInstanceOf(NeedsReopening);
+            expect(
+              (yield* Directory.use((directory) =>
+                directory.byAddress(claim.address),
+              )).pipe(Option.map((row) => row.status)),
+            ).toEqual(Option.some("recovered"));
+            yield* create(key, "maria");
+            expect(
+              yield* Wallet.use((wallet) => wallet.overview(claim.address)),
+            ).toBeInstanceOf(Holding);
+          }
+        }),
+    );
 
-test("a sealed opening outside RPC history redrafts after the ledger passes maxTime", async () => {
-  const key = Keypair.random();
-  const claim = claimFor(key, "maria");
+    it.effect(
+      "a sealed opening outside RPC history redrafts after the ledger passes maxTime",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+          const claim = claimFor(key, "maria");
 
-  const row = await runStores(
-    Directory.use((directory) => directory.start(claim.address)),
-  );
+          const row = yield* Directory.use((directory) =>
+            directory.start(claim.address),
+          );
 
-  const now = Math.floor(Date.now() / 1000);
+          const now = Math.floor(Date.now() / 1000);
 
-  const envelope = draftOpening({
-    source: new Account(reserveSponsor, "100"),
-    address: claim.address,
-    createAccount: true,
-    minTime: now - 200,
-    maxTime: now - 80,
-  });
+          const envelope = draftOpening({
+            source: new Account(reserveSponsor, "100"),
+            address: claim.address,
+            createAccount: true,
+            minTime: now - 200,
+            maxTime: now - 80,
+          });
 
-  const inner = TransactionBuilder.fromXDR(envelope, networkPassphrase);
+          const inner = TransactionBuilder.fromXDR(envelope, networkPassphrase);
 
-  if (!(inner instanceof Transaction))
-    throw new Error("Expected inner transaction");
+          if (!(inner instanceof Transaction))
+            throw new Error("Expected inner transaction");
 
-  inner.sign(sponsor, key);
+          inner.sign(sponsor, key);
 
-  const outer = TransactionBuilder.buildFeeBumpTransaction(
-    feePayer.publicKey(),
-    "100",
-    inner,
-    networkPassphrase,
-  );
+          const outer = TransactionBuilder.buildFeeBumpTransaction(
+            feePayer.publicKey(),
+            "100",
+            inner,
+            networkPassphrase,
+          );
 
-  outer.sign(feePayer);
+          outer.sign(feePayer);
 
-  const historical = new Sealed({
-    envelope: outer.toXDR(),
-    hash: Array.from(outer.hash(), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join(""),
-    expiresAt: DateTime.makeUnsafe((now - 80) * 1000),
-  });
+          const historical = new Sealed({
+            envelope: outer.toXDR(),
+            hash: Array.from(outer.hash(), (byte) =>
+              byte.toString(16).padStart(2, "0"),
+            ).join(""),
+            expiresAt: DateTime.makeUnsafe((now - 80) * 1000),
+          });
 
-  expect(
-    await runStores(
-      Directory.use((directory) => directory.seal(row, historical, claim)),
-    ),
-  ).not.toBeInstanceOf(UsernameTaken);
+          expect(
+            yield* Directory.use((directory) =>
+              directory.seal(row, historical, claim),
+            ),
+          ).not.toBeInstanceOf(UsernameTaken);
 
-  const retry = await opening(claim);
+          const retry = yield* opening(claim);
 
-  expect(retry).toBeInstanceOf(OpeningDraft);
-  expect(world.submitted).toHaveLength(0);
-  expect(
-    Option.getOrThrow(
-      await runStores(
-        Directory.use((directory) => directory.byAddress(claim.address)),
-      ),
-    ).attemptHash,
-  ).toBeNull();
-});
+          expect(retry).toBeInstanceOf(OpeningDraft);
+          expect(world.submitted).toHaveLength(0);
+          expect(
+            Option.getOrThrow(
+              yield* Directory.use((directory) =>
+                directory.byAddress(claim.address),
+              ),
+            ).attemptHash,
+          ).toBeNull();
+        }),
+    );
 
-test("one missing RPC observation does not demote an active wallet", async () => {
-  const key = Keypair.random();
-  const claim = await create(key, "maria");
-  let reads = 0;
+    it.effect(
+      "one missing RPC observation does not demote an active wallet",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+          const claim = yield* create(key, "maria");
+          let reads = 0;
 
-  const transient = Layer.effect(
-    Chain,
-    Effect.gen(function* () {
-      const real = yield* Chain;
+          const transient = Layer.effect(
+            Chain,
+            Effect.gen(function* () {
+              const real = yield* Chain;
 
-      return Chain.of({
-        ...real,
-        account: (address) => {
-          reads++;
+              return Chain.of({
+                ...real,
+                account: (address) => {
+                  reads++;
 
-          return reads === 1
-            ? Effect.succeed(Option.none())
-            : real.account(address);
-        },
-      });
-    }),
-  ).pipe(Layer.provide(fakeChain));
+                  return reads === 1
+                    ? Effect.succeed(Option.none())
+                    : real.account(address);
+                },
+              });
+            }),
+          ).pipe(Layer.provide(fakeChain));
 
-  const transientWallet = Wallet.serviceLayer.pipe(
-    Layer.provide(stores),
-    Layer.provide(transient),
-  );
+          const transientWallet = Wallet.serviceLayer.pipe(
+            Layer.provide(stores),
+            Layer.provide(transient),
+          );
 
-  const result = await Effect.runPromise(
-    Wallet.use((wallet) => wallet.overview(claim.address)).pipe(
-      Effect.provide(transientWallet),
-    ),
-  );
+          const result = yield* Wallet.use((wallet) =>
+            wallet.overview(claim.address),
+          ).pipe(Effect.provide(Layer.fresh(transientWallet)));
 
-  expect(result).toBeInstanceOf(Holding);
-  expect(
-    Option.getOrThrow(
-      await runStores(
-        Directory.use((directory) => directory.byAddress(claim.address)),
-      ),
-    ).status,
-  ).toBe("active");
-});
+          expect(result).toBeInstanceOf(Holding);
+          expect(
+            Option.getOrThrow(
+              yield* Directory.use((directory) =>
+                directory.byAddress(claim.address),
+              ),
+            ).status,
+          ).toBe("active");
+        }),
+    );
 
-test("unsponsored and differently sponsored accounts never receive recovery drafts", async () => {
-  const key = Keypair.random();
-  const claim = claimFor(key, "maria");
+    it.effect(
+      "unsponsored and differently sponsored accounts never receive recovery drafts",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+          const claim = claimFor(key, "maria");
 
-  world.accounts.set(claim.address, {
-    sequence: "1000",
-    nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Amount)("0")),
-    ledger: 100,
-    accountSponsored: false,
-    sponsored: false,
-  });
-  expect(await opening(claim)).toBeInstanceOf(NotSponsored);
-  expect(
-    Option.isNone(
-      await runStores(
-        Directory.use((directory) => directory.byAddress(claim.address)),
-      ),
-    ),
-  ).toBe(true);
-  world.accounts.set(claim.address, {
-    sequence: "1000",
-    nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Amount)("0")),
-    ledger: 100,
-    accountSponsored: true,
-    sponsored: false,
-  });
-  expect(await opening(claim)).toBeInstanceOf(NotSponsored);
-  expect(world.submitted).toHaveLength(0);
-});
+          world.accounts.set(claim.address, {
+            sequence: "1000",
+            nativeBalance: 0n,
+            balance: Option.some(Schema.decodeSync(Amount)("0")),
+            ledger: 100,
+            accountSponsored: false,
+            sponsored: false,
+          });
+          expect(yield* opening(claim)).toBeInstanceOf(NotSponsored);
+          expect(
+            Option.isNone(
+              yield* Directory.use((directory) =>
+                directory.byAddress(claim.address),
+              ),
+            ),
+          ).toBe(true);
+          world.accounts.set(claim.address, {
+            sequence: "1000",
+            nativeBalance: 0n,
+            balance: Option.some(Schema.decodeSync(Amount)("0")),
+            ledger: 100,
+            accountSponsored: true,
+            sponsored: false,
+          });
+          expect(yield* opening(claim)).toBeInstanceOf(NotSponsored);
+          expect(world.submitted).toHaveLength(0);
+        }),
+    );
 
-test("bad address checksums are typed refusals before username claims or drafts", async () => {
-  const key = Keypair.random();
-  const valid = addressOf(key);
+    it.effect(
+      "bad address checksums are typed refusals before username claims or drafts",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+          const valid = addressOf(key);
 
-  const bad = Schema.decodeSync(AccountAddress)(
-    `${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`,
-  );
+          const bad = Schema.decodeSync(AccountAddress)(
+            `${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`,
+          );
 
-  const claim = new WalletClaim({
-    username: Schema.decodeSync(Username)("maria"),
-    address: bad,
-  });
+          const claim = new WalletClaim({
+            username: Schema.decodeSync(Username)("maria"),
+            address: bad,
+          });
 
-  expect(await opening(claim)).toBeInstanceOf(InvalidAddress);
-  expect(
-    await run(Wallet.use((wallet) => wallet.overview(bad))),
-  ).toBeInstanceOf(InvalidAddress);
-  expect(
-    Option.isNone(
-      await runStores(Directory.use((directory) => directory.byAddress(bad))),
-    ),
-  ).toBe(true);
-  expect(
-    await send(orderFor(key, AddressRecipient.make({ value: bad }))),
-  ).toBeInstanceOf(InvalidAddress);
-  expect(world.submitted).toHaveLength(0);
-});
+          expect(yield* opening(claim)).toBeInstanceOf(InvalidAddress);
+          expect(
+            yield* Wallet.use((wallet) => wallet.overview(bad)),
+          ).toBeInstanceOf(InvalidAddress);
+          expect(
+            Option.isNone(
+              yield* Directory.use((directory) => directory.byAddress(bad)),
+            ),
+          ).toBe(true);
+          expect(
+            yield* send(orderFor(key, AddressRecipient.make({ value: bad }))),
+          ).toBeInstanceOf(InvalidAddress);
+          expect(world.submitted).toHaveLength(0);
+        }),
+    );
+  },
+);

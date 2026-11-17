@@ -1,5 +1,5 @@
 import { AssetOrders } from "../src/server/AssetOrders.server";
-import { expect, test } from "bun:test";
+import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -29,185 +29,230 @@ import {
   dbLayer,
   world,
   fakeChain,
-  run,
-  runStores,
   addressOf,
   approve,
   create,
   orderFor,
   send,
   useDisposableDatabase,
+  walletTestLayer,
 } from "./wallet-harness";
 
 useDisposableDatabase();
 
-test("a signed transfer survives failed submit and sweep finishes without the device", async () => {
-  const key = Keypair.random();
+layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
+  (it) => {
+    it.effect(
+      "a signed transfer survives failed submit and sweep finishes without the device",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
 
-  await create(key, "maria");
-  world.accounts.set(addressOf(key), {
-    sequence: "1000",
-    ledger: 100,
-    accountSponsored: true,
-    sponsored: true,
-    nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Amount)("50000000")),
-  });
+          yield* create(key, "maria");
+          world.accounts.set(addressOf(key), {
+            sequence: "1000",
+            ledger: 100,
+            accountSponsored: true,
+            sponsored: true,
+            nativeBalance: 0n,
+            balance: Option.some(Schema.decodeSync(Amount)("50000000")),
+          });
 
-  const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
-  const draft = await send(order);
+          const order = orderFor(
+            key,
+            AddressRecipient.make({ value: addressOf(key) }),
+          );
 
-  if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
+          const draft = yield* send(order);
 
-  expect(draft.recipient).toBeInstanceOf(Profile);
-  expect(await send(order)).toEqual(draft);
-  world.failSubmit = true;
-  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(
-    Pending,
-  );
+          if (!(draft instanceof TransferDraft))
+            throw new Error("Expected draft");
 
-  const stored = Option.getOrThrow(
-    await runStores(Transfers.use((transfers) => transfers.find(order.id))),
-  );
+          expect(draft.recipient).toBeInstanceOf(Profile);
+          expect(yield* send(order)).toEqual(draft);
+          world.failSubmit = true;
+          expect(
+            yield* send(order, approve(draft.request, key)),
+          ).toBeInstanceOf(Pending);
 
-  if (!(stored instanceof Authorized))
-    throw new Error("Expected durable authorization");
+          const stored = Option.getOrThrow(
+            yield* Transfers.use((transfers) => transfers.find(order.id)),
+          );
 
-  world.failSubmit = false;
-  await run(Wallet.use((wallet) => wallet.sweep));
-  expect(world.submitted.at(-1)?.hash).toBe(stored.sealed.hash);
-  world.evidence.set(
-    stored.sealed.hash,
-    new Applied({ at: DateTime.nowUnsafe() }),
-  );
-  await run(Wallet.use((wallet) => wallet.sweep));
-  expect(await send(order)).toBeInstanceOf(Settled);
-  expect(
-    Option.getOrThrow(
-      await runStores(Transfers.use((transfers) => transfers.find(order.id))),
-    ),
-  ).toBeInstanceOf(Concluded);
-});
+          if (!(stored instanceof Authorized))
+            throw new Error("Expected durable authorization");
 
-test("concurrent approvals allow only one signed transfer per sender", async () => {
-  const key = Keypair.random();
+          world.failSubmit = false;
+          yield* Wallet.use((wallet) => wallet.sweep);
+          expect(world.submitted.at(-1)?.hash).toBe(stored.sealed.hash);
+          world.evidence.set(
+            stored.sealed.hash,
+            new Applied({ at: DateTime.nowUnsafe() }),
+          );
+          yield* Wallet.use((wallet) => wallet.sweep);
+          expect(yield* send(order)).toBeInstanceOf(Settled);
+          expect(
+            Option.getOrThrow(
+              yield* Transfers.use((transfers) => transfers.find(order.id)),
+            ),
+          ).toBeInstanceOf(Concluded);
+        }),
+    );
 
-  await create(key, "maria");
-  world.accounts.set(addressOf(key), {
-    sequence: "1000",
-    ledger: 100,
-    accountSponsored: true,
-    sponsored: true,
-    nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Amount)("50000000")),
-  });
+    it.effect(
+      "concurrent approvals allow only one signed transfer per sender",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
 
-  const to = AddressRecipient.make({ value: addressOf(key) });
-  const orders = [orderFor(key, to), orderFor(key, to)];
-  const drafts = await Promise.all(orders.map((order) => send(order)));
+          yield* create(key, "maria");
+          world.accounts.set(addressOf(key), {
+            sequence: "1000",
+            ledger: 100,
+            accountSponsored: true,
+            sponsored: true,
+            nativeBalance: 0n,
+            balance: Option.some(Schema.decodeSync(Amount)("50000000")),
+          });
 
-  const results = await Promise.all(
-    orders.map((order, index) => {
-      const draft = drafts[index];
+          const to = AddressRecipient.make({ value: addressOf(key) });
+          const orders = [orderFor(key, to), orderFor(key, to)];
 
-      if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
+          const drafts = yield* Effect.all(
+            orders.map((order) => send(order)),
+            { concurrency: "unbounded" },
+          );
 
-      return send(order, approve(draft.request, key));
-    }),
-  );
+          const results = yield* Effect.all(
+            orders.map((order, index) => {
+              const draft = drafts[index];
 
-  expect(results.filter((result) => result instanceof Pending)).toHaveLength(1);
-  expect(results.filter((result) => result instanceof SenderBusy)).toHaveLength(
-    1,
-  );
-  expect(
-    await runStores(Transfers.use((transfers) => transfers.inFlight)),
-  ).toHaveLength(1);
-});
+              if (!(draft instanceof TransferDraft))
+                throw new Error("Expected draft");
 
-test("same id concurrent approvals keep one immutable sealed envelope", async () => {
-  const key = Keypair.random();
+              return send(order, approve(draft.request, key));
+            }),
+            { concurrency: "unbounded" },
+          );
 
-  await create(key, "maria");
-  world.accounts.set(addressOf(key), {
-    sequence: "1000",
-    ledger: 100,
-    accountSponsored: true,
-    sponsored: true,
-    nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Amount)("50000000")),
-  });
+          expect(
+            results.filter((result) => result instanceof Pending),
+          ).toHaveLength(1);
+          expect(
+            results.filter((result) => result instanceof SenderBusy),
+          ).toHaveLength(1);
+          expect(
+            yield* Transfers.use((transfers) => transfers.inFlight),
+          ).toHaveLength(1);
+        }),
+    );
 
-  const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
-  const draft = await send(order);
+    it.effect(
+      "same id concurrent approvals keep one immutable sealed envelope",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
 
-  if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
+          yield* create(key, "maria");
+          world.accounts.set(addressOf(key), {
+            sequence: "1000",
+            ledger: 100,
+            accountSponsored: true,
+            sponsored: true,
+            nativeBalance: 0n,
+            balance: Option.some(Schema.decodeSync(Amount)("50000000")),
+          });
 
-  const results = await Promise.all([
-    send(order, approve(draft.request, key)),
-    send(order, approve(draft.request, key)),
-  ]);
+          const order = orderFor(
+            key,
+            AddressRecipient.make({ value: addressOf(key) }),
+          );
 
-  expect(results.every((result) => result instanceof Pending)).toBe(true);
-  expect(
-    await runStores(Transfers.use((transfers) => transfers.inFlight)),
-  ).toHaveLength(1);
-});
+          const draft = yield* send(order);
 
-test("database failure during authorization submits nothing", async () => {
-  const key = Keypair.random();
+          if (!(draft instanceof TransferDraft))
+            throw new Error("Expected draft");
 
-  await create(key, "maria");
-  world.accounts.set(addressOf(key), {
-    sequence: "1000",
-    ledger: 100,
-    accountSponsored: true,
-    sponsored: true,
-    nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Amount)("50000000")),
-  });
+          const results = yield* Effect.all(
+            [
+              send(order, approve(draft.request, key)),
+              send(order, approve(draft.request, key)),
+            ],
+            { concurrency: "unbounded" },
+          );
 
-  const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
-  const draft = await send(order);
+          expect(results.every((result) => result instanceof Pending)).toBe(
+            true,
+          );
+          expect(
+            yield* Transfers.use((transfers) => transfers.inFlight),
+          ).toHaveLength(1);
+        }),
+    );
 
-  if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
+    it.effect("database failure during authorization submits nothing", () =>
+      Effect.gen(function* () {
+        const key = Keypair.random();
 
-  const initial = world.submitted.length;
+        yield* create(key, "maria");
+        world.accounts.set(addressOf(key), {
+          sequence: "1000",
+          ledger: 100,
+          accountSponsored: true,
+          sponsored: true,
+          nativeBalance: 0n,
+          balance: Option.some(Schema.decodeSync(Amount)("50000000")),
+        });
 
-  const brokenTransfers = Layer.effect(
-    Transfers,
-    Effect.gen(function* () {
-      const actual = yield* Transfers;
+        const order = orderFor(
+          key,
+          AddressRecipient.make({ value: addressOf(key) }),
+        );
 
-      return Transfers.of({
-        ...actual,
-        authorize: () =>
-          Effect.fail(
-            new StoreFailure({ cause: new Error("Database unavailable") }),
+        const draft = yield* send(order);
+
+        if (!(draft instanceof TransferDraft))
+          throw new Error("Expected draft");
+
+        const initial = world.submitted.length;
+
+        const brokenTransfers = Layer.effect(
+          Transfers,
+          Effect.gen(function* () {
+            const actual = yield* Transfers;
+
+            return Transfers.of({
+              ...actual,
+              authorize: () =>
+                Effect.fail(
+                  new StoreFailure({
+                    cause: new Error("Database unavailable"),
+                  }),
+                ),
+            });
+          }),
+        ).pipe(Layer.provide(Transfers.layer));
+
+        const brokenWallet = Wallet.serviceLayer.pipe(
+          Layer.provide(
+            Layer.mergeAll(Directory.layer, brokenTransfers, AssetOrders.layer),
           ),
-      });
-    }),
-  ).pipe(Layer.provide(Transfers.layer));
+          Layer.provide(fakeChain),
+          Layer.provide(dbLayer),
+        );
 
-  const brokenWallet = Wallet.serviceLayer.pipe(
-    Layer.provide(
-      Layer.mergeAll(Directory.layer, brokenTransfers, AssetOrders.layer),
-    ),
-    Layer.provide(fakeChain),
-    Layer.provide(dbLayer),
-  );
+        const result = yield* Wallet.use((wallet) =>
+          wallet.transfer(order, approve(draft.request, key)),
+        ).pipe(Effect.result, Effect.provide(Layer.fresh(brokenWallet)));
 
-  const result = await Effect.runPromise(
-    Wallet.use((wallet) =>
-      wallet.transfer(order, approve(draft.request, key)),
-    ).pipe(Effect.result, Effect.provide(brokenWallet)),
-  );
-
-  expect(Result.isFailure(result)).toBe(true);
-  expect(world.submitted).toHaveLength(initial);
-  expect(
-    Option.getOrThrow(
-      await runStores(Transfers.use((service) => service.find(order.id))),
-    ),
-  ).toBeInstanceOf(Proposed);
-});
+        expect(Result.isFailure(result)).toBe(true);
+        expect(world.submitted).toHaveLength(initial);
+        expect(
+          Option.getOrThrow(
+            yield* Transfers.use((service) => service.find(order.id)),
+          ),
+        ).toBeInstanceOf(Proposed);
+      }),
+    );
+  },
+);

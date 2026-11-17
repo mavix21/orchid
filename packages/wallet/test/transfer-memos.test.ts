@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import * as Effect from "effect/Effect";
+import { expect, layer } from "@effect/vitest";
 import {
   FeeBumpTransaction,
   Keypair,
@@ -28,7 +29,6 @@ import { PaymentFacts, readEnvelope } from "../src/stellar/envelopes";
 import { networkPassphrase } from "../src/stellar/network";
 import {
   world,
-  runStores,
   addressOf,
   registerExchange,
   approve,
@@ -37,207 +37,251 @@ import {
   send,
   fundHolder,
   useDisposableDatabase,
+  walletTestLayer,
 } from "./wallet-harness";
 
 useDisposableDatabase();
 
-test("unlisted external destinations accept no memo and expose that a memo is optional", async () => {
-  const key = Keypair.random();
+layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
+  (it) => {
+    it.effect(
+      "unlisted external destinations accept no memo and expose that a memo is optional",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
 
-  await create(key, "maria");
-  fundHolder(key);
+          yield* create(key, "maria");
+          fundHolder(key);
 
-  const destinationKey = Keypair.random();
-  fundHolder(destinationKey);
-  const destination = addressOf(destinationKey);
-  const order = orderFor(key, AddressRecipient.make({ value: destination }));
-  const draft = await send(order);
+          const destinationKey = Keypair.random();
+          fundHolder(destinationKey);
+          const destination = addressOf(destinationKey);
 
-  if (!(draft instanceof TransferDraft))
-    throw new Error("Expected external draft");
+          const order = orderFor(
+            key,
+            AddressRecipient.make({ value: destination }),
+          );
 
-  expect(draft.recipient).toEqual(
-    new ExternalRecipient({ address: destination }),
-  );
-  expect(draft.memoRequired).toBe(false);
-  const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
+          const draft = yield* send(order);
 
-  if (!(facts instanceof PaymentFacts))
-    throw new Error("Expected payment facts");
+          if (!(draft instanceof TransferDraft))
+            throw new Error("Expected external draft");
 
-  expect(facts.memo).toBeUndefined();
-  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(
-    Pending,
-  );
+          expect(draft.recipient).toEqual(
+            new ExternalRecipient({ address: destination }),
+          );
+          expect(draft.memoRequired).toBe(false);
+          const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
 
-  const signed = Option.getOrThrow(
-    await runStores(Transfers.use((service) => service.find(order.id))),
-  );
+          if (!(facts instanceof PaymentFacts))
+            throw new Error("Expected payment facts");
 
-  if (!(signed instanceof Authorized))
-    throw new Error("Expected authorization");
+          expect(facts.memo).toBeUndefined();
+          expect(
+            yield* send(order, approve(draft.request, key)),
+          ).toBeInstanceOf(Pending);
 
-  expect(signed.order.memo).toBeUndefined();
+          const signed = Option.getOrThrow(
+            yield* Transfers.use((service) => service.find(order.id)),
+          );
 
-  const outer = TransactionBuilder.fromXDR(
-    signed.sealed.envelope,
-    networkPassphrase,
-  );
+          if (!(signed instanceof Authorized))
+            throw new Error("Expected authorization");
 
-  if (!(outer instanceof FeeBumpTransaction))
-    throw new Error("Expected fee bump");
+          expect(signed.order.memo).toBeUndefined();
 
-  expect(outer.innerTransaction.memo.type).toBe("none");
-  world.evidence.set(
-    signed.sealed.hash,
-    new Applied({ at: DateTime.nowUnsafe() }),
-  );
-  const receipt = await send(order);
+          const outer = TransactionBuilder.fromXDR(
+            signed.sealed.envelope,
+            networkPassphrase,
+          );
 
-  if (!(receipt instanceof Settled))
-    throw new Error("Expected settled receipt");
+          if (!(outer instanceof FeeBumpTransaction))
+            throw new Error("Expected fee bump");
 
-  expect(receipt.memo).toBeUndefined();
-});
+          expect(outer.innerTransaction.memo.type).toBe("none");
+          world.evidence.set(
+            signed.sealed.hash,
+            new Applied({ at: DateTime.nowUnsafe() }),
+          );
+          const receipt = yield* send(order);
 
-test("known exchange destinations refuse missing memos with client-visible source evidence", async () => {
-  const key = Keypair.random();
+          if (!(receipt instanceof Settled))
+            throw new Error("Expected settled receipt");
 
-  await create(key, "maria");
+          expect(receipt.memo).toBeUndefined();
+        }),
+    );
 
-  const entry = registerExchange(addressOf(Keypair.random()));
-  const order = orderFor(key, AddressRecipient.make({ value: entry.address }));
-  const initialSubmissions = world.submitted.length;
+    it.effect(
+      "known exchange destinations refuse missing memos with client-visible source evidence",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
 
-  expect(await send(order)).toEqual(
-    new ExternalMemoRequired({
-      address: entry.address,
-      exchange: entry.exchange,
-      source: entry.source,
-    }),
-  );
-  expect(
-    Option.isNone(
-      await runStores(Transfers.use((service) => service.find(order.id))),
-    ),
-  ).toBe(true);
-  expect(world.submitted).toHaveLength(initialSubmissions);
-});
+          yield* create(key, "maria");
 
-test("a new registry entry blocks an unsigned draft but preserves an authorized external transfer", async () => {
-  const key = Keypair.random();
+          const entry = registerExchange(addressOf(Keypair.random()));
 
-  await create(key, "maria");
-  fundHolder(key);
+          const order = orderFor(
+            key,
+            AddressRecipient.make({ value: entry.address }),
+          );
 
-  const destinationKey = Keypair.random();
-  fundHolder(destinationKey);
-  const destination = addressOf(destinationKey);
-  const order = orderFor(key, AddressRecipient.make({ value: destination }));
-  const draft = await send(order);
+          const initialSubmissions = world.submitted.length;
 
-  if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
+          expect(yield* send(order)).toEqual(
+            new ExternalMemoRequired({
+              address: entry.address,
+              exchange: entry.exchange,
+              source: entry.source,
+            }),
+          );
+          expect(
+            Option.isNone(
+              yield* Transfers.use((service) => service.find(order.id)),
+            ),
+          ).toBe(true);
+          expect(world.submitted).toHaveLength(initialSubmissions);
+        }),
+    );
 
-  registerExchange(destination);
-  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(
-    ExternalMemoRequired,
-  );
-  expect(
-    Option.getOrThrow(
-      await runStores(Transfers.use((service) => service.find(order.id))),
-    ),
-  ).toBeInstanceOf(Proposed);
-  world.exchangeMemos.length = 0;
-  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(
-    Pending,
-  );
-  registerExchange(destination);
-  expect(await send(order)).toBeInstanceOf(Pending);
-});
+    it.effect(
+      "a new registry entry blocks an unsigned draft but preserves an authorized external transfer",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
 
-test("external text/id memos survive draft, signature, durable order and receipt; Orchid memos are refused", async () => {
-  const key = Keypair.random();
+          yield* create(key, "maria");
+          fundHolder(key);
 
-  await create(key, "maria");
-  fundHolder(key);
+          const destinationKey = Keypair.random();
+          fundHolder(destinationKey);
+          const destination = addressOf(destinationKey);
 
-  const memos: ReadonlyArray<PaymentMemo> = [
-    { type: "text", value: "deposit-123" },
-    { type: "id", value: "18446744073709551615" },
-  ];
+          const order = orderFor(
+            key,
+            AddressRecipient.make({ value: destination }),
+          );
 
-  for (const required of [false, true]) {
-    for (const memo of memos) {
-      const destinationKey = Keypair.random();
-      fundHolder(destinationKey);
-      const destination = addressOf(destinationKey);
+          const draft = yield* send(order);
 
-      if (required) registerExchange(destination);
+          if (!(draft instanceof TransferDraft))
+            throw new Error("Expected draft");
 
-      const order = new TransferOrder({
-        ...orderFor(key, AddressRecipient.make({ value: destination })),
-        memo: Schema.decodeUnknownSync(PaymentMemo)(memo),
-      });
+          registerExchange(destination);
+          expect(
+            yield* send(order, approve(draft.request, key)),
+          ).toBeInstanceOf(ExternalMemoRequired);
+          expect(
+            Option.getOrThrow(
+              yield* Transfers.use((service) => service.find(order.id)),
+            ),
+          ).toBeInstanceOf(Proposed);
+          world.exchangeMemos.length = 0;
+          expect(
+            yield* send(order, approve(draft.request, key)),
+          ).toBeInstanceOf(Pending);
+          registerExchange(destination);
+          expect(yield* send(order)).toBeInstanceOf(Pending);
+        }),
+    );
 
-      const draft = await send(order);
+    it.effect(
+      "external text/id memos survive draft, signature, durable order and receipt; Orchid memos are refused",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
 
-      if (!(draft instanceof TransferDraft))
-        throw new Error("Expected memo draft");
+          yield* create(key, "maria");
+          fundHolder(key);
 
-      expect(draft.recipient).toBeInstanceOf(ExternalRecipient);
-      expect(draft.memoRequired).toBe(required);
-      const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
+          const memos: ReadonlyArray<PaymentMemo> = [
+            { type: "text", value: "deposit-123" },
+            { type: "id", value: "18446744073709551615" },
+          ];
 
-      if (!(facts instanceof PaymentFacts))
-        throw new Error("Expected payment facts");
+          for (const required of [false, true]) {
+            for (const memo of memos) {
+              const destinationKey = Keypair.random();
+              fundHolder(destinationKey);
+              const destination = addressOf(destinationKey);
 
-      expect(facts.memo).toEqual(memo);
-      await send(order, approve(draft.request, key));
+              if (required) registerExchange(destination);
 
-      const signed = Option.getOrThrow(
-        await runStores(Transfers.use((service) => service.find(order.id))),
-      );
+              const order = new TransferOrder({
+                ...orderFor(key, AddressRecipient.make({ value: destination })),
+                memo: Schema.decodeUnknownSync(PaymentMemo)(memo),
+              });
 
-      if (!(signed instanceof Authorized))
-        throw new Error("Expected authorization");
+              const draft = yield* send(order);
 
-      expect(signed.order.memo).toEqual(memo);
-      world.evidence.set(
-        signed.sealed.hash,
-        new Applied({ at: DateTime.nowUnsafe() }),
-      );
+              if (!(draft instanceof TransferDraft))
+                throw new Error("Expected memo draft");
 
-      const receipt = await send(order);
+              expect(draft.recipient).toBeInstanceOf(ExternalRecipient);
+              expect(draft.memoRequired).toBe(required);
 
-      if (!(receipt instanceof Settled)) throw new Error("Expected receipt");
+              const facts = Option.getOrThrow(
+                readEnvelope(draft.request.envelope),
+              );
 
-      expect(receipt.memo).toEqual(memo);
-      expect(receipt.recipient).toEqual(
-        new ExternalRecipient({ address: destination }),
-      );
-    }
-  }
+              if (!(facts instanceof PaymentFacts))
+                throw new Error("Expected payment facts");
 
-  registerExchange(addressOf(key));
+              expect(facts.memo).toEqual(memo);
+              yield* send(order, approve(draft.request, key));
 
-  const plain = await send(
-    orderFor(key, AddressRecipient.make({ value: addressOf(key) })),
-  );
+              const signed = Option.getOrThrow(
+                yield* Transfers.use((service) => service.find(order.id)),
+              );
 
-  if (!(plain instanceof TransferDraft))
-    throw new Error("Expected Orchid draft");
+              if (!(signed instanceof Authorized))
+                throw new Error("Expected authorization");
 
-  expect(plain.memoRequired).toBe(false);
+              expect(signed.order.memo).toEqual(memo);
+              world.evidence.set(
+                signed.sealed.hash,
+                new Applied({ at: DateTime.nowUnsafe() }),
+              );
 
-  const orchid = new TransferOrder({
-    ...orderFor(key, AddressRecipient.make({ value: addressOf(key) })),
-    memo: Schema.decodeSync(PaymentMemo)({ type: "text", value: "unwanted" }),
-  });
+              const receipt = yield* send(order);
 
-  expect(await send(orchid)).toBeInstanceOf(MemoNotAllowed);
-  expect(
-    Option.isNone(
-      await runStores(Transfers.use((service) => service.find(orchid.id))),
-    ),
-  ).toBe(true);
-});
+              if (!(receipt instanceof Settled))
+                throw new Error("Expected receipt");
+
+              expect(receipt.memo).toEqual(memo);
+              expect(receipt.recipient).toEqual(
+                new ExternalRecipient({ address: destination }),
+              );
+            }
+          }
+
+          registerExchange(addressOf(key));
+
+          const plain = yield* send(
+            orderFor(key, AddressRecipient.make({ value: addressOf(key) })),
+          );
+
+          if (!(plain instanceof TransferDraft))
+            throw new Error("Expected Orchid draft");
+
+          expect(plain.memoRequired).toBe(false);
+
+          const orchid = new TransferOrder({
+            ...orderFor(key, AddressRecipient.make({ value: addressOf(key) })),
+            memo: Schema.decodeSync(PaymentMemo)({
+              type: "text",
+              value: "unwanted",
+            }),
+          });
+
+          expect(yield* send(orchid)).toBeInstanceOf(MemoNotAllowed);
+          expect(
+            Option.isNone(
+              yield* Transfers.use((service) => service.find(orchid.id)),
+            ),
+          ).toBe(true);
+        }),
+    );
+  },
+);
