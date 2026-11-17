@@ -12,6 +12,9 @@ import {
   assetKey,
 } from "../contract";
 import {
+  ClaimFacts,
+  TrustlineFacts,
+  TrustlineRemovalFacts,
   draftClaim,
   draftTrustline,
   draftTrustlineRemoval,
@@ -43,7 +46,8 @@ export function draftPlan(plan: AssetPlan, input: PlanInput): UnsignedEnvelope {
   return Match.valueTags(plan, {
     OpenTrustline: ({ asset }) =>
       draftTrustline({ ...drafting, reserveSponsor, asset }),
-    CloseTrustline: ({ asset }) => draftTrustlineRemoval({ ...drafting, asset }),
+    CloseTrustline: ({ asset }) =>
+      draftTrustlineRemoval({ ...drafting, asset }),
     ClaimPlan: ({ balance, opens }) =>
       opens
         ? draftClaim({
@@ -64,13 +68,13 @@ export function plannedSequence(
     Option.filter((facts) =>
       Match.valueTags(plan, {
         OpenTrustline: ({ asset }) =>
-          facts._tag === "TrustlineFacts" &&
+          facts instanceof TrustlineFacts &&
           assetKey(facts.asset) === assetKey(asset),
         CloseTrustline: ({ asset }) =>
-          facts._tag === "TrustlineRemovalFacts" &&
+          facts instanceof TrustlineRemovalFacts &&
           assetKey(facts.asset) === assetKey(asset),
         ClaimPlan: ({ balance, opens }) =>
-          facts._tag === "ClaimFacts" &&
+          facts instanceof ClaimFacts &&
           facts.balance === balance &&
           (facts.opens ? assetKey(facts.opens) : undefined) ===
             (opens ? assetKey(opens) : undefined),

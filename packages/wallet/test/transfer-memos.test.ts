@@ -51,7 +51,9 @@ test("unlisted external destinations accept no memo and expose that a memo is op
   await create(key, "maria");
   fundHolder(key);
 
-  const destination = addressOf(Keypair.random());
+  const destinationKey = Keypair.random();
+  fundHolder(destinationKey);
+  const destination = addressOf(destinationKey);
   const order = orderFor(key, AddressRecipient.make({ value: destination }));
   const draft = await send(order);
 
@@ -132,7 +134,9 @@ test("a new registry entry blocks an unsigned draft but preserves an authorized 
   await create(key, "maria");
   fundHolder(key);
 
-  const destination = addressOf(Keypair.random());
+  const destinationKey = Keypair.random();
+  fundHolder(destinationKey);
+  const destination = addressOf(destinationKey);
   const order = orderFor(key, AddressRecipient.make({ value: destination }));
   const draft = await send(order);
 
@@ -168,7 +172,9 @@ test("external text/id memos survive draft, signature, durable order and receipt
 
   for (const required of [false, true]) {
     for (const memo of memos) {
-      const destination = addressOf(Keypair.random());
+      const destinationKey = Keypair.random();
+      fundHolder(destinationKey);
+      const destination = addressOf(destinationKey);
 
       if (required) registerExchange(destination);
 

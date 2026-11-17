@@ -1,3 +1,4 @@
+import { AssetOrders } from "../src/server/AssetOrders.server";
 import assert from "node:assert/strict";
 import {
   Account,
@@ -67,6 +68,7 @@ const dependencies = Layer.mergeAll(
   Chain.layer,
   Directory.layer,
   Transfers.layer,
+  AssetOrders.layer,
 );
 
 const services = Layer.merge(

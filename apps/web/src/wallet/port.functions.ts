@@ -1,6 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
   AccountAddress,
+  AssetOrder,
+  AssetStep,
   Approval,
   OpenStep,
   Overview,
@@ -63,7 +65,30 @@ const transferFn = createServerFn({ method: "POST" })
     ),
   );
 
+const ManageCall = Schema.Struct({
+  order: AssetOrder,
+  approval: Schema.OptionFromNullOr(Approval),
+});
+
+const manageFn = createServerFn({ method: "POST" })
+  .validator(Schema.toStandardSchemaV1(ManageCall))
+  .handler(({ data }) =>
+    runWallet(
+      Wallet.use((wallet) => wallet.manage(data.order, data.approval)).pipe(
+        Effect.flatMap((value) =>
+          Schema.encodeEffect(AssetStep)(value).pipe(Effect.orDie),
+        ),
+      ),
+    ),
+  );
+
 export const port: WalletPort = {
+  manage: (order, approval) =>
+    Schema.encodeEffect(ManageCall)({ order, approval }).pipe(
+      Effect.flatMap((data) => Effect.tryPromise(() => manageFn({ data }))),
+      Effect.flatMap(Schema.decodeEffect(AssetStep)),
+      Effect.mapError((cause) => new WalletUnavailable({ cause })),
+    ),
   overview: (address) =>
     Schema.encodeEffect(OverviewCall)({ address }).pipe(
       Effect.flatMap((data) => Effect.tryPromise(() => overviewFn({ data }))),

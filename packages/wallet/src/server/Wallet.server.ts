@@ -1,3 +1,6 @@
+import { portfolioFlow } from "./wallet-portfolio.server";
+import { ClaimableFacts } from "../stellar/asset-envelopes";
+import { deliveryFlow } from "./wallet-delivery.server";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -8,6 +11,11 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  SigningRequest,
+  AssetBusy,
+  ClaimableLimitReached,
+  Amount,
+  assetKey,
   Approval,
   ExternalRecipient,
   Holding,
@@ -35,6 +43,7 @@ import { Chain, ChainUnreachable, Sealed } from "./Chain.server";
 import { Directory, StoreFailure, type WalletRow } from "./Directory.server";
 import {
   Authorized,
+  ClaimablesFull,
   Concluded,
   OrderJson,
   Proposed,
@@ -43,6 +52,10 @@ import {
   Transfers,
   pending,
 } from "./Transfers.server";
+import { AssetOrders, assetPending } from "./AssetOrders.server";
+import { assetFlow } from "./wallet-assets.server";
+import { SlotOccupied } from "./slot.server";
+import { maxOpenClaimables } from "../stellar/network";
 import { openingFlow } from "./wallet-opening.server";
 import { confirmedReads, live } from "./wallet-reads.server";
 
@@ -56,6 +69,10 @@ export class Wallet extends Context.Service<
       const chain = yield* Chain;
       const directory = yield* Directory;
       const transfers = yield* Transfers;
+      const assets = yield* AssetOrders;
+      const assetActions = yield* assetFlow;
+      const delivery = yield* deliveryFlow;
+      const portfolio = yield* portfolioFlow;
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(
@@ -139,12 +156,9 @@ export class Wallet extends Context.Service<
       const refreshDraft = Effect.fn("Wallet.refreshDraft")(function* (
         stored: Proposed,
       ) {
-        const request = yield* chain.draftPayment(
-          stored.order.from,
-          stored.recipient.address,
-          stored.order.amount,
-          stored.order.memo,
-        );
+        const request = yield* delivery(stored.order, stored.recipient);
+
+        if (!(request instanceof SigningRequest)) return stored;
 
         return yield* transfers.redraft(stored, request);
       });
@@ -158,7 +172,8 @@ export class Wallet extends Context.Service<
         return (
           Option.isSome(state) &&
           Option.isSome(facts) &&
-          facts.value instanceof PaymentFacts &&
+          (facts.value instanceof PaymentFacts ||
+            facts.value instanceof ClaimableFacts) &&
           BigInt(state.value.sequence) + 1n === BigInt(facts.value.sequence)
         );
       });
@@ -239,6 +254,18 @@ export class Wallet extends Context.Service<
                   );
             }
 
+            if (authorized instanceof ClaimablesFull)
+              return new ClaimableLimitReached({ limit: maxOpenClaimables });
+
+            if (authorized instanceof SlotOccupied) {
+              const busy = yield* assets.inFlightFor(order.from);
+
+              if (Option.isSome(busy))
+                return new AssetBusy({ inFlight: assetPending(busy.value) });
+
+              return proposedStep(stored);
+            }
+
             return yield* resumed(authorized);
           }
         }
@@ -291,7 +318,24 @@ export class Wallet extends Context.Service<
 
         if (Option.isSome(refusal)) return refusal.value;
 
-        const balance = yield* readBalance(order.from);
+        const state = yield* chain.holdings(
+          order.from,
+          Match.valueTags(order.asset, {
+            Native: () => [],
+            Issued: (asset) => [asset],
+          }),
+        );
+
+        const balance = Option.map(state, (holding) =>
+          Match.valueTags(order.asset, {
+            Native: () => holding.native,
+            Issued: (asset) =>
+              holding.lines.find(
+                (line) =>
+                  assetKey(line.asset) === assetKey(asset) && line.authorized,
+              )?.spendable ?? Schema.decodeSync(Amount)("0"),
+          }),
+        );
 
         if (Option.isNone(balance)) {
           yield* directory.recover(sender.value);
@@ -302,12 +346,9 @@ export class Wallet extends Context.Service<
         if (balance.value < order.amount)
           return new InsufficientBalance({ available: balance.value });
 
-        const request = yield* chain.draftPayment(
-          order.from,
-          recipient.address,
-          order.amount,
-          order.memo,
-        );
+        const request = yield* delivery(order, recipient);
+
+        if (!(request instanceof SigningRequest)) return request;
 
         const proposed = yield* transfers.propose(order, recipient, request);
 
@@ -353,7 +394,7 @@ export class Wallet extends Context.Service<
 
         return new Holding({
           profile: owner,
-          balance: balance.value,
+          ...(yield* portfolio(address)),
           latest: receipt,
         });
       });
@@ -420,11 +461,26 @@ export class Wallet extends Context.Service<
       });
 
       const sweep = Effect.gen(function* () {
+        const balanceIds = yield* transfers.balancesToCheck;
+        const entries = yield* chain.claimable(balanceIds);
+
+        for (const id of balanceIds) {
+          if (!entries.some((entry) => entry.balance === id)) {
+            const confirmed = yield* chain.claimable([id]);
+
+            if (confirmed.length === 0) yield* transfers.closeBalance(id);
+          }
+        }
+
         const inFlight = yield* transfers.inFlight;
         const wallets = yield* directory.recoverable;
+        const assetOrders = yield* assets.inFlight;
 
         const results = yield* Effect.forEach(
           [
+            ...assetOrders.map((entry) =>
+              assetActions.reconcile(entry).pipe(Effect.asVoid),
+            ),
             ...inFlight.map((entry) => reconcile(entry).pipe(Effect.asVoid)),
             ...wallets.map(recoverWallet),
           ],
@@ -442,6 +498,7 @@ export class Wallet extends Context.Service<
       });
 
       return Wallet.of({
+        manage: (order, approval) => wrap(assetActions.manage(order, approval)),
         open: (claim, approval) => wrap(open(claim, approval)),
         transfer: (order, approval) => wrap(transfer(order, approval)),
         overview: (address) => wrap(overview(address)),
@@ -450,6 +507,11 @@ export class Wallet extends Context.Service<
     }),
   );
   static readonly layer = Wallet.serviceLayer.pipe(
-    Layer.provide([Directory.layer, Transfers.layer, Chain.layer]),
+    Layer.provide([
+      Directory.layer,
+      Transfers.layer,
+      AssetOrders.layer,
+      Chain.layer,
+    ]),
   );
 }
