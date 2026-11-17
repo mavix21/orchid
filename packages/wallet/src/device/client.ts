@@ -6,6 +6,8 @@ import type {
   InvalidAddress,
   NotSponsored,
   ExternalMemoRequired,
+  MemoNotAllowed,
+  PaymentMemo,
   Holding,
   NeedsReopening,
   Opened,
@@ -65,6 +67,7 @@ export type CreateOutcome =
 export type SendOutcome =
   | InvalidAddress
   | ExternalMemoRequired
+  | MemoNotAllowed
   | PhoneNotSupported
   | Settled
   | Pending
@@ -82,5 +85,5 @@ export type SendOutcome =
 export interface WalletClient {
   overview(): Promise<DeviceOverview>;
   create(usernameText: string): Promise<CreateOutcome>;
-  send(recipientText: string, amountText: string): Promise<SendOutcome>;
+  send(recipientText: string, amountText: string, memo?: PaymentMemo): Promise<SendOutcome>;
 }

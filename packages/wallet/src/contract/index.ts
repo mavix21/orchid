@@ -120,6 +120,37 @@ export const OpenStep = Schema.Union([
 
 export type OpenStep = typeof OpenStep.Type;
 
+/** External deposit references use the SDK's text/id memo kinds and wire limits. */
+export const PaymentMemo = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("text"),
+    value: Schema.String.check(
+      Schema.makeFilter((value) => {
+        const bytes = new TextEncoder().encode(value);
+
+        return (
+          bytes.length > 0 &&
+          bytes.length <= 28 &&
+          new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes) === value
+        );
+      }),
+    ),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("id"),
+    value: Schema.String.check(
+      Schema.isPattern(/^(0|[1-9][0-9]{0,19})$/),
+      Schema.makeFilter(
+        (value) => /^[0-9]+$/.test(value) && BigInt(value) <= 18446744073709551615n,
+      ),
+    ),
+  }),
+]);
+
+export type PaymentMemo = typeof PaymentMemo.Type;
+
+export class MemoNotAllowed extends Schema.TaggedClass<MemoNotAllowed>()("MemoNotAllowed", {}) {}
+
 // --- transfers ----------------------------------------------------------
 
 /** Minted on the phone with crypto.randomUUID() before any network call. */
@@ -140,6 +171,7 @@ export class TransferOrder extends Schema.Class<TransferOrder>("@workspace/walle
   from: AccountAddress,
   to: Recipient,
   amount: PositiveUsdc,
+  memo: Schema.optional(PaymentMemo),
 }) {}
 
 /** An external destination has no Orchid username. */
@@ -156,6 +188,7 @@ const transferFields = {
   to: Recipient,
   recipient: ResolvedRecipient,
   amount: PositiveUsdc,
+  memo: Schema.optional(PaymentMemo),
 };
 
 /** Signed, stored, on its way. It will become Settled or Failed without the phone. */
@@ -223,6 +256,7 @@ export const TransferStep = Schema.Union([
   SenderBusy,
   InvalidAddress,
   ExternalMemoRequired,
+  MemoNotAllowed,
 ]);
 
 export type TransferStep = typeof TransferStep.Type;
@@ -232,7 +266,7 @@ export type TransferStep = typeof TransferStep.Type;
 export class Holding extends Schema.TaggedClass<Holding>()("Holding", {
   profile: Profile,
   balance: Usdc,
-  latest: Schema.OptionFromNullOr(Receipt), // the sender's most recent transfer, any state
+  latest: Schema.OptionFromNullOr(Receipt), // the sender's latest authorized or concluded transfer
 }) {}
 
 export class NeedsReopening extends Schema.TaggedClass<NeedsReopening>()("NeedsReopening", {

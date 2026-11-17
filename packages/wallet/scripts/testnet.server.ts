@@ -26,6 +26,7 @@ import {
   Username,
   WalletClaim,
   NeedsReopening,
+  NotSponsored,
 } from "../src/contract";
 import { Applied, Chain, Rejected, Sealed } from "../src/server/Chain.server";
 import { Directory, type WalletRow } from "../src/server/Directory.server";
@@ -52,6 +53,7 @@ const sponsor = Keypair.fromSecret(secret("RESERVE_SPONSOR_SECRET"));
 const feePayer = Keypair.fromSecret(secret("FEE_PAYER_SECRET"));
 const user = Keypair.fromSecret(secret("VERIFY_USER_SECRET"));
 const activityUser = Keypair.fromSecret(secret("VERIFY_ACTIVITY_SECRET"));
+const outsider = Keypair.fromSecret(secret("VERIFY_RECIPIENT_SECRET"));
 const server = new rpc.Server("https://soroban-testnet.stellar.org");
 const horizon = new Horizon.Server("https://horizon-testnet.stellar.org");
 
@@ -139,6 +141,13 @@ const createWithShortRecovery = async (key: Keypair, name: string) => {
   await waitApplied(sealed);
   remember(`${name} opening`, sealed.hash);
 
+  const sponsorship = Option.getOrThrow(await run(Chain.use((chain) => chain.account(address))));
+
+  assert.ok(
+    sponsorship.accountSponsored && sponsorship.sponsored,
+    "Raw extXdr must identify Orchid as both sponsors",
+  );
+
   const account = await horizon.loadAccount(address);
   const native = account.balances.find((balance) => balance.asset_type === "native");
 
@@ -198,6 +207,25 @@ await fund(sponsor);
 await fund(feePayer);
 
 console.log("Friendbot funded fresh, separate reserve sponsor and fee payer.");
+
+await fund(outsider);
+
+const outsiderClaim = new WalletClaim({
+  address: addressOf(outsider),
+  username: Schema.decodeSync(Username)("verify_outsider"),
+});
+
+assert.ok((await opening(outsiderClaim)) instanceof NotSponsored);
+
+assert.ok(
+  Option.isNone(
+    await run(Directory.use((directory) => directory.byAddress(outsiderClaim.address))),
+  ),
+);
+
+console.log(
+  "PASS sponsorship gate rejects a fresh Friendbot account before claiming its username.",
+);
 
 const first = await createWithShortRecovery(user, "verify_recovery");
 
@@ -345,9 +373,51 @@ const activity = new Sealed({
   expiresAt: DateTime.makeUnsafe(Date.now() + 120000),
 });
 
-await waitApplied(activity);
+// Submit the same signed inner transaction under a different fee payer.
+const alternate = TransactionBuilder.buildFeeBumpTransaction(
+  sponsor.publicKey(),
+  baseFee,
+  bump,
+  networkPassphrase,
+);
 
-remember("device activity invalidates recovery sequence", activity.hash);
+alternate.sign(sponsor);
+
+const replacement = new Sealed({
+  envelope: alternate.toXDR(),
+  hash: Array.from(alternate.hash(), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+  expiresAt: activity.expiresAt,
+});
+
+await waitApplied(replacement);
+
+remember("device activity under alternate fee payer", replacement.hash);
+
+assert.equal(
+  (await server.getTransaction(activity.hash)).status,
+  rpc.Api.GetTransactionStatus.NOT_FOUND,
+);
+
+assert.ok((await run(Chain.use((chain) => chain.settlement(activity)))) instanceof Applied);
+
+console.log(
+  "PASS settlement resolves the original intent through its included inner hash under an alternate fee payer.",
+);
+
+let consumed = await run(Chain.use((chain) => chain.settlement(second.sealed)));
+
+for (let attempt = 0; attempt < 30 && !(consumed instanceof Rejected); attempt++) {
+  await Bun.sleep(1000);
+  consumed = await run(Chain.use((chain) => chain.settlement(second.sealed)));
+}
+
+assert.ok(consumed instanceof Rejected);
+
+assert.equal(consumed.code, "sequence_consumed");
+
+console.log(
+  "PASS absent recovery reaches sequence_consumed after a different transaction consumes its sequence.",
+);
 
 while (Number((await server.getLatestLedger()).closeTime) < second.minTime) await Bun.sleep(1000);
 
@@ -369,6 +439,8 @@ const result = {
   feePayer: feePayer.publicKey(),
   hashes,
   checks: [
+    "raw getLedgerEntries extXdr identifies configured sponsor on account and trustline",
+    "unsponsored Friendbot account refused before username claim",
     "0 XLM sponsored opening + USDC trustline",
     "two-stage opening stores recovery unsubmitted",
     "recovery txTooEarly before minTime",
@@ -377,6 +449,8 @@ const result = {
     "same-key same-username reopening",
     "sponsored trustline-only repair",
     "sweep skips changed sequence",
+    "settlement discovers inner inclusion under alternate fee payer while original outer is NOT_FOUND",
+    "consumed sequence plus complete inner absence evidence concludes sequence_consumed",
   ],
   deferred: [
     "Live USDC payment and nonzero-USDC recovery guard require Circle testnet USDC funding; covered by local behavioral tests.",

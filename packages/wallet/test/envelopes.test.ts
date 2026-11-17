@@ -20,6 +20,7 @@ import {
   AccountAddress,
   Approval,
   PositiveUsdc,
+  PaymentMemo,
   SigningRequest,
   UnsignedEnvelope,
   formatUsdc,
@@ -29,6 +30,7 @@ import {
   Applied,
   Chain,
   Expired,
+  Rejected,
   Undecided,
   settlementFromResponse,
   resolveSettlement,
@@ -164,14 +166,14 @@ test("recovery contains bounded next-sequence trustline removal and merge", () =
   ).toBe(true);
 });
 
-test("reader rejects memo, extra operations, wrong asset, operation source and unbounded envelopes", () => {
+test("reader rejects unsupported memos, extra operations, wrong asset, operation source and unbounded envelopes", () => {
   const payment = Operation.payment({ destination: to, asset: usdc, amount: "1" });
 
   const builders = [
     new TransactionBuilder(new Account(address, "123"), {
       fee: baseFee,
       networkPassphrase,
-      memo: Memo.text("unexpected"),
+      memo: Memo.hash(new Uint8Array(32)),
     }).addOperation(payment),
     new TransactionBuilder(new Account(address, "123"), { fee: baseFee, networkPassphrase })
       .addOperation(payment)
@@ -301,7 +303,7 @@ test("NOT_FOUND only proves expiry when RPC history covers the inclusion window"
   ).toBeInstanceOf(Undecided);
 });
 
-test("an unknown outer fee bump never expires after the sender consumed the inner sequence", async () => {
+test("consumed sequence only concludes with complete inner-hash absence evidence", async () => {
   const now = Math.floor(Date.now() / 1000);
 
   const envelope = draftPayment({
@@ -341,11 +343,47 @@ test("an unknown outer fee bump never expires after the sender consumed the inne
       ),
   };
 
-  expect(await Effect.runPromise(resolveSettlement(sealed, reader))).toBeInstanceOf(Undecided);
+  expect(await Effect.runPromise(resolveSettlement(sealed, reader))).toEqual(
+    new Rejected({ code: "sequence_consumed" }),
+  );
   expect(queried).toEqual([
     sealed.hash,
-    Array.from(signingPayload(envelope), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+    ...Array.from({ length: 2 }, () =>
+      Array.from(signingPayload(envelope), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+    ),
   ]);
+
+  const outsideHistory: SettlementReader = {
+    ...reader,
+    transaction: (hash: string) =>
+      Effect.succeed({
+        status: rpc.Api.GetTransactionStatus.NOT_FOUND,
+        txHash: hash,
+        latestLedger: 100,
+        latestLedgerCloseTime: now + 121,
+        oldestLedger: 90,
+        oldestLedgerCloseTime: now + 1,
+      }),
+  };
+
+  expect(await Effect.runPromise(resolveSettlement(sealed, outsideHistory))).toBeInstanceOf(
+    Undecided,
+  );
+
+  const behind: SettlementReader = {
+    ...reader,
+    transaction: (hash: string) =>
+      Effect.succeed({
+        status: rpc.Api.GetTransactionStatus.NOT_FOUND,
+        txHash: hash,
+        latestLedger: 99,
+        latestLedgerCloseTime: now + 121,
+        oldestLedger: 1,
+        oldestLedgerCloseTime: now - 1,
+      }),
+  };
+
+  expect(await Effect.runPromise(resolveSettlement(sealed, behind))).toBeInstanceOf(Undecided);
 
   const absent = {
     ...reader,
@@ -515,4 +553,55 @@ test("recovery sponsorship requires matching account and trustline sponsors, not
       ),
     ).sponsored,
   ).toBe(false);
+});
+
+test("text and id memos validate at the boundary and survive reading and sealing", async () => {
+  const now = Math.floor(Date.now() / 1000);
+
+  for (const memo of [
+    { type: "text", value: "exchange dépôt 🪷" },
+    { type: "text", value: "\uFEFFdeposit" },
+    { type: "id", value: "18446744073709551615" },
+    { type: "id", value: "0" },
+  ]) {
+    const checked = Schema.decodeUnknownSync(PaymentMemo)(memo);
+
+    const envelope = draftPayment({
+      source: new Account(address, "123"),
+      to,
+      amount: Schema.decodeSync(PositiveUsdc)("1"),
+      minTime: now,
+      maxTime: now + 120,
+      memo: checked,
+    });
+
+    const facts = Option.getOrThrow(readEnvelope(envelope));
+
+    if (!(facts instanceof PaymentFacts)) throw new Error("Expected payment");
+
+    expect(facts.memo).toEqual(checked);
+
+    const sealed = await seal(envelope, now + 120);
+    const outer = TransactionBuilder.fromXDR(sealed.envelope, networkPassphrase);
+
+    if (!(outer instanceof FeeBumpTransaction)) throw new Error("Expected fee bump");
+
+    expect(outer.innerTransaction.memo.toXdrObject().toXDR("base64")).toBe(
+      (checked.type === "text" ? Memo.text(checked.value) : Memo.id(checked.value))
+        .toXdrObject()
+        .toXDR("base64"),
+    );
+  }
+
+  for (const memo of [
+    { type: "text", value: "" },
+    { type: "text", value: "é".repeat(15) },
+    { type: "text", value: "\uD800" },
+    { type: "id", value: "18446744073709551616" },
+    { type: "id", value: "-1" },
+    { type: "id", value: "01" },
+    { type: "id", value: "1e3" },
+    { type: "hash", value: "abc" },
+  ])
+    expect(Option.isNone(Schema.decodeUnknownOption(PaymentMemo)(memo))).toBe(true);
 });
