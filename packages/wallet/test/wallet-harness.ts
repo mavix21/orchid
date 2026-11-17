@@ -1,3 +1,11 @@
+import { draftPlan } from "../src/stellar/asset-plans";
+import { draftClaimable } from "../src/stellar/asset-envelopes";
+import type {
+  Holdings,
+  ClaimableEntry,
+} from "../src/server/ledger-assets.server";
+import { AssetOrders } from "../src/server/AssetOrders.server";
+import { baseAsset } from "../src/stellar/assets";
 import { beforeAll, beforeEach, expect } from "bun:test";
 import {
   Account,
@@ -63,9 +71,11 @@ export const dbLayer = databaseLayer({
     "postgres://orchid:orchid-local@127.0.0.1:55433/wallet_test",
 });
 
-export const stores = Layer.mergeAll(Directory.layer, Transfers.layer).pipe(
-  Layer.provide(dbLayer),
-);
+export const stores = Layer.mergeAll(
+  Directory.layer,
+  Transfers.layer,
+  AssetOrders.layer,
+).pipe(Layer.provide(dbLayer));
 
 export const sponsor = Keypair.random();
 export const feePayer = Keypair.random();
@@ -88,6 +98,8 @@ export const world = {
   submitted: new Array<Sealed>(),
   exchangeMemos: new Array<KnownExchangeMemo>(),
   failSubmit: false,
+  holdings: new Map<AccountAddress, Holdings>(),
+  claimables: new Map<string, ClaimableEntry>(),
 };
 
 export const fakeChain = Layer.effect(
@@ -109,6 +121,81 @@ export const fakeChain = Layer.effect(
       memoRequiredFor: (address) =>
         exchangeMemoFor(address, world.exchangeMemos),
       account,
+      holdings: (address, assets) =>
+        world.holdings.has(address)
+          ? Effect.succeed(Option.fromNullishOr(world.holdings.get(address)))
+          : account(address).pipe(
+              Effect.map(
+                Option.map((state) => ({
+                  account: state,
+                  native: Schema.decodeSync(Amount)(
+                    state.nativeBalance.toString(),
+                  ),
+                  reserves: { subentries: 1, sponsored: 3, sponsoring: 0 },
+                  lines: assets.flatMap((asset) =>
+                    asset.code === baseAsset.code &&
+                    asset.issuer === baseAsset.issuer &&
+                    Option.isSome(state.balance)
+                      ? [
+                          {
+                            asset,
+                            balance: state.balance.value,
+                            spendable: state.balance.value,
+                            authorized: true,
+                            sponsored: true,
+                          },
+                        ]
+                      : [],
+                  ),
+                })),
+              ),
+            ),
+      claimable: (ids) =>
+        Effect.succeed(
+          ids.flatMap((id) => {
+            const entry = world.claimables.get(id);
+
+            return entry ? [entry] : [];
+          }),
+        ),
+      issuer: () => Effect.succeed(Option.some({ authRequired: false })),
+      draftAsset: (address, plan) =>
+        Effect.sync(() => {
+          const now = Math.floor(Date.now() / 1000);
+
+          return request(
+            draftPlan(plan, {
+              source: new Account(
+                address,
+                world.accounts.get(address)?.sequence ?? "100",
+              ),
+              reserveSponsor,
+              minTime: now,
+              maxTime: now + 120,
+            }),
+            now + 120,
+          );
+        }),
+      draftClaimable: (from, to, asset, amount) =>
+        Effect.sync(() => {
+          const now = Math.floor(Date.now() / 1000);
+
+          return request(
+            draftClaimable({
+              source: new Account(
+                from,
+                world.accounts.get(from)?.sequence ?? "100",
+              ),
+              reserveSponsor,
+              to,
+              asset,
+              amount,
+              minTime: now,
+              maxTime: now + 120,
+            }),
+            now + 120,
+          );
+        }),
       pastOpeningWindow: (sealed) =>
         Effect.succeed(DateTime.toEpochMillis(sealed.expiresAt) < Date.now()),
       balance: (address) =>
@@ -130,7 +217,7 @@ export const fakeChain = Layer.effect(
             now + 120,
           );
         }),
-      draftPayment: (from, to, amount, memo) =>
+      draftPayment: (from, to, asset, amount, memo) =>
         Effect.sync(() => {
           const now = Math.floor(Date.now() / 1000);
 
@@ -141,6 +228,7 @@ export const fakeChain = Layer.effect(
                 world.accounts.get(from)?.sequence ?? "100",
               ),
               to,
+              asset,
               amount,
               memo,
               minTime: now,
@@ -278,6 +366,7 @@ export const create = async (key: Keypair, name: string) => {
 
 export const orderFor = (sender: Keypair, to: Recipient) =>
   new TransferOrder({
+    asset: baseAsset,
     id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
     from: addressOf(sender),
     to,
@@ -341,6 +430,8 @@ export function useDisposableDatabase() {
 
   beforeEach(async () => {
     world.accounts.clear();
+    world.holdings.clear();
+    world.claimables.clear();
     world.evidence.clear();
     world.submitted.length = 0;
     world.exchangeMemos.length = 0;
@@ -349,7 +440,9 @@ export function useDisposableDatabase() {
       Effect.gen(function* () {
         const db = yield* makeDatabase();
 
-        yield* db.execute(sql`truncate transfers, usernames, wallets`);
+        yield* db.execute(
+          sql`truncate asset_orders, trustlines, transfers, usernames, wallets`,
+        );
       }).pipe(Effect.provide(dbLayer)),
     );
   });

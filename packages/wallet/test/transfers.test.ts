@@ -1,3 +1,4 @@
+import { AssetOrders } from "../src/server/AssetOrders.server";
 import { expect, test } from "bun:test";
 import { Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
@@ -191,7 +192,9 @@ test("database failure during authorization submits nothing", async () => {
   ).pipe(Layer.provide(Transfers.layer));
 
   const brokenWallet = Wallet.serviceLayer.pipe(
-    Layer.provide(Layer.merge(Directory.layer, brokenTransfers)),
+    Layer.provide(
+      Layer.mergeAll(Directory.layer, brokenTransfers, AssetOrders.layer),
+    ),
     Layer.provide(fakeChain),
     Layer.provide(dbLayer),
   );

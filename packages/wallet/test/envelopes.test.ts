@@ -1,9 +1,9 @@
+import { baseAsset } from "../src/stellar/assets";
 import { expect, test } from "bun:test";
 import {
   FeeBumpTransaction,
   xdr,
   Account,
-  Asset,
   Keypair,
   Memo,
   Operation,
@@ -97,9 +97,9 @@ test("money parsing preserves all seven decimals and int64 limits", () => {
   expect(formatAmount(Option.getOrThrow(parseAmount("5.5000001")))).toBe(
     "5.5000001",
   );
-  expect(formatAmount(Option.getOrThrow(parseAmount("922337203685.4775807")))).toBe(
-    "922337203685.4775807",
-  );
+  expect(
+    formatAmount(Option.getOrThrow(parseAmount("922337203685.4775807"))),
+  ).toBe("922337203685.4775807");
 });
 
 test("builders and strict reader round-trip generated payment facts", () => {
@@ -109,6 +109,7 @@ test("builders and strict reader round-trip generated payment facts", () => {
     );
 
     const envelope = draftPayment({
+      asset: baseAsset,
       source: new Account(address, String(i)),
       to,
       amount,
@@ -121,6 +122,7 @@ test("builders and strict reader round-trip generated payment facts", () => {
     expect(facts).toBeInstanceOf(PaymentFacts);
     expect(facts).toEqual(
       new PaymentFacts({
+        asset: baseAsset,
         from: address,
         to,
         amount,
@@ -187,7 +189,7 @@ test("recovery contains bounded next-sequence trustline removal and merge", () =
   ).toBe(true);
 });
 
-test("reader rejects unsupported memos, extra operations, wrong asset, operation source and unbounded envelopes", () => {
+test("reader rejects unsupported memos, extra operations, operation source and unbounded envelopes", () => {
   const payment = Operation.payment({
     destination: to,
     asset: usdc,
@@ -206,16 +208,6 @@ test("reader rejects unsupported memos, extra operations, wrong asset, operation
     })
       .addOperation(payment)
       .addOperation(payment),
-    new TransactionBuilder(new Account(address, "123"), {
-      fee: baseFee,
-      networkPassphrase,
-    }).addOperation(
-      Operation.payment({
-        destination: to,
-        asset: Asset.native(),
-        amount: "1",
-      }),
-    ),
     new TransactionBuilder(new Account(address, "123"), {
       fee: baseFee,
       networkPassphrase,
@@ -291,6 +283,7 @@ test("NOT_FOUND only proves expiry when RPC history covers the inclusion window"
   const now = Math.floor(Date.now() / 1000);
 
   const envelope = draftPayment({
+    asset: baseAsset,
     source: new Account(address, "123"),
     to,
     amount: Schema.decodeSync(PositiveAmount)("1"),
@@ -357,6 +350,7 @@ test("consumed sequence only concludes with complete inner-hash absence evidence
   const now = Math.floor(Date.now() / 1000);
 
   const envelope = draftPayment({
+    asset: baseAsset,
     source: new Account(address, "123"),
     to,
     amount: Schema.decodeSync(PositiveAmount)("1"),
@@ -482,6 +476,7 @@ test("settlement discovers the same inner transaction under a different fee paye
   const now = Math.floor(Date.now() / 1000);
 
   const envelope = draftPayment({
+    asset: baseAsset,
     source: new Account(address, "123"),
     to,
     amount: Schema.decodeSync(PositiveAmount)("1"),
@@ -638,6 +633,7 @@ test("text and id memos validate at the boundary and survive reading and sealing
     const checked = Schema.decodeUnknownSync(PaymentMemo)(memo);
 
     const envelope = draftPayment({
+      asset: baseAsset,
       source: new Account(address, "123"),
       to,
       amount: Schema.decodeSync(PositiveAmount)("1"),

@@ -1,3 +1,4 @@
+import { AssetOrders } from "../src/server/AssetOrders.server";
 import { expect, test } from "bun:test";
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -180,9 +181,11 @@ test("existing wallet rows migrate into permanent name bindings", async () => {
     // The released name is free; the migrated recovered wallet reopens with its own name.
     const scratchWallet = Wallet.serviceLayer.pipe(
       Layer.provide(
-        Layer.mergeAll(Directory.layer, Transfers.layer).pipe(
-          Layer.provide(scratchLayer),
-        ),
+        Layer.mergeAll(
+          Directory.layer,
+          Transfers.layer,
+          AssetOrders.layer,
+        ).pipe(Layer.provide(scratchLayer)),
       ),
       Layer.provide(fakeChain),
     );

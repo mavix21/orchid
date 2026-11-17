@@ -3,17 +3,11 @@
   "version": "9",
   "dialect": "postgres",
   "id": "72c18e7b-caf9-4587-bd6c-962181c633e6",
-  "prevIds": [
-    "53a71b46-0745-4d2f-af6e-8fc51001c490"
-  ],
+  "prevIds": ["53a71b46-0745-4d2f-af6e-8fc51001c490"],
   "footprints": [
     {
       "statementType": "create_table",
-      "statementTarget": [
-        "table",
-        "public",
-        "asset_orders"
-      ],
+      "statementTarget": ["table", "public", "asset_orders"],
       "writes": [
         "s|tbl|public.asset_orders",
         "n|tbl|public.asset_orders",
@@ -22,17 +16,11 @@
         "n|type|public.asset_orders",
         "n|rel|public.asset_orders_pkey"
       ],
-      "reads": [
-        "n|sch|public"
-      ]
+      "reads": ["n|sch|public"]
     },
     {
       "statementType": "create_table",
-      "statementTarget": [
-        "table",
-        "public",
-        "trustlines"
-      ],
+      "statementTarget": ["table", "public", "trustlines"],
       "writes": [
         "s|tbl|public.trustlines",
         "n|tbl|public.trustlines",
@@ -41,45 +29,27 @@
         "n|type|public.trustlines",
         "n|rel|public.trustlines_pkey"
       ],
-      "reads": [
-        "n|sch|public"
-      ]
+      "reads": ["n|sch|public"]
     },
     {
       "statementType": "add_column",
-      "statementTarget": [
-        "column",
-        "public",
-        "transfers",
-        "balanceId"
-      ],
+      "statementTarget": ["column", "public", "transfers", "balanceId"],
       "writes": [
         "s|col|public.transfers.balanceId",
         "n|col|public.transfers.balanceId",
         "e|col|public.transfers.balanceId"
       ],
-      "reads": [
-        "n|tbl|public.transfers",
-        "n|sch|public"
-      ]
+      "reads": ["n|tbl|public.transfers", "n|sch|public"]
     },
     {
       "statementType": "add_column",
-      "statementTarget": [
-        "column",
-        "public",
-        "transfers",
-        "balanceClosedAt"
-      ],
+      "statementTarget": ["column", "public", "transfers", "balanceClosedAt"],
       "writes": [
         "s|col|public.transfers.balanceClosedAt",
         "n|col|public.transfers.balanceClosedAt",
         "e|col|public.transfers.balanceClosedAt"
       ],
-      "reads": [
-        "n|tbl|public.transfers",
-        "n|sch|public"
-      ]
+      "reads": ["n|tbl|public.transfers", "n|sch|public"]
     },
     {
       "statementType": "create_index",
@@ -125,11 +95,7 @@
     },
     {
       "statementType": "create_fk",
-      "statementTarget": [
-        "table",
-        "public",
-        "asset_orders"
-      ],
+      "statementTarget": ["table", "public", "asset_orders"],
       "writes": [
         "s|fk|public.asset_orders.asset_orders_wallet_wallets_address_fkey",
         "n|fk|public.asset_orders.asset_orders_wallet_wallets_address_fkey",
@@ -148,11 +114,7 @@
     },
     {
       "statementType": "create_fk",
-      "statementTarget": [
-        "table",
-        "public",
-        "trustlines"
-      ],
+      "statementTarget": ["table", "public", "trustlines"],
       "writes": [
         "s|fk|public.trustlines.trustlines_address_wallets_address_fkey",
         "n|fk|public.trustlines.trustlines_address_wallets_address_fkey",
@@ -610,14 +572,10 @@
         "table": "asset_orders",
         "name": "asset_orders_wallet_wallets_address_fkey",
         "nameExplicit": false,
-        "columns": [
-          "wallet"
-        ],
+        "columns": ["wallet"],
         "schemaTo": "public",
         "tableTo": "wallets",
-        "columnsTo": [
-          "address"
-        ],
+        "columnsTo": ["address"],
         "onUpdate": "NO ACTION",
         "onDelete": "NO ACTION",
         "entityType": "fks"
@@ -630,14 +588,10 @@
         "table": "trustlines",
         "name": "trustlines_address_wallets_address_fkey",
         "nameExplicit": false,
-        "columns": [
-          "address"
-        ],
+        "columns": ["address"],
         "schemaTo": "public",
         "tableTo": "wallets",
-        "columnsTo": [
-          "address"
-        ],
+        "columnsTo": ["address"],
         "onUpdate": "NO ACTION",
         "onDelete": "NO ACTION",
         "entityType": "fks"
@@ -649,13 +603,7 @@
         "schema": "public",
         "table": "trustlines",
         "name": "trustlines_pkey",
-        "columns": [
-          "address",
-          "network",
-          "testnetEpoch",
-          "code",
-          "issuer"
-        ],
+        "columns": ["address", "network", "testnetEpoch", "code", "issuer"],
         "nameExplicit": false,
         "entityType": "pks"
       }
@@ -666,9 +614,7 @@
         "schema": "public",
         "table": "asset_orders",
         "name": "asset_orders_pkey",
-        "columns": [
-          "id"
-        ],
+        "columns": ["id"],
         "nameExplicit": false,
         "entityType": "pks"
       }

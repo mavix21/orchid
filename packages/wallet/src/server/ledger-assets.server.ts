@@ -151,9 +151,7 @@ export function holdingsFromEntries(
   // numSponsoring - numSponsored) * baseReserve + liabilities.selling" (CAP-33).
   // https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves
   const locked =
-    BigInt(
-      2 + reserves.subentries + reserves.sponsoring - reserves.sponsored,
-    ) *
+    BigInt(2 + reserves.subentries + reserves.sponsoring - reserves.sponsored) *
       baseReserve +
     reserves.selling;
 
@@ -171,7 +169,9 @@ export function holdingsFromEntries(
       if (!line || line.data.type !== "trustline") return [];
 
       const entry = line.data.value;
-      const selling = entry.ext.type === "v1" ? entry.ext.v1.liabilities.selling : 0n;
+
+      const selling =
+        entry.ext.type === "v1" ? entry.ext.v1.liabilities.selling : 0n;
 
       return [
         {
@@ -215,7 +215,9 @@ export function claimablesFromEntries(
             balance: Schema.decodeSync(BalanceId)(
               data.value.balanceId.toXdr("hex"),
             ),
-            asset: fromStellarAsset(StellarAsset.fromOperation(data.value.asset)),
+            asset: fromStellarAsset(
+              StellarAsset.fromOperation(data.value.asset),
+            ),
             amount: Schema.decodeSync(PositiveAmount)(
               data.value.amount.toString(),
             ),
@@ -233,7 +235,10 @@ export function claimablesFromEntries(
  * Whether a stored predicate holds at `at` (Unix seconds). The ledger keeps
  * no relative times: creation converts them to absolute ones (CAP-23).
  */
-export function claimableAt(predicate: xdr.ClaimPredicate, at: bigint): boolean {
+export function claimableAt(
+  predicate: xdr.ClaimPredicate,
+  at: bigint,
+): boolean {
   switch (predicate.type) {
     case "claimPredicateUnconditional":
       return true;

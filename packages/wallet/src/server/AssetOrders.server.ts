@@ -404,7 +404,11 @@ export class AssetOrders extends Context.Service<
         issuer: asset.issuer,
       });
 
-      const track = (tx: Transaction, wallet: AccountAddress, asset: IssuedAsset) =>
+      const track = (
+        tx: Transaction,
+        wallet: AccountAddress,
+        asset: IssuedAsset,
+      ) =>
         tx.insert(trustlines).values(line(wallet, asset)).onConflictDoNothing();
 
       const untrack = (

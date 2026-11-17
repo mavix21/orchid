@@ -1,3 +1,4 @@
+import { balancesToCheck } from "./balance-sweep.server";
 import { makeDatabase } from "@workspace/db";
 import {
   and,
@@ -205,6 +206,10 @@ export class Transfers extends Context.Service<
     ): Effect.Effect<Concluded, StoreFailure>;
     readonly inFlight: Effect.Effect<ReadonlyArray<Authorized>, StoreFailure>;
     /** How many balances the sender created that nobody is known to have claimed. */
+    readonly balancesToCheck: Effect.Effect<
+      ReadonlyArray<BalanceId>,
+      StoreFailure
+    >;
     openClaimables(sender: AccountAddress): Effect.Effect<number, StoreFailure>;
     /** Unclaimed balances this wallet sent or was sent, newest first. */
     openBalances(
@@ -598,6 +603,7 @@ export class Transfers extends Context.Service<
         authorize: (proposed, sealed) => wrap(authorize(proposed, sealed)),
         conclude: (id, settlement) => wrap(conclude(id, settlement)),
         inFlight: wrap(inFlight),
+        balancesToCheck: wrap(balancesToCheck(db)),
         openClaimables: (sender) =>
           wrap(
             db

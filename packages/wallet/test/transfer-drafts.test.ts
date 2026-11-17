@@ -1,3 +1,4 @@
+import { AssetOrders } from "../src/server/AssetOrders.server";
 import { expect, test } from "bun:test";
 import {
   FeeBumpTransaction,
@@ -238,7 +239,9 @@ test("SlotTaken reconciliation refreshes the waiting draft after the holder cons
   ).pipe(Layer.provide(Transfers.layer));
 
   const finishingWallet = Wallet.serviceLayer.pipe(
-    Layer.provide(Layer.merge(Directory.layer, finishing)),
+    Layer.provide(
+      Layer.mergeAll(Directory.layer, finishing, AssetOrders.layer),
+    ),
     Layer.provide(fakeChain),
     Layer.provide(dbLayer),
   );
@@ -412,7 +415,7 @@ test("a stale redraft cannot replace a concurrent durable authorization", async 
 
   const replacement = await Effect.runPromise(
     Chain.use((chain) =>
-      chain.draftPayment(order.from, addressOf(key), order.amount),
+      chain.draftPayment(order.from, addressOf(key), order.asset, order.amount),
     ).pipe(Effect.provide(fakeChain)),
   );
 

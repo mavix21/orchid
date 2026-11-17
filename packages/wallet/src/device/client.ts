@@ -1,3 +1,4 @@
+import type { AssetFacts } from "../stellar/asset-envelopes";
 import type * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type {
@@ -32,7 +33,7 @@ import type {
 export interface DeviceSigner {
   approve(
     request: SigningRequest,
-    expected: OpeningFacts | PaymentFacts | RecoveryFacts,
+    expected: OpeningFacts | PaymentFacts | RecoveryFacts | AssetFacts,
   ): Effect.Effect<Approval, WalletUnavailable>;
 }
 
