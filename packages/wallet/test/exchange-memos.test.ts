@@ -32,6 +32,8 @@ test("registry entries require testnet, checksum-valid addresses and a public HT
     source: "https://example.com/fixtures/stellar-testnet-memo-required",
   };
 
+  expect(Option.isSome(Schema.decodeUnknownOption(KnownExchangeMemo)(entry))).toBe(true);
+
   const bad = `${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`;
 
   for (const invalid of [
