@@ -1,5 +1,19 @@
 # Fable review verification
 
+## Hyperdrive check notes (Fable, 2026-11-17)
+
+Fable approved the plain reads round and left three low-severity notes, all addressed.
+
+- **Undocumented output.** `wrangler hyperdrive get` output is not documented by Cloudflare. The check still fails closed, now with an explicit message when it cannot read a boolean `caching.disabled`, which covers non-JSON output, a missing field or a non-boolean value. The message says the output shape may have changed and asks for a manual check that caching is disabled. The README prerequisite section documents this. The only wrangler options used are the documented `--config` and `--env`.
+- **Environments and bypasses.** The check now also covers Hyperdrive bindings under `env.<name>` and passes `--env <name>` for them. The README states that a direct `wrangler deploy`, or re-enabling caching after a deploy, bypasses the check.
+- **Sketch wording.** `sketch-server.md` no longer says no decision is made from a plain `SELECT`. Reads are plain under the checked caching prerequisite, and the insert's returned row decides the name race.
+- **Verified with a fake `wrangler` on `PATH`** and a scratch config with top-level, `env.staging` and `env.production` bindings; no Cloudflare access:
+  - all three disabled: exit 0, with `--env staging` and `--env production` passed;
+  - production enabled: exit 1;
+  - staging output without `caching`: exit 1 with the shape message;
+  - non-JSON output: exit 1 with the shape message;
+  - the real config: still exits 1 on the placeholder id.
+
 ## Plain reads round (Fable review, owner decision, 2026-11-17)
 
 Fable judged the cache-safe round's no-op `UPDATE … RETURNING` reads (below) a workaround. Every name lookup wrote to and locked the holder's wallet row, so an unauthenticated soft check could cause writes on anyone's wallet. The owner approved the official path from [Cloudflare's query caching docs](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/), which the repo had already chosen in `rationale.md`, `ground.md` and the README: query caching disabled on the single existing Hyperdrive configuration (`wrangler hyperdrive update <id> --caching-disabled`).

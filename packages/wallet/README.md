@@ -16,7 +16,18 @@ Wallet reads are plain `SELECT`s, and Hyperdrive caches eligible reads for 60 se
 bunx wrangler hyperdrive update <HYPERDRIVE_CONFIG_ID> --caching-disabled
 ```
 
-`bun run --cwd apps/web deploy` runs `check:hyperdrive` (`tools/wallet/check-hyperdrive-caching.mjs`) first. For every Hyperdrive binding in `apps/web/wrangler.jsonc`, the check refuses the placeholder id, reads the configuration with `wrangler hyperdrive get <id>`, and stops the deploy unless it reports `caching.disabled: true`. The id in the repository is still the placeholder, so deploys are blocked until the owner creates or updates the configuration and sets its id. These scripts never change Cloudflare resources.
+`bun run --cwd apps/web deploy` runs `check:hyperdrive` (`tools/wallet/check-hyperdrive-caching.mjs`) first. The check covers the top-level Hyperdrive bindings in `apps/web/wrangler.jsonc` and those under each `env.<name>`, which it reads with `--env <name>`. For each binding it:
+
+- refuses the placeholder id;
+- reads the configuration with `wrangler hyperdrive get <id>`;
+- stops the deploy unless the printed JSON has `caching.disabled: true`.
+
+The id in the repository is still the placeholder, so deploys are blocked until the owner creates or updates the configuration and sets its id. These scripts never change Cloudflare resources.
+
+Limits of the check:
+
+- **Undocumented output.** Cloudflare does not document the output of `wrangler hyperdrive get`; the check relies on what wrangler 4.162.0 prints. If the output has no readable boolean `caching.disabled`, the check fails closed and says the output shape may have changed. In that case, verify manually that query caching is disabled for each configuration, then update the check before deploying.
+- **Bypasses.** The check runs only through `bun run --cwd apps/web deploy`. A direct `wrangler deploy` skips it. Re-enabling caching on the configuration after a deploy is not detected until the next checked deploy.
 
 ## Local verification
 
