@@ -1,88 +1,31 @@
 import type * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
+import type * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { Approval, SigningRequest } from "./approval";
+import {
+  AssetBusy,
+  AssetDraft,
+  AssetFailed,
+  AssetOrder,
+  AssetPending,
+  AssetSettled,
+  AssetUnsupported,
+  BalanceGone,
+  NotClaimable,
+  TrustlineLimitReached,
+  TrustlineNotEmpty,
+  Unchanged,
+} from "./asset-orders";
+import { Amount, Asset, BalanceId, PositiveAmount } from "./assets";
+import { AccountAddress, Profile, Username } from "./identity";
 
-// --- identity -----------------------------------------------------------
+export * from "./approval";
 
-/** Lowercase, 3 to 20 of a–z 0–9 underscore. The "@" is display only. */
-export const Username = Schema.String.check(
-  Schema.isPattern(/^[a-z0-9_]{3,20}$/),
-).pipe(Schema.brand("Username"));
+export * from "./asset-orders";
 
-export type Username = typeof Username.Type;
+export * from "./assets";
 
-/** A Stellar account address. Syntax only; the checksum is verified where the SDK is loaded. */
-export const AccountAddress = Schema.String.check(
-  Schema.isPattern(/^G[A-Z2-7]{55}$/),
-).pipe(Schema.brand("AccountAddress"));
-
-export type AccountAddress = typeof AccountAddress.Type;
-
-export class Profile extends Schema.Class<Profile>("@workspace/wallet/Profile")(
-  {
-    username: Username,
-    address: AccountAddress,
-  },
-) {}
-
-// --- money --------------------------------------------------------------
-
-/** USDC in base units: 1 USDC = 10_000_000. A bigint in memory, digits on the wire. */
-export const Usdc = Schema.BigIntFromString.check(
-  Schema.isBetweenBigInt({ minimum: 0n, maximum: 9223372036854775807n }),
-).pipe(Schema.brand("Usdc"));
-
-export type Usdc = typeof Usdc.Type;
-
-export const PositiveUsdc = Usdc.check(Schema.isGreaterThanBigInt(0n)).pipe(
-  Schema.brand("PositiveUsdc"),
-);
-
-export type PositiveUsdc = typeof PositiveUsdc.Type;
-
-/** "5", "5.5", "5.50" → base units. None when it is not a positive amount with ≤ 7 decimals. */
-export function parseUsdc(text: string): Option.Option<PositiveUsdc> {
-  if (!/^[0-9]+(?:\.[0-9]{1,7})?$/.test(text) || text.length > 32)
-    return Option.none();
-
-  const [whole = "0", fraction = ""] = text.split(".");
-
-  return Schema.decodeOption(PositiveUsdc)(
-    (BigInt(whole) * 10000000n + BigInt(fraction.padEnd(7, "0"))).toString(),
-  );
-}
-
-export function formatUsdc(amount: Usdc): string {
-  const fraction = (amount % 10000000n)
-    .toString()
-    .padStart(7, "0")
-    .replace(/0+$/, "");
-
-  return `${amount / 10000000n}${fraction ? `.${fraction}` : ""}`;
-}
-
-// --- approval -----------------------------------------------------------
-
-/** A transaction the server built and nobody has signed. Opaque outside `stellar/`. */
-export const UnsignedEnvelope = Schema.String.pipe(
-  Schema.brand("UnsignedEnvelope"),
-);
-
-export type UnsignedEnvelope = typeof UnsignedEnvelope.Type;
-
-export class SigningRequest extends Schema.Class<SigningRequest>(
-  "@workspace/wallet/SigningRequest",
-)({
-  envelope: UnsignedEnvelope,
-  expiresAt: Schema.DateTimeUtcFromString,
-}) {}
-
-/** Each signing stage returns one signature and no envelope. */
-export class Approval extends Schema.Class<Approval>(
-  "@workspace/wallet/Approval",
-)({
-  signature: Schema.Uint8ArrayFromBase64,
-}) {}
+export * from "./identity";
 
 export class InvalidAddress extends Schema.TaggedClass<InvalidAddress>()(
   "InvalidAddress",
@@ -236,7 +179,8 @@ export class TransferOrder extends Schema.Class<TransferOrder>(
   id: TransferId,
   from: AccountAddress,
   to: Recipient,
-  amount: PositiveUsdc,
+  asset: Asset,
+  amount: PositiveAmount,
   memo: Schema.optional(PaymentMemo),
 }) {}
 
@@ -253,8 +197,11 @@ const transferFields = {
   id: TransferId,
   to: Recipient,
   recipient: ResolvedRecipient,
-  amount: PositiveUsdc,
+  asset: Asset,
+  amount: PositiveAmount,
   memo: Schema.optional(PaymentMemo),
+  // Present when the money waits in a claimable balance the recipient must claim.
+  claimable: Schema.optional(BalanceId),
 };
 
 /** Signed, stored, on its way. It will become Settled or Failed without the phone. */
@@ -263,6 +210,7 @@ export class Pending extends Schema.TaggedClass<Pending>()("Pending", {
   expiresAt: Schema.DateTimeUtcFromString,
 }) {}
 
+/** The transaction applied. With `claimable`, the recipient holds the money only after claiming it. */
 export class Settled extends Schema.TaggedClass<Settled>()("Settled", {
   ...transferFields,
   settledAt: Schema.DateTimeUtcFromString,
@@ -307,6 +255,8 @@ export class TransferDraft extends Schema.TaggedClass<TransferDraft>()(
     request: SigningRequest,
     recipient: ResolvedRecipient,
     memoRequired: Schema.Boolean,
+    // Present when the recipient has no trustline: the draft creates this claimable balance.
+    claimable: Schema.optional(BalanceId),
   },
 ) {}
 
@@ -329,7 +279,25 @@ export class PhoneNotSupported extends Schema.TaggedClass<PhoneNotSupported>()(
 
 export class InsufficientBalance extends Schema.TaggedClass<InsufficientBalance>()(
   "InsufficientBalance",
-  { available: Usdc },
+  { available: Amount },
+) {}
+
+/**
+ * A payment to this address would fail, and Orchid sponsors a claimable
+ * balance only for its own wallets.
+ */
+export class RecipientCannotReceive extends Schema.TaggedClass<RecipientCannotReceive>()(
+  "RecipientCannotReceive",
+  {
+    address: AccountAddress,
+    reason: Schema.Literals(["no_account", "no_trustline", "not_authorized"]),
+  },
+) {}
+
+/** The sender already has `limit` unclaimed balances. One must be claimed or reclaimed first. */
+export class ClaimableLimitReached extends Schema.TaggedClass<ClaimableLimitReached>()(
+  "ClaimableLimitReached",
+  { limit: Schema.Number },
 ) {}
 
 export class SenderBusy extends Schema.TaggedClass<SenderBusy>()("SenderBusy", {
@@ -349,15 +317,63 @@ export const TransferStep = Schema.Union([
   InvalidAddress,
   ExternalMemoRequired,
   MemoNotAllowed,
+  RecipientCannotReceive,
+  ClaimableLimitReached,
+  AssetBusy,
 ]);
 
 export type TransferStep = typeof TransferStep.Type;
 
+// --- asset orders -------------------------------------------------------
+
+export const AssetStep = Schema.Union([
+  AssetDraft,
+  AssetPending,
+  AssetSettled,
+  AssetFailed,
+  NotOpened,
+  InvalidAddress,
+  SenderBusy,
+  AssetBusy,
+  Unchanged,
+  TrustlineLimitReached,
+  TrustlineNotEmpty,
+  AssetUnsupported,
+  NotClaimable,
+  BalanceGone,
+]);
+
+export type AssetStep = typeof AssetStep.Type;
+
 // --- overview -----------------------------------------------------------
+
+export class Balance extends Schema.Class<Balance>("@workspace/wallet/Balance")(
+  {
+    asset: Asset,
+    amount: Amount,
+  },
+) {}
+
+/**
+ * An unclaimed balance this wallet sent or was sent. The recipient may claim
+ * now; `claimableAt` is when the sender may take it back.
+ */
+export class ClaimableBalance extends Schema.Class<ClaimableBalance>(
+  "@workspace/wallet/ClaimableBalance",
+)({
+  balance: BalanceId,
+  asset: Asset,
+  amount: PositiveAmount,
+  from: Profile,
+  to: Profile,
+  claimableAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString),
+}) {}
 
 export class Holding extends Schema.TaggedClass<Holding>()("Holding", {
   profile: Profile,
-  balance: Usdc,
+  // The opening asset first, then XLM when held, then every other open trustline Orchid tracks.
+  balances: Schema.Array(Balance),
+  claimable: Schema.Array(ClaimableBalance),
   latest: Schema.OptionFromNullOr(Receipt), // the sender's latest authorized or concluded transfer
 }) {}
 
@@ -399,4 +415,8 @@ export interface WalletPort {
     order: TransferOrder,
     approval: Option.Option<Approval>,
   ): Effect.Effect<TransferStep, WalletUnavailable>;
+  manage(
+    order: AssetOrder,
+    approval: Option.Option<Approval>,
+  ): Effect.Effect<AssetStep, WalletUnavailable>;
 }

@@ -19,12 +19,12 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   Approval,
-  PositiveUsdc,
+  PositiveAmount,
   PaymentMemo,
   SigningRequest,
   UnsignedEnvelope,
-  formatUsdc,
-  parseUsdc,
+  formatAmount,
+  parseAmount,
 } from "../src/contract";
 import {
   Applied,
@@ -92,19 +92,19 @@ test("money parsing preserves all seven decimals and int64 limits", () => {
     "",
     " 1",
   ])
-    expect(Option.isNone(parseUsdc(value))).toBe(true);
+    expect(Option.isNone(parseAmount(value))).toBe(true);
 
-  expect(formatUsdc(Option.getOrThrow(parseUsdc("5.5000001")))).toBe(
+  expect(formatAmount(Option.getOrThrow(parseAmount("5.5000001")))).toBe(
     "5.5000001",
   );
-  expect(formatUsdc(Option.getOrThrow(parseUsdc("922337203685.4775807")))).toBe(
+  expect(formatAmount(Option.getOrThrow(parseAmount("922337203685.4775807")))).toBe(
     "922337203685.4775807",
   );
 });
 
 test("builders and strict reader round-trip generated payment facts", () => {
   for (let i = 1; i <= 100; i++) {
-    const amount = Schema.decodeSync(PositiveUsdc)(
+    const amount = Schema.decodeSync(PositiveAmount)(
       String(BigInt(i) * 1234567n),
     );
 
@@ -293,7 +293,7 @@ test("NOT_FOUND only proves expiry when RPC history covers the inclusion window"
   const envelope = draftPayment({
     source: new Account(address, "123"),
     to,
-    amount: Schema.decodeSync(PositiveUsdc)("1"),
+    amount: Schema.decodeSync(PositiveAmount)("1"),
     minTime: now,
     maxTime: now + 120,
   });
@@ -359,7 +359,7 @@ test("consumed sequence only concludes with complete inner-hash absence evidence
   const envelope = draftPayment({
     source: new Account(address, "123"),
     to,
-    amount: Schema.decodeSync(PositiveUsdc)("1"),
+    amount: Schema.decodeSync(PositiveAmount)("1"),
     minTime: now,
     maxTime: now + 120,
   });
@@ -484,7 +484,7 @@ test("settlement discovers the same inner transaction under a different fee paye
   const envelope = draftPayment({
     source: new Account(address, "123"),
     to,
-    amount: Schema.decodeSync(PositiveUsdc)("1"),
+    amount: Schema.decodeSync(PositiveAmount)("1"),
     minTime: now,
     maxTime: now + 120,
   });
@@ -640,7 +640,7 @@ test("text and id memos validate at the boundary and survive reading and sealing
     const envelope = draftPayment({
       source: new Account(address, "123"),
       to,
-      amount: Schema.decodeSync(PositiveUsdc)("1"),
+      amount: Schema.decodeSync(PositiveAmount)("1"),
       minTime: now,
       maxTime: now + 120,
       memo: checked,

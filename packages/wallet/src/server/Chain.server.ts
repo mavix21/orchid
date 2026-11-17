@@ -19,10 +19,11 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   Approval,
+  type Asset,
   PaymentMemo,
-  PositiveUsdc,
+  PositiveAmount,
   SigningRequest,
-  Usdc,
+  Amount,
 } from "../contract";
 import {
   draftOpening,
@@ -39,11 +40,15 @@ import {
   recoveryWindow,
   usdc,
 } from "../stellar/network";
+import { type AssetChain, assetChain } from "./chain-assets.server";
+import { ChainUnreachable } from "./chain-errors.server";
 import {
   type AccountState,
-  LedgerResponse,
   accountFromEntries,
+  fetchEntries,
 } from "./ledger.server";
+
+export { ChainUnreachable } from "./chain-errors.server";
 
 export type { AccountState } from "./ledger.server";
 
@@ -75,13 +80,6 @@ export class Undecided extends Schema.TaggedClass<Undecided>()(
 ) {}
 
 export type Settlement = Applied | Rejected | Expired | Undecided;
-
-export class ChainUnreachable extends Schema.TaggedError<ChainUnreachable>()(
-  "ChainUnreachable",
-  {
-    cause: Schema.Defect(),
-  },
-) {}
 
 export class ApprovalInvalid extends Schema.TaggedError<ApprovalInvalid>()(
   "ApprovalInvalid",
@@ -146,7 +144,7 @@ export function settlementFromResponse(
 
 export class Chain extends Context.Service<
   Chain,
-  {
+  AssetChain & {
     validAddress(address: AccountAddress): boolean;
     memoRequiredFor(address: AccountAddress): Option.Option<KnownExchangeMemo>;
     pastOpeningWindow(sealed: Sealed): Effect.Effect<boolean, ChainUnreachable>;
@@ -155,14 +153,15 @@ export class Chain extends Context.Service<
     ): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;
     balance(
       address: AccountAddress,
-    ): Effect.Effect<Option.Option<Usdc>, ChainUnreachable>;
+    ): Effect.Effect<Option.Option<Amount>, ChainUnreachable>;
     draftOpening(
       address: AccountAddress,
     ): Effect.Effect<SigningRequest, ChainUnreachable>;
     draftPayment(
       from: AccountAddress,
       to: AccountAddress,
-      amount: PositiveUsdc,
+      asset: Asset,
+      amount: PositiveAmount,
       memo?: PaymentMemo,
     ): Effect.Effect<SigningRequest, ChainUnreachable>;
     draftRecovery(
@@ -213,23 +212,7 @@ export class Chain extends Context.Service<
         ];
 
         const response = yield* Effect.tryPromise({
-          try: async () => {
-            const response = await fetch(settings.rpcUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 1,
-                method: "getLedgerEntries",
-                params: { keys: keys.map((key) => key.toXDR("base64")) },
-              }),
-            });
-
-            if (!response.ok) throw new Error("Ledger RPC request failed");
-
-            return Schema.decodeSync(LedgerResponse)(await response.text())
-              .result;
-          },
+          try: () => fetchEntries(settings.rpcUrl, keys),
           catch: (cause) => new ChainUnreachable({ cause }),
         });
 
@@ -285,7 +268,8 @@ export class Chain extends Context.Service<
       const draftPay = Effect.fn("Chain.draftPayment")(function* (
         from: AccountAddress,
         to: AccountAddress,
-        amount: PositiveUsdc,
+        asset: Asset,
+        amount: PositiveAmount,
         memo?: PaymentMemo,
       ) {
         const holder = yield* source(from);
@@ -295,6 +279,7 @@ export class Chain extends Context.Service<
           draftPayment({
             source: holder,
             to,
+            asset,
             amount,
             memo,
             minTime: now,
@@ -339,6 +324,25 @@ export class Chain extends Context.Service<
               PaymentFacts: (f) => f.from === holder,
               RecoveryFacts: (f) =>
                 f.address === holder && f.reserveSponsor === sponsorAddress,
+              TrustlineFacts: (f) =>
+                f.address === holder && f.reserveSponsor === sponsorAddress,
+              TrustlineRemovalFacts: (f) => f.address === holder,
+              ClaimableFacts: (f) =>
+                f.from === holder && f.reserveSponsor === sponsorAddress,
+              ClaimFacts: (f) =>
+                f.address === holder &&
+                (!f.reserveSponsor || f.reserveSponsor === sponsorAddress),
+            });
+
+            // The sponsor signs exactly the layouts that begin a sponsorship.
+            const sponsoring = Match.valueTags(facts.value, {
+              OpeningFacts: () => true,
+              PaymentFacts: () => false,
+              RecoveryFacts: () => false,
+              TrustlineFacts: () => true,
+              TrustlineRemovalFacts: () => false,
+              ClaimableFacts: () => true,
+              ClaimFacts: (f) => f.reserveSponsor !== undefined,
             });
 
             if (
@@ -362,11 +366,8 @@ export class Chain extends Context.Service<
               holder,
               btoa(String.fromCharCode(...approval.signature)),
             );
-            Match.valueTags(facts.value, {
-              OpeningFacts: () => inner.sign(sponsor),
-              PaymentFacts: () => {},
-              RecoveryFacts: () => {},
-            });
+
+            if (sponsoring) inner.sign(sponsor);
 
             const outer = TransactionBuilder.buildFeeBumpTransaction(
               feePayer.publicKey(),
@@ -416,6 +417,7 @@ export class Chain extends Context.Service<
         });
 
       return Chain.of({
+        ...assetChain(settings.rpcUrl, sponsorAddress, source),
         validAddress: StrKey.isValidEd25519PublicKey,
         memoRequiredFor: exchangeMemoFor,
         pastOpeningWindow,

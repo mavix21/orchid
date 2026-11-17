@@ -1,7 +1,7 @@
 import { Keypair, xdr } from "@stellar/stellar-sdk";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { Usdc } from "../contract";
+import { Amount } from "../contract";
 
 // Official RPC wire fields include extXdr; SDK 17.4.0 drops that field when
 // parsing getLedgerEntries. Decode the documented protocol rather than patch it.
@@ -24,13 +24,34 @@ export const LedgerResponse = Schema.fromJsonString(
 export interface AccountState {
   readonly sequence: string;
   readonly nativeBalance: bigint;
-  readonly balance: Option.Option<Usdc>;
+  readonly balance: Option.Option<Amount>;
   readonly ledger: number;
   readonly accountSponsored: boolean;
   readonly sponsored: boolean;
 }
 
-function sponsoredBy(entry: LedgerEntry, sponsor: string): boolean {
+/** One getLedgerEntries call. Entries that do not exist are simply absent from the answer. */
+export async function fetchEntries(
+  rpcUrl: string,
+  keys: ReadonlyArray<xdr.LedgerKey>,
+): Promise<typeof LedgerResponse.Type.result> {
+  const response = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getLedgerEntries",
+      params: { keys: keys.map((key) => key.toXdr("base64")) },
+    }),
+  });
+
+  if (!response.ok) throw new Error("Ledger RPC request failed");
+
+  return Schema.decodeSync(LedgerResponse)(await response.text()).result;
+}
+
+export function sponsoredBy(entry: LedgerEntry, sponsor: string): boolean {
   if (!entry.extXdr) return false;
 
   const extension = xdr.LedgerEntryExt.fromXDR(entry.extXdr, "base64");
@@ -64,7 +85,7 @@ export function accountFromEntries(
     balance:
       trust?.value.type === "trustline"
         ? Option.some(
-            Schema.decodeSync(Usdc)(trust.value.value.balance.toString()),
+            Schema.decodeSync(Amount)(trust.value.value.balance.toString()),
           )
         : Option.none(),
     ledger,

@@ -20,7 +20,7 @@ import {
   Opened,
   OpeningDraft,
   RecoveryDraft,
-  Usdc,
+  Amount,
   Username,
   UsernameTaken,
   WalletClaim,
@@ -231,7 +231,7 @@ test("unsponsored and differently sponsored accounts never receive recovery draf
   world.accounts.set(claim.address, {
     sequence: "1000",
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("0")),
+    balance: Option.some(Schema.decodeSync(Amount)("0")),
     ledger: 100,
     accountSponsored: false,
     sponsored: false,
@@ -247,7 +247,7 @@ test("unsponsored and differently sponsored accounts never receive recovery draf
   world.accounts.set(claim.address, {
     sequence: "1000",
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("0")),
+    balance: Option.some(Schema.decodeSync(Amount)("0")),
     ledger: 100,
     accountSponsored: true,
     sponsored: false,

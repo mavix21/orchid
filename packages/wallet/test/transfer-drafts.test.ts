@@ -18,11 +18,11 @@ import {
   Failed,
   Holding,
   Pending,
-  PositiveUsdc,
+  PositiveAmount,
   Settled,
   TransferDraft,
   TransferOrder,
-  Usdc,
+  Amount,
 } from "../src/contract";
 import { Applied, Chain, Rejected } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
@@ -64,7 +64,7 @@ test("near-expiry unsigned drafts refresh, while authorized bytes never change",
     accountSponsored: true,
     sponsored: true,
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
+    balance: Option.some(Schema.decodeSync(Amount)("50000000")),
   });
 
   const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
@@ -111,7 +111,7 @@ test("near-expiry unsigned drafts refresh, while authorized bytes never change",
 
   const changed = new TransferOrder({
     ...order,
-    amount: Schema.decodeSync(PositiveUsdc)("20000000"),
+    amount: Schema.decodeSync(PositiveAmount)("20000000"),
   });
 
   const refused = await Effect.runPromise(

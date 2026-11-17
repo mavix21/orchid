@@ -13,7 +13,7 @@ import {
   SenderBusy,
   Settled,
   TransferDraft,
-  Usdc,
+  Amount,
   Username,
   UsernameRecipient,
 } from "../src/contract";
@@ -52,7 +52,7 @@ test("a signed transfer survives failed submit and sweep finishes without the de
     accountSponsored: true,
     sponsored: true,
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
+    balance: Option.some(Schema.decodeSync(Amount)("50000000")),
   });
 
   const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
@@ -100,7 +100,7 @@ test("concurrent approvals allow only one signed transfer per sender", async () 
     accountSponsored: true,
     sponsored: true,
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
+    balance: Option.some(Schema.decodeSync(Amount)("50000000")),
   });
 
   const to = AddressRecipient.make({ value: addressOf(key) });
@@ -136,7 +136,7 @@ test("same id concurrent approvals keep one immutable sealed envelope", async ()
     accountSponsored: true,
     sponsored: true,
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
+    balance: Option.some(Schema.decodeSync(Amount)("50000000")),
   });
 
   const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
@@ -165,7 +165,7 @@ test("database failure during authorization submits nothing", async () => {
     accountSponsored: true,
     sponsored: true,
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
+    balance: Option.some(Schema.decodeSync(Amount)("50000000")),
   });
 
   const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
@@ -220,7 +220,7 @@ test("username payments still pin the Orchid recipient and settle normally", asy
   world.accounts.set(addressOf(key), {
     sequence: "1000",
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("50000000")),
+    balance: Option.some(Schema.decodeSync(Amount)("50000000")),
     ledger: 100,
     accountSponsored: true,
     sponsored: true,

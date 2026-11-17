@@ -15,7 +15,7 @@ import {
   Profile,
   RecoveryDraft,
   TransferDraft,
-  Usdc,
+  Amount,
   Username,
   UsernameRecipient,
   UsernameTaken,
@@ -285,7 +285,7 @@ test("an existing account without a name binds it before activation", async () =
     accountSponsored: true,
     sponsored: true,
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("0")),
+    balance: Option.some(Schema.decodeSync(Amount)("0")),
   });
 
   const recovery = await opening(claim);
@@ -339,7 +339,7 @@ test("activation refuses a name another key bound after the recovery draft", asy
     accountSponsored: true,
     sponsored: true,
     nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Usdc)("0")),
+    balance: Option.some(Schema.decodeSync(Amount)("0")),
   });
 
   const recovery = await opening(claim);
