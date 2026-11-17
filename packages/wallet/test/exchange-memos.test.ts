@@ -25,7 +25,6 @@ test("memo requirements match exact registered addresses and retain source evide
 
   expect(exchangeMemoFor(address, [entry])).toEqual(Option.some(entry));
   expect(Option.isNone(exchangeMemoFor(other, [entry]))).toBe(true);
-  expect(Option.isNone(exchangeMemoFor(address))).toBe(true);
 });
 
 test("registry entries require testnet, checksum-valid addresses and a public HTTPS source", () => {

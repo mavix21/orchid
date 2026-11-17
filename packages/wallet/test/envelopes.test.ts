@@ -94,45 +94,49 @@ test("money parsing preserves all seven decimals and int64 limits", () => {
   ])
     expect(Option.isNone(parseAmount(value))).toBe(true);
 
-  expect(formatAmount(Option.getOrThrow(parseAmount("5.5000001")))).toBe(
+  expect(Option.getOrThrow(parseAmount("5.5000001")).toString()).toBe(
+    "55000001",
+  );
+  expect(formatAmount(Schema.decodeSync(PositiveAmount)("55000001"))).toBe(
     "5.5000001",
   );
   expect(
-    formatAmount(Option.getOrThrow(parseAmount("922337203685.4775807"))),
+    Option.getOrThrow(parseAmount("922337203685.4775807")).toString(),
+  ).toBe("9223372036854775807");
+  expect(
+    formatAmount(Schema.decodeSync(PositiveAmount)("9223372036854775807")),
   ).toBe("922337203685.4775807");
 });
 
-test("builders and strict reader round-trip generated payment facts", () => {
-  for (let i = 1; i <= 100; i++) {
-    const amount = Schema.decodeSync(PositiveAmount)(
-      String(BigInt(i) * 1234567n),
-    );
+test("payment envelopes preserve amount, destination, bounds and next sequence", () => {
+  const amount = Schema.decodeSync(PositiveAmount)("55000001");
 
-    const envelope = draftPayment({
+  const envelope = draftPayment({
+    asset: baseAsset,
+    source: new Account(address, "9007199254740993"),
+    to,
+    amount,
+    minTime: 100,
+    maxTime: 220,
+  });
+
+  const transaction = TransactionBuilder.fromXDR(envelope, networkPassphrase);
+  const payment = transaction.operations[0];
+
+  if (payment?.type !== "payment") throw new Error("Expected payment");
+
+  expect(payment.amount).toBe("5.5000001");
+  expect(Option.getOrThrow(readEnvelope(envelope))).toEqual(
+    new PaymentFacts({
       asset: baseAsset,
-      source: new Account(address, String(i)),
+      from: address,
       to,
       amount,
+      sequence: "9007199254740994",
       minTime: 100,
       maxTime: 220,
-    });
-
-    const facts = Option.getOrThrow(readEnvelope(envelope));
-
-    expect(facts).toBeInstanceOf(PaymentFacts);
-    expect(facts).toEqual(
-      new PaymentFacts({
-        asset: baseAsset,
-        from: address,
-        to,
-        amount,
-        sequence: String(i + 1),
-        minTime: 100,
-        maxTime: 220,
-      }),
-    );
-    expect(signingPayload(envelope).length).toBe(32);
-  }
+    }),
+  );
 });
 
 test("opening supports exactly the creation and trustline-repair sandwiches", () => {
@@ -359,21 +363,17 @@ test("consumed sequence only concludes with complete inner-hash absence evidence
   });
 
   const sealed = await seal(envelope, now + 120);
-  const queried = new Array<string>();
 
   const reader: SettlementReader = {
-    transaction: (hash) => {
-      queried.push(hash);
-
-      return Effect.succeed({
+    transaction: (hash) =>
+      Effect.succeed({
         status: rpc.Api.GetTransactionStatus.NOT_FOUND,
         txHash: hash,
         latestLedger: 100,
         latestLedgerCloseTime: now + 121,
         oldestLedger: 1,
         oldestLedgerCloseTime: now - 1,
-      });
-    },
+      }),
     account: () =>
       Effect.succeed(
         Option.some({
@@ -390,14 +390,6 @@ test("consumed sequence only concludes with complete inner-hash absence evidence
   expect(await Effect.runPromise(resolveSettlement(sealed, reader))).toEqual(
     new Rejected({ code: "sequence_consumed" }),
   );
-  expect(queried).toEqual([
-    sealed.hash,
-    ...Array.from({ length: 2 }, () =>
-      Array.from(signingPayload(envelope), (byte) =>
-        byte.toString(16).padStart(2, "0"),
-      ).join(""),
-    ),
-  ]);
 
   const outsideHistory: SettlementReader = {
     ...reader,

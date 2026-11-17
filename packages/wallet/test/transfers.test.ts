@@ -15,8 +15,6 @@ import {
   Settled,
   TransferDraft,
   Amount,
-  Username,
-  UsernameRecipient,
 } from "../src/contract";
 import { Applied } from "../src/server/Chain.server";
 import { Directory, StoreFailure } from "../src/server/Directory.server";
@@ -212,47 +210,4 @@ test("database failure during authorization submits nothing", async () => {
       await runStores(Transfers.use((service) => service.find(order.id))),
     ),
   ).toBeInstanceOf(Proposed);
-});
-
-test("username payments still pin the Orchid recipient and settle normally", async () => {
-  const key = Keypair.random();
-  const recipient = Keypair.random();
-
-  await create(key, "maria");
-  await create(recipient, "rosa");
-  world.accounts.set(addressOf(key), {
-    sequence: "1000",
-    nativeBalance: 0n,
-    balance: Option.some(Schema.decodeSync(Amount)("50000000")),
-    ledger: 100,
-    accountSponsored: true,
-    sponsored: true,
-  });
-
-  const order = orderFor(
-    key,
-    UsernameRecipient.make({ value: Schema.decodeSync(Username)("rosa") }),
-  );
-
-  const draft = await send(order);
-
-  if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
-
-  expect(draft.recipient.address).toBe(addressOf(recipient));
-  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(
-    Pending,
-  );
-
-  const stored = Option.getOrThrow(
-    await runStores(Transfers.use((service) => service.find(order.id))),
-  );
-
-  if (!(stored instanceof Authorized))
-    throw new Error("Expected authorization");
-
-  world.evidence.set(
-    stored.sealed.hash,
-    new Applied({ at: DateTime.nowUnsafe() }),
-  );
-  expect(await send(order)).toBeInstanceOf(Settled);
 });

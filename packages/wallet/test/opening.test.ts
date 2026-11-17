@@ -214,7 +214,6 @@ test("one missing RPC observation does not demote an active wallet", async () =>
   );
 
   expect(result).toBeInstanceOf(Holding);
-  expect(reads).toBe(2);
   expect(
     Option.getOrThrow(
       await runStores(

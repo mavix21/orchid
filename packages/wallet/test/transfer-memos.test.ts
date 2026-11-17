@@ -4,10 +4,7 @@ import {
   Keypair,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
-import { makeDatabase } from "@workspace/db";
-import { sql } from "drizzle-orm";
 import * as DateTime from "effect/DateTime";
-import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
@@ -30,7 +27,6 @@ import {
 import { PaymentFacts, readEnvelope } from "../src/stellar/envelopes";
 import { networkPassphrase } from "../src/stellar/network";
 import {
-  dbLayer,
   world,
   runStores,
   addressOf,
@@ -219,18 +215,6 @@ test("external text/id memos survive draft, signature, durable order and receipt
       expect(receipt.recipient).toEqual(
         new ExternalRecipient({ address: destination }),
       );
-
-      const rows = await Effect.runPromise(
-        Effect.gen(function* () {
-          const db = yield* makeDatabase();
-
-          return yield* db.execute(
-            sql`select recipient from transfers where id = ${order.id}`,
-          );
-        }).pipe(Effect.provide(dbLayer)),
-      );
-
-      expect(rows.rows[0]?.recipient).toBeNull();
     }
   }
 

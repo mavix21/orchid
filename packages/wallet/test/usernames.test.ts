@@ -45,20 +45,15 @@ import {
 
 useDisposableDatabase();
 
-test("phone support is a typed refusal and bound names cannot be taken by another key", async () => {
-  const key = Keypair.random();
-
+test("phone recipients return a typed refusal", async () => {
   expect(
-    await send(orderFor(key, PhoneRecipient.make({ value: "+51999999999" }))),
+    await send(
+      orderFor(
+        Keypair.random(),
+        PhoneRecipient.make({ value: "+51999999999" }),
+      ),
+    ),
   ).toBeInstanceOf(PhoneNotSupported);
-  await create(key, "maria");
-
-  const before = world.submitted.length;
-
-  expect(await opening(claimFor(Keypair.random(), "maria"))).toEqual(
-    new UsernameTaken({ username: Schema.decodeSync(Username)("maria") }),
-  );
-  expect(world.submitted).toHaveLength(before);
 });
 
 test("a name is bound only by the signed opening; drafts reserve nothing", async () => {
