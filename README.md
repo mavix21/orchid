@@ -8,14 +8,14 @@ Crypto payments require users to manage addresses, networks and exchange deposit
 
 ## Solution
 
-Make these payment flows accessible from a mobile browser. Currently only the application and database foundation exists.
+Make these payment flows accessible from a mobile browser. The wallet server for Stellar testnet exists: sponsored account opening with permanent usernames, USDC transfers between usernames and to external addresses, and a scheduled sweep that settles transfers and recovers abandoned reserves. The UI is still a placeholder page, and device key storage and passkey backup are not built yet.
 
 ## Key features
 
-- Payment links — planned.
-- Lemon/exchange withdrawals with memo — planned.
-- Agent-ready access via MCP — planned.
-- Self-custody and PWA support — planned.
+- Usernames and USDC transfers on Stellar testnet — server implemented; UI not built.
+- Exchange withdrawals with memo — server accepts text and ID memos; the known-exchange registry is empty.
+- Self-custody — the server never holds user keys; device key storage and passkey backup ([design](docs/architecture/wallet-testnet/backup.md)) are not built.
+- Payment links, PWA support and agent access via MCP — planned.
 
 ## Tech stack
 
@@ -45,9 +45,9 @@ export CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE='postgres://orch
 bun run dev
 ```
 
-Local Hyperdrive connects directly to Postgres without production pooling/caching. No real Hyperdrive resource is configured.
+Local Hyperdrive connects directly to Postgres without production pooling/caching. No real Hyperdrive resource is configured, so deploys are blocked by the wallet's caching check until one is.
 
-`packages/db` exports `makeDatabase` and `databaseLayer`. The web server adapter builds the layer from `env.HYPERDRIVE` inside a request. Provide it to the database Effect program. The schema is empty; no wallet tables or migrations exist yet.
+`packages/db` exports `makeDatabase` and `databaseLayer`; the web server builds the layer from `env.HYPERDRIVE` inside each request. Wallet tables and their Drizzle migrations live in `packages/wallet`; see the [wallet README](packages/wallet/README.md) for its behaviour, tests and the Hyperdrive caching prerequisite for deployment. The design rationale is in [docs/architecture/wallet-testnet](docs/architecture/wallet-testnet/rationale.md).
 
 Checks: `bun run typecheck`, `bun run lint`, `bun run fmt:check`, `bun run build`. Format: `bun run fmt`. Production preview: `bun run --cwd apps/web preview`.
 
