@@ -70,6 +70,9 @@
 
 /* Figma text styles; letter spacing is a percentage of the font size. */
 @theme {
+  /* Figma "Spacing" collection is a 4px grid: space/N maps to the N/4 step (space/16 = p-4). */
+  --spacing: 0.25rem;
+
   --font-sans: "Geist Variable", sans-serif;
   --font-display: "Bricolage Grotesque Variable", sans-serif;
   --font-heading: var(--font-display);

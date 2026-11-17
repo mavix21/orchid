@@ -1,10 +1,9 @@
+import { createContext, useContext, useEffect, useState } from "react";
 import { ScriptOnce } from "@tanstack/react-router";
-import { createContext, use, useEffect, useState } from "react";
 
-// shadcn dark mode for TanStack Start: https://ui.shadcn.com/docs/dark-mode/tanstack-start
+// From shadcn's dark mode guide for TanStack Start:
+// https://ui.shadcn.com/docs/dark-mode/tanstack-start
 type Theme = "dark" | "light" | "system";
-
-const themes: ReadonlyArray<Theme> = ["dark", "light", "system"];
 
 type ThemeProviderProps = {
   children: React.ReactNode;
@@ -17,29 +16,32 @@ type ThemeProviderState = {
   setTheme: (theme: Theme) => void;
 };
 
-const ThemeProviderContext = createContext<ThemeProviderState | null>(null);
+function getThemeScript(storageKey: string, defaultTheme: Theme) {
+  const key = JSON.stringify(storageKey);
+  const fallback = JSON.stringify(defaultTheme);
 
-function isTheme(value: string | null): value is Theme {
-  return themes.some((theme) => theme === value);
+  return `(function(){try{var t=localStorage.getItem(${key});if(t!=='light'&&t!=='dark'&&t!=='system'){t=${fallback}}var d=matchMedia('(prefers-color-scheme: dark)').matches;var r=t==='system'?(d?'dark':'light'):t;var e=document.documentElement;e.classList.add(r);e.style.colorScheme=r}catch(e){}})();`;
 }
+
+const ThemeProviderContext = createContext<ThemeProviderState>({
+  theme: "system",
+  setTheme: () => {},
+});
 
 function applyTheme(theme: Theme) {
-  const root = window.document.documentElement;
-
-  const system = window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
-
-  const resolved = theme === "system" ? system : theme;
+  const root = document.documentElement;
 
   root.classList.remove("light", "dark");
+
+  const resolved =
+    theme === "system"
+      ? window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light"
+      : theme;
+
   root.classList.add(resolved);
   root.style.colorScheme = resolved;
-}
-
-// Runs before hydration so the first paint already has the right class.
-function themeScript(storageKey: string, defaultTheme: Theme) {
-  return `(function(){try{var t=localStorage.getItem(${JSON.stringify(storageKey)})||${JSON.stringify(defaultTheme)};var d=t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);var r=document.documentElement;r.classList.remove("light","dark");r.classList.add(d?"dark":"light");r.style.colorScheme=d?"dark":"light";}catch(e){}})();`;
 }
 
 export function ThemeProvider({
@@ -53,17 +55,21 @@ export function ThemeProvider({
   useEffect(() => {
     const stored = localStorage.getItem(storageKey);
 
-    if (isTheme(stored)) setThemeState(stored);
-
+    setThemeState(
+      stored === "light" || stored === "dark" || stored === "system"
+        ? stored
+        : defaultTheme,
+    );
     setMounted(true);
-  }, [storageKey]);
+  }, [defaultTheme, storageKey]);
 
   useEffect(() => {
     if (!mounted) return;
-
     applyTheme(theme);
+  }, [theme, mounted]);
 
-    if (theme !== "system") return;
+  useEffect(() => {
+    if (!mounted || theme !== "system") return;
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => applyTheme("system");
@@ -80,18 +86,12 @@ export function ThemeProvider({
 
   return (
     <ThemeProviderContext value={{ theme, setTheme }}>
-      <ScriptOnce>{themeScript(storageKey, defaultTheme)}</ScriptOnce>
+      <ScriptOnce>{getThemeScript(storageKey, defaultTheme)}</ScriptOnce>
       {children}
     </ThemeProviderContext>
   );
 }
 
 export function useTheme() {
-  const context = use(ThemeProviderContext);
-
-  if (context === null) {
-    throw new Error("useTheme must be used within a ThemeProvider");
-  }
-
-  return context;
+  return useContext(ThemeProviderContext);
 }
