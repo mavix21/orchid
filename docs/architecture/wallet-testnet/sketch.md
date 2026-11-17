@@ -14,7 +14,7 @@ These owner-approved decisions take precedence over the illustrative service sig
 
 ## Username binding decision (owner, 2026-11-17)
 
-This supersedes the earlier claim lease, `claimed`/`reopening` states and `ownershipBound` flag.
+This supersedes the earlier expiring unsigned claims, the `claimed`/`reopening` states and the `ownershipBound` flag.
 
 - Names live in their own table, `usernames(username primary key, address unique, boundAt)`. A row is inserted once and never updated or deleted, so a name is never recycled and an address has at most one name. Renames are out of scope.
 - A name is either available or bound. It is bound in the same transaction that stores the signed opening, because that signature already proves key control. If the name is already bound to another address, `open` returns `UsernameTaken` and stores and submits nothing, so the loser of a race costs Orchid nothing. If the address already holds another name, `open` returns `AddressBound` with that profile rather than signing under a name the device did not ask for.
