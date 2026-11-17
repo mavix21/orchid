@@ -5,7 +5,7 @@ import type {
   ClaimableEntry,
 } from "../src/server/ledger-assets.server";
 import { AssetOrders } from "../src/server/AssetOrders.server";
-import { baseAsset } from "../src/stellar/assets";
+import { baseAsset } from "../src/contract";
 import { beforeAll, beforeEach, expect } from "@effect/vitest";
 import {
   Account,

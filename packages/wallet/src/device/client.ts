@@ -1,111 +1,61 @@
-import type { AssetFacts } from "../stellar/asset-envelopes";
-import type * as Effect from "effect/Effect";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import type {
-  OpeningFacts,
-  PaymentFacts,
-  RecoveryFacts,
-} from "../stellar/envelopes";
-import type {
-  AddressBound,
-  Approval,
-  InvalidAddress,
-  NotSponsored,
-  ExternalMemoRequired,
-  MemoNotAllowed,
-  PaymentMemo,
-  Holding,
-  NeedsReopening,
-  Opened,
-  UsernameTaken,
-  Settled,
-  Pending,
-  Failed,
-  SenderBusy,
-  InsufficientBalance,
-  UnknownRecipient,
-  PhoneNotSupported,
-  SigningRequest,
-  WalletUnavailable,
-} from "../contract";
+import { Username, type WalletPort } from "../contract";
+import type { KeyStore } from "./key-store";
+import {
+  type CreateOutcome,
+  type DeviceOverview,
+  InvalidUsername,
+  NoWallet,
+  Offline,
+  UnsupportedDevice,
+} from "./outcomes";
 
-export interface DeviceSigner {
-  approve(
-    request: SigningRequest,
-    expected: OpeningFacts | PaymentFacts | RecoveryFacts | AssetFacts,
-  ): Effect.Effect<Approval, WalletUnavailable>;
-}
-
-export class NoWallet extends Schema.TaggedClass<NoWallet>()("NoWallet", {}) {}
-
-export class Offline extends Schema.TaggedClass<Offline>()("Offline", {}) {}
-
-export class InvalidUsername extends Schema.TaggedClass<InvalidUsername>()(
-  "InvalidUsername",
-  {},
-) {}
-
-export class InvalidRecipient extends Schema.TaggedClass<InvalidRecipient>()(
-  "InvalidRecipient",
-  {},
-) {}
-
-export class InvalidAmount extends Schema.TaggedClass<InvalidAmount>()(
-  "InvalidAmount",
-  {},
-) {}
-
-export class UnsupportedDevice extends Schema.TaggedClass<UnsupportedDevice>()(
-  "UnsupportedDevice",
-  {},
-) {}
-
-export class DraftRejected extends Schema.TaggedClass<DraftRejected>()(
-  "DraftRejected",
-  {},
-) {}
-
-export type DeviceOverview =
-  | Holding
-  | NeedsReopening
-  | InvalidAddress
-  | NoWallet
-  | Offline;
-
-export type CreateOutcome =
-  | InvalidAddress
-  | NotSponsored
-  | Opened
-  | UsernameTaken
-  | AddressBound
-  | InvalidUsername
-  | UnsupportedDevice
-  | DraftRejected
-  | Offline;
-
-export type SendOutcome =
-  | InvalidAddress
-  | ExternalMemoRequired
-  | MemoNotAllowed
-  | PhoneNotSupported
-  | Settled
-  | Pending
-  | Failed
-  | SenderBusy
-  | InsufficientBalance
-  | UnknownRecipient
-  | InvalidRecipient
-  | InvalidAmount
-  | NoWallet
-  | DraftRejected
-  | Offline;
+export * from "./outcomes";
 
 export interface WalletClient {
   overview(): Promise<DeviceOverview>;
   create(usernameText: string): Promise<CreateOutcome>;
-  send(
-    recipientText: string,
-    amountText: string,
-    memo?: PaymentMemo,
-  ): Promise<SendOutcome>;
+}
+
+export function makeWalletClient(port: WalletPort, store: KeyStore) {
+  const create = Effect.fn("Device.create")(function* (usernameText: string) {
+    const username = Schema.decodeUnknownOption(Username)(usernameText);
+
+    if (Option.isNone(username)) return new InvalidUsername();
+
+    const { openWallet } = yield* Effect.promise(() => import("./opening"));
+
+    return yield* openWallet(port, store)(username.value);
+  });
+
+  const overview = Effect.fn("Device.overview")(function* () {
+    const stored = yield* store.read();
+
+    if (Option.isNone(stored)) return new NoWallet();
+
+    return yield* port.overview(stored.value.address);
+  });
+
+  const client: WalletClient = {
+    overview: () =>
+      overview().pipe(
+        Effect.catchTags({
+          KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
+          WalletUnavailable: () => Effect.succeed(new Offline()),
+        }),
+        Effect.runPromise,
+      ),
+    create: (usernameText) =>
+      create(usernameText).pipe(
+        Effect.catchTags({
+          KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
+          WalletUnavailable: () => Effect.succeed(new Offline()),
+        }),
+        Effect.runPromise,
+      ),
+  };
+
+  return client;
 }

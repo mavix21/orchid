@@ -6,9 +6,3 @@ export const me: Profile = {
   tone: "orchid",
   petals: mariarojasPetals,
 };
-
-export const balance = {
-  whole: "$124",
-  cents: ".50",
-  localEquivalent: "≈ S/ 466.37",
-};

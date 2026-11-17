@@ -22,13 +22,19 @@ Usernames live in an insert-only `usernames` table: one name per address, never 
 
 Recovery signing and submission require matching reserve-sponsor identities on both the account and trustline. The RPC wire decoder retains `extXdr` sponsorship metadata omitted by the installed SDK parser. Transfers look up both fee-bump and inner hashes. Expiry additionally requires a fresh sender sequence below the signed sequence; a consumed sequence concludes rejected only when retained inner-hash absence evidence covers its consumption. Missing history or an absent sender remains undecided. Unsigned drafts refresh their sequence before authorization and after reconciling a busy sender. Overview ignores unsigned drafts. A recovered wallet stays `recovered`, and `overview` returns `NeedsReopening`, until repair reactivates it. Openings alone may redraft after their ledger time bound without retained transaction history. Wallet transitions compare a row version so a stale request cannot overwrite newer state.
 
+### Device
+
+`makeWalletClient(port, store)` implements `create` and `overview` on the device. Each wallet's signing key derives from a 12-word English BIP-39 secret phrase on the SEP-5 path `m/44'/148'/0'`, so the phrase imports into other Stellar wallets. Before the first `open`, the client stores the phrase, address and username and reads them back; every retry reuses the stored phrase. It approves an opening only while the draft is live and opens its own address, and stores that opening's reserve sponsor before approving. It approves a recovery only when it merges into the same sponsor. Any other draft returns `DraftRejected` unsigned. Consecutive `OpeningPending` steps are polled two seconds apart, for at most twelve steps.
+
+`browserKeyStore` keeps the phrase in IndexedDB, encrypted with a non-extractable AES-GCM key stored beside it. This keeps the phrase out of raw storage exports but not out of reach of script running on the Orchid origin.
+
 ### Scheduled sweep
 
 Each scheduled run selects up to four transfers and four currently eligible recovery wallets. Queue selection is a conditional write that rotates least-recently checked records. Two independent negative reads protect against demotion from one transient missing response.
 
 ### Limits
 
-Device key storage and the UI replay loop, passkeys/PRF, `protect`/`recover`, enrollment envelopes, phone tables, OTP, escrow, Turnstile, mainnet and deployment are not implemented. `WalletClient` and `DeviceSigner` are types only, with no working-looking implementations. A live USDC payment and the recovery guard that skips a nonzero balance are not verified on testnet.
+The device client covers creation and overview only; sending from the device, secret phrase export, passkeys/PRF, `protect`/`recover`, enrollment envelopes, phone tables, OTP, escrow, Turnstile, mainnet and deployment are not implemented. A live USDC payment and the recovery guard that skips a nonzero balance are not verified on testnet.
 
 An opening abandoned before recovery signing keeps its reserve locked: the server cannot produce the missing signature. Recovery covers only an account whose sequence has not advanced. The sweep skips observed nonzero USDC and native XLM balances. USDC deposits racing recovery are protected atomically by trustline removal; an XLM deposit racing the final check can still be merged to the sponsor by the pre-signed account merge. Mainnet recovery policy needs review before adoption.
 
@@ -75,6 +81,15 @@ bun run --cwd packages/wallet db:generate
 ```
 
 The generated SQL and snapshot are in `drizzle/`. From the repository root, `bun run db:migrate` applies these migrations using `DATABASE_URL_UNPOOLED` from the gitignored `.env.local` pulled by Neon. Check the selected Neon branch before migrating.
+
+## Live device verification
+
+`testnet:device` runs the device client against the real `Wallet`, live testnet and the `wallet_live` database, using the reserve sponsor and fee payer from `apps/web/.dev.vars`. Each run creates a new wallet with a fresh secret phrase and checks the opening, sponsorship, signed recovery and overview. It prints public evidence as JSON to stdout; put it in the pull request, not in a file.
+
+```sh
+docker exec orchid-wallet-verification createdb -U orchid wallet_live
+bun run --cwd packages/wallet testnet:device
+```
 
 ## Live testnet verification
 

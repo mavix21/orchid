@@ -7,18 +7,18 @@ import { TokenIcon } from "@/components/token-icon";
 import { TopNav } from "@/components/top-nav";
 import { assets } from "@/fixtures/assets";
 
-export const Route = createFileRoute("/enviar/")({
-  component: EnviarActivo,
+export const Route = createFileRoute("/send/")({
+  component: ChooseAsset,
 });
 
-function EnviarActivo() {
+function ChooseAsset() {
   return (
     <Screen>
       <TopNav
         title="Enviar"
         label="Cerrar"
         icon={<XIcon absoluteStrokeWidth />}
-        link={<Link to="/inicio" />}
+        link={<Link to="/home" />}
       />
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
         <h1 className="font-display text-h1">¿Qué quieres enviar?</h1>
@@ -30,9 +30,7 @@ function EnviarActivo() {
               description={`${asset.amount} · ${asset.localEquivalent}`}
               media={<TokenIcon asset={asset.id} />}
               mediaVariant="muted"
-              render={
-                <Link to="/enviar/$activo" params={{ activo: asset.id }} />
-              }
+              render={<Link to="/send/$asset" params={{ asset: asset.id }} />}
             />
           ))}
         </div>

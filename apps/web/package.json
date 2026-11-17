@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "deploy": "bun run check:hyperdrive && bun run build && wrangler deploy",
     "check:hyperdrive": "bun ../../tools/wallet/check-hyperdrive-caching.mjs",
-    "cf-typegen": "bun ../../tools/comments/generate.mjs worker-configuration.d.ts wrangler types"
+    "cf-typegen": "bun ../../tools/comments/generate.mjs worker-configuration.d.ts wrangler types",
+    "test:e2e": "bun ../../tools/comments/generate.mjs src/routeTree.gen.ts playwright test"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.69.1",
+    "@playwright/test": "1.65.1",
     "@tanstack/devtools-vite": "latest",
     "@tanstack/router-cli": "^1.168.0",
     "@types/node": "^22",

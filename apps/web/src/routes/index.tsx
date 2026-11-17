@@ -5,10 +5,10 @@ import { BrandLogo } from "@/components/brand-logo";
 import { Screen, ScreenActions } from "@/components/screen";
 
 export const Route = createFileRoute("/")({
-  component: Bienvenida,
+  component: Welcome,
 });
 
-function Bienvenida() {
+function Welcome() {
   return (
     <Screen>
       <main className="flex flex-1 flex-col gap-2 px-5 pt-2 pb-6">
@@ -23,7 +23,7 @@ function Bienvenida() {
         <Button
           className="w-full"
           nativeButton={false}
-          render={<Link to="/crear-cuenta" />}
+          render={<Link to="/create-account" />}
         >
           Crear cuenta
         </Button>
@@ -31,7 +31,7 @@ function Bienvenida() {
           className="w-full"
           variant="ghost"
           nativeButton={false}
-          render={<Link to="/inicio" />}
+          render={<Link to="/home" />}
         >
           Ya tengo una cuenta
         </Button>

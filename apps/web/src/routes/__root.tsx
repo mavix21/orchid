@@ -1,9 +1,16 @@
-import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
+import {
+  HeadContent,
+  Scripts,
+  createRootRouteWithContext,
+} from "@tanstack/react-router";
+import type { WalletClient } from "@workspace/wallet";
 
 import appCss from "@workspace/ui/globals.css?url";
 import { ThemeProvider } from "@/components/theme-provider";
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<{
+  walletClient: WalletClient;
+}>()({
   head: () => ({
     meta: [
       {

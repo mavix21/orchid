@@ -1,4 +1,4 @@
-import { baseAsset } from "../src/stellar/assets";
+import { baseAsset } from "../src/contract";
 import { expect, it } from "@effect/vitest";
 import {
   FeeBumpTransaction,

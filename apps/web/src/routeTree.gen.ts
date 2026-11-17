@@ -4,79 +4,79 @@
 
 import { Route as rootRouteImport } from "./routes/__root";
 import { Route as IndexRouteImport } from "./routes/index";
-import { Route as CrearCuentaRouteImport } from "./routes/crear-cuenta";
-import { Route as InicioRouteImport } from "./routes/inicio";
-import { Route as EnviarIndexRouteImport } from "./routes/enviar/index";
-import { Route as EnviarActivoRouteImport } from "./routes/enviar/$activo";
+import { Route as CreateAccountRouteImport } from "./routes/create-account";
+import { Route as HomeRouteImport } from "./routes/home";
+import { Route as SendIndexRouteImport } from "./routes/send/index";
+import { Route as SendAssetRouteImport } from "./routes/send/$asset";
 
 const IndexRoute = IndexRouteImport.update({
   id: "/",
   path: "/",
   getParentRoute: () => rootRouteImport,
 } as any);
-const CrearCuentaRoute = CrearCuentaRouteImport.update({
-  id: "/crear-cuenta",
-  path: "/crear-cuenta",
+const CreateAccountRoute = CreateAccountRouteImport.update({
+  id: "/create-account",
+  path: "/create-account",
   getParentRoute: () => rootRouteImport,
 } as any);
-const InicioRoute = InicioRouteImport.update({
-  id: "/inicio",
-  path: "/inicio",
+const HomeRoute = HomeRouteImport.update({
+  id: "/home",
+  path: "/home",
   getParentRoute: () => rootRouteImport,
 } as any);
-const EnviarIndexRoute = EnviarIndexRouteImport.update({
-  id: "/enviar/",
-  path: "/enviar/",
+const SendIndexRoute = SendIndexRouteImport.update({
+  id: "/send/",
+  path: "/send/",
   getParentRoute: () => rootRouteImport,
 } as any);
-const EnviarActivoRoute = EnviarActivoRouteImport.update({
-  id: "/enviar/$activo",
-  path: "/enviar/$activo",
+const SendAssetRoute = SendAssetRouteImport.update({
+  id: "/send/$asset",
+  path: "/send/$asset",
   getParentRoute: () => rootRouteImport,
 } as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
-  "/crear-cuenta": typeof CrearCuentaRoute;
-  "/inicio": typeof InicioRoute;
-  "/enviar/$activo": typeof EnviarActivoRoute;
-  "/enviar/": typeof EnviarIndexRoute;
+  "/create-account": typeof CreateAccountRoute;
+  "/home": typeof HomeRoute;
+  "/send/$asset": typeof SendAssetRoute;
+  "/send/": typeof SendIndexRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
-  "/crear-cuenta": typeof CrearCuentaRoute;
-  "/inicio": typeof InicioRoute;
-  "/enviar/$activo": typeof EnviarActivoRoute;
-  "/enviar": typeof EnviarIndexRoute;
+  "/create-account": typeof CreateAccountRoute;
+  "/home": typeof HomeRoute;
+  "/send/$asset": typeof SendAssetRoute;
+  "/send": typeof SendIndexRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
-  "/crear-cuenta": typeof CrearCuentaRoute;
-  "/inicio": typeof InicioRoute;
-  "/enviar/$activo": typeof EnviarActivoRoute;
-  "/enviar/": typeof EnviarIndexRoute;
+  "/create-account": typeof CreateAccountRoute;
+  "/home": typeof HomeRoute;
+  "/send/$asset": typeof SendAssetRoute;
+  "/send/": typeof SendIndexRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/crear-cuenta" | "/inicio" | "/enviar/$activo" | "/enviar/";
+  fullPaths: "/" | "/create-account" | "/home" | "/send/$asset" | "/send/";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/crear-cuenta" | "/inicio" | "/enviar/$activo" | "/enviar";
+  to: "/" | "/create-account" | "/home" | "/send/$asset" | "/send";
   id:
     | "__root__"
     | "/"
-    | "/crear-cuenta"
-    | "/inicio"
-    | "/enviar/$activo"
-    | "/enviar/";
+    | "/create-account"
+    | "/home"
+    | "/send/$asset"
+    | "/send/";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
-  CrearCuentaRoute: typeof CrearCuentaRoute;
-  InicioRoute: typeof InicioRoute;
-  EnviarActivoRoute: typeof EnviarActivoRoute;
-  EnviarIndexRoute: typeof EnviarIndexRoute;
+  CreateAccountRoute: typeof CreateAccountRoute;
+  HomeRoute: typeof HomeRoute;
+  SendAssetRoute: typeof SendAssetRoute;
+  SendIndexRoute: typeof SendIndexRoute;
 }
 
 declare module "@tanstack/react-router" {
@@ -88,32 +88,32 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof IndexRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/crear-cuenta": {
-      id: "/crear-cuenta";
-      path: "/crear-cuenta";
-      fullPath: "/crear-cuenta";
-      preLoaderRoute: typeof CrearCuentaRouteImport;
+    "/create-account": {
+      id: "/create-account";
+      path: "/create-account";
+      fullPath: "/create-account";
+      preLoaderRoute: typeof CreateAccountRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/inicio": {
-      id: "/inicio";
-      path: "/inicio";
-      fullPath: "/inicio";
-      preLoaderRoute: typeof InicioRouteImport;
+    "/home": {
+      id: "/home";
+      path: "/home";
+      fullPath: "/home";
+      preLoaderRoute: typeof HomeRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/enviar/": {
-      id: "/enviar/";
-      path: "/enviar";
-      fullPath: "/enviar/";
-      preLoaderRoute: typeof EnviarIndexRouteImport;
+    "/send/": {
+      id: "/send/";
+      path: "/send";
+      fullPath: "/send/";
+      preLoaderRoute: typeof SendIndexRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/enviar/$activo": {
-      id: "/enviar/$activo";
-      path: "/enviar/$activo";
-      fullPath: "/enviar/$activo";
-      preLoaderRoute: typeof EnviarActivoRouteImport;
+    "/send/$asset": {
+      id: "/send/$asset";
+      path: "/send/$asset";
+      fullPath: "/send/$asset";
+      preLoaderRoute: typeof SendAssetRouteImport;
       parentRoute: typeof rootRouteImport;
     };
   }
@@ -121,10 +121,10 @@ declare module "@tanstack/react-router" {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  CrearCuentaRoute: CrearCuentaRoute,
-  InicioRoute: InicioRoute,
-  EnviarActivoRoute: EnviarActivoRoute,
-  EnviarIndexRoute: EnviarIndexRoute,
+  CreateAccountRoute: CreateAccountRoute,
+  HomeRoute: HomeRoute,
+  SendAssetRoute: SendAssetRoute,
+  SendIndexRoute: SendIndexRoute,
 };
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
