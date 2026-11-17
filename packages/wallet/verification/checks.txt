@@ -10,7 +10,7 @@ $ oxfmt --check
 Checking formatting...
 
 All matched files use the correct format.
-Finished in 7ms on 73 files using 14 threads.
+Finished in 5ms on 73 files using 14 threads.
 Exit code: 0
 
 $ bun run typecheck
@@ -25,14 +25,14 @@ $ turbo typecheck
 @workspace/db:typecheck: cache hit, replaying logs 52b5cae9feaaa9ef
 @workspace/db:typecheck: $ tsc --noEmit
 @workspace/ui:typecheck: $ tsc --noEmit
-@workspace/wallet:typecheck: cache miss, executing b4f5be20b064b11a
+@workspace/wallet:typecheck: cache miss, executing 656840362df9f6f3
 @workspace/wallet:typecheck: $ tsc --noEmit
-web:typecheck: cache miss, executing e4ca1f8184722b51
+web:typecheck: cache miss, executing 0b0f3f2ba5327183
 web:typecheck: $ tsc --noEmit
 
  Tasks:    4 successful, 4 total
 Cached:    2 cached, 4 total
-  Time:    545ms 
+  Time:    535ms 
 
 Exit code: 0
 
@@ -48,7 +48,7 @@ Wallet transport: client build passed
    • Running build in 4 packages
    • Remote caching disabled, using shared worktree cache
 
-web:build: cache miss, executing 9640221088ce5aaa
+web:build: cache miss, executing 5a4fe5e2cdbe8e0d
 web:build: $ vite build
 web:build: vite v8.3.8 building client environment for production...
 web:build: transforming...
@@ -65,7 +65,7 @@ web:build: dist/client/assets/globals-BfRPnSnE.css                            24
 web:build: dist/client/assets/routes-D3SAWgBP.js                               0.14 kB │ gzip:   0.13 kB
 web:build: dist/client/assets/index-DdmWNKJP.js                              443.03 kB │ gzip: 142.94 kB
 web:build: 
-web:build: ✓ built in 232ms
+web:build: ✓ built in 231ms
 web:build: vite v8.3.8 building ssr environment for production...
 web:build: transforming...
 web:build: ✓ 1246 modules transformed.
@@ -100,11 +100,11 @@ web:build: dist/server/assets/wallet.server-CtdUixWv.js                         
 web:build: dist/server/index.js                                                    739.28 kB │ gzip: 153.84 kB │ map: 1,357.06 kB
 web:build: dist/server/assets/server-BRb79ytW.js                                 1,105.86 kB │ gzip: 182.26 kB │ map: 2,165.61 kB
 web:build: 
-web:build: ✓ built in 219ms
+web:build: ✓ built in 212ms
 
  Tasks:    1 successful, 1 total
 Cached:    0 cached, 1 total
-  Time:    1.024s 
+  Time:    1.02s 
 
 Exit code: 0
 
@@ -114,8 +114,8 @@ bun test v1.4.4 (38afee6c8)
 
  41 pass
  0 fail
- 566 expect() calls
-Ran 41 tests across 3 files. [2.03s]
+ 567 expect() calls
+Ran 41 tests across 3 files. [2.06s]
 Wallet boundary server: rejected by real Vite build
 Wallet boundary relative: rejected by real Vite build
 Wallet boundary private: rejected by real Vite build

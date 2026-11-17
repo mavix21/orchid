@@ -4,7 +4,7 @@
 
 ## Shipped state
 
-The registry is empty. Official Binance and Lemon help pages say deposits need a memo, but they publish no address list. Each exchange shows deposit details to the signed-in user in its app, and the pages name no address on any network. No address was verified, so none was added. Never infer, copy from third-party lists or invent an entry.
+The registry is empty. Official Binance and Lemon pages describe memo requirements but publish no verifiable address list. No address was verified, so none was added. Never infer, copy from third-party lists or invent an entry.
 
 ## What an entry needs
 

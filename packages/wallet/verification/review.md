@@ -9,7 +9,7 @@ A memo is now required only for addresses known to belong to exchanges that need
 - The refusal is checked on every unsigned step (new order, replayed draft, approval). A later entry blocks signing an existing unsigned draft. It cannot block or change an already authorized transfer.
 - No database change: the memo already lives in the stored order, and the registry is code. `drizzle-kit generate` reports no schema changes.
 - Tests cover: unlisted external sends without a memo that sign, settle and keep no memo, with `MEMO_NONE` on the inner transaction; a listed address refusing a missing memo with its evidence, leaving no row or submission; text/id memos on both listed and unlisted addresses; a registry entry added between draft and approval; Orchid recipients still refusing memos with `memoRequired: false`; and the schema rejecting a wrong network, bad checksum, non-HTTPS source and empty exchange name. Live testnet was not rerun; this change touches no opening, recovery or submission path. Live USDC payments remain unverified as before.
-- `bun lint`, `bun run fmt:check`, `bun run typecheck`, `bun run build` and the package tests exited 0. The tests ran against the disposable PostgreSQL 17.12 container: 41 pass, 0 fail, 566 assertions. [checks.txt](./checks.txt) has the output.
+- `bun lint`, `bun run fmt:check`, `bun run typecheck`, `bun run build` and the package tests exited 0. The tests ran against the disposable PostgreSQL 17.12 container: 41 pass, 0 fail, 567 assertions. [checks.txt](./checks.txt) has the output.
 
 ## Re-review round
 
