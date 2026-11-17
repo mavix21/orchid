@@ -1,4 +1,4 @@
-Wallet re-review verification. Commands below exited 0.
+Wallet memo-registry round verification. Commands below exited 0.
 The local PostgreSQL database is disposable; no deployment was run.
 
 $ bun lint
@@ -10,7 +10,7 @@ $ oxfmt --check
 Checking formatting...
 
 All matched files use the correct format.
-Finished in 7ms on 70 files using 14 threads.
+Finished in 7ms on 73 files using 14 threads.
 Exit code: 0
 
 $ bun run typecheck
@@ -21,21 +21,19 @@ $ turbo typecheck
    • Running typecheck in 4 packages
    • Remote caching disabled, using shared worktree cache
 
-@workspace/db:typecheck: cache hit, replaying logs 52b5cae9feaaa9ef
 @workspace/ui:typecheck: cache hit, replaying logs 1e93f5cb04c70ed0
+@workspace/db:typecheck: cache hit, replaying logs 52b5cae9feaaa9ef
 @workspace/db:typecheck: $ tsc --noEmit
 @workspace/ui:typecheck: $ tsc --noEmit
-@workspace/wallet:typecheck: cache miss, executing f587ce06f2fc22fc
+@workspace/wallet:typecheck: cache miss, executing b4f5be20b064b11a
 @workspace/wallet:typecheck: $ tsc --noEmit
- WARNING  IO error: Operation not permitted (os error 1)
-web:typecheck: cache miss, executing 77e7522d94febf17
+web:typecheck: cache miss, executing e4ca1f8184722b51
 web:typecheck: $ tsc --noEmit
 
  Tasks:    4 successful, 4 total
 Cached:    2 cached, 4 total
-  Time:    543ms 
+  Time:    545ms 
 
- WARNING  IO error: Operation not permitted (os error 1)
 Exit code: 0
 
 $ bun run build
@@ -50,7 +48,7 @@ Wallet transport: client build passed
    • Running build in 4 packages
    • Remote caching disabled, using shared worktree cache
 
-web:build: cache miss, executing 3b4b0ca0bb63e751
+web:build: cache miss, executing 9640221088ce5aaa
 web:build: $ vite build
 web:build: vite v8.3.8 building client environment for production...
 web:build: transforming...
@@ -64,38 +62,16 @@ web:build: dist/client/assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2       15
 web:build: dist/client/assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2      16.51 kB
 web:build: dist/client/assets/geist-latin-wght-normal-BgDaEnEv.woff2          29.40 kB
 web:build: dist/client/assets/globals-BfRPnSnE.css                            24.55 kB │ gzip:   5.23 kB
-web:build: dist/client/assets/routes-D959D5hh.js                               0.14 kB │ gzip:   0.13 kB
-web:build: dist/client/assets/index-BRNDWLE1.js                              442.33 kB │ gzip: 142.72 kB
+web:build: dist/client/assets/routes-D3SAWgBP.js                               0.14 kB │ gzip:   0.13 kB
+web:build: dist/client/assets/index-DdmWNKJP.js                              443.03 kB │ gzip: 142.94 kB
 web:build: 
-web:build: ✓ built in 233ms
+web:build: ✓ built in 232ms
 web:build: vite v8.3.8 building ssr environment for production...
 web:build: transforming...
-web:build: ✓ 1245 modules transformed.
+web:build: ✓ 1246 modules transformed.
 web:build: rendering chunks...
 web:build: Using secrets defined in process.env
 web:build: [33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mMissing required secrets: RESERVE_SPONSOR_SECRET, FEE_PAYER_SECRET. Add them to .dev.vars, .env, or set as environment variables.[0m
-web:build: 
-web:build: 
-web:build: [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mFailed to write to log file Error: EPERM: operation not permitted, open '/Users/marcelovizcarra/Library/Preferences/.wrangler/logs/wrangler-2026-11-17_00-04-01_206.log'[0m
-web:build: 
-web:build:       at async open (node:internal/fs/promises:640:25)
-web:build:       at async writeFile (node:internal/fs/promises:1257:14)
-web:build:       at async /Users/marcelovizcarra/.t3/worktrees/orchid/feat-wallet-server-be1bfa8c2207dff1/node_modules/.bun/wrangler@4.160.0+524d27868019c7b5/node_modules/wrangler/wrangler-dist/cli.js:70938:7
-web:build:       at async Mutex.runWith (/Users/marcelovizcarra/.t3/worktrees/orchid/feat-wallet-server-be1bfa8c2207dff1/node_modules/.bun/miniflare@5.20261110.0-beta+524d27868019c7b5/node_modules/miniflare/dist/src/index.js:76505:16)
-web:build:       at async appendToDebugLogFile (/Users/marcelovizcarra/.t3/worktrees/orchid/feat-wallet-server-be1bfa8c2207dff1/node_modules/.bun/wrangler@4.160.0+524d27868019c7b5/node_modules/wrangler/wrangler-dist/cli.js:70935:3) {
-web:build:     errno: -1,
-web:build:     code: 'EPERM',
-web:build:     syscall: 'open',
-web:build:     path: '/Users/marcelovizcarra/Library/Preferences/.wrangler/logs/wrangler-2026-11-17_00-04-01_206.log'
-web:build:   }
-web:build: 
-web:build: 
-web:build: [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mWould have written: [0m
-web:build: 
-web:build:   --- 2026-11-17T00:04:01.845Z debug
-web:build:   🪵  Writing logs to "/Users/marcelovizcarra/Library/Preferences/.wrangler/logs/wrangler-2026-11-17_00-04-01_206.log"
-web:build:   ---
-web:build:   
 web:build: 
 web:build: 
 web:build: computing gzip size...
@@ -108,87 +84,45 @@ web:build: dist/server/assets/geist-latin-wght-normal-BgDaEnEv.woff2            
 web:build: dist/server/assets/globals-BfRPnSnE.css                                  24.55 kB │ gzip:   5.23 kB
 web:build: dist/server/assets/start-g2iBNTeT.js                                      0.24 kB │ gzip:   0.19 kB │ map:     0.33 kB
 web:build: dist/server/assets/empty-plugin-adapters-Cipd4ZH4.js                      0.32 kB │ gzip:   0.21 kB │ map:     0.55 kB
-web:build: dist/server/assets/src-C9ANy3RP.js                                        0.35 kB │ gzip:   0.20 kB │ map:     2.97 kB
+web:build: dist/server/assets/src-DiglGKsA.js                                        0.35 kB │ gzip:   0.20 kB │ map:     2.97 kB
 web:build: dist/server/assets/routes-D-OtCBT5.js                                     0.41 kB │ gzip:   0.26 kB │ map:     0.48 kB
-web:build: dist/server/assets/_tanstack-start-manifest_v-BYxDBPme.js                 0.61 kB │ gzip:   0.33 kB
+web:build: dist/server/assets/_tanstack-start-manifest_v-Dr3Hyb4T.js                 0.61 kB │ gzip:   0.33 kB
 web:build: dist/server/assets/utils-B4RvqM9c.js                                      1.12 kB │ gzip:   0.55 kB │ map:     9.81 kB
 web:build: dist/server/assets/rolldown-runtime-CO0Nlsmt.js                           1.17 kB │ gzip:   0.56 kB
 web:build: dist/server/assets/jsx-runtime-BFlC1Yhd.js                                1.49 kB │ gzip:   0.69 kB │ map:     2.02 kB
-web:build: dist/server/assets/port.functions-n_-f3q_9.js                             2.80 kB │ gzip:   1.04 kB │ map:     5.48 kB
+web:build: dist/server/assets/port.functions-CknnZKVE.js                             2.80 kB │ gzip:   1.04 kB │ map:     5.48 kB
 web:build: dist/server/assets/sac-spec-Xsy7LhM-.js                                   9.98 kB │ gzip:   3.17 kB │ map:    10.12 kB
-web:build: dist/server/assets/router-B2HWLjb6.js                                    39.87 kB │ gzip:  10.88 kB │ map:    98.69 kB
+web:build: dist/server/assets/router-DKRJCZHI.js                                    39.87 kB │ gzip:  10.88 kB │ map:    98.69 kB
 web:build: dist/server/assets/client-Ds2noYrH.js                                   134.68 kB │ gzip:  28.34 kB │ map:   247.57 kB
-web:build: dist/server/assets/__23tanstack-start-server-fn-resolver-ix1xMHmg.js    150.76 kB │ gzip:  38.54 kB │ map:   321.21 kB
-web:build: dist/server/assets/contract-CKzVp5Al.js                                 645.07 kB │ gzip: 149.02 kB │ map: 2,482.82 kB
-web:build: dist/server/assets/wallet.server-CBoOMGhK.js                            672.05 kB │ gzip: 149.78 kB │ map: 1,788.06 kB
-web:build: dist/server/index.js                                                    739.28 kB │ gzip: 153.83 kB │ map: 1,357.06 kB
+web:build: dist/server/assets/__23tanstack-start-server-fn-resolver-BghVApu4.js    150.76 kB │ gzip:  38.54 kB │ map:   321.21 kB
+web:build: dist/server/assets/contract-3RxdwfOe.js                                 646.82 kB │ gzip: 149.45 kB │ map: 2,483.67 kB
+web:build: dist/server/assets/wallet.server-CtdUixWv.js                            672.97 kB │ gzip: 150.08 kB │ map: 1,791.17 kB
+web:build: dist/server/index.js                                                    739.28 kB │ gzip: 153.84 kB │ map: 1,357.06 kB
 web:build: dist/server/assets/server-BRb79ytW.js                                 1,105.86 kB │ gzip: 182.26 kB │ map: 2,165.61 kB
 web:build: 
 web:build: ✓ built in 219ms
-web:build: 🪵  Logs were written to "/Users/marcelovizcarra/Library/Preferences/.wrangler/logs/wrangler-2026-11-17_00-04-01_206.log"
 
  Tasks:    1 successful, 1 total
 Cached:    0 cached, 1 total
-  Time:    1.028s 
+  Time:    1.024s 
 
- WARNING  IO error: Operation not permitted (os error 1)
 Exit code: 0
 
 $ bun run --cwd packages/wallet test
 $ bun test test && bun ../../tools/wallet/check-boundary.mjs
 bun test v1.4.4 (38afee6c8)
 
-test/store.test.ts:
-(pass) opening resumes missing recovery and never activates without a valid signature [80.63ms]
-(pass) missing account and missing trustline reopen with the same username and key [144.69ms]
-(pass) a signed transfer survives failed submit and sweep finishes without the device [95.28ms]
-(pass) concurrent approvals allow only one signed transfer per sender [63.43ms]
-(pass) same id concurrent approvals keep one immutable sealed envelope [61.31ms]
-(pass) phone support is a typed refusal and name claims cannot be stolen [39.90ms]
-(pass) recovery sweep checks time, balance and sequence before submitting [71.85ms]
-(pass) near-expiry unsigned drafts refresh, while authorized bytes never change [72.74ms]
-(pass) database failure during authorization submits nothing [43.82ms]
-(pass) reopening keeps the original username after the takeover lease expires [61.47ms]
-(pass) an unsigned claim lease refreshes on activity but a truly stale first claim can expire [29.42ms]
-(pass) a sealed opening outside RPC history redrafts after the ledger passes maxTime [23.11ms]
-(pass) one missing RPC observation does not demote an active wallet [34.84ms]
-(pass) unsponsored and differently sponsored accounts never receive recovery drafts [12.85ms]
-(pass) bad address checksums are typed refusals before username claims or drafts [8.16ms]
-(pass) external payments are refused without creating a draft or asking for a signature [34.19ms]
-(pass) recovery queue excludes future and expired windows, caps and rotates eligible work [178.96ms]
-(pass) username payments still pin the Orchid recipient and settle normally [69.40ms]
-(pass) external draft refusal does not hide an already authorized external transfer [42.77ms]
-(pass) transfer sweep queue caps and rotates signed work across senders [191.93ms]
-(pass) double tap redrafts a still-live stale sequence before accepting its approval [63.52ms]
-(pass) SlotTaken reconciliation refreshes the waiting draft after the holder consumes its sequence [56.34ms]
-(pass) a proven consumed authorization concludes and releases the sender slot [61.88ms]
-(pass) an unsigned newer draft cannot hide the latest authorized or settled receipt [55.48ms]
-(pass) external text/id memos survive draft, signature, durable order and receipt; Orchid memos are refused [86.96ms]
-(pass) a sequence change during signing redrafts before durable authorization [45.29ms]
-(pass) a stale redraft cannot replace a concurrent durable authorization [43.59ms]
-
-test/envelopes.test.ts:
-(pass) money parsing preserves all seven decimals and int64 limits [0.16ms]
-(pass) builders and strict reader round-trip generated payment facts [10.29ms]
-(pass) opening supports exactly the creation and trustline-repair sandwiches [0.37ms]
-(pass) recovery contains bounded next-sequence trustline removal and merge [0.17ms]
-(pass) reader rejects unsupported memos, extra operations, wrong asset, operation source and unbounded envelopes [0.93ms]
-(pass) seal verifies the holder and uses a distinct fee payer without modifying the draft [2.61ms]
-(pass) NOT_FOUND only proves expiry when RPC history covers the inclusion window [1.43ms]
-(pass) consumed sequence only concludes with complete inner-hash absence evidence [2.16ms]
-(pass) settlement discovers the same inner transaction under a different fee payer [1.55ms]
-(pass) recovery sponsorship requires matching account and trustline sponsors, not sponsored counts [0.76ms]
-(pass) text and id memos validate at the boundary and survive reading and sealing [7.99ms]
-
- 38 pass
+ 41 pass
  0 fail
- 529 expect() calls
-Ran 38 tests across 2 files. [1.98s]
+ 566 expect() calls
+Ran 41 tests across 3 files. [2.03s]
 Wallet boundary server: rejected by real Vite build
 Wallet boundary relative: rejected by real Vite build
 Wallet boundary private: rejected by real Vite build
 Wallet transport: client build passed
 Exit code: 0
+
+The live testnet run below is unchanged from the re-review round (2026-11-17T00:01:48Z); the memo-registry round touches no opening, recovery or submission path and did not rerun it.
 
 $ bun run --cwd packages/wallet testnet:verify
 $ bun --env-file=.dev.vars scripts/testnet.server.ts

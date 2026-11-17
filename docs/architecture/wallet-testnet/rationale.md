@@ -74,7 +74,7 @@ The caller never retries, polls, or sees a transaction.
 - **Registration.** Open, with no invite and no quota for now.
 - **Cloudflare.** Try the Workers free plan first and measure CPU. Upgrade only if the measurement requires it.
 - **Browser minimum.** Native Ed25519 is acceptable: Chrome 137, Safari 17, Firefox 129. Passkey backup has its own, higher floor (the WebAuthn PRF extension). Phones below it get a device-only wallet; see `backup.md` section 6.
-- **External memos.** External sends require a text or numeric ID memo; Orchid sends carry none. Unsigned drafts do not contribute to overview history.
+- **External memos.** A text or numeric ID memo is required only for addresses known to belong to exchanges that need one (an evidence-backed server registry, empty until an address is verified); other external sends accept an optional memo. Orchid sends carry none. Unsigned drafts do not contribute to overview history.
 - **Unauthenticated reads.** Balance and overview without authentication are acceptable on testnet.
 - **Testnet funding.** A fund button in the app. Friendbot gives only testnet XLM. Test USDC comes from an Orchid-funded endpoint.
 - **Sponsorship roles.** The reserve sponsor only sponsors account and trustline reserves with CAP-33 `beginSponsoringFutureReserves`; the fee payer only pays fees through CAP-15 fee bumps. Configure separate key roles in code and configuration, although both may use the same key for the hackathon/testnet. Mainnet can split them without code changes. Separate keys isolate an empty or compromised fee payer from reserve sponsorship and vice versa. Keep the sponsor balances small, top them up from a cold account, store keys in Cloudflare secrets, and alert on low balances.
