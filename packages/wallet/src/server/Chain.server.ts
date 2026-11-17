@@ -38,6 +38,7 @@ import { type AccountState, LedgerResponse, accountFromEntries } from "./ledger.
 
 export type { AccountState } from "./ledger.server";
 
+import { type KnownExchangeMemo, exchangeMemoFor } from "./exchange-memos.server";
 import { WalletSettings } from "./settings.server";
 
 export class Sealed extends Schema.Class<Sealed>("Sealed")({
@@ -115,6 +116,7 @@ export class Chain extends Context.Service<
   Chain,
   {
     validAddress(address: AccountAddress): boolean;
+    memoRequiredFor(address: AccountAddress): Option.Option<KnownExchangeMemo>;
     pastOpeningWindow(sealed: Sealed): Effect.Effect<boolean, ChainUnreachable>;
     account(address: AccountAddress): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;
     balance(address: AccountAddress): Effect.Effect<Option.Option<Usdc>, ChainUnreachable>;
@@ -323,6 +325,7 @@ export class Chain extends Context.Service<
 
       return Chain.of({
         validAddress: StrKey.isValidEd25519PublicKey,
+        memoRequiredFor: exchangeMemoFor,
         pastOpeningWindow,
         account,
         balance: (address) =>

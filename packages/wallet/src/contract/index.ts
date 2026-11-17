@@ -82,7 +82,7 @@ export class NotSponsored extends Schema.TaggedClass<NotSponsored>()("NotSponsor
 
 export class ExternalMemoRequired extends Schema.TaggedClass<ExternalMemoRequired>()(
   "ExternalMemoRequired",
-  {},
+  { address: AccountAddress, exchange: Schema.NonEmptyString, source: Schema.String },
 ) {}
 
 // --- opening a wallet ---------------------------------------------------
@@ -222,6 +222,7 @@ export type Receipt = typeof Receipt.Type;
 export class TransferDraft extends Schema.TaggedClass<TransferDraft>()("TransferDraft", {
   request: SigningRequest,
   recipient: ResolvedRecipient,
+  memoRequired: Schema.Boolean,
 }) {}
 
 export class NotOpened extends Schema.TaggedClass<NotOpened>()("NotOpened", {}) {}
