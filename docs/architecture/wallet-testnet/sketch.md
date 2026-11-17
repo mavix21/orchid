@@ -227,6 +227,7 @@ async function onSubmit(usernameText: string) {
   Match.valueTags(outcome, {
     Opened: () => router.navigate({ to: "/" }),
     UsernameTaken: () => showTaken(),
+    AddressBound: ({ profile }) => showExistingName(profile),
     InvalidUsername: () => showRules(),
     UnsupportedDevice: () => showUpdateBrowser(),
     DraftRejected: () => showSecurityStop(),
@@ -314,6 +315,10 @@ export class Opened extends Schema.TaggedClass<Opened>()("Opened", { profile: Pr
 export class UsernameTaken extends Schema.TaggedClass<UsernameTaken>()("UsernameTaken", {
   username: Username,
 }) {}
+/** This address is already bound to another username. */
+export class AddressBound extends Schema.TaggedClass<AddressBound>()("AddressBound", {
+  profile: Profile,
+}) {}
 
 export const OpenStep = Schema.Union([
   OpeningDraft,
@@ -321,6 +326,7 @@ export const OpenStep = Schema.Union([
   OpeningPending,
   Opened,
   UsernameTaken,
+  AddressBound,
 ]);
 export type OpenStep = typeof OpenStep.Type;
 
@@ -483,6 +489,7 @@ export type DeviceOverview = Holding | NeedsReopening | NoWallet | Offline;
 export type CreateOutcome =
   | Opened
   | UsernameTaken
+  | AddressBound
   | InvalidUsername
   | UnsupportedDevice
   | DraftRejected

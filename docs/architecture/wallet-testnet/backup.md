@@ -74,8 +74,8 @@ The user sees: type a username, tap Create, one system passkey sheet, home scree
 ```text
 create(username):
   1. E = random; derive address; import signing handle; keep E in memory
-  2. port.open(claim, none)            → reserves the username, returns the opening draft
-                                         (UsernameTaken stops here, before any passkey exists)
+  2. port.open(claim, none)            → checks the username (reserves nothing), returns the opening draft
+                                         (a taken name stops here, before any passkey exists)
   3. navigator.credentials.create      rp.id = Orchid's domain, user.name = username,
                                          user.id = 32 random bytes, residentKey "required",
                                          userVerification "required", prf.eval.first = constant
@@ -83,14 +83,15 @@ create(username):
        prf.results.first absent        → navigator.credentials.get with the same input (second sheet)
        no PRF output from get()        → section 6, the fallback
   4. wrap E; store the wrap in IndexedDB; drop E from memory
-  5. approve the opening draft; port.open(claim, approval) → replay until Opened
+  5. approve the opening draft; port.open(claim, approval) → binds the name; replay until Opened
+                                         (a name lost to a concurrent signer returns UsernameTaken here)
   6. port.protect(enrollment, …)       → upload the wrap (section 8). Replayed on next launch if it fails
 ```
 
 - **One sheet or two.** The spec says not all authenticators evaluate the PRF at creation, and then "an assertion is needed in order to obtain the outputs" [spec]. MDN repeats it [docs]. Provider results vary: see the Android implementation rules below. Worst case is two sheets back to back.
-- **Username first.** Step 2 runs before step 3 so a taken name never leaves an orphan passkey in the user's password manager.
+- **Username first.** Step 2 runs before step 3 so a name that is already taken never leaves an orphan passkey in the user's password manager. Only a race lost at step 5 can still leave one.
 - **`user.id` is random.** The spec forbids personal data in the user handle [spec].
-- **Crash safety.** The signing handle is saved in step 1 and the wrap in step 4, so every later step is a replay. If the app dies between 1 and 4, `E` is lost while the username is only claimed, not active. The stale-claim takeover in `Directory.claim` already covers that.
+- **Crash safety.** The signing handle is saved in step 1 and the wrap in step 4, so every later step is a replay. If the app dies between 1 and 4, `E` is lost before anything was signed. Nothing was reserved, so the name stays free for the next attempt.
 
 ## 5. Recovery on a new phone
 
