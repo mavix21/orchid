@@ -1,5 +1,16 @@
 import { makeDatabase } from "@workspace/db";
-import { type SQL, and, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  type SQL,
+  and,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -21,16 +32,22 @@ import { Sealed } from "./Chain.server";
 import { usernames, wallets } from "./tables.server";
 import { reserved } from "./usernames.server";
 
-export class StoreFailure extends Schema.TaggedError<StoreFailure>()("StoreFailure", {
-  cause: Schema.Defect(),
-}) {}
+export class StoreFailure extends Schema.TaggedError<StoreFailure>()(
+  "StoreFailure",
+  {
+    cause: Schema.Defect(),
+  },
+) {}
 
 export type WalletRow = typeof wallets.$inferSelect;
 
 type NameRow = Pick<typeof usernames.$inferSelect, "username" | "address">;
 
 /** The name is free, or already bound to this address. */
-export class Available extends Schema.TaggedClass<Available>()("Available", {}) {}
+export class Available extends Schema.TaggedClass<Available>()(
+  "Available",
+  {},
+) {}
 
 export type Unavailable = UsernameTaken | AddressBound;
 
@@ -41,7 +58,10 @@ const profileOf = (name: NameRow) =>
   });
 
 // Reserved words block new bindings only; a name bound before it was reserved stays usable.
-function availability(claim: WalletClaim, found: ReadonlyArray<NameRow>): Available | Unavailable {
+function availability(
+  claim: WalletClaim,
+  found: ReadonlyArray<NameRow>,
+): Available | Unavailable {
   const own = found.find((name) => name.address === claim.address);
 
   if (own)
@@ -55,16 +75,24 @@ function availability(claim: WalletClaim, found: ReadonlyArray<NameRow>): Availa
   return new Available();
 }
 
-export function openingAttempt(row: WalletRow): Option.Option<SigningRequest | Sealed> {
+export function openingAttempt(
+  row: WalletRow,
+): Option.Option<SigningRequest | Sealed> {
   if (!row.attemptEnvelope || !row.attemptExpiresAt) return Option.none();
 
   const expiresAt = DateTime.makeUnsafe(row.attemptExpiresAt);
 
   return Option.some(
     row.attemptHash
-      ? new Sealed({ envelope: row.attemptEnvelope, hash: row.attemptHash, expiresAt })
+      ? new Sealed({
+          envelope: row.attemptEnvelope,
+          hash: row.attemptHash,
+          expiresAt,
+        })
       : new SigningRequest({
-          envelope: Schema.decodeSync(SigningRequest.fields.envelope)(row.attemptEnvelope),
+          envelope: Schema.decodeSync(SigningRequest.fields.envelope)(
+            row.attemptEnvelope,
+          ),
           expiresAt,
         }),
   );
@@ -73,23 +101,35 @@ export function openingAttempt(row: WalletRow): Option.Option<SigningRequest | S
 export class Directory extends Context.Service<
   Directory,
   {
-    byAddress(address: AccountAddress): Effect.Effect<Option.Option<WalletRow>, StoreFailure>;
+    byAddress(
+      address: AccountAddress,
+    ): Effect.Effect<Option.Option<WalletRow>, StoreFailure>;
     /** Resolves only while the bound wallet is active. Bound forever does not mean always payable. */
-    byUsername(username: Username): Effect.Effect<Option.Option<Profile>, StoreFailure>;
+    byUsername(
+      username: Username,
+    ): Effect.Effect<Option.Option<Profile>, StoreFailure>;
     /** The bound name; every active or recovered wallet has one. */
     profile(row: WalletRow): Effect.Effect<Profile, StoreFailure>;
     /** Soft check before signing. Reserves nothing; the binding write decides races. */
-    available(claim: WalletClaim): Effect.Effect<Available | Unavailable, StoreFailure>;
+    available(
+      claim: WalletClaim,
+    ): Effect.Effect<Available | Unavailable, StoreFailure>;
     /** The wallet row for an address, created as `opening` on first use. It carries no name. */
     start(address: AccountAddress): Effect.Effect<WalletRow, StoreFailure>;
-    draft(row: WalletRow, request: SigningRequest): Effect.Effect<WalletRow, StoreFailure>;
+    draft(
+      row: WalletRow,
+      request: SigningRequest,
+    ): Effect.Effect<WalletRow, StoreFailure>;
     /** Binds the name in the same write that stores the signed opening, or stores nothing. */
     seal(
       row: WalletRow,
       sealed: Sealed,
       claim: WalletClaim,
     ): Effect.Effect<WalletRow | Unavailable, StoreFailure>;
-    recoveryDraft(row: WalletRow, request: SigningRequest): Effect.Effect<WalletRow, StoreFailure>;
+    recoveryDraft(
+      row: WalletRow,
+      request: SigningRequest,
+    ): Effect.Effect<WalletRow, StoreFailure>;
     activate(
       row: WalletRow,
       sealed: Sealed,
@@ -117,19 +157,31 @@ export class Directory extends Context.Service<
           .where(and(scope, eq(wallets.address, address)))
           .pipe(Effect.map((rows) => Option.fromNullishOr(rows[0])));
 
-      const current = Effect.fn("Directory.current")(function* (row: WalletRow) {
-        const found = yield* find(Schema.decodeSync(AccountAddress)(row.address));
+      const current = Effect.fn("Directory.current")(function* (
+        row: WalletRow,
+      ) {
+        const found = yield* find(
+          Schema.decodeSync(AccountAddress)(row.address),
+        );
 
         if (Option.isNone(found))
-          return yield* new StoreFailure({ cause: new Error("Wallet disappeared") });
+          return yield* new StoreFailure({
+            cause: new Error("Wallet disappeared"),
+          });
 
         return found.value;
       });
 
       const nameOrAddress = (claim: WalletClaim) =>
-        or(eq(usernames.username, claim.username), eq(usernames.address, claim.address));
+        or(
+          eq(usernames.username, claim.username),
+          eq(usernames.address, claim.address),
+        );
 
-      const boundNames = (executor: typeof db | Transaction, matching: SQL | undefined) =>
+      const boundNames = (
+        executor: typeof db | Transaction,
+        matching: SQL | undefined,
+      ) =>
         executor
           .select({ username: usernames.username, address: usernames.address })
           .from(usernames)
@@ -138,7 +190,10 @@ export class Directory extends Context.Service<
       const lockRow = (tx: Transaction, matching: SQL | undefined) =>
         tx.select().from(wallets).where(matching).for("update");
 
-      const bind = Effect.fn("Directory.bind")(function* (tx: Transaction, claim: WalletClaim) {
+      const bind = Effect.fn("Directory.bind")(function* (
+        tx: Transaction,
+        claim: WalletClaim,
+      ) {
         if (reserved(claim.username)) {
           const own = yield* boundNames(tx, nameOrAddress(claim));
 
@@ -160,15 +215,24 @@ export class Directory extends Context.Service<
         const holders = yield* boundNames(tx, nameOrAddress(claim));
 
         if (holders.length === 0)
-          return yield* new StoreFailure({ cause: new Error("Binding conflict without a holder") });
+          return yield* new StoreFailure({
+            cause: new Error("Binding conflict without a holder"),
+          });
 
         return availability(claim, holders);
       });
 
-      const start = Effect.fn("Directory.start")(function* (address: AccountAddress) {
+      const start = Effect.fn("Directory.start")(function* (
+        address: AccountAddress,
+      ) {
         const inserted = yield* db
           .insert(wallets)
-          .values({ address, status: "opening", network, testnetEpoch: epochAt(Date.now()) })
+          .values({
+            address,
+            status: "opening",
+            network,
+            testnetEpoch: epochAt(Date.now()),
+          })
           .onConflictDoNothing()
           .returning();
 
@@ -177,7 +241,9 @@ export class Directory extends Context.Service<
         const found = yield* find(address);
 
         if (Option.isNone(found))
-          return yield* new StoreFailure({ cause: new Error("Wallet belongs to another network") });
+          return yield* new StoreFailure({
+            cause: new Error("Wallet belongs to another network"),
+          });
 
         return found.value;
       });
@@ -194,7 +260,13 @@ export class Directory extends Context.Service<
             attemptHash: null,
             attemptExpiresAt: DateTime.toDateUtc(request.expiresAt),
           })
-          .where(and(scope, eq(wallets.address, row.address), eq(wallets.version, row.version)))
+          .where(
+            and(
+              scope,
+              eq(wallets.address, row.address),
+              eq(wallets.version, row.version),
+            ),
+          )
           .returning();
 
         return written[0] ?? (yield* current(row));
@@ -237,7 +309,8 @@ export class Directory extends Context.Service<
           }),
         );
 
-        if (outcome instanceof UsernameTaken || outcome instanceof AddressBound) return outcome;
+        if (outcome instanceof UsernameTaken || outcome instanceof AddressBound)
+          return outcome;
 
         return outcome ?? (yield* current(row));
       });
@@ -329,7 +402,13 @@ export class Directory extends Context.Service<
             recoveryMinTime: null,
             recoveryMaxTime: null,
           })
-          .where(and(scope, eq(wallets.address, row.address), eq(wallets.version, row.version)))
+          .where(
+            and(
+              scope,
+              eq(wallets.address, row.address),
+              eq(wallets.version, row.version),
+            ),
+          )
           .pipe(Effect.asVoid);
 
       const byUsername = (username: Username) =>
@@ -337,14 +416,28 @@ export class Directory extends Context.Service<
           .select({ username: usernames.username, address: usernames.address })
           .from(usernames)
           .innerJoin(wallets, eq(wallets.address, usernames.address))
-          .where(and(scope, eq(usernames.username, username), eq(wallets.status, "active")))
-          .pipe(Effect.map((rows) => Option.fromNullishOr(rows[0]).pipe(Option.map(profileOf))));
+          .where(
+            and(
+              scope,
+              eq(usernames.username, username),
+              eq(wallets.status, "active"),
+            ),
+          )
+          .pipe(
+            Effect.map((rows) =>
+              Option.fromNullishOr(rows[0]).pipe(Option.map(profileOf)),
+            ),
+          );
 
-      const profile = Effect.fn("Directory.profile")(function* (row: WalletRow) {
+      const profile = Effect.fn("Directory.profile")(function* (
+        row: WalletRow,
+      ) {
         const bound = yield* boundNames(db, eq(usernames.address, row.address));
 
         if (!bound[0])
-          return yield* new StoreFailure({ cause: new Error("Wallet has no bound username") });
+          return yield* new StoreFailure({
+            cause: new Error("Wallet has no bound username"),
+          });
 
         return profileOf(bound[0]);
       });
@@ -366,7 +459,8 @@ export class Directory extends Context.Service<
         draft: (row, request) => wrap(draft(row, request)),
         seal: (row, sealed, claim) => wrap(seal(row, sealed, claim)),
         recoveryDraft: (row, request) => wrap(recoveryDraft(row, request)),
-        activate: (row, sealed, facts, claim) => wrap(activate(row, sealed, facts, claim)),
+        activate: (row, sealed, facts, claim) =>
+          wrap(activate(row, sealed, facts, claim)),
         recover: (row) => wrap(recover(row)),
         recoverable: wrap(
           db
@@ -393,7 +487,10 @@ export class Directory extends Context.Service<
                         gt(wallets.recoveryMaxTime, new Date()),
                       ),
                     )
-                    .orderBy(sql`${wallets.sweepCheckedAt} asc nulls first`, wallets.address)
+                    .orderBy(
+                      sql`${wallets.sweepCheckedAt} asc nulls first`,
+                      wallets.address,
+                    )
                     .limit(sweepBatchSize),
                 ),
               ),

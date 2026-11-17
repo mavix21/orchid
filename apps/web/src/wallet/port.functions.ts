@@ -16,7 +16,11 @@ import * as Schema from "effect/Schema";
 import { runWallet } from "../server/wallet.server";
 
 const OverviewCall = Schema.Struct({ address: AccountAddress });
-const OpenCall = Schema.Struct({ claim: WalletClaim, approval: Schema.OptionFromNullOr(Approval) });
+
+const OpenCall = Schema.Struct({
+  claim: WalletClaim,
+  approval: Schema.OptionFromNullOr(Approval),
+});
 
 const TransferCall = Schema.Struct({
   order: TransferOrder,
@@ -28,7 +32,9 @@ const overviewFn = createServerFn({ method: "POST" })
   .handler(({ data }) =>
     runWallet(
       Wallet.use((wallet) => wallet.overview(data.address)).pipe(
-        Effect.flatMap((value) => Schema.encodeEffect(Overview)(value).pipe(Effect.orDie)),
+        Effect.flatMap((value) =>
+          Schema.encodeEffect(Overview)(value).pipe(Effect.orDie),
+        ),
       ),
     ),
   );
@@ -38,7 +44,9 @@ const openFn = createServerFn({ method: "POST" })
   .handler(({ data }) =>
     runWallet(
       Wallet.use((wallet) => wallet.open(data.claim, data.approval)).pipe(
-        Effect.flatMap((value) => Schema.encodeEffect(OpenStep)(value).pipe(Effect.orDie)),
+        Effect.flatMap((value) =>
+          Schema.encodeEffect(OpenStep)(value).pipe(Effect.orDie),
+        ),
       ),
     ),
   );
@@ -48,7 +56,9 @@ const transferFn = createServerFn({ method: "POST" })
   .handler(({ data }) =>
     runWallet(
       Wallet.use((wallet) => wallet.transfer(data.order, data.approval)).pipe(
-        Effect.flatMap((value) => Schema.encodeEffect(TransferStep)(value).pipe(Effect.orDie)),
+        Effect.flatMap((value) =>
+          Schema.encodeEffect(TransferStep)(value).pipe(Effect.orDie),
+        ),
       ),
     ),
   );

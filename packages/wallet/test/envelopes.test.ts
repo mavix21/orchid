@@ -72,7 +72,10 @@ const seal = (envelope: UnsignedEnvelope, expires: number) =>
   Effect.runPromise(
     Chain.use((chain) =>
       chain.seal(
-        new SigningRequest({ envelope, expiresAt: DateTime.makeUnsafe(expires * 1000) }),
+        new SigningRequest({
+          envelope,
+          expiresAt: DateTime.makeUnsafe(expires * 1000),
+        }),
         new Approval({ signature: holder.sign(signingPayload(envelope)) }),
         address,
       ),
@@ -80,10 +83,20 @@ const seal = (envelope: UnsignedEnvelope, expires: number) =>
   );
 
 test("money parsing preserves all seven decimals and int64 limits", () => {
-  for (const value of ["0", "-1", "1e2", "1.00000001", "922337203686", "", " 1"])
+  for (const value of [
+    "0",
+    "-1",
+    "1e2",
+    "1.00000001",
+    "922337203686",
+    "",
+    " 1",
+  ])
     expect(Option.isNone(parseUsdc(value))).toBe(true);
 
-  expect(formatUsdc(Option.getOrThrow(parseUsdc("5.5000001")))).toBe("5.5000001");
+  expect(formatUsdc(Option.getOrThrow(parseUsdc("5.5000001")))).toBe(
+    "5.5000001",
+  );
   expect(formatUsdc(Option.getOrThrow(parseUsdc("922337203685.4775807")))).toBe(
     "922337203685.4775807",
   );
@@ -91,7 +104,9 @@ test("money parsing preserves all seven decimals and int64 limits", () => {
 
 test("builders and strict reader round-trip generated payment facts", () => {
   for (let i = 1; i <= 100; i++) {
-    const amount = Schema.decodeSync(PositiveUsdc)(String(BigInt(i) * 1234567n));
+    const amount = Schema.decodeSync(PositiveUsdc)(
+      String(BigInt(i) * 1234567n),
+    );
 
     const envelope = draftPayment({
       source: new Account(address, String(i)),
@@ -150,7 +165,13 @@ test("recovery contains bounded next-sequence trustline removal and merge", () =
   });
 
   expect(Option.getOrThrow(readEnvelope(envelope))).toEqual(
-    new RecoveryFacts({ address, reserveSponsor, sequence: "124", minTime: 100, maxTime: 220 }),
+    new RecoveryFacts({
+      address,
+      reserveSponsor,
+      sequence: "124",
+      minTime: 100,
+      maxTime: 220,
+    }),
   );
   expect(
     Option.isNone(
@@ -167,7 +188,11 @@ test("recovery contains bounded next-sequence trustline removal and merge", () =
 });
 
 test("reader rejects unsupported memos, extra operations, wrong asset, operation source and unbounded envelopes", () => {
-  const payment = Operation.payment({ destination: to, asset: usdc, amount: "1" });
+  const payment = Operation.payment({
+    destination: to,
+    asset: usdc,
+    amount: "1",
+  });
 
   const builders = [
     new TransactionBuilder(new Account(address, "123"), {
@@ -175,17 +200,33 @@ test("reader rejects unsupported memos, extra operations, wrong asset, operation
       networkPassphrase,
       memo: Memo.hash(new Uint8Array(32)),
     }).addOperation(payment),
-    new TransactionBuilder(new Account(address, "123"), { fee: baseFee, networkPassphrase })
+    new TransactionBuilder(new Account(address, "123"), {
+      fee: baseFee,
+      networkPassphrase,
+    })
       .addOperation(payment)
       .addOperation(payment),
     new TransactionBuilder(new Account(address, "123"), {
       fee: baseFee,
       networkPassphrase,
-    }).addOperation(Operation.payment({ destination: to, asset: Asset.native(), amount: "1" })),
+    }).addOperation(
+      Operation.payment({
+        destination: to,
+        asset: Asset.native(),
+        amount: "1",
+      }),
+    ),
     new TransactionBuilder(new Account(address, "123"), {
       fee: baseFee,
       networkPassphrase,
-    }).addOperation(Operation.payment({ source: to, destination: to, asset: usdc, amount: "1" })),
+    }).addOperation(
+      Operation.payment({
+        source: to,
+        destination: to,
+        asset: usdc,
+        amount: "1",
+      }),
+    ),
     new TransactionBuilder(new Account(address, "123"), {
       fee: "200",
       networkPassphrase,
@@ -196,12 +237,16 @@ test("reader rejects unsupported memos, extra operations, wrong asset, operation
     expect(
       Option.isNone(
         readEnvelope(
-          Schema.decodeSync(UnsignedEnvelope)(builder.setTimebounds(100, 220).build().toXDR()),
+          Schema.decodeSync(UnsignedEnvelope)(
+            builder.setTimebounds(100, 220).build().toXDR(),
+          ),
         ),
       ),
     ).toBe(true);
 
-  expect(Option.isNone(readEnvelope(Schema.decodeSync(UnsignedEnvelope)("not xdr")))).toBe(true);
+  expect(
+    Option.isNone(readEnvelope(Schema.decodeSync(UnsignedEnvelope)("not xdr"))),
+  ).toBe(true);
 });
 
 test("seal verifies the holder and uses a distinct fee payer without modifying the draft", async () => {
@@ -220,14 +265,19 @@ test("seal verifies the holder and uses a distinct fee payer without modifying t
 
   expect("feeSource" in outer && outer.feeSource).toBe(feePayer.publicKey());
   expect(Option.isSome(readEnvelope(envelope))).toBe(true);
-  expect(Option.isNone(readEnvelope(Schema.decodeSync(UnsignedEnvelope)(sealed.envelope)))).toBe(
-    true,
-  );
+  expect(
+    Option.isNone(
+      readEnvelope(Schema.decodeSync(UnsignedEnvelope)(sealed.envelope)),
+    ),
+  ).toBe(true);
 
   const invalid = await Effect.runPromise(
     Chain.use((chain) =>
       chain.seal(
-        new SigningRequest({ envelope, expiresAt: DateTime.makeUnsafe((now + 120) * 1000) }),
+        new SigningRequest({
+          envelope,
+          expiresAt: DateTime.makeUnsafe((now + 120) * 1000),
+        }),
         new Approval({ signature: new Uint8Array(64) }),
         address,
       ),
@@ -349,7 +399,9 @@ test("consumed sequence only concludes with complete inner-hash absence evidence
   expect(queried).toEqual([
     sealed.hash,
     ...Array.from({ length: 2 }, () =>
-      Array.from(signingPayload(envelope), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+      Array.from(signingPayload(envelope), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join(""),
     ),
   ]);
 
@@ -366,9 +418,9 @@ test("consumed sequence only concludes with complete inner-hash absence evidence
       }),
   };
 
-  expect(await Effect.runPromise(resolveSettlement(sealed, outsideHistory))).toBeInstanceOf(
-    Undecided,
-  );
+  expect(
+    await Effect.runPromise(resolveSettlement(sealed, outsideHistory)),
+  ).toBeInstanceOf(Undecided);
 
   const behind: SettlementReader = {
     ...reader,
@@ -383,7 +435,9 @@ test("consumed sequence only concludes with complete inner-hash absence evidence
       }),
   };
 
-  expect(await Effect.runPromise(resolveSettlement(sealed, behind))).toBeInstanceOf(Undecided);
+  expect(
+    await Effect.runPromise(resolveSettlement(sealed, behind)),
+  ).toBeInstanceOf(Undecided);
 
   const absent = {
     ...reader,
@@ -400,7 +454,9 @@ test("consumed sequence only concludes with complete inner-hash absence evidence
       ),
   };
 
-  expect(await Effect.runPromise(resolveSettlement(sealed, absent))).toBeInstanceOf(Expired);
+  expect(
+    await Effect.runPromise(resolveSettlement(sealed, absent)),
+  ).toBeInstanceOf(Expired);
 
   const stale = {
     ...absent,
@@ -417,7 +473,9 @@ test("consumed sequence only concludes with complete inner-hash absence evidence
       ),
   };
 
-  expect(await Effect.runPromise(resolveSettlement(sealed, stale))).toBeInstanceOf(Undecided);
+  expect(
+    await Effect.runPromise(resolveSettlement(sealed, stale)),
+  ).toBeInstanceOf(Undecided);
 });
 
 test("settlement discovers the same inner transaction under a different fee payer", async () => {
@@ -432,9 +490,14 @@ test("settlement discovers the same inner transaction under a different fee paye
   });
 
   const sealed = await seal(envelope, now + 120);
-  const original = TransactionBuilder.fromXDR(sealed.envelope, networkPassphrase);
 
-  if (!(original instanceof FeeBumpTransaction)) throw new Error("Expected fee bump");
+  const original = TransactionBuilder.fromXDR(
+    sealed.envelope,
+    networkPassphrase,
+  );
+
+  if (!(original instanceof FeeBumpTransaction))
+    throw new Error("Expected fee bump");
 
   const other = Keypair.random();
 
@@ -482,7 +545,8 @@ test("settlement discovers the same inner transaction under a different fee paye
             }
           : applied,
       ),
-    account: () => Effect.die("A confirmed inner result needs no sequence inference"),
+    account: () =>
+      Effect.die("A confirmed inner result needs no sequence inference"),
   };
 
   expect(await Effect.runPromise(resolveSettlement(sealed, reader))).toEqual(
@@ -530,10 +594,17 @@ test("recovery sponsorship requires matching account and trustline sponsors, not
     { xdr: trust, extXdr: extension(sponsor) },
   ];
 
-  expect(Option.getOrThrow(accountFromEntries(owned, 100, reserveSponsor)).sponsored).toBe(true);
   expect(
-    Option.getOrThrow(accountFromEntries([{ xdr: account }, { xdr: trust }], 100, reserveSponsor))
-      .sponsored,
+    Option.getOrThrow(accountFromEntries(owned, 100, reserveSponsor)).sponsored,
+  ).toBe(true);
+  expect(
+    Option.getOrThrow(
+      accountFromEntries(
+        [{ xdr: account }, { xdr: trust }],
+        100,
+        reserveSponsor,
+      ),
+    ).sponsored,
   ).toBe(false);
   expect(
     Option.getOrThrow(
@@ -582,12 +653,20 @@ test("text and id memos validate at the boundary and survive reading and sealing
     expect(facts.memo).toEqual(checked);
 
     const sealed = await seal(envelope, now + 120);
-    const outer = TransactionBuilder.fromXDR(sealed.envelope, networkPassphrase);
 
-    if (!(outer instanceof FeeBumpTransaction)) throw new Error("Expected fee bump");
+    const outer = TransactionBuilder.fromXDR(
+      sealed.envelope,
+      networkPassphrase,
+    );
+
+    if (!(outer instanceof FeeBumpTransaction))
+      throw new Error("Expected fee bump");
 
     expect(outer.innerTransaction.memo.toXdrObject().toXDR("base64")).toBe(
-      (checked.type === "text" ? Memo.text(checked.value) : Memo.id(checked.value))
+      (checked.type === "text"
+        ? Memo.text(checked.value)
+        : Memo.id(checked.value)
+      )
         .toXdrObject()
         .toXDR("base64"),
     );
@@ -603,5 +682,7 @@ test("text and id memos validate at the boundary and survive reading and sealing
     { type: "id", value: "1e3" },
     { type: "hash", value: "abc" },
   ])
-    expect(Option.isNone(Schema.decodeUnknownOption(PaymentMemo)(memo))).toBe(true);
+    expect(Option.isNone(Schema.decodeUnknownOption(PaymentMemo)(memo))).toBe(
+      true,
+    );
 });

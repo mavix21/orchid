@@ -24,7 +24,12 @@ import {
   SigningRequest,
   Usdc,
 } from "../contract";
-import { draftOpening, draftPayment, draftRecovery, readEnvelope } from "../stellar/envelopes";
+import {
+  draftOpening,
+  draftPayment,
+  draftRecovery,
+  readEnvelope,
+} from "../stellar/envelopes";
 import {
   approvalMargin,
   baseFee,
@@ -34,11 +39,18 @@ import {
   recoveryWindow,
   usdc,
 } from "../stellar/network";
-import { type AccountState, LedgerResponse, accountFromEntries } from "./ledger.server";
+import {
+  type AccountState,
+  LedgerResponse,
+  accountFromEntries,
+} from "./ledger.server";
 
 export type { AccountState } from "./ledger.server";
 
-import { type KnownExchangeMemo, exchangeMemoFor } from "./exchange-memos.server";
+import {
+  type KnownExchangeMemo,
+  exchangeMemoFor,
+} from "./exchange-memos.server";
 import { WalletSettings } from "./settings.server";
 
 export class Sealed extends Schema.Class<Sealed>("Sealed")({
@@ -51,19 +63,30 @@ export class Applied extends Schema.TaggedClass<Applied>()("Applied", {
   at: Schema.DateTimeUtcFromString,
 }) {}
 
-export class Rejected extends Schema.TaggedClass<Rejected>()("Rejected", { code: Schema.String }) {}
+export class Rejected extends Schema.TaggedClass<Rejected>()("Rejected", {
+  code: Schema.String,
+}) {}
 
 export class Expired extends Schema.TaggedClass<Expired>()("Expired", {}) {}
 
-export class Undecided extends Schema.TaggedClass<Undecided>()("Undecided", {}) {}
+export class Undecided extends Schema.TaggedClass<Undecided>()(
+  "Undecided",
+  {},
+) {}
 
 export type Settlement = Applied | Rejected | Expired | Undecided;
 
-export class ChainUnreachable extends Schema.TaggedError<ChainUnreachable>()("ChainUnreachable", {
-  cause: Schema.Defect(),
-}) {}
+export class ChainUnreachable extends Schema.TaggedError<ChainUnreachable>()(
+  "ChainUnreachable",
+  {
+    cause: Schema.Defect(),
+  },
+) {}
 
-export class ApprovalInvalid extends Schema.TaggedError<ApprovalInvalid>()("ApprovalInvalid", {}) {}
+export class ApprovalInvalid extends Schema.TaggedError<ApprovalInvalid>()(
+  "ApprovalInvalid",
+  {},
+) {}
 
 export function settlementFromResponse(
   response: rpc.Api.GetTransactionResponse,
@@ -84,8 +107,16 @@ export function settlementFromResponse(
     if (code === "txFailed") return new Rejected({ code });
   }
 
-  const envelope = TransactionBuilder.fromXDR(sealed.envelope, networkPassphrase);
-  const inner = envelope instanceof FeeBumpTransaction ? envelope.innerTransaction : envelope;
+  const envelope = TransactionBuilder.fromXDR(
+    sealed.envelope,
+    networkPassphrase,
+  );
+
+  const inner =
+    envelope instanceof FeeBumpTransaction
+      ? envelope.innerTransaction
+      : envelope;
+
   const minTime = Number(inner.timeBounds?.minTime);
 
   // RPC absence is proof only when its history covers the entire inclusion window.
@@ -94,7 +125,8 @@ export function settlementFromResponse(
     sender.value.ledger >= response.latestLedger &&
     BigInt(sender.value.sequence) < BigInt(inner.sequence) &&
     response.oldestLedgerCloseTime <= minTime &&
-    response.latestLedgerCloseTime * 1000 > DateTime.toEpochMillis(sealed.expiresAt)
+    response.latestLedgerCloseTime * 1000 >
+      DateTime.toEpochMillis(sealed.expiresAt)
   )
     return new Expired();
 
@@ -118,16 +150,24 @@ export class Chain extends Context.Service<
     validAddress(address: AccountAddress): boolean;
     memoRequiredFor(address: AccountAddress): Option.Option<KnownExchangeMemo>;
     pastOpeningWindow(sealed: Sealed): Effect.Effect<boolean, ChainUnreachable>;
-    account(address: AccountAddress): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;
-    balance(address: AccountAddress): Effect.Effect<Option.Option<Usdc>, ChainUnreachable>;
-    draftOpening(address: AccountAddress): Effect.Effect<SigningRequest, ChainUnreachable>;
+    account(
+      address: AccountAddress,
+    ): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;
+    balance(
+      address: AccountAddress,
+    ): Effect.Effect<Option.Option<Usdc>, ChainUnreachable>;
+    draftOpening(
+      address: AccountAddress,
+    ): Effect.Effect<SigningRequest, ChainUnreachable>;
     draftPayment(
       from: AccountAddress,
       to: AccountAddress,
       amount: PositiveUsdc,
       memo?: PaymentMemo,
     ): Effect.Effect<SigningRequest, ChainUnreachable>;
-    draftRecovery(address: AccountAddress): Effect.Effect<SigningRequest, ChainUnreachable>;
+    draftRecovery(
+      address: AccountAddress,
+    ): Effect.Effect<SigningRequest, ChainUnreachable>;
     seal(
       request: SigningRequest,
       approval: Approval,
@@ -142,14 +182,27 @@ export class Chain extends Context.Service<
     Effect.gen(function* () {
       const settings = yield* WalletSettings;
       const server = new rpc.Server(settings.rpcUrl);
-      const sponsor = Keypair.fromSecret(Redacted.value(settings.reserveSponsorSecret));
-      const feePayer = Keypair.fromSecret(Redacted.value(settings.feePayerSecret));
-      const sponsorAddress = Schema.decodeSync(AccountAddress)(sponsor.publicKey());
 
-      const account = Effect.fn("Chain.account")(function* (address: AccountAddress) {
+      const sponsor = Keypair.fromSecret(
+        Redacted.value(settings.reserveSponsorSecret),
+      );
+
+      const feePayer = Keypair.fromSecret(
+        Redacted.value(settings.feePayerSecret),
+      );
+
+      const sponsorAddress = Schema.decodeSync(AccountAddress)(
+        sponsor.publicKey(),
+      );
+
+      const account = Effect.fn("Chain.account")(function* (
+        address: AccountAddress,
+      ) {
         const keys = [
           xdr.LedgerKey.account(
-            new xdr.LedgerKeyAccount({ accountId: Keypair.fromPublicKey(address).xdrPublicKey() }),
+            new xdr.LedgerKeyAccount({
+              accountId: Keypair.fromPublicKey(address).xdrPublicKey(),
+            }),
           ),
           xdr.LedgerKey.trustline(
             new xdr.LedgerKeyTrustLine({
@@ -174,31 +227,45 @@ export class Chain extends Context.Service<
 
             if (!response.ok) throw new Error("Ledger RPC request failed");
 
-            return Schema.decodeSync(LedgerResponse)(await response.text()).result;
+            return Schema.decodeSync(LedgerResponse)(await response.text())
+              .result;
           },
           catch: (cause) => new ChainUnreachable({ cause }),
         });
 
         return yield* Effect.try({
           try: () =>
-            accountFromEntries(response.entries ?? [], response.latestLedger, sponsorAddress),
+            accountFromEntries(
+              response.entries ?? [],
+              response.latestLedger,
+              sponsorAddress,
+            ),
           catch: (cause) => new ChainUnreachable({ cause }),
         });
       });
 
-      const source = Effect.fn("Chain.source")(function* (address: AccountAddress) {
+      const source = Effect.fn("Chain.source")(function* (
+        address: AccountAddress,
+      ) {
         const state = yield* account(address);
 
         if (Option.isNone(state))
-          return yield* new ChainUnreachable({ cause: new Error("Account does not exist") });
+          return yield* new ChainUnreachable({
+            cause: new Error("Account does not exist"),
+          });
 
         return new Account(address, state.value.sequence);
       });
 
       const request = (envelope: SigningRequest["envelope"], maxTime: number) =>
-        new SigningRequest({ envelope, expiresAt: DateTime.makeUnsafe(maxTime * 1000) });
+        new SigningRequest({
+          envelope,
+          expiresAt: DateTime.makeUnsafe(maxTime * 1000),
+        });
 
-      const draftOpen = Effect.fn("Chain.draftOpening")(function* (address: AccountAddress) {
+      const draftOpen = Effect.fn("Chain.draftOpening")(function* (
+        address: AccountAddress,
+      ) {
         const sponsorAccount = yield* source(sponsorAddress);
         const current = yield* account(address);
         const now = Math.floor(Date.now() / 1000);
@@ -237,18 +304,29 @@ export class Chain extends Context.Service<
         );
       });
 
-      const draftRecover = Effect.fn("Chain.draftRecovery")(function* (address: AccountAddress) {
+      const draftRecover = Effect.fn("Chain.draftRecovery")(function* (
+        address: AccountAddress,
+      ) {
         const holder = yield* source(address);
         const minTime = Math.floor(Date.now() / 1000) + recoveryDelay;
         const maxTime = minTime + recoveryWindow;
 
         return request(
-          draftRecovery({ source: holder, reserveSponsor: sponsorAddress, minTime, maxTime }),
+          draftRecovery({
+            source: holder,
+            reserveSponsor: sponsorAddress,
+            minTime,
+            maxTime,
+          }),
           maxTime,
         );
       });
 
-      const seal = (signingRequest: SigningRequest, approval: Approval, holder: AccountAddress) =>
+      const seal = (
+        signingRequest: SigningRequest,
+        approval: Approval,
+        holder: AccountAddress,
+      ) =>
         Effect.try({
           try: () => {
             const facts = readEnvelope(signingRequest.envelope);
@@ -256,23 +334,34 @@ export class Chain extends Context.Service<
             if (Option.isNone(facts)) throw new Error("Invalid layout");
 
             const permitted = Match.valueTags(facts.value, {
-              OpeningFacts: (f) => f.address === holder && f.reserveSponsor === sponsorAddress,
+              OpeningFacts: (f) =>
+                f.address === holder && f.reserveSponsor === sponsorAddress,
               PaymentFacts: (f) => f.from === holder,
-              RecoveryFacts: (f) => f.address === holder && f.reserveSponsor === sponsorAddress,
+              RecoveryFacts: (f) =>
+                f.address === holder && f.reserveSponsor === sponsorAddress,
             });
 
             if (
               !permitted ||
-              facts.value.maxTime * 1000 !== DateTime.toEpochMillis(signingRequest.expiresAt) ||
-              DateTime.toEpochMillis(signingRequest.expiresAt) < Date.now() + approvalMargin * 1000
+              facts.value.maxTime * 1000 !==
+                DateTime.toEpochMillis(signingRequest.expiresAt) ||
+              DateTime.toEpochMillis(signingRequest.expiresAt) <
+                Date.now() + approvalMargin * 1000
             )
               throw new Error("Invalid or stale approval");
 
-            const inner = TransactionBuilder.fromXDR(signingRequest.envelope, networkPassphrase);
+            const inner = TransactionBuilder.fromXDR(
+              signingRequest.envelope,
+              networkPassphrase,
+            );
 
-            if (!(inner instanceof Transaction)) throw new Error("Inner transaction required");
+            if (!(inner instanceof Transaction))
+              throw new Error("Inner transaction required");
 
-            inner.addSignature(holder, btoa(String.fromCharCode(...approval.signature)));
+            inner.addSignature(
+              holder,
+              btoa(String.fromCharCode(...approval.signature)),
+            );
             Match.valueTags(facts.value, {
               OpeningFacts: () => inner.sign(sponsor),
               PaymentFacts: () => {},
@@ -290,7 +379,9 @@ export class Chain extends Context.Service<
 
             return new Sealed({
               envelope: outer.toXDR(),
-              hash: Array.from(outer.hash(), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+              hash: Array.from(outer.hash(), (byte) =>
+                byte.toString(16).padStart(2, "0"),
+              ).join(""),
               expiresAt: signingRequest.expiresAt,
             });
           },
@@ -313,7 +404,8 @@ export class Chain extends Context.Service<
           catch: (cause) => new ChainUnreachable({ cause }),
         });
 
-      const settlement = (sealed: Sealed) => resolveSettlement(sealed, { transaction, account });
+      const settlement = (sealed: Sealed) =>
+        resolveSettlement(sealed, { transaction, account });
 
       const pastOpeningWindow = (sealed: Sealed) =>
         Effect.tryPromise({
@@ -329,7 +421,9 @@ export class Chain extends Context.Service<
         pastOpeningWindow,
         account,
         balance: (address) =>
-          account(address).pipe(Effect.map(Option.flatMap((state) => state.balance))),
+          account(address).pipe(
+            Effect.map(Option.flatMap((state) => state.balance)),
+          ),
         draftOpening: draftOpen,
         draftPayment: draftPay,
         draftRecovery: draftRecover,
@@ -342,33 +436,51 @@ export class Chain extends Context.Service<
 }
 
 export interface SettlementReader {
-  transaction(hash: string): Effect.Effect<rpc.Api.GetTransactionResponse, ChainUnreachable>;
-  account(address: AccountAddress): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;
+  transaction(
+    hash: string,
+  ): Effect.Effect<rpc.Api.GetTransactionResponse, ChainUnreachable>;
+  account(
+    address: AccountAddress,
+  ): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;
 }
 
-export const resolveSettlement = Effect.fn("Chain.resolveSettlement")(function* (
-  sealed: Sealed,
-  reader: SettlementReader,
-) {
-  const envelope = TransactionBuilder.fromXDR(sealed.envelope, networkPassphrase);
-  const inner = envelope instanceof FeeBumpTransaction ? envelope.innerTransaction : envelope;
-  const innerHash = Array.from(inner.hash(), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  const outerResponse = yield* reader.transaction(sealed.hash);
-  const outer = settlementFromResponse(outerResponse, sealed, Option.none());
+export const resolveSettlement = Effect.fn("Chain.resolveSettlement")(
+  function* (sealed: Sealed, reader: SettlementReader) {
+    const envelope = TransactionBuilder.fromXDR(
+      sealed.envelope,
+      networkPassphrase,
+    );
 
-  if (outer instanceof Applied || outer instanceof Rejected) return outer;
+    const inner =
+      envelope instanceof FeeBumpTransaction
+        ? envelope.innerTransaction
+        : envelope;
 
-  const innerResponse =
-    innerHash === sealed.hash ? outerResponse : yield* reader.transaction(innerHash);
+    const innerHash = Array.from(inner.hash(), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
 
-  const found = settlementFromResponse(innerResponse, sealed, Option.none());
+    const outerResponse = yield* reader.transaction(sealed.hash);
+    const outer = settlementFromResponse(outerResponse, sealed, Option.none());
 
-  if (found instanceof Applied || found instanceof Rejected) return found;
+    if (outer instanceof Applied || outer instanceof Rejected) return outer;
 
-  const sender = yield* reader.account(Schema.decodeSync(AccountAddress)(inner.source));
+    const innerResponse =
+      innerHash === sealed.hash
+        ? outerResponse
+        : yield* reader.transaction(innerHash);
 
-  // Query after the account observation so ingestion can cover its ledger.
-  const confirmed = yield* reader.transaction(innerHash);
+    const found = settlementFromResponse(innerResponse, sealed, Option.none());
 
-  return settlementFromResponse(confirmed, sealed, sender);
-});
+    if (found instanceof Applied || found instanceof Rejected) return found;
+
+    const sender = yield* reader.account(
+      Schema.decodeSync(AccountAddress)(inner.source),
+    );
+
+    // Query after the account observation so ingestion can cover its ledger.
+    const confirmed = yield* reader.transaction(innerHash);
+
+    return settlementFromResponse(confirmed, sealed, sender);
+  },
+);

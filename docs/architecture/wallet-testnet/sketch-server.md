@@ -23,10 +23,13 @@ export class Wallet extends Context.Service<
     readonly sweep: Effect.Effect<void, WalletUnavailable>;
   }
 >()("@workspace/wallet/server/Wallet") {
-  static readonly layer: Layer.Layer<Wallet, never, WalletSettings | PgClient.PgClient> =
-    Layer.effect(Wallet, Effect.die("not implemented")).pipe(
-      Layer.provide([Directory.layer, Transfers.layer, Chain.layer]),
-    );
+  static readonly layer: Layer.Layer<
+    Wallet,
+    never,
+    WalletSettings | PgClient.PgClient
+  > = Layer.effect(Wallet, Effect.die("not implemented")).pipe(
+    Layer.provide([Directory.layer, Transfers.layer, Chain.layer]),
+  );
 }
 ```
 
@@ -48,23 +51,35 @@ class Applied extends Schema.TaggedClass<Applied>()("Applied", {
   at: Schema.DateTimeUtcFromString,
 }) {}
 /** Included in a ledger, an operation failed, nothing moved. */
-class Rejected extends Schema.TaggedClass<Rejected>()("Rejected", { code: Schema.String }) {}
+class Rejected extends Schema.TaggedClass<Rejected>()("Rejected", {
+  code: Schema.String,
+}) {}
 /** Never included, and the ledger clock is past its time bound. */
 class Expired extends Schema.TaggedClass<Expired>()("Expired", {}) {}
 class Undecided extends Schema.TaggedClass<Undecided>()("Undecided", {}) {}
 type Settlement = Applied | Rejected | Expired | Undecided;
 
-class ChainUnreachable extends Schema.TaggedError<ChainUnreachable>()("ChainUnreachable", {
-  cause: Schema.Defect(),
-}) {}
-class ApprovalInvalid extends Schema.TaggedError<ApprovalInvalid>()("ApprovalInvalid", {}) {}
+class ChainUnreachable extends Schema.TaggedError<ChainUnreachable>()(
+  "ChainUnreachable",
+  {
+    cause: Schema.Defect(),
+  },
+) {}
+class ApprovalInvalid extends Schema.TaggedError<ApprovalInvalid>()(
+  "ApprovalInvalid",
+  {},
+) {}
 
 class Chain extends Context.Service<
   Chain,
   {
     /** None when the account or its USDC trustline does not exist. */
-    balance(address: AccountAddress): Effect.Effect<Option.Option<Usdc>, ChainUnreachable>;
-    draftOpening(address: AccountAddress): Effect.Effect<SigningRequest, ChainUnreachable>;
+    balance(
+      address: AccountAddress,
+    ): Effect.Effect<Option.Option<Usdc>, ChainUnreachable>;
+    draftOpening(
+      address: AccountAddress,
+    ): Effect.Effect<SigningRequest, ChainUnreachable>;
     draftPayment(
       from: AccountAddress,
       to: AccountAddress,
@@ -82,10 +97,8 @@ class Chain extends Context.Service<
     settlement(sealed: Sealed): Effect.Effect<Settlement, ChainUnreachable>;
   }
 >()("@workspace/wallet/server/Chain") {
-  static readonly layer: Layer.Layer<Chain, never, WalletSettings> = Layer.effect(
-    Chain,
-    Effect.die("not implemented"),
-  );
+  static readonly layer: Layer.Layer<Chain, never, WalletSettings> =
+    Layer.effect(Chain, Effect.die("not implemented"));
 }
 ```
 
@@ -111,7 +124,9 @@ class Concluded extends Schema.TaggedClass<Concluded>()("Concluded", {
 }) {}
 type Transfer = Proposed | Authorized | Concluded;
 
-class SlotTaken extends Schema.TaggedClass<SlotTaken>()("SlotTaken", { holder: Authorized }) {}
+class SlotTaken extends Schema.TaggedClass<SlotTaken>()("SlotTaken", {
+  holder: Authorized,
+}) {}
 class StoreFailure extends Schema.TaggedError<StoreFailure>()("StoreFailure", {
   cause: Schema.Defect(),
 }) {}
@@ -120,7 +135,9 @@ class Transfers extends Context.Service<
   Transfers,
   {
     find(id: TransferId): Effect.Effect<Option.Option<Transfer>, StoreFailure>;
-    latestFrom(sender: AccountAddress): Effect.Effect<Option.Option<Transfer>, StoreFailure>;
+    latestFrom(
+      sender: AccountAddress,
+    ): Effect.Effect<Option.Option<Transfer>, StoreFailure>;
     /** Insert, or return what the id already holds. Replaces an expired unsigned draft. */
     propose(
       order: TransferOrder,
@@ -140,10 +157,8 @@ class Transfers extends Context.Service<
     readonly inFlight: Effect.Effect<ReadonlyArray<Authorized>, StoreFailure>;
   }
 >()("@workspace/wallet/server/Transfers") {
-  static readonly layer: Layer.Layer<Transfers, never, PgClient.PgClient> = Layer.effect(
-    Transfers,
-    Effect.die("not implemented"),
-  );
+  static readonly layer: Layer.Layer<Transfers, never, PgClient.PgClient> =
+    Layer.effect(Transfers, Effect.die("not implemented"));
 }
 ```
 
@@ -158,14 +173,23 @@ type Unavailable = UsernameTaken | AddressBound;
 class Directory extends Context.Service<
   Directory,
   {
-    byAddress(address: AccountAddress): Effect.Effect<Option.Option<WalletRow>, StoreFailure>;
+    byAddress(
+      address: AccountAddress,
+    ): Effect.Effect<Option.Option<WalletRow>, StoreFailure>;
     /** Resolves only while the bound wallet is active. */
-    byUsername(username: Username): Effect.Effect<Option.Option<Profile>, StoreFailure>;
+    byUsername(
+      username: Username,
+    ): Effect.Effect<Option.Option<Profile>, StoreFailure>;
     /** Soft check before signing; reserves nothing. */
-    available(claim: WalletClaim): Effect.Effect<Available | Unavailable, StoreFailure>;
+    available(
+      claim: WalletClaim,
+    ): Effect.Effect<Available | Unavailable, StoreFailure>;
     /** The wallet row for an address, created as `opening`. It carries no name. */
     start(address: AccountAddress): Effect.Effect<WalletRow, StoreFailure>;
-    draft(row: WalletRow, request: SigningRequest): Effect.Effect<WalletRow, StoreFailure>;
+    draft(
+      row: WalletRow,
+      request: SigningRequest,
+    ): Effect.Effect<WalletRow, StoreFailure>;
     /** Bind the name and store the signed opening in one transaction, or store nothing. */
     seal(
       row: WalletRow,
@@ -179,10 +203,8 @@ class Directory extends Context.Service<
     recover(row: WalletRow): Effect.Effect<void, StoreFailure>;
   }
 >()("@workspace/wallet/server/Directory") {
-  static readonly layer: Layer.Layer<Directory, never, PgClient.PgClient> = Layer.effect(
-    Directory,
-    Effect.die("not implemented"),
-  );
+  static readonly layer: Layer.Layer<Directory, never, PgClient.PgClient> =
+    Layer.effect(Directory, Effect.die("not implemented"));
 }
 ```
 
@@ -218,7 +240,9 @@ export const transfers = pgTable(
       .references(() => wallets.address),
     recipient: text(), // nullable; phone and external addresses need not be wallet rows
     amount: bigint({ mode: "bigint" }).notNull(),
-    status: text({ enum: ["proposed", "authorized", "settled", "failed"] }).notNull(),
+    status: text({
+      enum: ["proposed", "authorized", "settled", "failed"],
+    }).notNull(),
     envelope: text().notNull(), // unsigned while proposed; sealed and frozen from authorized on
     hash: text(), // set with the sealed envelope
     expiresAt: timestamp({ withTimezone: true }).notNull(),
@@ -247,11 +271,14 @@ Each transition is one conditional statement that returns the row, for example `
 class OpeningFacts extends Schema.TaggedClass<OpeningFacts>()("OpeningFacts", {
   address: AccountAddress,
 }) {}
-class RecoveryFacts extends Schema.TaggedClass<RecoveryFacts>()("RecoveryFacts", {
-  address: AccountAddress,
-  reserveSponsor: AccountAddress,
-  // Include sequence, minTime and maxTime in the concrete schema.
-}) {}
+class RecoveryFacts extends Schema.TaggedClass<RecoveryFacts>()(
+  "RecoveryFacts",
+  {
+    address: AccountAddress,
+    reserveSponsor: AccountAddress,
+    // Include sequence, minTime and maxTime in the concrete schema.
+  },
+) {}
 class PaymentFacts extends Schema.TaggedClass<PaymentFacts>()("PaymentFacts", {
   from: AccountAddress,
   to: AccountAddress,
@@ -263,7 +290,9 @@ export declare function draftOpening(
   /* sponsor account, new address, time bound */
 ): UnsignedEnvelope;
 /** Holder is the source. One USDC payment, optional external text/id memo, a time bound. */
-export declare function draftPayment(/* holder account, facts, time bound */): UnsignedEnvelope;
+export declare function draftPayment(
+  /* holder account, facts, time bound */
+): UnsignedEnvelope;
 
 /** Recovery: user source, next sequence, minTime and maxTime, USDC limit 0, merge to reserve sponsor. */
 export declare function draftRecovery(

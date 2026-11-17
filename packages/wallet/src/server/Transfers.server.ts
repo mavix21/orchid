@@ -18,7 +18,12 @@ import {
   TransferId,
   TransferOrder,
 } from "../contract";
-import { approvalMargin, epochAt, network, sweepBatchSize } from "../stellar/network";
+import {
+  approvalMargin,
+  epochAt,
+  network,
+  sweepBatchSize,
+} from "../stellar/network";
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import { transfers } from "./tables.server";
@@ -79,7 +84,9 @@ function readRow(row: TransferRow): Transfer {
         new Proposed({
           ...fields,
           request: new SigningRequest({
-            envelope: Schema.decodeSync(SigningRequest.fields.envelope)(row.envelope),
+            envelope: Schema.decodeSync(SigningRequest.fields.envelope)(
+              row.envelope,
+            ),
             expiresAt,
           }),
         }),
@@ -89,11 +96,16 @@ function readRow(row: TransferRow): Transfer {
 
       return new Authorized({
         ...fields,
-        sealed: new Sealed({ envelope: row.envelope, hash: row.hash, expiresAt }),
+        sealed: new Sealed({
+          envelope: row.envelope,
+          hash: row.hash,
+          expiresAt,
+        }),
       });
     }),
     Match.when("settled", () => {
-      if (!row.concludedAt) throw new Error("Settled transfer missing ledger time");
+      if (!row.concludedAt)
+        throw new Error("Settled transfer missing ledger time");
 
       return new Concluded({
         ...fields,
@@ -120,13 +132,18 @@ export class Transfers extends Context.Service<
   Transfers,
   {
     find(id: TransferId): Effect.Effect<Option.Option<Transfer>, StoreFailure>;
-    latestFrom(sender: AccountAddress): Effect.Effect<Option.Option<Transfer>, StoreFailure>;
+    latestFrom(
+      sender: AccountAddress,
+    ): Effect.Effect<Option.Option<Transfer>, StoreFailure>;
     propose(
       order: TransferOrder,
       recipient: ResolvedRecipient,
       request: SigningRequest,
     ): Effect.Effect<Transfer, StoreFailure>;
-    redraft(proposed: Proposed, request: SigningRequest): Effect.Effect<Transfer, StoreFailure>;
+    redraft(
+      proposed: Proposed,
+      request: SigningRequest,
+    ): Effect.Effect<Transfer, StoreFailure>;
     authorize(
       proposed: Proposed,
       sealed: Sealed,
@@ -149,7 +166,10 @@ export class Transfers extends Context.Service<
       );
 
       const decode = (row: TransferRow) =>
-        Effect.try({ try: () => readRow(row), catch: (cause) => new StoreFailure({ cause }) });
+        Effect.try({
+          try: () => readRow(row),
+          catch: (cause) => new StoreFailure({ cause }),
+        });
 
       const find = Effect.fn("Transfers.find")(function* (id: TransferId) {
         const rows = yield* db
@@ -160,7 +180,9 @@ export class Transfers extends Context.Service<
         return rows[0] ? Option.some(yield* decode(rows[0])) : Option.none();
       });
 
-      const latest = Effect.fn("Transfers.latestFrom")(function* (sender: AccountAddress) {
+      const latest = Effect.fn("Transfers.latestFrom")(function* (
+        sender: AccountAddress,
+      ) {
         const rows = yield* db
           .select()
           .from(transfers)
@@ -171,7 +193,10 @@ export class Transfers extends Context.Service<
               inArray(transfers.status, ["authorized", "settled", "failed"]),
             ),
           )
-          .orderBy(desc(sql`${transfers.status} = 'authorized'`), desc(transfers.createdAt))
+          .orderBy(
+            desc(sql`${transfers.status} = 'authorized'`),
+            desc(transfers.createdAt),
+          )
           .limit(1);
 
         return rows[0] ? Option.some(yield* decode(rows[0])) : Option.none();
@@ -206,7 +231,10 @@ export class Transfers extends Context.Service<
               scope,
               eq(transfers.status, "proposed"),
               eq(transfers.order, value.order),
-              lt(transfers.expiresAt, new Date(Date.now() + approvalMargin * 1000)),
+              lt(
+                transfers.expiresAt,
+                new Date(Date.now() + approvalMargin * 1000),
+              ),
             ),
           })
           .returning();
@@ -281,19 +309,27 @@ export class Transfers extends Context.Service<
             if (held[0] && held[0].id !== id) {
               const holder = yield* decode(held[0]);
 
-              if (holder instanceof Authorized) return new SlotTaken({ holder });
+              if (holder instanceof Authorized)
+                return new SlotTaken({ holder });
             }
 
             const written = yield* tx
               .update(transfers)
-              .set({ status: "authorized", envelope: sealed.envelope, hash: sealed.hash })
+              .set({
+                status: "authorized",
+                envelope: sealed.envelope,
+                hash: sealed.hash,
+              })
               .where(
                 and(
                   scope,
                   eq(transfers.id, id),
                   eq(transfers.status, "proposed"),
                   eq(transfers.envelope, request.envelope),
-                  gt(transfers.expiresAt, new Date(Date.now() + approvalMargin * 1000)),
+                  gt(
+                    transfers.expiresAt,
+                    new Date(Date.now() + approvalMargin * 1000),
+                  ),
                 ),
               )
               .returning();
@@ -306,7 +342,9 @@ export class Transfers extends Context.Service<
               .where(and(scope, eq(transfers.id, id)));
 
             if (!fresh[0])
-              return yield* new StoreFailure({ cause: new Error("Transfer disappeared") });
+              return yield* new StoreFailure({
+                cause: new Error("Transfer disappeared"),
+              });
 
             return yield* decode(fresh[0]);
           }),
@@ -337,13 +375,23 @@ export class Transfers extends Context.Service<
         const rows = yield* db
           .update(transfers)
           .set(values)
-          .where(and(scope, eq(transfers.id, id), eq(transfers.status, "authorized")))
+          .where(
+            and(
+              scope,
+              eq(transfers.id, id),
+              eq(transfers.status, "authorized"),
+            ),
+          )
           .returning();
 
-        const current = rows[0] ? yield* decode(rows[0]) : Option.getOrUndefined(yield* find(id));
+        const current = rows[0]
+          ? yield* decode(rows[0])
+          : Option.getOrUndefined(yield* find(id));
 
         if (!(current instanceof Concluded))
-          return yield* new StoreFailure({ cause: new Error("Transfer is not concluded") });
+          return yield* new StoreFailure({
+            cause: new Error("Transfer is not concluded"),
+          });
 
         return current;
       });
@@ -364,7 +412,10 @@ export class Transfers extends Context.Service<
                 .select({ id: transfers.id })
                 .from(transfers)
                 .where(and(scope, eq(transfers.status, "authorized")))
-                .orderBy(sql`${transfers.sweepCheckedAt} asc nulls first`, transfers.id)
+                .orderBy(
+                  sql`${transfers.sweepCheckedAt} asc nulls first`,
+                  transfers.id,
+                )
                 .limit(sweepBatchSize),
             ),
           ),
@@ -378,7 +429,9 @@ export class Transfers extends Context.Service<
                   transfer instanceof Authorized
                     ? Effect.succeed(transfer)
                     : Effect.fail(
-                        new StoreFailure({ cause: new Error("Invalid in-flight state") }),
+                        new StoreFailure({
+                          cause: new Error("Invalid in-flight state"),
+                        }),
                       ),
                 ),
               ),
@@ -389,7 +442,8 @@ export class Transfers extends Context.Service<
       return Transfers.of({
         find: (id) => wrap(find(id)),
         latestFrom: (sender) => wrap(latest(sender)),
-        propose: (order, recipient, request) => wrap(propose(order, recipient, request)),
+        propose: (order, recipient, request) =>
+          wrap(propose(order, recipient, request)),
         redraft: (proposed, request) => wrap(redraft(proposed, request)),
         authorize: (proposed, sealed) => wrap(authorize(proposed, sealed)),
         conclude: (id, settlement) => wrap(conclude(id, settlement)),

@@ -5,12 +5,18 @@ import { AccountAddress } from "../contract";
 import { network } from "../stellar/network";
 
 /** Each source must verify this exact address, network and memo requirement. */
-export class KnownExchangeMemo extends Schema.Class<KnownExchangeMemo>("KnownExchangeMemo")({
+export class KnownExchangeMemo extends Schema.Class<KnownExchangeMemo>(
+  "KnownExchangeMemo",
+)({
   network: Schema.Literal(network),
-  address: AccountAddress.check(Schema.makeFilter(StrKey.isValidEd25519PublicKey)),
+  address: AccountAddress.check(
+    Schema.makeFilter(StrKey.isValidEd25519PublicKey),
+  ),
   exchange: Schema.NonEmptyString,
   source: Schema.String.check(
-    Schema.makeFilter((value) => URL.canParse(value) && new URL(value).protocol === "https:"),
+    Schema.makeFilter(
+      (value) => URL.canParse(value) && new URL(value).protocol === "https:",
+    ),
   ),
 }) {}
 
@@ -22,5 +28,7 @@ export function exchangeMemoFor(
   address: AccountAddress,
   entries: ReadonlyArray<KnownExchangeMemo> = knownExchangeMemos,
 ): Option.Option<KnownExchangeMemo> {
-  return Option.fromNullishOr(entries.find((entry) => entry.address === address));
+  return Option.fromNullishOr(
+    entries.find((entry) => entry.address === address),
+  );
 }

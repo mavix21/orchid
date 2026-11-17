@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { FeeBumpTransaction, Keypair, TransactionBuilder } from "@stellar/stellar-sdk";
+import {
+  FeeBumpTransaction,
+  Keypair,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
 import { makeDatabase } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as DateTime from "effect/DateTime";
@@ -22,7 +26,12 @@ import {
 } from "../src/contract";
 import { Applied, Chain, Rejected } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
-import { Authorized, Proposed, SlotTaken, Transfers } from "../src/server/Transfers.server";
+import {
+  Authorized,
+  Proposed,
+  SlotTaken,
+  Transfers,
+} from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { networkPassphrase } from "../src/stellar/network";
 import {
@@ -73,16 +82,20 @@ test("near-expiry unsigned drafts refresh, while authorized bytes never change",
 
   const refreshed = await send(order);
 
-  if (!(refreshed instanceof TransferDraft)) throw new Error("Expected refreshed draft");
+  if (!(refreshed instanceof TransferDraft))
+    throw new Error("Expected refreshed draft");
 
-  expect(DateTime.toEpochMillis(refreshed.request.expiresAt)).toBeGreaterThan(Date.now() + 20000);
+  expect(DateTime.toEpochMillis(refreshed.request.expiresAt)).toBeGreaterThan(
+    Date.now() + 20000,
+  );
   await send(order, approve(refreshed.request, key));
 
   const authorized = Option.getOrThrow(
     await runStores(Transfers.use((service) => service.find(order.id))),
   );
 
-  if (!(authorized instanceof Authorized)) throw new Error("Expected authorization");
+  if (!(authorized instanceof Authorized))
+    throw new Error("Expected authorization");
 
   const competing = await runStores(
     Transfers.use((service) =>
@@ -110,7 +123,9 @@ test("near-expiry unsigned drafts refresh, while authorized bytes never change",
 
   expect(Result.isFailure(refused)).toBe(true);
   expect(
-    Option.getOrThrow(await runStores(Transfers.use((service) => service.find(order.id)))),
+    Option.getOrThrow(
+      await runStores(Transfers.use((service) => service.find(order.id))),
+    ),
   ).toEqual(authorized);
 });
 
@@ -133,7 +148,10 @@ test("double tap redrafts a still-live stale sequence before accepting its appro
   const firstDraft = await send(first);
   const secondDraft = await send(second);
 
-  if (!(firstDraft instanceof TransferDraft) || !(secondDraft instanceof TransferDraft))
+  if (
+    !(firstDraft instanceof TransferDraft) ||
+    !(secondDraft instanceof TransferDraft)
+  )
     throw new Error("Expected drafts");
 
   expect(paymentSequence(firstDraft)).toBe("1001");
@@ -144,21 +162,30 @@ test("double tap redrafts a still-live stale sequence before accepting its appro
     await runStores(Transfers.use((service) => service.find(first.id))),
   );
 
-  if (!(signed instanceof Authorized)) throw new Error("Expected authorization");
+  if (!(signed instanceof Authorized))
+    throw new Error("Expected authorization");
 
   fundHolder(key, "1001");
-  world.evidence.set(signed.sealed.hash, new Applied({ at: DateTime.nowUnsafe() }));
+  world.evidence.set(
+    signed.sealed.hash,
+    new Applied({ at: DateTime.nowUnsafe() }),
+  );
   expect(await send(first)).toBeInstanceOf(Settled);
 
   const redrafted = await send(second, approve(secondDraft.request, key));
 
-  if (!(redrafted instanceof TransferDraft)) throw new Error("Expected redraft");
+  if (!(redrafted instanceof TransferDraft))
+    throw new Error("Expected redraft");
 
   expect(paymentSequence(redrafted)).toBe("1002");
   expect(
-    Option.getOrThrow(await runStores(Transfers.use((service) => service.find(second.id)))),
+    Option.getOrThrow(
+      await runStores(Transfers.use((service) => service.find(second.id))),
+    ),
   ).toBeInstanceOf(Proposed);
-  expect(await send(second, approve(redrafted.request, key))).toBeInstanceOf(Pending);
+  expect(await send(second, approve(redrafted.request, key))).toBeInstanceOf(
+    Pending,
+  );
 });
 
 test("SlotTaken reconciliation refreshes the waiting draft after the holder consumes its sequence", async () => {
@@ -168,11 +195,19 @@ test("SlotTaken reconciliation refreshes the waiting draft after the holder cons
   fundHolder(key);
 
   const first = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
-  const second = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
+
+  const second = orderFor(
+    key,
+    AddressRecipient.make({ value: addressOf(key) }),
+  );
+
   const firstDraft = await send(first);
   const secondDraft = await send(second);
 
-  if (!(firstDraft instanceof TransferDraft) || !(secondDraft instanceof TransferDraft))
+  if (
+    !(firstDraft instanceof TransferDraft) ||
+    !(secondDraft instanceof TransferDraft)
+  )
     throw new Error("Expected drafts");
 
   await send(first, approve(firstDraft.request, key));
@@ -209,15 +244,17 @@ test("SlotTaken reconciliation refreshes the waiting draft after the holder cons
   );
 
   const result = await Effect.runPromise(
-    Wallet.use((wallet) => wallet.transfer(second, approve(secondDraft.request, key))).pipe(
-      Effect.provide(finishingWallet),
-    ),
+    Wallet.use((wallet) =>
+      wallet.transfer(second, approve(secondDraft.request, key)),
+    ).pipe(Effect.provide(finishingWallet)),
   );
 
   if (!(result instanceof TransferDraft)) throw new Error("Expected redraft");
 
   expect(paymentSequence(result)).toBe("1002");
-  expect(await send(second, approve(result.request, key))).toBeInstanceOf(Pending);
+  expect(await send(second, approve(result.request, key))).toBeInstanceOf(
+    Pending,
+  );
 });
 
 test("a proven consumed authorization concludes and releases the sender slot", async () => {
@@ -237,15 +274,23 @@ test("a proven consumed authorization concludes and releases the sender slot", a
     await runStores(Transfers.use((service) => service.find(order.id))),
   );
 
-  if (!(signed instanceof Authorized)) throw new Error("Expected authorization");
+  if (!(signed instanceof Authorized))
+    throw new Error("Expected authorization");
 
   fundHolder(key, "1001");
-  world.evidence.set(signed.sealed.hash, new Rejected({ code: "sequence_consumed" }));
+  world.evidence.set(
+    signed.sealed.hash,
+    new Rejected({ code: "sequence_consumed" }),
+  );
   await run(Wallet.use((wallet) => wallet.sweep));
   expect(await send(order)).toBeInstanceOf(Failed);
-  expect(await runStores(Transfers.use((service) => service.inFlight))).toHaveLength(0);
+  expect(
+    await runStores(Transfers.use((service) => service.inFlight)),
+  ).toHaveLength(0);
 
-  const next = await send(orderFor(key, AddressRecipient.make({ value: addressOf(key) })));
+  const next = await send(
+    orderFor(key, AddressRecipient.make({ value: addressOf(key) })),
+  );
 
   if (!(next instanceof TransferDraft)) throw new Error("Expected next draft");
 
@@ -259,7 +304,12 @@ test("an unsigned newer draft cannot hide the latest authorized or settled recei
   fundHolder(key);
 
   const first = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
-  const second = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
+
+  const second = orderFor(
+    key,
+    AddressRecipient.make({ value: addressOf(key) }),
+  );
+
   const draft = await send(first);
 
   if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
@@ -271,13 +321,19 @@ test("an unsigned newer draft cannot hide the latest authorized or settled recei
     await runStores(Transfers.use((service) => service.find(first.id))),
   );
 
-  if (!(signed instanceof Authorized)) throw new Error("Expected authorization");
+  if (!(signed instanceof Authorized))
+    throw new Error("Expected authorization");
 
-  world.evidence.set(signed.sealed.hash, new Applied({ at: DateTime.nowUnsafe() }));
+  world.evidence.set(
+    signed.sealed.hash,
+    new Applied({ at: DateTime.nowUnsafe() }),
+  );
 
   expect(await send(first)).toBeInstanceOf(Settled);
 
-  const overview = await run(Wallet.use((wallet) => wallet.overview(addressOf(key))));
+  const overview = await run(
+    Wallet.use((wallet) => wallet.overview(addressOf(key))),
+  );
 
   if (!(overview instanceof Holding)) throw new Error("Expected holding");
 
@@ -311,21 +367,28 @@ test("a sequence change during signing redrafts before durable authorization", a
     }),
   ).pipe(Layer.provide(fakeChain));
 
-  const advancingWallet = Wallet.serviceLayer.pipe(Layer.provide(stores), Layer.provide(advancing));
+  const advancingWallet = Wallet.serviceLayer.pipe(
+    Layer.provide(stores),
+    Layer.provide(advancing),
+  );
 
   const result = await Effect.runPromise(
-    Wallet.use((wallet) => wallet.transfer(order, approve(draft.request, key))).pipe(
-      Effect.provide(advancingWallet),
-    ),
+    Wallet.use((wallet) =>
+      wallet.transfer(order, approve(draft.request, key)),
+    ).pipe(Effect.provide(advancingWallet)),
   );
 
   if (!(result instanceof TransferDraft)) throw new Error("Expected redraft");
 
   expect(paymentSequence(result)).toBe("1002");
   expect(
-    Option.getOrThrow(await runStores(Transfers.use((service) => service.find(order.id)))),
+    Option.getOrThrow(
+      await runStores(Transfers.use((service) => service.find(order.id))),
+    ),
   ).toBeInstanceOf(Proposed);
-  expect(await runStores(Transfers.use((service) => service.inFlight))).toHaveLength(0);
+  expect(
+    await runStores(Transfers.use((service) => service.inFlight)),
+  ).toHaveLength(0);
 });
 
 test("a stale redraft cannot replace a concurrent durable authorization", async () => {
@@ -348,18 +411,25 @@ test("a stale redraft cannot replace a concurrent durable authorization", async 
   fundHolder(key, "1001");
 
   const replacement = await Effect.runPromise(
-    Chain.use((chain) => chain.draftPayment(order.from, addressOf(key), order.amount)).pipe(
-      Effect.provide(fakeChain),
-    ),
+    Chain.use((chain) =>
+      chain.draftPayment(order.from, addressOf(key), order.amount),
+    ).pipe(Effect.provide(fakeChain)),
   );
 
-  const saved = await runStores(Transfers.use((service) => service.redraft(proposed, replacement)));
+  const saved = await runStores(
+    Transfers.use((service) => service.redraft(proposed, replacement)),
+  );
 
-  if (!(saved instanceof Authorized)) throw new Error("Expected frozen authorization");
+  if (!(saved instanceof Authorized))
+    throw new Error("Expected frozen authorization");
 
-  const outer = TransactionBuilder.fromXDR(saved.sealed.envelope, networkPassphrase);
+  const outer = TransactionBuilder.fromXDR(
+    saved.sealed.envelope,
+    networkPassphrase,
+  );
 
-  if (!(outer instanceof FeeBumpTransaction)) throw new Error("Expected fee bump");
+  if (!(outer instanceof FeeBumpTransaction))
+    throw new Error("Expected fee bump");
 
   expect(outer.innerTransaction.sequence).toBe("1001");
 });

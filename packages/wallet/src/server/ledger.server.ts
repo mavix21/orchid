@@ -63,7 +63,9 @@ export function accountFromEntries(
     nativeBalance: account.value.value.balance,
     balance:
       trust?.value.type === "trustline"
-        ? Option.some(Schema.decodeSync(Usdc)(trust.value.value.balance.toString()))
+        ? Option.some(
+            Schema.decodeSync(Usdc)(trust.value.value.balance.toString()),
+          )
         : Option.none(),
     ledger,
     accountSponsored: account.sponsored,

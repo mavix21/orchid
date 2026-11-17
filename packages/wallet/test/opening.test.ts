@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { Account, Transaction, Keypair, TransactionBuilder } from "@stellar/stellar-sdk";
+import {
+  Account,
+  Transaction,
+  Keypair,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -61,15 +66,22 @@ test("opening resumes missing recovery and never activates without a valid signa
   expect(repeated).toEqual(recovery);
   expect(recovery).toBeInstanceOf(RecoveryDraft);
   expect(
-    (await runStores(Directory.use((directory) => directory.byAddress(claim.address)))).pipe(
-      Option.map((row) => row.status),
-    ),
+    (
+      await runStores(
+        Directory.use((directory) => directory.byAddress(claim.address)),
+      )
+    ).pipe(Option.map((row) => row.status)),
   ).toEqual(Option.some("opening"));
 
-  if (!(recovery instanceof RecoveryDraft)) throw new Error("Expected recovery");
+  if (!(recovery instanceof RecoveryDraft))
+    throw new Error("Expected recovery");
 
-  expect(await opening(claim, approve(recovery.request, Keypair.random()))).toEqual(recovery);
-  expect(await opening(claim, approve(recovery.request, key))).toBeInstanceOf(Opened);
+  expect(
+    await opening(claim, approve(recovery.request, Keypair.random())),
+  ).toEqual(recovery);
+  expect(await opening(claim, approve(recovery.request, key))).toBeInstanceOf(
+    Opened,
+  );
   expect(world.submitted).toHaveLength(1);
 });
 
@@ -89,25 +101,30 @@ test("missing account and missing trustline reopen with the same username and ke
         balance: Option.none(),
       });
 
-    expect(await run(Wallet.use((wallet) => wallet.overview(claim.address)))).toBeInstanceOf(
-      NeedsReopening,
-    );
     expect(
-      (await runStores(Directory.use((directory) => directory.byAddress(claim.address)))).pipe(
-        Option.map((row) => row.status),
-      ),
+      await run(Wallet.use((wallet) => wallet.overview(claim.address))),
+    ).toBeInstanceOf(NeedsReopening);
+    expect(
+      (
+        await runStores(
+          Directory.use((directory) => directory.byAddress(claim.address)),
+        )
+      ).pipe(Option.map((row) => row.status)),
     ).toEqual(Option.some("recovered"));
     await create(key, "maria");
-    expect(await run(Wallet.use((wallet) => wallet.overview(claim.address)))).toBeInstanceOf(
-      Holding,
-    );
+    expect(
+      await run(Wallet.use((wallet) => wallet.overview(claim.address))),
+    ).toBeInstanceOf(Holding);
   }
 });
 
 test("a sealed opening outside RPC history redrafts after the ledger passes maxTime", async () => {
   const key = Keypair.random();
   const claim = claimFor(key, "maria");
-  const row = await runStores(Directory.use((directory) => directory.start(claim.address)));
+
+  const row = await runStores(
+    Directory.use((directory) => directory.start(claim.address)),
+  );
 
   const now = Math.floor(Date.now() / 1000);
 
@@ -121,7 +138,8 @@ test("a sealed opening outside RPC history redrafts after the ledger passes maxT
 
   const inner = TransactionBuilder.fromXDR(envelope, networkPassphrase);
 
-  if (!(inner instanceof Transaction)) throw new Error("Expected inner transaction");
+  if (!(inner instanceof Transaction))
+    throw new Error("Expected inner transaction");
 
   inner.sign(sponsor, key);
 
@@ -136,12 +154,16 @@ test("a sealed opening outside RPC history redrafts after the ledger passes maxT
 
   const historical = new Sealed({
     envelope: outer.toXDR(),
-    hash: Array.from(outer.hash(), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+    hash: Array.from(outer.hash(), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join(""),
     expiresAt: DateTime.makeUnsafe((now - 80) * 1000),
   });
 
   expect(
-    await runStores(Directory.use((directory) => directory.seal(row, historical, claim))),
+    await runStores(
+      Directory.use((directory) => directory.seal(row, historical, claim)),
+    ),
   ).not.toBeInstanceOf(UsernameTaken);
 
   const retry = await opening(claim);
@@ -150,7 +172,9 @@ test("a sealed opening outside RPC history redrafts after the ledger passes maxT
   expect(world.submitted).toHaveLength(0);
   expect(
     Option.getOrThrow(
-      await runStores(Directory.use((directory) => directory.byAddress(claim.address))),
+      await runStores(
+        Directory.use((directory) => directory.byAddress(claim.address)),
+      ),
     ).attemptHash,
   ).toBeNull();
 });
@@ -170,23 +194,32 @@ test("one missing RPC observation does not demote an active wallet", async () =>
         account: (address) => {
           reads++;
 
-          return reads === 1 ? Effect.succeed(Option.none()) : real.account(address);
+          return reads === 1
+            ? Effect.succeed(Option.none())
+            : real.account(address);
         },
       });
     }),
   ).pipe(Layer.provide(fakeChain));
 
-  const transientWallet = Wallet.serviceLayer.pipe(Layer.provide(stores), Layer.provide(transient));
+  const transientWallet = Wallet.serviceLayer.pipe(
+    Layer.provide(stores),
+    Layer.provide(transient),
+  );
 
   const result = await Effect.runPromise(
-    Wallet.use((wallet) => wallet.overview(claim.address)).pipe(Effect.provide(transientWallet)),
+    Wallet.use((wallet) => wallet.overview(claim.address)).pipe(
+      Effect.provide(transientWallet),
+    ),
   );
 
   expect(result).toBeInstanceOf(Holding);
   expect(reads).toBe(2);
   expect(
     Option.getOrThrow(
-      await runStores(Directory.use((directory) => directory.byAddress(claim.address))),
+      await runStores(
+        Directory.use((directory) => directory.byAddress(claim.address)),
+      ),
     ).status,
   ).toBe("active");
 });
@@ -206,7 +239,9 @@ test("unsponsored and differently sponsored accounts never receive recovery draf
   expect(await opening(claim)).toBeInstanceOf(NotSponsored);
   expect(
     Option.isNone(
-      await runStores(Directory.use((directory) => directory.byAddress(claim.address))),
+      await runStores(
+        Directory.use((directory) => directory.byAddress(claim.address)),
+      ),
     ),
   ).toBe(true);
   world.accounts.set(claim.address, {
@@ -229,15 +264,22 @@ test("bad address checksums are typed refusals before username claims or drafts"
     `${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`,
   );
 
-  const claim = new WalletClaim({ username: Schema.decodeSync(Username)("maria"), address: bad });
+  const claim = new WalletClaim({
+    username: Schema.decodeSync(Username)("maria"),
+    address: bad,
+  });
 
   expect(await opening(claim)).toBeInstanceOf(InvalidAddress);
-  expect(await run(Wallet.use((wallet) => wallet.overview(bad)))).toBeInstanceOf(InvalidAddress);
   expect(
-    Option.isNone(await runStores(Directory.use((directory) => directory.byAddress(bad)))),
+    await run(Wallet.use((wallet) => wallet.overview(bad))),
+  ).toBeInstanceOf(InvalidAddress);
+  expect(
+    Option.isNone(
+      await runStores(Directory.use((directory) => directory.byAddress(bad))),
+    ),
   ).toBe(true);
-  expect(await send(orderFor(key, AddressRecipient.make({ value: bad })))).toBeInstanceOf(
-    InvalidAddress,
-  );
+  expect(
+    await send(orderFor(key, AddressRecipient.make({ value: bad }))),
+  ).toBeInstanceOf(InvalidAddress);
   expect(world.submitted).toHaveLength(0);
 });

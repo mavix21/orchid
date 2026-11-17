@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { FeeBumpTransaction, Keypair, TransactionBuilder } from "@stellar/stellar-sdk";
+import {
+  FeeBumpTransaction,
+  Keypair,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
 import { makeDatabase } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as DateTime from "effect/DateTime";
@@ -18,7 +22,11 @@ import {
   TransferOrder,
 } from "../src/contract";
 import { Applied } from "../src/server/Chain.server";
-import { Authorized, Proposed, Transfers } from "../src/server/Transfers.server";
+import {
+  Authorized,
+  Proposed,
+  Transfers,
+} from "../src/server/Transfers.server";
 import { PaymentFacts, readEnvelope } from "../src/stellar/envelopes";
 import { networkPassphrase } from "../src/stellar/network";
 import {
@@ -47,33 +55,49 @@ test("unlisted external destinations accept no memo and expose that a memo is op
   const order = orderFor(key, AddressRecipient.make({ value: destination }));
   const draft = await send(order);
 
-  if (!(draft instanceof TransferDraft)) throw new Error("Expected external draft");
+  if (!(draft instanceof TransferDraft))
+    throw new Error("Expected external draft");
 
-  expect(draft.recipient).toEqual(new ExternalRecipient({ address: destination }));
+  expect(draft.recipient).toEqual(
+    new ExternalRecipient({ address: destination }),
+  );
   expect(draft.memoRequired).toBe(false);
   const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
 
-  if (!(facts instanceof PaymentFacts)) throw new Error("Expected payment facts");
+  if (!(facts instanceof PaymentFacts))
+    throw new Error("Expected payment facts");
 
   expect(facts.memo).toBeUndefined();
-  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(Pending);
+  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(
+    Pending,
+  );
 
   const signed = Option.getOrThrow(
     await runStores(Transfers.use((service) => service.find(order.id))),
   );
 
-  if (!(signed instanceof Authorized)) throw new Error("Expected authorization");
+  if (!(signed instanceof Authorized))
+    throw new Error("Expected authorization");
 
   expect(signed.order.memo).toBeUndefined();
-  const outer = TransactionBuilder.fromXDR(signed.sealed.envelope, networkPassphrase);
 
-  if (!(outer instanceof FeeBumpTransaction)) throw new Error("Expected fee bump");
+  const outer = TransactionBuilder.fromXDR(
+    signed.sealed.envelope,
+    networkPassphrase,
+  );
+
+  if (!(outer instanceof FeeBumpTransaction))
+    throw new Error("Expected fee bump");
 
   expect(outer.innerTransaction.memo.type).toBe("none");
-  world.evidence.set(signed.sealed.hash, new Applied({ at: DateTime.nowUnsafe() }));
+  world.evidence.set(
+    signed.sealed.hash,
+    new Applied({ at: DateTime.nowUnsafe() }),
+  );
   const receipt = await send(order);
 
-  if (!(receipt instanceof Settled)) throw new Error("Expected settled receipt");
+  if (!(receipt instanceof Settled))
+    throw new Error("Expected settled receipt");
 
   expect(receipt.memo).toBeUndefined();
 });
@@ -94,9 +118,11 @@ test("known exchange destinations refuse missing memos with client-visible sourc
       source: entry.source,
     }),
   );
-  expect(Option.isNone(await runStores(Transfers.use((service) => service.find(order.id))))).toBe(
-    true,
-  );
+  expect(
+    Option.isNone(
+      await runStores(Transfers.use((service) => service.find(order.id))),
+    ),
+  ).toBe(true);
   expect(world.submitted).toHaveLength(initialSubmissions);
 });
 
@@ -113,12 +139,18 @@ test("a new registry entry blocks an unsigned draft but preserves an authorized 
   if (!(draft instanceof TransferDraft)) throw new Error("Expected draft");
 
   registerExchange(destination);
-  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(ExternalMemoRequired);
+  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(
+    ExternalMemoRequired,
+  );
   expect(
-    Option.getOrThrow(await runStores(Transfers.use((service) => service.find(order.id)))),
+    Option.getOrThrow(
+      await runStores(Transfers.use((service) => service.find(order.id))),
+    ),
   ).toBeInstanceOf(Proposed);
   world.exchangeMemos.length = 0;
-  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(Pending);
+  expect(await send(order, approve(draft.request, key))).toBeInstanceOf(
+    Pending,
+  );
   registerExchange(destination);
   expect(await send(order)).toBeInstanceOf(Pending);
 });
@@ -147,13 +179,15 @@ test("external text/id memos survive draft, signature, durable order and receipt
 
       const draft = await send(order);
 
-      if (!(draft instanceof TransferDraft)) throw new Error("Expected memo draft");
+      if (!(draft instanceof TransferDraft))
+        throw new Error("Expected memo draft");
 
       expect(draft.recipient).toBeInstanceOf(ExternalRecipient);
       expect(draft.memoRequired).toBe(required);
       const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
 
-      if (!(facts instanceof PaymentFacts)) throw new Error("Expected payment facts");
+      if (!(facts instanceof PaymentFacts))
+        throw new Error("Expected payment facts");
 
       expect(facts.memo).toEqual(memo);
       await send(order, approve(draft.request, key));
@@ -162,23 +196,31 @@ test("external text/id memos survive draft, signature, durable order and receipt
         await runStores(Transfers.use((service) => service.find(order.id))),
       );
 
-      if (!(signed instanceof Authorized)) throw new Error("Expected authorization");
+      if (!(signed instanceof Authorized))
+        throw new Error("Expected authorization");
 
       expect(signed.order.memo).toEqual(memo);
-      world.evidence.set(signed.sealed.hash, new Applied({ at: DateTime.nowUnsafe() }));
+      world.evidence.set(
+        signed.sealed.hash,
+        new Applied({ at: DateTime.nowUnsafe() }),
+      );
 
       const receipt = await send(order);
 
       if (!(receipt instanceof Settled)) throw new Error("Expected receipt");
 
       expect(receipt.memo).toEqual(memo);
-      expect(receipt.recipient).toEqual(new ExternalRecipient({ address: destination }));
+      expect(receipt.recipient).toEqual(
+        new ExternalRecipient({ address: destination }),
+      );
 
       const rows = await Effect.runPromise(
         Effect.gen(function* () {
           const db = yield* makeDatabase();
 
-          return yield* db.execute(sql`select recipient from transfers where id = ${order.id}`);
+          return yield* db.execute(
+            sql`select recipient from transfers where id = ${order.id}`,
+          );
         }).pipe(Effect.provide(dbLayer)),
       );
 
@@ -187,9 +229,13 @@ test("external text/id memos survive draft, signature, durable order and receipt
   }
 
   registerExchange(addressOf(key));
-  const plain = await send(orderFor(key, AddressRecipient.make({ value: addressOf(key) })));
 
-  if (!(plain instanceof TransferDraft)) throw new Error("Expected Orchid draft");
+  const plain = await send(
+    orderFor(key, AddressRecipient.make({ value: addressOf(key) })),
+  );
+
+  if (!(plain instanceof TransferDraft))
+    throw new Error("Expected Orchid draft");
 
   expect(plain.memoRequired).toBe(false);
 
@@ -199,7 +245,9 @@ test("external text/id memos survive draft, signature, durable order and receipt
   });
 
   expect(await send(orchid)).toBeInstanceOf(MemoNotAllowed);
-  expect(Option.isNone(await runStores(Transfers.use((service) => service.find(orchid.id))))).toBe(
-    true,
-  );
+  expect(
+    Option.isNone(
+      await runStores(Transfers.use((service) => service.find(orchid.id))),
+    ),
+  ).toBe(true);
 });

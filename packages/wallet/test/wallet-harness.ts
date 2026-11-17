@@ -1,5 +1,10 @@
 import { beforeAll, beforeEach, expect } from "bun:test";
-import { Account, FeeBumpTransaction, Keypair, TransactionBuilder } from "@stellar/stellar-sdk";
+import {
+  Account,
+  FeeBumpTransaction,
+  Keypair,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
 import { databaseLayer, makeDatabase } from "@workspace/db";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import { sql } from "drizzle-orm";
@@ -34,7 +39,10 @@ import {
   type Settlement,
   Undecided,
 } from "../src/server/Chain.server";
-import { KnownExchangeMemo, exchangeMemoFor } from "../src/server/exchange-memos.server";
+import {
+  KnownExchangeMemo,
+  exchangeMemoFor,
+} from "../src/server/exchange-memos.server";
 import { Directory } from "../src/server/Directory.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
@@ -51,13 +59,20 @@ import { network, networkPassphrase } from "../src/stellar/network";
 
 // This suite has one fixed, disposable local database and never reads a deployment URL.
 export const dbLayer = databaseLayer({
-  connectionString: "postgres://orchid:orchid-local@127.0.0.1:55433/wallet_test",
+  connectionString:
+    "postgres://orchid:orchid-local@127.0.0.1:55433/wallet_test",
 });
 
-export const stores = Layer.mergeAll(Directory.layer, Transfers.layer).pipe(Layer.provide(dbLayer));
+export const stores = Layer.mergeAll(Directory.layer, Transfers.layer).pipe(
+  Layer.provide(dbLayer),
+);
+
 export const sponsor = Keypair.random();
 export const feePayer = Keypair.random();
-export const reserveSponsor = Schema.decodeSync(AccountAddress)(sponsor.publicKey());
+
+export const reserveSponsor = Schema.decodeSync(AccountAddress)(
+  sponsor.publicKey(),
+);
 
 export const settings = Layer.succeed(WalletSettings, {
   rpcUrl: "https://soroban-testnet.stellar.org",
@@ -84,16 +99,22 @@ export const fakeChain = Layer.effect(
       Effect.succeed(Option.fromNullishOr(world.accounts.get(address)));
 
     const request = (envelope: SigningRequest["envelope"], maxTime: number) =>
-      new SigningRequest({ envelope, expiresAt: DateTime.makeUnsafe(maxTime * 1000) });
+      new SigningRequest({
+        envelope,
+        expiresAt: DateTime.makeUnsafe(maxTime * 1000),
+      });
 
     return Chain.of({
       ...real,
-      memoRequiredFor: (address) => exchangeMemoFor(address, world.exchangeMemos),
+      memoRequiredFor: (address) =>
+        exchangeMemoFor(address, world.exchangeMemos),
       account,
       pastOpeningWindow: (sealed) =>
         Effect.succeed(DateTime.toEpochMillis(sealed.expiresAt) < Date.now()),
       balance: (address) =>
-        account(address).pipe(Effect.map(Option.flatMap((state) => state.balance))),
+        account(address).pipe(
+          Effect.map(Option.flatMap((state) => state.balance)),
+        ),
       draftOpening: (address) =>
         Effect.sync(() => {
           const now = Math.floor(Date.now() / 1000);
@@ -115,7 +136,10 @@ export const fakeChain = Layer.effect(
 
           return request(
             draftPayment({
-              source: new Account(from, world.accounts.get(from)?.sequence ?? "100"),
+              source: new Account(
+                from,
+                world.accounts.get(from)?.sequence ?? "100",
+              ),
               to,
               amount,
               memo,
@@ -131,7 +155,10 @@ export const fakeChain = Layer.effect(
 
           return request(
             draftRecovery({
-              source: new Account(address, world.accounts.get(address)?.sequence ?? "100"),
+              source: new Account(
+                address,
+                world.accounts.get(address)?.sequence ?? "100",
+              ),
               reserveSponsor,
               minTime: now + 60,
               maxTime: now + 180,
@@ -142,16 +169,28 @@ export const fakeChain = Layer.effect(
       submit: (sealed) =>
         Effect.gen(function* () {
           if (world.failSubmit)
-            return yield* new ChainUnreachable({ cause: new Error("Network dropped") });
+            return yield* new ChainUnreachable({
+              cause: new Error("Network dropped"),
+            });
 
           world.submitted.push(sealed);
 
-          const outer = TransactionBuilder.fromXDR(sealed.envelope, networkPassphrase);
-          const inner = outer instanceof FeeBumpTransaction ? outer.innerTransaction : outer;
+          const outer = TransactionBuilder.fromXDR(
+            sealed.envelope,
+            networkPassphrase,
+          );
+
+          const inner =
+            outer instanceof FeeBumpTransaction
+              ? outer.innerTransaction
+              : outer;
+
           const first = inner.operations[0];
 
           if (first?.type === "beginSponsoringFutureReserves") {
-            const address = Schema.decodeSync(AccountAddress)(first.sponsoredId);
+            const address = Schema.decodeSync(AccountAddress)(
+              first.sponsoredId,
+            );
 
             world.accounts.set(address, {
               sequence: world.accounts.get(address)?.sequence ?? "1000",
@@ -163,7 +202,8 @@ export const fakeChain = Layer.effect(
             });
           }
         }),
-      settlement: (sealed) => Effect.succeed(world.evidence.get(sealed.hash) ?? new Undecided()),
+      settlement: (sealed) =>
+        Effect.succeed(world.evidence.get(sealed.hash) ?? new Undecided()),
     });
   }),
 ).pipe(Layer.provide(realChain));
@@ -176,10 +216,12 @@ export const walletLayer = Wallet.serviceLayer.pipe(
 export const run = <A, E>(program: Effect.Effect<A, E, Wallet>) =>
   Effect.runPromise(program.pipe(Effect.provide(walletLayer)));
 
-export const runStores = <A, E>(program: Effect.Effect<A, E, Directory | Transfers>) =>
-  Effect.runPromise(program.pipe(Effect.provide(stores)));
+export const runStores = <A, E>(
+  program: Effect.Effect<A, E, Directory | Transfers>,
+) => Effect.runPromise(program.pipe(Effect.provide(stores)));
 
-export const addressOf = (key: Keypair) => Schema.decodeSync(AccountAddress)(key.publicKey());
+export const addressOf = (key: Keypair) =>
+  Schema.decodeSync(AccountAddress)(key.publicKey());
 
 // Synthetic test fixture only; never added to the shipped registry.
 export const registerExchange = (address: AccountAddress) => {
@@ -196,27 +238,40 @@ export const registerExchange = (address: AccountAddress) => {
 };
 
 export const approve = (request: SigningRequest, key: Keypair) =>
-  Option.some(new Approval({ signature: key.sign(signingPayload(request.envelope)) }));
+  Option.some(
+    new Approval({ signature: key.sign(signingPayload(request.envelope)) }),
+  );
 
 export const claimFor = (key: Keypair, name: string) =>
-  new WalletClaim({ address: addressOf(key), username: Schema.decodeSync(Username)(name) });
+  new WalletClaim({
+    address: addressOf(key),
+    username: Schema.decodeSync(Username)(name),
+  });
 
-export const opening = (claim: WalletClaim, approval: Option.Option<Approval> = Option.none()) =>
-  run(Wallet.use((wallet) => wallet.open(claim, approval)));
+export const opening = (
+  claim: WalletClaim,
+  approval: Option.Option<Approval> = Option.none(),
+) => run(Wallet.use((wallet) => wallet.open(claim, approval)));
 
 export const create = async (key: Keypair, name: string) => {
   const claim = claimFor(key, name);
   const draft = await opening(claim);
 
-  if (!(draft instanceof OpeningDraft)) throw new Error("Expected opening draft");
+  if (!(draft instanceof OpeningDraft))
+    throw new Error("Expected opening draft");
 
-  expect(await opening(claim, approve(draft.request, key))).toBeInstanceOf(OpeningPending);
+  expect(await opening(claim, approve(draft.request, key))).toBeInstanceOf(
+    OpeningPending,
+  );
 
   const recovery = await opening(claim);
 
-  if (!(recovery instanceof RecoveryDraft)) throw new Error("Expected recovery draft");
+  if (!(recovery instanceof RecoveryDraft))
+    throw new Error("Expected recovery draft");
 
-  expect(await opening(claim, approve(recovery.request, key))).toBeInstanceOf(Opened);
+  expect(await opening(claim, approve(recovery.request, key))).toBeInstanceOf(
+    Opened,
+  );
 
   return claim;
 };
@@ -229,8 +284,10 @@ export const orderFor = (sender: Keypair, to: Recipient) =>
     amount: Schema.decodeSync(PositiveUsdc)("10000000"),
   });
 
-export const send = (order: TransferOrder, approval: Option.Option<Approval> = Option.none()) =>
-  run(Wallet.use((wallet) => wallet.transfer(order, approval)));
+export const send = (
+  order: TransferOrder,
+  approval: Option.Option<Approval> = Option.none(),
+) => run(Wallet.use((wallet) => wallet.transfer(order, approval)));
 
 // Store-level fixtures; these bytes are never submitted.
 export const placeholderRequest = () =>
@@ -259,7 +316,8 @@ export const fundHolder = (key: Keypair, sequence = "1000") =>
 export const paymentSequence = (draft: TransferDraft) => {
   const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
 
-  if (!(facts instanceof PaymentFacts)) throw new Error("Expected payment facts");
+  if (!(facts instanceof PaymentFacts))
+    throw new Error("Expected payment facts");
 
   return facts.sequence;
 };
@@ -271,8 +329,12 @@ export function useDisposableDatabase() {
       Effect.gen(function* () {
         const db = yield* makeDatabase();
 
-        yield* migrate(db, { migrationsFolder: `${import.meta.dir}/../drizzle` });
-        yield* migrate(db, { migrationsFolder: `${import.meta.dir}/../drizzle` });
+        yield* migrate(db, {
+          migrationsFolder: `${import.meta.dir}/../drizzle`,
+        });
+        yield* migrate(db, {
+          migrationsFolder: `${import.meta.dir}/../drizzle`,
+        });
       }).pipe(Effect.provide(dbLayer)),
     );
   });

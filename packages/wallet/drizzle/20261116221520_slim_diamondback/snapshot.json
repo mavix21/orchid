@@ -34,7 +34,12 @@
     },
     {
       "statementType": "create_index",
-      "statementTarget": ["index", "public", "transfers", "transfers_one_in_flight"],
+      "statementTarget": [
+        "index",
+        "public",
+        "transfers",
+        "transfers_one_in_flight"
+      ],
       "writes": [
         "s|idx|public.transfers_one_in_flight",
         "n|idx|public.transfers_one_in_flight",

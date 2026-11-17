@@ -15,9 +15,15 @@ function walletBoundaryProbe(): Plugin {
       if (!probe || !id.endsWith("/src/routes/index.tsx")) return;
 
       const source = Match.value(probe).pipe(
-        Match.when("relative", () => "../../../../packages/wallet/src/device/boundary.fixture"),
+        Match.when(
+          "relative",
+          () => "../../../../packages/wallet/src/device/boundary.fixture",
+        ),
         Match.when("transport", () => "../wallet/port.functions"),
-        Match.when("private", () => "@workspace/wallet/src/server/index.server"),
+        Match.when(
+          "private",
+          () => "@workspace/wallet/src/server/index.server",
+        ),
         Match.orElse(() => "@workspace/wallet/server"),
       );
 

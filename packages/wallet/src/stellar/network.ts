@@ -8,7 +8,11 @@ export function epochAt(time: number): string {
   return time < testnetReset ? "before-2026-12-16" : "2026-12-16";
 }
 
-export const usdc = new Asset("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+export const usdc = new Asset(
+  "USDC",
+  "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+);
+
 export const baseFee = "100";
 export const paymentLifetime = 120;
 export const approvalMargin = 20;

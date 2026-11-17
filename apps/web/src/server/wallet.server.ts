@@ -20,6 +20,8 @@ const requestWalletLayer = Layer.suspend(() =>
 );
 
 /** Pools and bindings are acquired and released within the current request. */
-export function runWallet<A>(program: Effect.Effect<A, WalletUnavailable, Wallet>): Promise<A> {
+export function runWallet<A>(
+  program: Effect.Effect<A, WalletUnavailable, Wallet>,
+): Promise<A> {
   return Effect.runPromise(program.pipe(Effect.provide(requestWalletLayer)));
 }

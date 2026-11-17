@@ -4,7 +4,9 @@ import { existsSync, writeFileSync } from "node:fs";
 const file = `${import.meta.dir}/../.dev.vars`;
 
 if (existsSync(file))
-  throw new Error("A .dev.vars file already exists; refusing to replace secrets");
+  throw new Error(
+    "A .dev.vars file already exists; refusing to replace secrets",
+  );
 
 const sponsor = Keypair.random();
 const feePayer = Keypair.random();
@@ -16,4 +18,6 @@ writeFileSync(
   { mode: 0o600, flag: "wx" },
 );
 
-console.log("Fresh testnet keys saved only in the gitignored wallet .dev.vars file (0600).");
+console.log(
+  "Fresh testnet keys saved only in the gitignored wallet .dev.vars file (0600).",
+);
