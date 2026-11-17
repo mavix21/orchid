@@ -1,13 +1,7 @@
 import type { Username } from "../contract";
 
-/** Names that could pass as Orchid itself or its staff. They can never be bound. */
+/** Names that could pass as Orchid staff or services, in English and Spanish. They can never be bound. */
 export const reservedUsernames: ReadonlySet<string> = new Set([
-  "orchid",
-  "orchid_app",
-  "orchid_team",
-  "orchid_support",
-  "orchidwallet",
-  "orchid_wallet",
   "support",
   "help",
   "helpdesk",
@@ -41,6 +35,30 @@ export const reservedUsernames: ReadonlySet<string> = new Set([
   "circle",
   "null",
   "undefined",
+  "soporte",
+  "ayuda",
+  "seguridad",
+  "oficial",
+  "equipo",
+  "billetera",
+  "cartera",
+  "monedero",
+  "administrador",
+  "administracion",
+  "sistema",
+  "moderador",
+  "operador",
+  "propietario",
+  "servicio",
+  "pagos",
+  "facturacion",
+  "verificar",
+  "verificado",
+  "cuenta",
+  "cuentas",
+  "contacto",
 ]);
 
-export const reserved = (username: Username) => reservedUsernames.has(username);
+/** Any name containing "orchid", or exactly a reserved word. */
+export const reserved = (username: Username) =>
+  username.includes("orchid") || reservedUsernames.has(username);

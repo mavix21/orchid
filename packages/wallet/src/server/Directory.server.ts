@@ -1,5 +1,5 @@
 import { makeDatabase } from "@workspace/db";
-import { and, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { type SQL, and, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -27,7 +27,7 @@ export class StoreFailure extends Schema.TaggedError<StoreFailure>()("StoreFailu
 
 export type WalletRow = typeof wallets.$inferSelect;
 
-type NameRow = typeof usernames.$inferSelect;
+type NameRow = Pick<typeof usernames.$inferSelect, "username" | "address">;
 
 /** The name is free, or already bound to this address. */
 export class Available extends Schema.TaggedClass<Available>()("Available", {}) {}
@@ -126,25 +126,53 @@ export class Directory extends Context.Service<
         return found.value;
       });
 
-      // Name rows are immutable once inserted, so reading them needs no write-path workaround.
       const nameOrAddress = (claim: WalletClaim) =>
         or(eq(usernames.username, claim.username), eq(usernames.address, claim.address));
 
-      const names = (claim: WalletClaim) => db.select().from(usernames).where(nameOrAddress(claim));
+      // Hyperdrive may cache a plain SELECT for up to `max_age` but never caches writes
+      // (https://developers.cloudflare.com/hyperdrive/concepts/query-caching/). Name rows are
+      // insert-only, so they are read through a no-op write to their wallet rows instead.
+      const boundNames = (executor: typeof db | Transaction, matching: SQL | undefined) =>
+        executor
+          .update(wallets)
+          .set({ address: sql`${wallets.address}` })
+          .from(usernames)
+          .where(and(eq(wallets.address, usernames.address), matching))
+          .returning({ username: usernames.username, address: usernames.address });
+
+      // A no-op update locks the row like SELECT ... FOR UPDATE, and as a write it is never cached.
+      const lockRow = (tx: Transaction, matching: SQL | undefined) =>
+        tx
+          .update(wallets)
+          .set({ address: sql`${wallets.address}` })
+          .where(matching)
+          .returning();
 
       const bind = Effect.fn("Directory.bind")(function* (tx: Transaction, claim: WalletClaim) {
-        const before = availability(
-          claim,
-          yield* tx.select().from(usernames).where(nameOrAddress(claim)),
-        );
+        if (reserved(claim.username)) {
+          const own = yield* boundNames(tx, nameOrAddress(claim));
 
-        if (!(before instanceof Available)) return before;
+          return own.some((name) => name.address === claim.address)
+            ? availability(claim, own)
+            : new UsernameTaken({ username: claim.username });
+        }
 
-        // A concurrent binder of the same name or address makes this insert a no-op;
-        // the read below then sees the committed winner.
-        yield* tx.insert(usernames).values(claim).onConflictDoNothing();
+        // The insert decides the race: it returns the row only for the binding that won.
+        const inserted = yield* tx
+          .insert(usernames)
+          .values(claim)
+          .onConflictDoNothing()
+          .returning();
 
-        return availability(claim, yield* tx.select().from(usernames).where(nameOrAddress(claim)));
+        if (inserted[0]) return new Available();
+
+        // A no-op insert means the name or the address is already bound; read who holds it.
+        const holders = yield* boundNames(tx, nameOrAddress(claim));
+
+        if (holders.length === 0)
+          return yield* new StoreFailure({ cause: new Error("Binding conflict without a holder") });
+
+        return availability(claim, holders);
       });
 
       const start = Effect.fn("Directory.start")(function* (address: AccountAddress) {
@@ -196,7 +224,7 @@ export class Directory extends Context.Service<
         const outcome = yield* db.transaction((tx) =>
           Effect.gen(function* () {
             // Lock the row first so the name is bound only if the attempt is stored too.
-            const locked = yield* tx.select().from(wallets).where(unchanged).for("update");
+            const locked = yield* lockRow(tx, unchanged);
 
             if (!locked[0]) return undefined;
 
@@ -265,7 +293,7 @@ export class Directory extends Context.Service<
 
         return db.transaction((tx) =>
           Effect.gen(function* () {
-            const locked = yield* tx.select().from(wallets).where(activatable).for("update");
+            const locked = yield* lockRow(tx, activatable);
 
             if (!locked[0]) return Option.none<Profile>();
 
@@ -314,20 +342,14 @@ export class Directory extends Context.Service<
           .where(and(scope, eq(wallets.address, row.address), eq(wallets.version, row.version)))
           .pipe(Effect.asVoid);
 
-      const byUsername = Effect.fn("Directory.byUsername")(function* (username: Username) {
-        const bound = yield* db.select().from(usernames).where(eq(usernames.username, username));
-
-        if (!bound[0]) return Option.none<Profile>();
-
-        const wallet = yield* find(Schema.decodeSync(AccountAddress)(bound[0].address));
-
-        return Option.isSome(wallet) && wallet.value.status === "active"
-          ? Option.some(profileOf(bound[0]))
-          : Option.none<Profile>();
-      });
+      const byUsername = (username: Username) =>
+        boundNames(
+          db,
+          and(scope, eq(usernames.username, username), eq(wallets.status, "active")),
+        ).pipe(Effect.map((rows) => Option.fromNullishOr(rows[0]).pipe(Option.map(profileOf))));
 
       const profile = Effect.fn("Directory.profile")(function* (row: WalletRow) {
-        const bound = yield* db.select().from(usernames).where(eq(usernames.address, row.address));
+        const bound = yield* boundNames(db, eq(usernames.address, row.address));
 
         if (!bound[0])
           return yield* new StoreFailure({ cause: new Error("Wallet has no bound username") });
@@ -343,7 +365,11 @@ export class Directory extends Context.Service<
         byUsername: (username) => wrap(byUsername(username)),
         profile: (row) => wrap(profile(row)),
         available: (claim) =>
-          wrap(names(claim).pipe(Effect.map((found) => availability(claim, found)))),
+          wrap(
+            boundNames(db, nameOrAddress(claim)).pipe(
+              Effect.map((found) => availability(claim, found)),
+            ),
+          ),
         start: (address) => wrap(start(address)),
         draft: (row, request) => wrap(draft(row, request)),
         seal: (row, sealed, claim) => wrap(seal(row, sealed, claim)),
