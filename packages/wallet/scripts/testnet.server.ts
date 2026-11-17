@@ -287,6 +287,11 @@ assert.ok(reopened instanceof OpeningDraft);
 
 await opening(first.claim, approve(reopened.request, user));
 
+// Read the signed hash now: a lagging RPC read after settlement may store a fresh unsigned draft.
+const reopenedHash = (await walletRow(first.claim.address)).attemptHash;
+
+assert.ok(reopenedHash);
+
 let step = await opening(first.claim);
 
 for (let attempt = 0; attempt < 60 && !(step instanceof RecoveryDraft); attempt++) {
@@ -298,11 +303,7 @@ assert.ok(step instanceof RecoveryDraft);
 
 assert.ok((await opening(first.claim, approve(step.request, user))) instanceof Opened);
 
-const reopenedRow = await walletRow(first.claim.address);
-
-assert.ok(reopenedRow.attemptHash);
-
-remember("same-key same-username reopening", reopenedRow.attemptHash);
+remember("same-key same-username reopening", reopenedHash);
 
 const repairSource = await server.getAccount(first.claim.address);
 
@@ -349,6 +350,10 @@ assert.equal(repairFacts.createAccount, false);
 
 await opening(first.claim, approve(repair.request, user));
 
+const repairHash = (await walletRow(first.claim.address)).attemptHash;
+
+assert.ok(repairHash);
+
 let repairStep = await opening(first.claim);
 
 for (let attempt = 0; attempt < 60 && !(repairStep instanceof RecoveryDraft); attempt++) {
@@ -360,11 +365,7 @@ assert.ok(repairStep instanceof RecoveryDraft);
 
 assert.ok((await opening(first.claim, approve(repairStep.request, user))) instanceof Opened);
 
-const repaired = await walletRow(first.claim.address);
-
-assert.ok(repaired.attemptHash);
-
-remember("sponsored trustline-only repair", repaired.attemptHash);
+remember("sponsored trustline-only repair", repairHash);
 
 const second = await createWithShortRecovery(activityUser, "verify_activity");
 const holder = await server.getAccount(second.claim.address);
