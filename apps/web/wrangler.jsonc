@@ -1,11 +1,11 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "orchid",
+  "name": "orchid-testnet",
   "compatibility_flags": ["nodejs_compat"],
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "00000000000000000000000000000000",
+      "id": "1381cfaf001c43ff8df6860ed15e1071",
       "localConnectionString": "postgres://orchid:orchid-local@127.0.0.1:55432/orchid",
     },
   ],
@@ -13,7 +13,7 @@
   "main": "src/server.ts",
   "vars": { "STELLAR_RPC_URL": "https://soroban-testnet.stellar.org" },
   "secrets": { "required": ["RESERVE_SPONSOR_SECRET", "FEE_PAYER_SECRET"] },
-  "triggers": { "crons": ["* * * * *"] },
+  "triggers": { "crons": [] },
   "observability": {
     "enabled": true,
   },

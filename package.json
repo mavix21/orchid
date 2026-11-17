@@ -8,6 +8,8 @@
   ],
   "type": "module",
   "scripts": {
+    "db:migrate": "bun --env-file=.env.local packages/wallet/scripts/migrate.server.ts",
+    "db:migrate:local": "DATABASE_URL_UNPOOLED=postgres://orchid:orchid-local@127.0.0.1:55432/orchid bun packages/wallet/scripts/migrate.server.ts",
     "build": "bun tools/wallet/check-boundary.mjs && turbo build",
     "dev": "turbo dev",
     "lint": "bun tools/comments/check.mjs && oxlint",
@@ -15,6 +17,10 @@
     "prepare": "git config core.hooksPath .githooks && effect-tsgo patch --typescript --no-oxlint",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
+  },
+  "dependencies": {
+    "@neon/config": "^1.14.2",
+    "@neon/env": "^2.1.5"
   },
   "devDependencies": {
     "@effect/tsgo": "0.69.0",

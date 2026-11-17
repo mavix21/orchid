@@ -1,5 +1,5 @@
 import * as Match from "effect/Match";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
@@ -33,18 +33,36 @@ function walletBoundaryProbe(): Plugin {
   };
 }
 
-const config = defineConfig({
-  resolve: { tsconfigPaths: true },
-  plugins: [
-    walletBoundaryProbe(),
-    cloudflare({ viteEnvironment: { name: "ssr" } }),
-    tailwindcss(),
-    tanstackStart({
-      importProtection: { include: ["src/**", "**/packages/wallet/src/**"] },
-      router: { quoteStyle: "double", semicolons: true },
-    }),
-    viteReact(),
-  ],
+const config = defineConfig(({ command, mode }) => {
+  if (command === "serve" && mode === "neon") {
+    const { DATABASE_URL_UNPOOLED } = loadEnv(
+      mode,
+      new URL("../../", import.meta.url).pathname,
+      "DATABASE_URL_UNPOOLED",
+    );
+
+    if (
+      DATABASE_URL_UNPOOLED &&
+      !process.env.CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE
+    ) {
+      process.env.CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE =
+        DATABASE_URL_UNPOOLED;
+    }
+  }
+
+  return {
+    resolve: { tsconfigPaths: true },
+    plugins: [
+      walletBoundaryProbe(),
+      cloudflare({ viteEnvironment: { name: "ssr" } }),
+      tailwindcss(),
+      tanstackStart({
+        importProtection: { include: ["src/**", "**/packages/wallet/src/**"] },
+        router: { quoteStyle: "double", semicolons: true },
+      }),
+      viteReact(),
+    ],
+  };
 });
 
 export default config;

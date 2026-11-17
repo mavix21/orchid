@@ -32,19 +32,22 @@ docker run -d --name orchid-postgres \
   -e POSTGRES_USER=orchid -e POSTGRES_PASSWORD=orchid-local -e POSTGRES_DB=orchid \
   -p 127.0.0.1:55432:5432 \
   -v orchid-postgres-data:/var/lib/postgresql/data postgres:17
+bun run db:migrate:local
 bun run dev
 ```
 
 Open http://localhost:3000. Restart an existing database with `docker start orchid-postgres`.
 
-Wrangler config supplies `nodejs_compat` and the local Hyperdrive connection string. Its all-zero binding ID is a local-only placeholder. Override the connection string if needed:
+Wrangler config supplies `nodejs_compat` and the local Docker connection string. `bun run dev` uses Docker even when Neon credentials exist in the root `.env.local`. Override the local connection string if needed:
 
 ```sh
 export CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE='postgres://orchid:orchid-local@127.0.0.1:55432/orchid'
 bun run dev
 ```
 
-Local Hyperdrive connects directly to Postgres without production pooling/caching. No real Hyperdrive resource is configured, so deploys are blocked by the wallet's caching check until one is.
+Local Hyperdrive connects directly to Postgres without production pooling/caching. The configured Hyperdrive ID is used for the deployed Worker.
+
+To explicitly develop against Neon, `bunx neon checkout dev` selects the database branch and pulls its credentials into the gitignored root `.env.local`. `bun run db:migrate` applies wallet migrations through `DATABASE_URL_UNPOOLED`. `bun run --cwd apps/web dev:neon` uses that URL for its local Hyperdrive connection; an explicit `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` takes precedence. Cron triggers are temporarily disabled.
 
 `packages/db` exports `makeDatabase` and `databaseLayer`; the web server builds the layer from `env.HYPERDRIVE` inside each request. Wallet tables and their Drizzle migrations live in `packages/wallet`; see the [wallet README](packages/wallet/README.md) for its behaviour, tests and the Hyperdrive caching prerequisite for deployment. The design rationale is in [docs/architecture/wallet-testnet](docs/architecture/wallet-testnet/rationale.md).
 

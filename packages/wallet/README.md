@@ -6,7 +6,7 @@ The root entry exports schemas and device-facing types. `@workspace/wallet/serve
 
 Transfers pin the resolved recipient and order. Authorization freezes the fee-bumped bytes before submission. A transaction-level sender lock plus a partial unique index serializes authorization. Only ledger evidence concludes a transfer. RPC history gaps retain an undecided result. Server checksum failures return `InvalidAddress` before claiming a username. External recipients accept an optional nonempty text (at most 28 UTF-8 bytes) or numeric ID (uint64) memo. Only addresses in the server-side known-exchange registry require one: drafts report `memoRequired`, and a missing memo returns `ExternalMemoRequired` with the address, exchange and evidence source. The check runs on every unsigned step, so a new entry blocks an unsigned draft but never an authorized transfer. The registry ships empty; the policy for adding an entry is in [`exchange-memos.server.ts`](./src/server/exchange-memos.server.ts). Orchid recipients reject memos with `MemoNotAllowed`. Drafts, signed transactions, stored orders and receipts preserve the reference. Phone recipients return `PhoneNotSupported`; phone storage and escrow are absent.
 
-The application creates database and wallet layers per request, validates server-function inputs and encodes outputs. Its Worker entry also runs a minute cron. This work does not provision or deploy a Cloudflare environment.
+The application creates database and wallet layers per request, validates server-function inputs and encodes outputs. Its Worker entry implements the scheduled sweep, but cron triggers are temporarily disabled in Wrangler configuration.
 
 ## Design
 
@@ -74,7 +74,7 @@ Generate migrations with the official Drizzle Kit release matching the installed
 bun run --cwd packages/wallet db:generate
 ```
 
-The generated SQL and snapshot are in `drizzle/`. No migration is applied to Neon by these scripts.
+The generated SQL and snapshot are in `drizzle/`. From the repository root, `bun run db:migrate` applies these migrations using `DATABASE_URL_UNPOOLED` from the gitignored `.env.local` pulled by Neon. Check the selected Neon branch before migrating.
 
 ## Live testnet verification
 

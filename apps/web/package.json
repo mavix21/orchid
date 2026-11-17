@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 3000",
+    "dev:neon": "vite dev --port 3000 --mode neon",
     "generate-routes": "bun ../../tools/comments/generate.mjs src/routeTree.gen.ts tsr generate",
     "build": "bun ../../tools/comments/generate.mjs src/routeTree.gen.ts vite build",
     "preview": "vite preview",
