@@ -4,7 +4,7 @@ Use Bun for package management and scripts.
 
 After every change, run `bun lint` and fix every error in the source before continuing. Before committing, run `bun run typecheck`, `bun run fmt:check`, and `bun run build`; all must pass.
 
-The configured @shadcn/lint and anti-slop rules are mandatory. Fix code rather than bypassing checks: never add oxlint-disable comments, lower severity, edit lint configuration to evade a finding, or add overrides or ignores. Preserve the existing authorized exceptions for generated UI primitives.
+The configured @shadcn/lint and anti-slop rules are mandatory. Fix code rather than bypassing checks: never add oxlint-disable comments, lower severity, edit lint configuration to evade a finding, or add overrides or ignores. Preserve the existing authorized exceptions for generated UI primitives and generated files.
 
 Use official documentation and installed package APIs. Do not introduce any/unknown, type assertions, suppression comments, or library patches to silence errors.
 
@@ -12,7 +12,7 @@ Keep no temporary records in any tracked file (.md, .txt, .json or otherwise): n
 
 Docs describe only code that exists. Write no docs for unbuilt designs. Keep docs minimal and update them in place; delete a doc that goes stale instead of growing it.
 
-Never write code comments, including JSDoc, inline explanations, TODOs, or commented-out code. Convey meaning and functionality through precise names, domain language from `GLOSSARY.md`, and clear code structure. Preserve executable shebangs, machine-required migration separators, and existing tool directives in generated files; these are not prose comments.
+Never write code comments, including JSDoc, inline explanations, TODOs, or commented-out code. Convey meaning and functionality through precise names, domain language from `GLOSSARY.md`, and clear code structure. Preserve executable shebangs and machine-required migration separators. Generated files (`apps/web/src/routeTree.gen.ts`, `apps/web/worker-configuration.d.ts`) are exempt from this rule and from linting and formatting; keep them exactly as their generators write them.
 
 ## Agent skills
 

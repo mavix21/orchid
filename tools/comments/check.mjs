@@ -14,19 +14,14 @@ const filenames = execFileSync(
 ).split("\0");
 
 for (const filename of new Set(filenames)) {
-  if (!/\.[cm]?[jt]sx?$/.test(filename)) continue;
+  if (!/\.[cm]?[jt]sx?$/.test(filename) || generatedFiles.has(filename))
+    continue;
 
   const source = await readFile(filename, "utf8");
   const parsed = parseSync(filename, source);
 
   for (const comment of parsed.comments) {
     if (source.startsWith("#!", comment.start)) continue;
-
-    if (
-      generatedFiles.has(filename) &&
-      ["eslint-disable", "@ts-nocheck"].includes(comment.value.trim())
-    )
-      continue;
 
     const line = source.slice(0, comment.start).split("\n").length;
 
