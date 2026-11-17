@@ -1,39 +1,41 @@
 {
-  "verifiedAt": "2026-11-16T22:29:37.492Z",
+  "verifiedAt": "2026-11-17T00:01:48.063Z",
   "network": "testnet",
-  "reserveSponsor": "GDICJLHMUQ5FLEW42VG2UOZIYRYOTFJ4CG77W2PAEEHY76BSCT3K2WVI",
-  "feePayer": "GCWVOTFFZ2JUUNYJJNKBLP3R6XMLCRWZOG63SYFDMESGQW7JAGMLPMD4",
+  "reserveSponsor": "GCCQ7QZCLXMSBRYDZCHVFJJO2H3XVUBKN5B4OQBSJZWY6PY4P7HUPAOS",
+  "feePayer": "GDQB3IEEZOQD6YSAZAFRHKH2FU7BTMGGGRIYEEN4TVIQIKR6R4U7KM2A",
   "hashes": [
     {
       "label": "verify_recovery opening",
-      "hash": "30be6d6aa4dc43a1234b003c4f6df56d3ede8d763a1a927aee422f81ecf2410f"
+      "hash": "0d04610baf4b61ddb3916ac131b165c2b0909fca756e4bef2d7e5f553dbc5ac2"
     },
     {
       "label": "bounded recovery",
-      "hash": "65aa335d777e2bab1827b7110019b341cc4f3d5d1752995b75ac9800db11075e"
+      "hash": "c4841c63e1377cf5de91b08097ff3e2232427c800de82d50521dcee3d1e663c5"
     },
     {
       "label": "same-key same-username reopening",
-      "hash": "c7fcee2494e9804c316d02785538bcb385d414e97b36676cc810b8b2eace8428"
+      "hash": "7da00cfe2e1663d284f2e14ab93c49a2127b9770f27f89a6373a15b67292c532"
     },
     {
       "label": "external trustline removal",
-      "hash": "0f7821afa581317f986e203668b21230153726b0fccfdbe3ec5c3bbb7f7757d6"
+      "hash": "188f487c79d64d828180dee2f9205025c60eeb9cb359572051c9dbe1daa17487"
     },
     {
       "label": "sponsored trustline-only repair",
-      "hash": "6886a9f64d8fe035bf9948a80b17160a5736db30a3225dac28e9ad158ff1438f"
+      "hash": "3ee5a9293106d8799010d5144fefd10f4d0a46eb99b5d01c1137063f912ccbe6"
     },
     {
       "label": "verify_activity opening",
-      "hash": "debfc36fd4ad44470397ae008a292f53bebe8cef86ca422160068a5b0dc10f5d"
+      "hash": "9dbae3ca4ce2d6d71b949a19831a89d70dc194b8c136da64b46f6b3b2ee78070"
     },
     {
-      "label": "device activity invalidates recovery sequence",
-      "hash": "a6dec94eabc4dcfd44d33d75e8809cfc52a0e0b6ed62295c9b76ab37fd8e6160"
+      "label": "device activity under alternate fee payer",
+      "hash": "71105fc9bfee0344ae7b8fd7733a681cd8133cd6811e97ef5833381a122facf2"
     }
   ],
   "checks": [
+    "raw getLedgerEntries extXdr identifies configured sponsor on account and trustline",
+    "unsponsored Friendbot account refused before username claim",
     "0 XLM sponsored opening + USDC trustline",
     "two-stage opening stores recovery unsubmitted",
     "recovery txTooEarly before minTime",
@@ -41,7 +43,9 @@
     "recovered state",
     "same-key same-username reopening",
     "sponsored trustline-only repair",
-    "sweep skips changed sequence"
+    "sweep skips changed sequence",
+    "settlement discovers inner inclusion under alternate fee payer while original outer is NOT_FOUND",
+    "consumed sequence plus complete inner absence evidence concludes sequence_consumed"
   ],
   "deferred": [
     "Live USDC payment and nonzero-USDC recovery guard require Circle testnet USDC funding; covered by local behavioral tests."
