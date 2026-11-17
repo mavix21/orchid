@@ -39,7 +39,9 @@ export async function fetchEntries(
       jsonrpc: "2.0",
       id: 1,
       method: "getLedgerEntries",
-      params: { keys: keys.map((key) => key.toXdr("base64")) },
+      params: {
+        keys: [...new Set(keys.map((key) => key.toXdr("base64")))],
+      },
     }),
   });
 
