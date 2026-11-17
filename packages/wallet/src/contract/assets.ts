@@ -20,6 +20,13 @@ export const IssuedAsset = Schema.TaggedStruct("Issued", {
 
 export type IssuedAsset = typeof IssuedAsset.Type;
 
+export const baseAsset = IssuedAsset.make({
+  code: Schema.decodeSync(AssetCode)("USDC"),
+  issuer: Schema.decodeSync(AccountAddress)(
+    "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+  ),
+});
+
 export const Asset = Schema.Union([NativeAsset, IssuedAsset]);
 
 export type Asset = typeof Asset.Type;

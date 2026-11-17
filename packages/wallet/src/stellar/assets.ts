@@ -8,7 +8,6 @@ import {
   IssuedAsset,
   NativeAsset,
 } from "../contract";
-import { usdc } from "./network";
 
 export function toStellarAsset(asset: Asset): StellarAsset {
   return Match.valueTags(asset, {
@@ -25,8 +24,3 @@ export function fromStellarAsset(asset: StellarAsset): Asset {
         issuer: Schema.decodeUnknownSync(AccountAddress)(asset.issuer),
       });
 }
-
-export const baseAsset = IssuedAsset.make({
-  code: Schema.decodeSync(AssetCode)(usdc.code),
-  issuer: Schema.decodeUnknownSync(AccountAddress)(usdc.issuer),
-});

@@ -15,7 +15,7 @@ export function TabBar() {
       aria-label="Principal"
       className="fixed bottom-safe left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border bg-card p-1"
     >
-      <Link to="/inicio" aria-label="Inicio" className={itemClass}>
+      <Link to="/home" aria-label="Inicio" className={itemClass}>
         <HouseIcon />
       </Link>
       <button type="button" aria-label="Swap" className={itemClass}>

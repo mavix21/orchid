@@ -10,7 +10,7 @@ import {
   NativeAsset,
   assetKey,
 } from "../contract";
-import { baseAsset } from "../stellar/assets";
+import { baseAsset } from "../contract";
 import { AssetOrders } from "./AssetOrders.server";
 import { Chain } from "./Chain.server";
 import { opensAt } from "./ledger-assets.server";

@@ -1,0 +1,177 @@
+import * as Effect from "effect/Effect";
+import * as Match from "effect/Match";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import {
+  AccountAddress,
+  type Approval,
+  OpeningPending,
+  type OpenStep,
+  type Username,
+  WalletClaim,
+  type WalletPort,
+  type WalletUnavailable,
+} from "../contract";
+import { OpeningFacts, RecoveryFacts } from "../stellar/envelopes";
+import {
+  DeviceWallet,
+  type KeyStore,
+  type KeyStoreUnavailable,
+} from "./key-store";
+import {
+  type CreateOutcome,
+  DraftRejected,
+  UnsupportedDevice,
+} from "./outcomes";
+import { generateSecretPhrase } from "./secret-phrase";
+import { approve, liveFacts, signingKey } from "./signing";
+
+const openingSteps = 12;
+const pendingPause = "2 seconds";
+
+export function openWallet(port: WalletPort, store: KeyStore) {
+  const remember = Effect.fn("Device.remember")(function* (
+    wallet: DeviceWallet,
+  ) {
+    yield* store.write(wallet);
+
+    const stored = yield* store.read();
+
+    return Option.isSome(stored) &&
+      stored.value.phrase === wallet.phrase &&
+      stored.value.address === wallet.address &&
+      stored.value.username === wallet.username &&
+      stored.value.reserveSponsor === wallet.reserveSponsor
+      ? Option.some(stored.value)
+      : Option.none();
+  });
+
+  const deviceWallet = Effect.fn("Device.wallet")(function* (
+    username: Username,
+  ) {
+    const stored = yield* store.read();
+
+    if (Option.isSome(stored))
+      return new DeviceWallet({ ...stored.value, username });
+
+    const phrase = generateSecretPhrase();
+
+    return new DeviceWallet({
+      phrase,
+      address: Schema.decodeSync(AccountAddress)(
+        signingKey(phrase).publicKey(),
+      ),
+      username,
+    });
+  });
+
+  const advance = (
+    wallet: DeviceWallet,
+    approval: Option.Option<Approval>,
+    remaining: number,
+  ): Effect.Effect<CreateOutcome, WalletUnavailable | KeyStoreUnavailable> =>
+    remaining === 0
+      ? Effect.succeed(new OpeningPending())
+      : port
+          .open(
+            new WalletClaim({
+              username: wallet.username,
+              address: wallet.address,
+            }),
+            approval,
+          )
+          .pipe(
+            Effect.flatMap((step) =>
+              respond(wallet, step, Option.isSome(approval), remaining - 1),
+            ),
+          );
+
+  const respond = (
+    wallet: DeviceWallet,
+    step: OpenStep,
+    submitted: boolean,
+    remaining: number,
+  ) =>
+    Match.valueTags(step, {
+      OpeningDraft: ({ request }) =>
+        Effect.gen(function* () {
+          const facts = yield* liveFacts(request);
+
+          if (
+            Option.isNone(facts) ||
+            !(facts.value instanceof OpeningFacts) ||
+            facts.value.address !== wallet.address
+          )
+            return new DraftRejected();
+
+          const sponsored = yield* remember(
+            new DeviceWallet({
+              ...wallet,
+              reserveSponsor: facts.value.reserveSponsor,
+            }),
+          );
+
+          if (Option.isNone(sponsored)) return new UnsupportedDevice();
+
+          return yield* advance(
+            sponsored.value,
+            Option.some(approve(request, signingKey(wallet.phrase))),
+            remaining,
+          );
+        }),
+      RecoveryDraft: ({ request }) =>
+        Effect.gen(function* () {
+          const facts = yield* liveFacts(request);
+
+          if (
+            Option.isNone(facts) ||
+            !(facts.value instanceof RecoveryFacts) ||
+            facts.value.address !== wallet.address ||
+            facts.value.reserveSponsor !== wallet.reserveSponsor
+          )
+            return new DraftRejected();
+
+          return yield* advance(
+            wallet,
+            Option.some(approve(request, signingKey(wallet.phrase))),
+            remaining,
+          );
+        }),
+      OpeningPending: () =>
+        submitted
+          ? advance(wallet, Option.none(), remaining)
+          : Effect.sleep(pendingPause).pipe(
+              Effect.andThen(advance(wallet, Option.none(), remaining)),
+            ),
+      AddressBound: (bound) =>
+        bound.profile.address === wallet.address &&
+        bound.profile.username !== wallet.username
+          ? remember(
+              new DeviceWallet({
+                ...wallet,
+                username: bound.profile.username,
+              }),
+            ).pipe(
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Effect.succeed(new UnsupportedDevice()),
+                  onSome: (adopted) =>
+                    advance(adopted, Option.none(), remaining),
+                }),
+              ),
+            )
+          : Effect.succeed(bound),
+      Opened: Effect.succeed,
+      UsernameTaken: Effect.succeed,
+      InvalidAddress: Effect.succeed,
+      NotSponsored: Effect.succeed,
+    });
+
+  return Effect.fn("Device.open")(function* (username: Username) {
+    const wallet = yield* remember(yield* deviceWallet(username));
+
+    if (Option.isNone(wallet)) return new UnsupportedDevice();
+
+    return yield* advance(wallet.value, Option.none(), openingSteps);
+  });
+}

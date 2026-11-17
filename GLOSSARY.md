@@ -7,6 +7,9 @@ Orchid's wallet domain covers sponsored Stellar accounts and payments between us
 **Wallet**: The user's Orchid payment identity, associated with a Stellar account and a permanent username.
 _Avoid_: Account when referring to the complete Orchid identity.
 
+**Secret phrase**: The words on the user's device from which the wallet's signing key derives; whoever holds them controls the wallet.
+_Avoid_: Recovery phrase, seed, private key when referring to the words.
+
 **Account address**: The public Stellar address identifying an account on the network.
 _Avoid_: Username, private key.
 

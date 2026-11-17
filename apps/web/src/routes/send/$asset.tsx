@@ -11,18 +11,18 @@ import { Screen } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { findAsset } from "@/fixtures/assets";
 
-export const Route = createFileRoute("/enviar/$activo")({
+export const Route = createFileRoute("/send/$asset")({
   loader: ({ params }) => {
-    const asset = findAsset(params.activo);
+    const asset = findAsset(params.asset);
 
     if (!asset) throw notFound();
 
     return asset;
   },
-  component: EnviarDestino,
+  component: ChooseDestination,
 });
 
-function EnviarDestino() {
+function ChooseDestination() {
   const asset = Route.useLoaderData();
 
   return (
@@ -31,7 +31,7 @@ function EnviarDestino() {
         title={`Enviar ${asset.code}`}
         label="Atrás"
         icon={<ChevronLeftIcon absoluteStrokeWidth />}
-        link={<Link to="/enviar" />}
+        link={<Link to="/send" />}
       />
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
         <h1 className="font-display text-h1">¿A dónde lo envías?</h1>

@@ -1,11 +1,11 @@
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
-import { port } from "./wallet";
+import { walletClient } from "./wallet";
 import { routeTree } from "./routeTree.gen";
 
 export function getRouter() {
   const router = createTanStackRouter({
     routeTree,
-    context: { walletPort: port },
+    context: { walletClient },
 
     scrollRestoration: true,
     defaultPreload: "intent",
