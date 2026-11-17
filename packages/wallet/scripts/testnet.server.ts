@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
 import {
   Account,
   Horizon,
@@ -561,11 +560,6 @@ const result = {
   ],
 };
 
-writeFileSync(
-  `${import.meta.dir}/../verification/testnet.json`,
-  `${JSON.stringify(result, null, 2)}\n`,
-);
+console.log(JSON.stringify(result, null, 2));
 
-console.log(
-  "PASS live testnet verification; public evidence written to verification/testnet.json.",
-);
+console.log("PASS live testnet verification; public evidence printed above.");
