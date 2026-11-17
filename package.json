@@ -12,7 +12,7 @@
     "dev": "turbo dev",
     "lint": "oxlint",
     "typecheck": "turbo typecheck",
-    "prepare": "effect-tsgo patch --typescript --no-oxlint",
+    "prepare": "git config core.hooksPath .githooks && effect-tsgo patch --typescript --no-oxlint",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
   },
