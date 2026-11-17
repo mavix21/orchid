@@ -6,7 +6,7 @@ A person in Peru with a low-end Android phone picks `@maria`, sees a USDC balanc
 
 ## Usage (caller's view)
 
-UI code imports one service, `Wallet` from `@workspace/wallet`, and runs it through a `ManagedRuntime`. Its five members are `profile` (local), `create(username)`, `overview`, `preview(to, amount) → TransferDraft` and `send(draft) → Transfer`. Inputs are raw strings, and the package parses them. Errors are tagged and handled with `catchTags`. A send resolves to the status `sending | pending | sent | not_sent`. The app's only wiring is one server function (`callWallet`) and one runtime line. See sketch §1.
+UI code imports one service, `Wallet` from `@workspace/wallet`, and runs it through a `ManagedRuntime`. Its five members are `profile` (local), `create(username)`, `overview`, `preview(to, amount) → TransferDraft` and `send(draft) → Transfer`. Inputs are raw strings, and the package parses them. Errors are tagged and handled with `catchTags`. A send resolves to the status `sending | pending | sent | not_sent`. The app's only wiring is one server function (`callWallet`) and one runtime line. See [sketch §1](sketch-caller.md#1-callers-view-first).
 
 ## Shape
 
