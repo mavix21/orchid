@@ -1,4 +1,4 @@
-Wallet memo-registry round verification. Commands below exited 0.
+Wallet username binding round verification. Commands below exited 0.
 The local PostgreSQL database is disposable; no deployment was run.
 
 $ bun lint
@@ -10,7 +10,7 @@ $ oxfmt --check
 Checking formatting...
 
 All matched files use the correct format.
-Finished in 5ms on 73 files using 14 threads.
+Finished in 5ms on 77 files using 14 threads.
 Exit code: 0
 
 $ bun run typecheck
@@ -21,18 +21,18 @@ $ turbo typecheck
    • Running typecheck in 4 packages
    • Remote caching disabled, using shared worktree cache
 
-@workspace/ui:typecheck: cache hit, replaying logs 1e93f5cb04c70ed0
 @workspace/db:typecheck: cache hit, replaying logs 52b5cae9feaaa9ef
+@workspace/ui:typecheck: cache hit, replaying logs 1e93f5cb04c70ed0
 @workspace/db:typecheck: $ tsc --noEmit
 @workspace/ui:typecheck: $ tsc --noEmit
-@workspace/wallet:typecheck: cache miss, executing 656840362df9f6f3
+@workspace/wallet:typecheck: cache miss, executing 897fa20366dd5da8
 @workspace/wallet:typecheck: $ tsc --noEmit
-web:typecheck: cache miss, executing 0b0f3f2ba5327183
+web:typecheck: cache miss, executing 2f0f2b8c8b67b41d
 web:typecheck: $ tsc --noEmit
 
  Tasks:    4 successful, 4 total
 Cached:    2 cached, 4 total
-  Time:    535ms 
+  Time:    576ms 
 
 Exit code: 0
 
@@ -48,7 +48,7 @@ Wallet transport: client build passed
    • Running build in 4 packages
    • Remote caching disabled, using shared worktree cache
 
-web:build: cache miss, executing 5a4fe5e2cdbe8e0d
+web:build: cache miss, executing 1eff6a1f48287876
 web:build: $ vite build
 web:build: vite v8.3.8 building client environment for production...
 web:build: transforming...
@@ -62,13 +62,13 @@ web:build: dist/client/assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2       15
 web:build: dist/client/assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2      16.51 kB
 web:build: dist/client/assets/geist-latin-wght-normal-BgDaEnEv.woff2          29.40 kB
 web:build: dist/client/assets/globals-BfRPnSnE.css                            24.55 kB │ gzip:   5.23 kB
-web:build: dist/client/assets/routes-D3SAWgBP.js                               0.14 kB │ gzip:   0.13 kB
-web:build: dist/client/assets/index-DdmWNKJP.js                              443.03 kB │ gzip: 142.94 kB
+web:build: dist/client/assets/routes-CL3LVJFj.js                               0.14 kB │ gzip:   0.13 kB
+web:build: dist/client/assets/index-LinI0Cdx.js                              443.08 kB │ gzip: 142.95 kB
 web:build: 
-web:build: ✓ built in 231ms
+web:build: ✓ built in 232ms
 web:build: vite v8.3.8 building ssr environment for production...
 web:build: transforming...
-web:build: ✓ 1246 modules transformed.
+web:build: ✓ 1247 modules transformed.
 web:build: rendering chunks...
 web:build: Using secrets defined in process.env
 web:build: [33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mMissing required secrets: RESERVE_SPONSOR_SECRET, FEE_PAYER_SECRET. Add them to .dev.vars, .env, or set as environment variables.[0m
@@ -84,27 +84,27 @@ web:build: dist/server/assets/geist-latin-wght-normal-BgDaEnEv.woff2            
 web:build: dist/server/assets/globals-BfRPnSnE.css                                  24.55 kB │ gzip:   5.23 kB
 web:build: dist/server/assets/start-g2iBNTeT.js                                      0.24 kB │ gzip:   0.19 kB │ map:     0.33 kB
 web:build: dist/server/assets/empty-plugin-adapters-Cipd4ZH4.js                      0.32 kB │ gzip:   0.21 kB │ map:     0.55 kB
-web:build: dist/server/assets/src-DiglGKsA.js                                        0.35 kB │ gzip:   0.20 kB │ map:     2.97 kB
+web:build: dist/server/assets/src-CupDNvdB.js                                        0.35 kB │ gzip:   0.20 kB │ map:     3.01 kB
 web:build: dist/server/assets/routes-D-OtCBT5.js                                     0.41 kB │ gzip:   0.26 kB │ map:     0.48 kB
-web:build: dist/server/assets/_tanstack-start-manifest_v-Dr3Hyb4T.js                 0.61 kB │ gzip:   0.33 kB
+web:build: dist/server/assets/_tanstack-start-manifest_v-C9CzBKxa.js                 0.61 kB │ gzip:   0.33 kB
 web:build: dist/server/assets/utils-B4RvqM9c.js                                      1.12 kB │ gzip:   0.55 kB │ map:     9.81 kB
 web:build: dist/server/assets/rolldown-runtime-CO0Nlsmt.js                           1.17 kB │ gzip:   0.56 kB
 web:build: dist/server/assets/jsx-runtime-BFlC1Yhd.js                                1.49 kB │ gzip:   0.69 kB │ map:     2.02 kB
-web:build: dist/server/assets/port.functions-CknnZKVE.js                             2.80 kB │ gzip:   1.04 kB │ map:     5.48 kB
+web:build: dist/server/assets/port.functions-CcEiruGs.js                             2.80 kB │ gzip:   1.04 kB │ map:     5.48 kB
 web:build: dist/server/assets/sac-spec-Xsy7LhM-.js                                   9.98 kB │ gzip:   3.17 kB │ map:    10.12 kB
-web:build: dist/server/assets/router-DKRJCZHI.js                                    39.87 kB │ gzip:  10.88 kB │ map:    98.69 kB
+web:build: dist/server/assets/router-MrgYB-_c.js                                    39.87 kB │ gzip:  10.87 kB │ map:    98.69 kB
 web:build: dist/server/assets/client-Ds2noYrH.js                                   134.68 kB │ gzip:  28.34 kB │ map:   247.57 kB
-web:build: dist/server/assets/__23tanstack-start-server-fn-resolver-BghVApu4.js    150.76 kB │ gzip:  38.54 kB │ map:   321.21 kB
-web:build: dist/server/assets/contract-3RxdwfOe.js                                 646.82 kB │ gzip: 149.45 kB │ map: 2,483.67 kB
-web:build: dist/server/assets/wallet.server-CtdUixWv.js                            672.97 kB │ gzip: 150.08 kB │ map: 1,791.17 kB
+web:build: dist/server/assets/__23tanstack-start-server-fn-resolver-BXKhszV_.js    150.76 kB │ gzip:  38.54 kB │ map:   321.21 kB
+web:build: dist/server/assets/contract-cRjZwGDT.js                                 646.15 kB │ gzip: 149.32 kB │ map: 2,483.86 kB
+web:build: dist/server/assets/wallet.server-BvyGEb15.js                            675.37 kB │ gzip: 150.65 kB │ map: 1,797.58 kB
 web:build: dist/server/index.js                                                    739.28 kB │ gzip: 153.84 kB │ map: 1,357.06 kB
 web:build: dist/server/assets/server-BRb79ytW.js                                 1,105.86 kB │ gzip: 182.26 kB │ map: 2,165.61 kB
 web:build: 
-web:build: ✓ built in 212ms
+web:build: ✓ built in 223ms
 
  Tasks:    1 successful, 1 total
 Cached:    0 cached, 1 total
-  Time:    1.02s 
+  Time:    1.038s 
 
 Exit code: 0
 
@@ -112,30 +112,36 @@ $ bun run --cwd packages/wallet test
 $ bun test test && bun ../../tools/wallet/check-boundary.mjs
 bun test v1.4.4 (38afee6c8)
 
- 41 pass
+ 45 pass
  0 fail
- 567 expect() calls
-Ran 41 tests across 3 files. [2.06s]
+ 605 expect() calls
+Ran 45 tests across 3 files. [2.43s]
 Wallet boundary server: rejected by real Vite build
 Wallet boundary relative: rejected by real Vite build
 Wallet boundary private: rejected by real Vite build
 Wallet transport: client build passed
 Exit code: 0
 
-The live testnet run below is unchanged from the re-review round (2026-11-17T00:01:48Z); the memo-registry round touches no opening, recovery or submission path and did not rerun it.
+$ bun run --cwd packages/wallet db:generate
+$ drizzle-kit generate
+No config path provided, using default 'drizzle.config.ts'
+Reading config file '/Users/marcelovizcarra/.t3/worktrees/orchid/feat-wallet-server-be1bfa8c2207dff1/packages/wallet/drizzle.config.ts'
+No schema changes, nothing to migrate 😴
+Exit code: 0
 
 $ bun run --cwd packages/wallet testnet:verify
 $ bun --env-file=.dev.vars scripts/testnet.server.ts
 Friendbot funded fresh, separate reserve sponsor and fee payer.
 PASS sponsorship gate rejects a fresh Friendbot account before claiming its username.
-verify_recovery opening: 0d04610baf4b61ddb3916ac131b165c2b0909fca756e4bef2d7e5f553dbc5ac2
+verify_recovery opening: 9bf58a0ac0a6717293c0c64fddece54bf38b39c30734198e97942b7144d0afa9
+PASS name race loser refused before submission; its account was never created.
 Stored recovery was unsubmitted; early probe rejected txTooEarly.
-bounded recovery: c4841c63e1377cf5de91b08097ff3e2232427c800de82d50521dcee3d1e663c5
-same-key same-username reopening: 7da00cfe2e1663d284f2e14ab93c49a2127b9770f27f89a6373a15b67292c532
-external trustline removal: 188f487c79d64d828180dee2f9205025c60eeb9cb359572051c9dbe1daa17487
-sponsored trustline-only repair: 3ee5a9293106d8799010d5144fefd10f4d0a46eb99b5d01c1137063f912ccbe6
-verify_activity opening: 9dbae3ca4ce2d6d71b949a19831a89d70dc194b8c136da64b46f6b3b2ee78070
-device activity under alternate fee payer: 71105fc9bfee0344ae7b8fd7733a681cd8133cd6811e97ef5833381a122facf2
+bounded recovery: 4a95734ab1fa8981cbf4c9d5f411e12b84d9ffa73e8563264070ed2cd40ebd63
+same-key same-username reopening: 431243921e51ff2eb054d0ed1f6dcce9278975ff981f0c664d918c196fd8af1b
+external trustline removal: ab826680246f978f5e30efdedb7e3d4f33b2f82b219fac09657772d5a2e3ba67
+sponsored trustline-only repair: 9ad912f9cfd50f44c1aa5e1aa521e41927e1d6f5d751101373ede2bc03a5c36a
+verify_activity opening: 0b98206172957f79e5611bcaac015783ec2a072ba83f022f5f81a8a62922d565
+device activity under alternate fee payer: 49e2af3f6d2c5c735f66ae96e84b3e582ce1514e98ce262532c039e237cae42e
 PASS settlement resolves the original intent through its included inner hash under an alternate fee payer.
 PASS absent recovery reaches sequence_consumed after a different transaction consumes its sequence.
 Sweep skipped recovery after the device advanced its sequence.
