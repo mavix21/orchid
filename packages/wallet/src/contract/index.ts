@@ -48,8 +48,6 @@ export class ExternalMemoRequired extends Schema.TaggedClass<ExternalMemoRequire
   },
 ) {}
 
-// --- opening a wallet ---------------------------------------------------
-
 export class WalletClaim extends Schema.Class<WalletClaim>(
   "@workspace/wallet/WalletClaim",
 )({
@@ -87,7 +85,6 @@ export class UsernameTaken extends Schema.TaggedClass<UsernameTaken>()(
   },
 ) {}
 
-/** This address is already bound to another username. Names never change hands or get renamed. */
 export class AddressBound extends Schema.TaggedClass<AddressBound>()(
   "AddressBound",
   {
@@ -108,7 +105,6 @@ export const OpenStep = Schema.Union([
 
 export type OpenStep = typeof OpenStep.Type;
 
-/** External deposit references use the SDK's text/id memo kinds and wire limits. */
 export const PaymentMemo = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("text"),
@@ -143,16 +139,12 @@ export class MemoNotAllowed extends Schema.TaggedClass<MemoNotAllowed>()(
   {},
 ) {}
 
-// --- transfers ----------------------------------------------------------
-
-/** Minted on the phone with crypto.randomUUID() before any network call. */
 export const TransferId = Schema.String.check(Schema.isUUID(4)).pipe(
   Schema.brand("TransferId"),
 );
 
 export type TransferId = typeof TransferId.Type;
 
-// Recipient variants carry a username, phone or address; phone support is deferred.
 export const UsernameRecipient = Schema.TaggedStruct("Username", {
   value: Username,
 });
@@ -184,7 +176,6 @@ export class TransferOrder extends Schema.Class<TransferOrder>(
   memo: Schema.optional(PaymentMemo),
 }) {}
 
-/** An external destination has no Orchid username. */
 export class ExternalRecipient extends Schema.Class<ExternalRecipient>(
   "@workspace/wallet/ExternalRecipient",
 )({ address: AccountAddress }) {}
@@ -200,29 +191,25 @@ const transferFields = {
   asset: Asset,
   amount: PositiveAmount,
   memo: Schema.optional(PaymentMemo),
-  // Present when the money waits in a claimable balance the recipient must claim.
+
   claimable: Schema.optional(BalanceId),
 };
 
-/** Signed, stored, on its way. It will become Settled or Failed without the phone. */
 export class Pending extends Schema.TaggedClass<Pending>()("Pending", {
   ...transferFields,
   expiresAt: Schema.DateTimeUtcFromString,
 }) {}
 
-/** The transaction applied. With `claimable`, the recipient holds the money only after claiming it. */
 export class Settled extends Schema.TaggedClass<Settled>()("Settled", {
   ...transferFields,
   settledAt: Schema.DateTimeUtcFromString,
 }) {}
 
-/** Proven not to have moved money, and proven unable to. */
 export class Failed extends Schema.TaggedClass<Failed>()("Failed", {
   ...transferFields,
   reason: Schema.Literals(["expired", "rejected"]),
 }) {}
 
-// Escrow-specific fields and transitions are defined when phone transfers are implemented.
 export class Reserved extends Schema.TaggedClass<Reserved>()(
   "Reserved",
   transferFields,
@@ -255,7 +242,7 @@ export class TransferDraft extends Schema.TaggedClass<TransferDraft>()(
     request: SigningRequest,
     recipient: ResolvedRecipient,
     memoRequired: Schema.Boolean,
-    // Present when the recipient has no trustline: the draft creates this claimable balance.
+
     claimable: Schema.optional(BalanceId),
   },
 ) {}
@@ -282,10 +269,6 @@ export class InsufficientBalance extends Schema.TaggedClass<InsufficientBalance>
   { available: Amount },
 ) {}
 
-/**
- * A payment to this address would fail, and Orchid sponsors a claimable
- * balance only for its own wallets.
- */
 export class RecipientCannotReceive extends Schema.TaggedClass<RecipientCannotReceive>()(
   "RecipientCannotReceive",
   {
@@ -294,7 +277,6 @@ export class RecipientCannotReceive extends Schema.TaggedClass<RecipientCannotRe
   },
 ) {}
 
-/** The sender already has `limit` unclaimed balances. One must be claimed or reclaimed first. */
 export class ClaimableLimitReached extends Schema.TaggedClass<ClaimableLimitReached>()(
   "ClaimableLimitReached",
   { limit: Schema.Number },
@@ -324,8 +306,6 @@ export const TransferStep = Schema.Union([
 
 export type TransferStep = typeof TransferStep.Type;
 
-// --- asset orders -------------------------------------------------------
-
 export const AssetStep = Schema.Union([
   AssetDraft,
   AssetPending,
@@ -345,8 +325,6 @@ export const AssetStep = Schema.Union([
 
 export type AssetStep = typeof AssetStep.Type;
 
-// --- overview -----------------------------------------------------------
-
 export class Balance extends Schema.Class<Balance>("@workspace/wallet/Balance")(
   {
     asset: Asset,
@@ -354,10 +332,6 @@ export class Balance extends Schema.Class<Balance>("@workspace/wallet/Balance")(
   },
 ) {}
 
-/**
- * An unclaimed balance this wallet sent or was sent. The recipient may claim
- * now; `claimableAt` is when the sender may take it back.
- */
 export class ClaimableBalance extends Schema.Class<ClaimableBalance>(
   "@workspace/wallet/ClaimableBalance",
 )({
@@ -371,10 +345,10 @@ export class ClaimableBalance extends Schema.Class<ClaimableBalance>(
 
 export class Holding extends Schema.TaggedClass<Holding>()("Holding", {
   profile: Profile,
-  // The opening asset first, then XLM when held, then every other open trustline Orchid tracks.
+
   balances: Schema.Array(Balance),
   claimable: Schema.Array(ClaimableBalance),
-  latest: Schema.OptionFromNullOr(Receipt), // the sender's latest authorized or concluded transfer
+  latest: Schema.OptionFromNullOr(Receipt),
 }) {}
 
 export class NeedsReopening extends Schema.TaggedClass<NeedsReopening>()(
@@ -393,18 +367,11 @@ export const Overview = Schema.Union([
 
 export type Overview = typeof Overview.Type;
 
-// --- failure and the port ----------------------------------------------
-
-/** The outcome is unknown. Every call below is safe to repeat with the same arguments. */
 export class WalletUnavailable extends Schema.TaggedError<WalletUnavailable>()(
   "WalletUnavailable",
   { cause: Schema.Defect() },
 ) {}
 
-/**
- * The port a phone can call. Defined once. The server service implements it,
- * the app's server functions carry it, and the device client consumes it.
- */
 export interface WalletPort {
   overview(address: AccountAddress): Effect.Effect<Overview, WalletUnavailable>;
   open(

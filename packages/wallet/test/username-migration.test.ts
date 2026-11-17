@@ -72,7 +72,6 @@ it.live("existing wallet rows migrate into permanent name bindings", () =>
       recovered,
     ] = keys.map(addressOf);
 
-    // The two migrations that existed before usernames moved to their own table.
     for (const name of (yield* Effect.promise(() => readdir(folder)))
       .sort()
       .slice(0, 2))

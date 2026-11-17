@@ -29,7 +29,6 @@ import type {
   WalletUnavailable,
 } from "../contract";
 
-/** The later device implementation verifies the expected facts before signing. */
 export interface DeviceSigner {
   approve(
     request: SigningRequest,
@@ -61,7 +60,6 @@ export class UnsupportedDevice extends Schema.TaggedClass<UnsupportedDevice>()(
   {},
 ) {}
 
-/** The server's transaction did not do exactly what was asked. Nothing was signed. */
 export class DraftRejected extends Schema.TaggedClass<DraftRejected>()(
   "DraftRejected",
   {},
@@ -102,7 +100,6 @@ export type SendOutcome =
   | DraftRejected
   | Offline;
 
-/** What the UI holds. Promises that never reject: this is the edge of the Effect world. */
 export interface WalletClient {
   overview(): Promise<DeviceOverview>;
   create(usernameText: string): Promise<CreateOutcome>;

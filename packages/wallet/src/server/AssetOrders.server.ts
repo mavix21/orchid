@@ -132,7 +132,6 @@ function readRow(row: AssetOrderRow): StoredAssetOrder {
   );
 }
 
-/** The trustline a drafted claim opens, kept beside the order so settlement can record it. */
 function opensOf(request: SigningRequest): string | null {
   const facts = readEnvelope(request.envelope);
 
@@ -149,7 +148,7 @@ export class AssetOrders extends Context.Service<
     find(
       id: AssetOrderId,
     ): Effect.Effect<Option.Option<StoredAssetOrder>, StoreFailure>;
-    /** The wallet's signed, unfinished asset order, if it has one. */
+
     inFlightFor(
       wallet: AccountAddress,
     ): Effect.Effect<Option.Option<AssetAuthorized>, StoreFailure>;
@@ -165,10 +164,7 @@ export class AssetOrders extends Context.Service<
       proposed: AssetProposed,
       sealed: Sealed,
     ): Effect.Effect<StoredAssetOrder | SlotOccupied, StoreFailure>;
-    /**
-     * Writes the final state and, for an applied order, what it changed: the
-     * trustline it opened or removed, and the claimable balance it took.
-     */
+
     conclude(
       id: AssetOrderId,
       settlement: Applied | Rejected | Expired,
@@ -177,11 +173,11 @@ export class AssetOrders extends Context.Service<
       ReadonlyArray<AssetAuthorized>,
       StoreFailure
     >;
-    /** The trustlines Orchid opened for this wallet: which ledger keys to read, not what exists. */
+
     tracked(
       wallet: AccountAddress,
     ): Effect.Effect<ReadonlyArray<IssuedAsset>, StoreFailure>;
-    /** Drops a tracked trustline. Callers confirm its absence from the ledger first. */
+
     forget(
       wallet: AccountAddress,
       asset: IssuedAsset,
@@ -542,8 +538,7 @@ export class AssetOrders extends Context.Service<
             ),
           )
           .orderBy(trustlines.openedAt, trustlines.code, trustlines.issuer)
-          // The ledger caps what a wallet can have open; rows beyond a few
-          // multiples of it are stale hints that later reads prune.
+
           .limit(maxSponsoredTrustlines * 4)
           .pipe(
             Effect.map((rows) =>

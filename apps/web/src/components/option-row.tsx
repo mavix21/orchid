@@ -9,7 +9,6 @@ import {
   ItemTitle,
 } from "@workspace/ui/components/item";
 
-// Figma Fila/Opcion (25:479): flat navigable option with a thin border.
 export function OptionRow({
   title,
   description,

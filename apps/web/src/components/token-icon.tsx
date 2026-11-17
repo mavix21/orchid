@@ -2,7 +2,6 @@ import { CoinsIcon } from "lucide-react";
 
 import type { AssetId } from "@/fixtures/assets";
 
-// Figma Token/Icono: USDC and XLM marks; EURC uses the generic coins glyph.
 const tokenIcons: Record<AssetId, () => React.ReactNode> = {
   usdc: () => (
     <span className="flex size-6 items-center justify-center rounded-full bg-token-usdc text-lg leading-none font-semibold text-token-usdc-foreground">

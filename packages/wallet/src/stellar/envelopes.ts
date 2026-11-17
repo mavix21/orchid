@@ -182,8 +182,6 @@ export function readEnvelope(
     )
       return Option.none();
 
-    // The complete rebuild rejects extra operations, sources, unsupported memos, signatures,
-    // preconditions, fees and extensions, including fields the reader never uses.
     if (first?.type === "beginSponsoringFutureReserves") {
       const address = Schema.decodeSync(AccountAddress)(first.sponsoredId);
       const reserveSponsor = Schema.decodeSync(AccountAddress)(tx.source);

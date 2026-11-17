@@ -43,7 +43,6 @@ export type WalletRow = typeof wallets.$inferSelect;
 
 type NameRow = Pick<typeof usernames.$inferSelect, "username" | "address">;
 
-/** The name is free, or already bound to this address. */
 export class Available extends Schema.TaggedClass<Available>()(
   "Available",
   {},
@@ -57,7 +56,6 @@ const profileOf = (name: NameRow) =>
     username: Schema.decodeSync(Username)(name.username),
   });
 
-// Reserved words block new bindings only; a name bound before it was reserved stays usable.
 function availability(
   claim: WalletClaim,
   found: ReadonlyArray<NameRow>,
@@ -104,23 +102,23 @@ export class Directory extends Context.Service<
     byAddress(
       address: AccountAddress,
     ): Effect.Effect<Option.Option<WalletRow>, StoreFailure>;
-    /** Resolves only while the bound wallet is active. Bound forever does not mean always payable. */
+
     byUsername(
       username: Username,
     ): Effect.Effect<Option.Option<Profile>, StoreFailure>;
-    /** The bound name; every active or recovered wallet has one. */
+
     profile(row: WalletRow): Effect.Effect<Profile, StoreFailure>;
-    /** Soft check before signing. Reserves nothing; the binding write decides races. */
+
     available(
       claim: WalletClaim,
     ): Effect.Effect<Available | Unavailable, StoreFailure>;
-    /** The wallet row for an address, created as `opening` on first use. It carries no name. */
+
     start(address: AccountAddress): Effect.Effect<WalletRow, StoreFailure>;
     draft(
       row: WalletRow,
       request: SigningRequest,
     ): Effect.Effect<WalletRow, StoreFailure>;
-    /** Binds the name in the same write that stores the signed opening, or stores nothing. */
+
     seal(
       row: WalletRow,
       sealed: Sealed,
@@ -136,7 +134,7 @@ export class Directory extends Context.Service<
       facts: RecoveryFacts,
       claim: WalletClaim,
     ): Effect.Effect<Option.Option<Profile> | Unavailable, StoreFailure>;
-    /** Marks the wallet recovered and drops its spent opening and recovery data. */
+
     recover(row: WalletRow): Effect.Effect<void, StoreFailure>;
     readonly recoverable: Effect.Effect<ReadonlyArray<WalletRow>, StoreFailure>;
   }
@@ -149,7 +147,6 @@ export class Directory extends Context.Service<
 
       type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-      // Plain reads rely on Hyperdrive query caching being disabled; see the package README.
       const find = (address: AccountAddress) =>
         db
           .select()
@@ -202,7 +199,6 @@ export class Directory extends Context.Service<
             : new UsernameTaken({ username: claim.username });
         }
 
-        // The insert decides the race: it returns the row only for the binding that won.
         const inserted = yield* tx
           .insert(usernames)
           .values(claim)
@@ -211,7 +207,6 @@ export class Directory extends Context.Service<
 
         if (inserted[0]) return new Available();
 
-        // A no-op insert means the name or the address is already bound; read who holds it.
         const holders = yield* boundNames(tx, nameOrAddress(claim));
 
         if (holders.length === 0)
@@ -285,7 +280,6 @@ export class Directory extends Context.Service<
 
         const outcome = yield* db.transaction((tx) =>
           Effect.gen(function* () {
-            // Lock the row first so the name is bound only if the attempt is stored too.
             const locked = yield* lockRow(tx, unchanged);
 
             if (!locked[0]) return undefined;
@@ -360,8 +354,6 @@ export class Directory extends Context.Service<
 
             if (!locked[0]) return Option.none<Profile>();
 
-            // Normally a no-op: the name was bound with the signed opening. An account that
-            // already existed skips that step, so binding is repeated before activation.
             const bound = yield* bind(tx, claim);
 
             if (!(bound instanceof Available)) return bound;

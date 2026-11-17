@@ -13,7 +13,6 @@ import { cn } from "@workspace/ui/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import type { Activity } from "@/fixtures/activity";
 
-// Figma Item/Transaccion: received in green, sent in ink, links show their state.
 export function ActivityRow({ activity }: { activity: Activity }) {
   return (
     <Item size="sm" role="listitem">

@@ -11,7 +11,6 @@ import { ActionTile } from "@/components/action-tile";
 import { UserAvatar } from "@/components/user-avatar";
 import { balance, me } from "@/fixtures/account";
 
-// Figma Balance/Header (14:391): account, balance with dimmed cents, quick actions.
 export function BalanceHeader() {
   return (
     <section className="flex flex-col gap-6">

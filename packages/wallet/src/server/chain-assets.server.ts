@@ -28,9 +28,7 @@ import {
 } from "./ledger-assets.server";
 import { fetchEntries } from "./ledger.server";
 
-/** The multi-asset part of `Chain`: ledger reads and the asset drafts. */
 export interface AssetChain {
-  /** The account, its reserve counters and whichever of `assets` it has a trustline for. */
   holdings(
     address: AccountAddress,
     assets: ReadonlyArray<IssuedAsset>,
@@ -38,7 +36,7 @@ export interface AssetChain {
   issuer(
     asset: IssuedAsset,
   ): Effect.Effect<Option.Option<Issuer>, ChainUnreachable>;
-  /** The balances that exist. RPC cannot list them by claimant, only fetch them by ID. */
+
   claimable(
     balances: ReadonlyArray<BalanceId>,
   ): Effect.Effect<ReadonlyArray<ClaimableEntry>, ChainUnreachable>;

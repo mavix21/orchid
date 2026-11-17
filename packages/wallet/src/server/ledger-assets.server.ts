@@ -26,14 +26,13 @@ import {
 export interface Line {
   readonly asset: IssuedAsset;
   readonly balance: Amount;
-  /** The balance minus what open offers already commit to selling. */
+
   readonly spendable: Amount;
   readonly authorized: boolean;
-  /** Its reserve is carried by the configured reserve sponsor. */
+
   readonly sponsored: boolean;
 }
 
-/** The counters behind an account's minimum balance. */
 export interface Reserves {
   readonly subentries: number;
   readonly sponsored: number;
@@ -42,10 +41,10 @@ export interface Reserves {
 
 export interface Holdings {
   readonly account: AccountState;
-  /** XLM above the minimum balance and selling liabilities. */
+
   readonly native: Amount;
   readonly reserves: Reserves;
-  /** The requested trustlines that exist. */
+
   readonly lines: ReadonlyArray<Line>;
 }
 
@@ -109,10 +108,6 @@ function reservesOf(account: xdr.AccountEntry): Reserves & {
   };
 }
 
-/**
- * Reads one account and the requested trustlines out of a getLedgerEntries
- * answer that may also hold other accounts' entries.
- */
 export function holdingsFromEntries(
   entries: ReadonlyArray<LedgerEntry>,
   ledger: number,
@@ -147,9 +142,6 @@ export function holdingsFromEntries(
 
   const reserves = reservesOf(account.data.value);
 
-  // "No operation can cause an account to have balance < (2 + numSubEntries +
-  // numSponsoring - numSponsored) * baseReserve + liabilities.selling" (CAP-33).
-  // https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves
   const locked =
     BigInt(2 + reserves.subentries + reserves.sponsoring - reserves.sponsored) *
       baseReserve +
@@ -194,9 +186,6 @@ export function issuerFromEntries(
   for (const { data } of parse(entries))
     if (data.type === "account" && owns(issuer, data.value.accountId))
       return Option.some({
-        // "When AUTH_REQUIRED_FLAG is enabled, an issuer must approve an
-        // account before that account can hold its asset."
-        // https://developers.stellar.org/docs/tokens/control-asset-access
         authRequired:
           (data.value.flags & xdr.AccountFlags.authRequiredFlag.value) !== 0,
       });
@@ -231,10 +220,6 @@ export function claimablesFromEntries(
   );
 }
 
-/**
- * Whether a stored predicate holds at `at` (Unix seconds). The ledger keeps
- * no relative times: creation converts them to absolute ones (CAP-23).
- */
 export function claimableAt(
   predicate: xdr.ClaimPredicate,
   at: bigint,
@@ -258,7 +243,6 @@ export function claimableAt(
   }
 }
 
-/** When a "not before" predicate, the shape Orchid gives the sender, starts to hold. */
 export function opensAt(predicate: xdr.ClaimPredicate): Option.Option<bigint> {
   return predicate.type === "claimPredicateNot" &&
     predicate.notPredicate?.type === "claimPredicateBeforeAbsoluteTime"

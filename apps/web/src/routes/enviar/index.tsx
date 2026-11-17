@@ -11,7 +11,6 @@ export const Route = createFileRoute("/enviar/")({
   component: EnviarActivo,
 });
 
-// Figma 03d · Enviar · Activo · Mobile (97:3078).
 function EnviarActivo() {
   return (
     <Screen>

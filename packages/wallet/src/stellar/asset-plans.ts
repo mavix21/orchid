@@ -21,13 +21,11 @@ import {
 } from "./asset-envelopes";
 import { readEnvelope } from "./envelopes";
 
-/** A claim, and the sponsored trustline it has to open first when there is none. */
 export const ClaimPlan = Schema.TaggedStruct("ClaimPlan", {
   balance: BalanceId,
   opens: Schema.optional(IssuedAsset),
 });
 
-/** What an asset order turns into once the ledger has been checked. */
 export type AssetPlan =
   | typeof OpenTrustline.Type
   | typeof CloseTrustline.Type
@@ -59,7 +57,6 @@ export function draftPlan(plan: AssetPlan, input: PlanInput): UnsignedEnvelope {
   });
 }
 
-/** The sequence the envelope spends when it does exactly what the plan says, at any time bounds. */
 export function plannedSequence(
   envelope: UnsignedEnvelope,
   plan: AssetPlan,

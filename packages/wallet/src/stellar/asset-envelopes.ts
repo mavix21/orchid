@@ -23,12 +23,6 @@ import { fromStellarAsset, toStellarAsset } from "./assets";
 import { bounds } from "./bounds";
 import { baseFee, networkPassphrase, reclaimDelay } from "./network";
 
-// Every transaction here has the wallet as its source, so each consumes the
-// wallet's next sequence number and the one-signed-transaction-per-wallet rule
-// covers it. Where a reserve is needed, the reserve sponsor is the source of
-// the Begin operation and the wallet is the source of the End operation:
-// https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves
-
 export class TrustlineFacts extends Schema.TaggedClass<TrustlineFacts>()(
   "TrustlineFacts",
   {
@@ -48,7 +42,6 @@ export class TrustlineRemovalFacts extends Schema.TaggedClass<TrustlineRemovalFa
   },
 ) {}
 
-/** A payment parked in a claimable balance because the recipient has no trustline yet. */
 export class ClaimableFacts extends Schema.TaggedClass<ClaimableFacts>()(
   "ClaimableFacts",
   {
@@ -62,7 +55,6 @@ export class ClaimableFacts extends Schema.TaggedClass<ClaimableFacts>()(
   },
 ) {}
 
-/** `opens` and `reserveSponsor` are set together: the claim first opens that sponsored trustline. */
 export class ClaimFacts extends Schema.TaggedClass<ClaimFacts>()("ClaimFacts", {
   ...bounds,
   address: AccountAddress,
@@ -117,7 +109,6 @@ const finish = (builder: TransactionBuilder, input: Drafting) =>
     builder.setTimebounds(input.minTime, input.maxTime).build().toXDR(),
   );
 
-/** Begin, the one operation whose reserve the sponsor carries, End. */
 const sponsored = (
   builder: TransactionBuilder,
   reserveSponsor: AccountAddress,
@@ -144,13 +135,6 @@ export function draftTrustline(input: TrustlineInput): UnsignedEnvelope {
   );
 }
 
-// Removing the entry is what releases the reserve: "When a sponsored entry or
-// subentry is removed, numSponsoring is decreased on the sponsoring account".
-// The sponsor cannot do this alone: revoking a sponsorship moves the reserve
-// to the owner and fails with REVOKE_SPONSORSHIP_LOW_RESERVE for a wallet that
-// holds no XLM (CAP-33). A trustline is removable only at zero balance
-// (CHANGE_TRUST_INVALID_LIMIT otherwise).
-// https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves
 export function draftTrustlineRemoval(
   input: TrustlineRemovalInput,
 ): UnsignedEnvelope {
@@ -165,11 +149,6 @@ export function draftTrustlineRemoval(
   );
 }
 
-// The recipient may claim at any time. The sender is the second claimant, as
-// the claimable-balance guide recommends, and may take the balance back once
-// `reclaimDelay` has passed; the ledger stores that relative time as an
-// absolute one when the balance is created (CAP-23).
-// https://developers.stellar.org/docs/build/guides/transactions/claimable-balances
 export function draftClaimable(input: ClaimableInput): UnsignedEnvelope {
   return finish(
     sponsored(
@@ -193,9 +172,6 @@ export function draftClaimable(input: ClaimableInput): UnsignedEnvelope {
   );
 }
 
-// "A trustline must be established by the claimant to the asset before it can
-// claim the claimable balance", so a claim that needs one opens it first, in
-// the same transaction.
 export function draftClaim(input: ClaimInput): UnsignedEnvelope {
   const claim = Operation.claimClaimableBalance({ balanceId: input.balance });
 
@@ -218,7 +194,6 @@ interface Pinned {
   readonly maxTime: number;
 }
 
-/** The balance a drafted claimable payment will create; it changes with the sequence number. */
 export function claimableBalanceOf(
   envelope: UnsignedEnvelope,
 ): Option.Option<BalanceId> {
@@ -230,10 +205,6 @@ export function claimableBalanceOf(
     : Option.none();
 }
 
-/**
- * Reads the four asset layouts. As in `readEnvelope`, each candidate is
- * rebuilt in full and must equal the envelope byte for byte.
- */
 export function readAssetEnvelope(
   tx: Transaction,
   envelope: UnsignedEnvelope,

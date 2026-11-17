@@ -10,7 +10,9 @@ Use official documentation and installed package APIs. Do not introduce any/unkn
 
 Keep no temporary records in any tracked file (.md, .txt, .json or otherwise): no test results, command outputs, evidence, review rounds, decision logs or dated status notes. Results go in the PR description, decisions in commit messages or the PR.
 
-Docs describe only code that exists. Write no docs for unbuilt designs. Prefer a code comment next to the code it explains. Keep docs minimal and update them in place; delete a doc that goes stale instead of growing it.
+Docs describe only code that exists. Write no docs for unbuilt designs. Keep docs minimal and update them in place; delete a doc that goes stale instead of growing it.
+
+Never write code comments, including JSDoc, inline explanations, TODOs, or commented-out code. Convey meaning and functionality through precise names, domain language from `GLOSSARY.md`, and clear code structure. Preserve executable shebangs, machine-required migration separators, and existing tool directives in generated files; these are not prose comments.
 
 ## Agent skills
 

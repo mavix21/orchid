@@ -5,7 +5,6 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-// Negative builds exercise Start's actual client import protection and package exports.
 function walletBoundaryProbe(): Plugin {
   return {
     name: "wallet-boundary-probe",

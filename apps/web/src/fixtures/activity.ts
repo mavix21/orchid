@@ -9,7 +9,7 @@ export type Activity = {
   note: string;
   amount: string;
   received: boolean;
-  // A contact for transfers; payment links have no counterpart yet.
+
   profile?: Profile;
   time?: string;
   pending?: boolean;

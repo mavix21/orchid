@@ -117,7 +117,6 @@ export function settlementFromResponse(
 
   const minTime = Number(inner.timeBounds?.minTime);
 
-  // RPC absence is proof only when its history covers the entire inclusion window.
   if (
     Option.isSome(sender) &&
     sender.value.ledger >= response.latestLedger &&
@@ -128,8 +127,6 @@ export function settlementFromResponse(
   )
     return new Expired();
 
-  // Official RPC indexes fee bumps by both hashes. Complete retained history
-  // through an observed consumed sequence proves this inner transaction absent.
   if (
     response.status === rpc.Api.GetTransactionStatus.NOT_FOUND &&
     Option.isSome(sender) &&
@@ -334,7 +331,6 @@ export class Chain extends Context.Service<
                 (!f.reserveSponsor || f.reserveSponsor === sponsorAddress),
             });
 
-            // The sponsor signs exactly the layouts that begin a sponsorship.
             const sponsoring = Match.valueTags(facts.value, {
               OpeningFacts: () => true,
               PaymentFacts: () => false,
@@ -480,7 +476,6 @@ export const resolveSettlement = Effect.fn("Chain.resolveSettlement")(
       Schema.decodeSync(AccountAddress)(inner.source),
     );
 
-    // Query after the account observation so ingestion can cover its ledger.
     const confirmed = yield* reader.transaction(innerHash);
 
     return settlementFromResponse(confirmed, sealed, sender);

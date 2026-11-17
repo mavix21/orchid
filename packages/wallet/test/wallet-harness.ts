@@ -65,7 +65,6 @@ import {
 } from "../src/stellar/envelopes";
 import { network, networkPassphrase } from "../src/stellar/network";
 
-// This suite has one fixed, disposable local database and never reads a deployment URL.
 export const dbLayer = databaseLayer({
   connectionString:
     "postgres://orchid:orchid-local@127.0.0.1:55433/wallet_test",
@@ -301,13 +300,11 @@ export const walletLayer = Wallet.serviceLayer.pipe(
   Layer.provide(fakeChain),
 );
 
-// Tests and wallet services share one scoped database pool within each suite.
 export const walletTestLayer = Layer.mergeAll(walletLayer, stores, dbLayer);
 
 export const addressOf = (key: Keypair) =>
   Schema.decodeSync(AccountAddress)(key.publicKey());
 
-// Synthetic test fixture only; never added to the shipped registry.
 export const registerExchange = (address: AccountAddress) => {
   const entry = new KnownExchangeMemo({
     network,
@@ -374,7 +371,6 @@ export const send = (
   approval: Option.Option<Approval> = Option.none(),
 ) => Wallet.use((wallet) => wallet.transfer(order, approval));
 
-// Store-level fixtures; these bytes are never submitted.
 export const placeholderRequest = () =>
   new SigningRequest({
     envelope: Schema.decodeSync(SigningRequest.fields.envelope)("AAAA"),
@@ -407,7 +403,6 @@ export const paymentSequence = (draft: TransferDraft) => {
   return facts.sequence;
 };
 
-/** Registers this suite's migration and per-test reset hooks in the calling test file. */
 export function useDisposableDatabase() {
   beforeAll(async () => {
     await Effect.runPromise(

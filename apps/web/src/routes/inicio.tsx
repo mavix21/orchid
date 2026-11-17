@@ -10,7 +10,6 @@ export const Route = createFileRoute("/inicio")({
   component: Inicio,
 });
 
-// Figma 02 · Home · Mobile (27:76).
 function Inicio() {
   return (
     <Screen>

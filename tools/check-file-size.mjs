@@ -4,7 +4,6 @@ import { statSync } from "node:fs";
 const maxTokens = 5000;
 const bytesPerToken = 4;
 
-// Files agents do not author: lockfiles, codegen, migrations, vendored code, generated UI, binaries.
 const ignored = [
   /(^|\/)bun\.lock$/,
   /(^|\/)[^/]*-lock\.json$/,

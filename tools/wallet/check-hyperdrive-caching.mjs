@@ -1,13 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 
-// Wallet reads are plain SELECTs. Hyperdrive caches eligible reads by default, so every
-// deployed Hyperdrive configuration must have query caching disabled:
-// https://developers.cloudflare.com/hyperdrive/concepts/query-caching/
-// This check reads each configuration with `wrangler hyperdrive get <id>`. Cloudflare does not
-// document that command's output, so the check fails closed whenever it cannot find a boolean
-// `caching.disabled` in the printed JSON.
-
 const configPath = resolve(
   process.argv[2] ??
     new URL("../../apps/web/wrangler.jsonc", import.meta.url).pathname,
@@ -15,7 +8,6 @@ const configPath = resolve(
 
 const { default: config } = await import(configPath);
 
-// Hyperdrive bindings are not inherited by environments, so each `env.<name>` lists its own.
 const targets = [
   ...(config.hyperdrive ?? []).map((entry) => ({ ...entry, env: undefined })),
   ...Object.entries(config.env ?? {}).flatMap(([env, settings]) =>

@@ -8,7 +8,6 @@ export const Route = createFileRoute("/")({
   component: Bienvenida,
 });
 
-// Figma 01a · Bienvenida · Mobile (27:3).
 function Bienvenida() {
   return (
     <Screen>

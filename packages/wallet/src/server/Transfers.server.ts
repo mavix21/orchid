@@ -71,13 +71,11 @@ export class SlotTaken extends Schema.TaggedClass<SlotTaken>()("SlotTaken", {
   holder: Authorized,
 }) {}
 
-/** The sender already has `maxOpenClaimables` unclaimed balances; this one was not stored. */
 export class ClaimablesFull extends Schema.TaggedClass<ClaimablesFull>()(
   "ClaimablesFull",
   {},
 ) {}
 
-/** A settled claimable transfer whose balance has not been seen to leave the ledger. */
 export class OpenBalance extends Schema.Class<OpenBalance>("OpenBalance")({
   balance: BalanceId,
   from: Profile,
@@ -205,17 +203,17 @@ export class Transfers extends Context.Service<
       settlement: Applied | Rejected | Expired,
     ): Effect.Effect<Concluded, StoreFailure>;
     readonly inFlight: Effect.Effect<ReadonlyArray<Authorized>, StoreFailure>;
-    /** How many balances the sender created that nobody is known to have claimed. */
+
     readonly balancesToCheck: Effect.Effect<
       ReadonlyArray<BalanceId>,
       StoreFailure
     >;
     openClaimables(sender: AccountAddress): Effect.Effect<number, StoreFailure>;
-    /** Unclaimed balances this wallet sent or was sent, newest first. */
+
     openBalances(
       address: AccountAddress,
     ): Effect.Effect<ReadonlyArray<OpenBalance>, StoreFailure>;
-    /** Records that the balance left the ledger. Callers confirm the absence first. */
+
     closeBalance(balance: BalanceId): Effect.Effect<void, StoreFailure>;
   }
 >()("@workspace/wallet/server/Transfers") {
@@ -391,7 +389,7 @@ export class Transfers extends Context.Service<
           .set({
             envelope: request.envelope,
             expiresAt: DateTime.toDateUtc(request.expiresAt),
-            // The balance ID is derived from the sequence number, so it follows the draft.
+
             balanceId: Option.getOrNull(claimableBalanceOf(request.envelope)),
           })
           .where(
@@ -422,8 +420,6 @@ export class Transfers extends Context.Service<
             const id = proposed.order.id;
             const request = proposed.request;
 
-            // Acquire the sender lock before any row lock, so concurrent approvals
-            // cannot deadlock while holding different transfer rows.
             yield* tx.execute(walletLock(proposed.order.from));
 
             const held = yield* tx

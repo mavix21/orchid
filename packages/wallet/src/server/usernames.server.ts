@@ -1,6 +1,5 @@
 import type { Username } from "../contract";
 
-/** Names that could pass as Orchid staff or services, in English and Spanish. They can never be bound. */
 export const reservedUsernames: ReadonlySet<string> = new Set([
   "support",
   "help",
@@ -59,6 +58,5 @@ export const reservedUsernames: ReadonlySet<string> = new Set([
   "contacto",
 ]);
 
-/** Any name containing "orchid", or exactly a reserved word. */
 export const reserved = (username: Username) =>
   username.includes("orchid") || reservedUsernames.has(username);

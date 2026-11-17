@@ -3,8 +3,6 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { Amount } from "../contract";
 
-// Official RPC wire fields include extXdr; SDK 17.4.0 drops that field when
-// parsing getLedgerEntries. Decode the documented protocol rather than patch it.
 export const LedgerEntry = Schema.Struct({
   xdr: Schema.String,
   extXdr: Schema.optional(Schema.String),
@@ -30,7 +28,6 @@ export interface AccountState {
   readonly sponsored: boolean;
 }
 
-/** One getLedgerEntries call. Entries that do not exist are simply absent from the answer. */
 export async function fetchEntries(
   rpcUrl: string,
   keys: ReadonlyArray<xdr.LedgerKey>,

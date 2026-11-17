@@ -26,7 +26,6 @@ export function fromStellarAsset(asset: StellarAsset): Asset {
       });
 }
 
-/** The asset every wallet opens with. */
 export const baseAsset = IssuedAsset.make({
   code: Schema.decodeSync(AssetCode)(usdc.code),
   issuer: Schema.decodeUnknownSync(AccountAddress)(usdc.issuer),

@@ -34,7 +34,6 @@ import {
 } from "./Directory.server";
 import { confirmedReads, live } from "./wallet-reads.server";
 
-/** The replayable `open` port operation: opening, recovery signing, reopening and repair. */
 export const openingFlow = Effect.gen(function* () {
   const chain = yield* Chain;
   const directory = yield* Directory;
@@ -133,7 +132,6 @@ export const openingFlow = Effect.gen(function* () {
     if (Option.isSome(state) && !state.value.accountSponsored)
       return new NotSponsored();
 
-    // Soft check only: nothing is reserved until the signed opening is stored.
     const availability = yield* directory.available(claim);
 
     if (!(availability instanceof Available)) return availability;
@@ -204,7 +202,6 @@ export const openingFlow = Effect.gen(function* () {
 
       const written = yield* directory.seal(row, sealed.value, claim);
 
-      // The loser of a race for the name submits nothing and costs nothing.
       if (written instanceof UsernameTaken || written instanceof AddressBound)
         return written;
 

@@ -5,16 +5,13 @@ import type { AccountAddress, SigningRequest } from "../contract";
 import { approvalMargin } from "../stellar/network";
 import { Chain } from "./Chain.server";
 
-/** A draft can still be approved: enough time remains before its upper time bound. */
 export const live = (request: SigningRequest) =>
   DateTime.toEpochMillis(request.expiresAt) >
   Date.now() + approvalMargin * 1000;
 
-/** Account reads that confirm a negative observation before reporting it. */
 export const confirmedReads = Effect.gen(function* () {
   const chain = yield* Chain;
 
-  // A single negative observation is not enough to destroy durable state.
   const readAccount = Effect.fn("Wallet.readAccount")(function* (
     address: AccountAddress,
   ) {

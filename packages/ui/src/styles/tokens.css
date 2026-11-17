@@ -1,47 +1,43 @@
-/*
- * Orchid semantic tokens from the Figma "Color" collection (Light / Dark).
- * Comments name the Figma variable each token resolves to.
- */
 :root {
-  --background: oklch(1 0 0); /* bg/canvas */
-  --foreground: oklch(0.207 0.0075 67.39); /* text/primary */
-  --card: oklch(1 0 0); /* bg/surface */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.207 0.0075 67.39);
+  --card: oklch(1 0 0);
   --card-foreground: oklch(0.207 0.0075 67.39);
-  --popover: oklch(1 0 0); /* bg/surface */
+  --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.207 0.0075 67.39);
-  --primary: oklch(0.5684 0.2374 334.24); /* accent/default */
-  --primary-foreground: oklch(1 0 0); /* text/on-accent */
-  --primary-pressed: oklch(0.479 0.2006 334.18); /* accent/pressed */
-  --primary-disabled: oklch(0.9142 0.0133 82.4); /* accent/disabled */
-  --secondary: oklch(0.9616 0.0057 84.57); /* bg/subtle */
+  --primary: oklch(0.5684 0.2374 334.24);
+  --primary-foreground: oklch(1 0 0);
+  --primary-pressed: oklch(0.479 0.2006 334.18);
+  --primary-disabled: oklch(0.9142 0.0133 82.4);
+  --secondary: oklch(0.9616 0.0057 84.57);
   --secondary-foreground: oklch(0.207 0.0075 67.39);
-  --muted: oklch(0.9616 0.0057 84.57); /* bg/subtle */
-  --muted-foreground: oklch(0.5072 0.0153 71.16); /* text/secondary */
-  --accent: oklch(0.9756 0.0176 328.49); /* accent/subtle */
-  --accent-foreground: oklch(0.479 0.2006 334.18); /* text/accent */
-  --destructive: oklch(0.509 0.1897 24.84); /* status/danger/fg */
-  --border: oklch(0.9142 0.0133 82.4); /* border/default */
-  --border-strong: oklch(0.8506 0.0181 81.33); /* border/strong */
-  --input: oklch(0.9142 0.0133 82.4); /* border/default */
-  --ring: oklch(0.5684 0.2374 334.24); /* border/focus */
-  --radius: 1.25rem; /* radius/lg */
+  --muted: oklch(0.9616 0.0057 84.57);
+  --muted-foreground: oklch(0.5072 0.0153 71.16);
+  --accent: oklch(0.9756 0.0176 328.49);
+  --accent-foreground: oklch(0.479 0.2006 334.18);
+  --destructive: oklch(0.509 0.1897 24.84);
+  --border: oklch(0.9142 0.0133 82.4);
+  --border-strong: oklch(0.8506 0.0181 81.33);
+  --input: oklch(0.9142 0.0133 82.4);
+  --ring: oklch(0.5684 0.2374 334.24);
+  --radius: 1.25rem;
 
-  --pressed: oklch(0.9142 0.0133 82.4); /* bg/pressed */
-  --disabled-foreground: oklch(0.7117 0.0177 79.32); /* text/disabled */
-  --inverse: oklch(0.207 0.0075 67.39); /* bg/inverse */
-  --inverse-foreground: oklch(1 0 0); /* text/inverse */
-  --icon-muted: oklch(0.5072 0.0153 71.16); /* icon/secondary */
-  --icon-accent: oklch(0.5684 0.2374 334.24); /* icon/accent */
-  --positive: oklch(0.4914 0.1204 155.02); /* amount/positive */
+  --pressed: oklch(0.9142 0.0133 82.4);
+  --disabled-foreground: oklch(0.7117 0.0177 79.32);
+  --inverse: oklch(0.207 0.0075 67.39);
+  --inverse-foreground: oklch(1 0 0);
+  --icon-muted: oklch(0.5072 0.0153 71.16);
+  --icon-accent: oklch(0.5684 0.2374 334.24);
+  --positive: oklch(0.4914 0.1204 155.02);
 
-  --success: oklch(0.9451 0.0697 160.02); /* status/success/bg */
-  --success-foreground: oklch(0.4914 0.1204 155.02); /* status/success/fg */
-  --warning: oklch(0.9492 0.0625 89.19); /* status/warning/bg */
-  --warning-foreground: oklch(0.5109 0.1181 60.14); /* status/warning/fg */
-  --danger: oklch(0.926 0.0378 15.84); /* status/danger/bg */
-  --danger-foreground: oklch(0.509 0.1897 24.84); /* status/danger/fg */
-  --neutral: oklch(0.9456 0.0165 79.35); /* status/neutral/bg */
-  --neutral-foreground: oklch(0.5072 0.0153 71.16); /* status/neutral/fg */
+  --success: oklch(0.9451 0.0697 160.02);
+  --success-foreground: oklch(0.4914 0.1204 155.02);
+  --warning: oklch(0.9492 0.0625 89.19);
+  --warning-foreground: oklch(0.5109 0.1181 60.14);
+  --danger: oklch(0.926 0.0378 15.84);
+  --danger-foreground: oklch(0.509 0.1897 24.84);
+  --neutral: oklch(0.9456 0.0165 79.35);
+  --neutral-foreground: oklch(0.5072 0.0153 71.16);
 
   --avatar-orchid: oklch(0.9756 0.0176 328.49);
   --avatar-orchid-foreground: oklch(0.479 0.2006 334.18);
@@ -52,11 +48,9 @@
   --avatar-durazno: oklch(0.9516 0.0314 62.83);
   --avatar-durazno-foreground: oklch(0.4493 0.1099 54.77);
 
-  /* Raw fills in Figma (not variables): USDC brand blue and its glyph. */
   --token-usdc: oklch(0.56 0.1512 253.8);
   --token-usdc-foreground: oklch(1 0 0);
 
-  /* Elevation/Raised and Elevation/Overlay effect styles (sand/900). */
   --shadow-color-raised: oklch(0.207 0.0075 67.39 / 3%);
   --shadow-color-overlay: oklch(0.207 0.0075 67.39 / 4%);
 }

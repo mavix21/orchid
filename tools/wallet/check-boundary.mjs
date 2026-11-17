@@ -70,7 +70,6 @@ try {
     );
   }
 } finally {
-  // Negative builds must not replace the app bundle or Wrangler's build pointer.
   if (previousMetadata) writeFileSync(deploymentMetadata, previousMetadata);
   else rmSync(deploymentMetadata, { force: true });
 

@@ -1,7 +1,5 @@
 import { useRender } from "@base-ui/react/use-render";
 
-// Figma Accion/Tile: accent-subtle tile with an accent icon, label always visible.
-// Actions without a screen yet render as plain buttons.
 export function ActionTile({
   label,
   icon,

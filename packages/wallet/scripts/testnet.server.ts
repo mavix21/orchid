@@ -186,8 +186,6 @@ const createWithShortRecovery = async (key: Keypair, name: string) => {
   assert.equal(native?.balance, "0.0000000");
   assert.equal(account.num_sponsored, 3);
 
-  // Only this local verification driver shortens the server-built recovery time.
-  // The production request path always uses stellar/network.ts policy constants.
   const minTime = Math.floor(Date.now() / 1000) + 30;
   const maxTime = minTime + 120;
 
@@ -265,7 +263,6 @@ console.log(
   "PASS sponsorship gate rejects a fresh Friendbot account before claiming its username.",
 );
 
-// A second key drafts the same name first; drafts reserve nothing.
 const racer = Keypair.random();
 
 const racerClaim = new WalletClaim({
@@ -279,7 +276,6 @@ assert.ok(racerDraft instanceof OpeningDraft);
 
 const first = await createWithShortRecovery(user, "verify_recovery");
 
-// The race loser's signature arrives after the name was bound with the winner's signed opening.
 assert.ok(
   (await opening(racerClaim, approve(racerDraft.request, racer))) instanceof
     UsernameTaken,
@@ -337,7 +333,6 @@ assert.ok(reopened instanceof OpeningDraft);
 
 await opening(first.claim, approve(reopened.request, user));
 
-// Read the signed hash now: a lagging RPC read after settlement may store a fresh unsigned draft.
 const reopenedHash = (await walletRow(first.claim.address)).attemptHash;
 
 assert.ok(reopenedHash);
@@ -467,7 +462,6 @@ const activity = new Sealed({
   expiresAt: DateTime.makeUnsafe(Date.now() + 120000),
 });
 
-// Submit the same signed inner transaction under a different fee payer.
 const alternate = TransactionBuilder.buildFeeBumpTransaction(
   sponsor.publicKey(),
   baseFee,

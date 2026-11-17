@@ -70,7 +70,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           if (!(draft instanceof OpeningDraft))
             throw new Error("Expected draft");
 
-          // Asking for another name before signing is not a conflict with the abandoned first choice.
           const second = claimFor(key, "maria2");
           const redraft = yield* opening(second);
 
@@ -218,13 +217,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         const key = Keypair.random();
 
         const impersonations = [
-          // Anything containing "orchid".
           "orchid",
           "orchid_help",
           "orchidsupport",
           "orchid_oficial",
           "my_orchid",
-          // Exact reserved words in English and Spanish.
+
           "support",
           "admin",
           "security",
@@ -289,7 +287,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           if (!(draft instanceof OpeningDraft))
             throw new Error("Expected reopening draft");
 
-          // Repair is in progress: the wallet stays recovered and unpayable until activation.
           yield* opening(claim, approve(draft.request, key));
           expect(
             yield* Wallet.use((wallet) => wallet.overview(claim.address)),
@@ -400,7 +397,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           if (!(facts instanceof RecoveryFacts))
             throw new Error("Expected recovery facts");
 
-          // Another key binds the name after this soft check passed; the activation bind must refuse.
           yield* create(Keypair.random(), "maria");
           expect(
             yield* Directory.use((directory) =>

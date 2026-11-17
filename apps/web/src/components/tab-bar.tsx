@@ -9,7 +9,6 @@ import { Link } from "@tanstack/react-router";
 const itemClass =
   "flex h-12 w-16 items-center justify-center rounded-full text-icon-muted outline-none focus-visible:ring-3 focus-visible:ring-ring/50 aria-[current=page]:bg-accent aria-[current=page]:text-icon-accent [&_svg]:size-6";
 
-// Figma TabBar (6:164): flat floating pill, 28px above the bottom edge, icon-only items.
 export function TabBar() {
   return (
     <nav

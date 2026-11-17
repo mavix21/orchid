@@ -1,6 +1,5 @@
 import { Button } from "@workspace/ui/components/button";
 
-// Figma Nav/Top: round leading action, centered title, empty trailing slot.
 export function TopNav({
   title,
   label,

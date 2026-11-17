@@ -2,7 +2,6 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
-/* The default entry ships only the wght axis, so opsz stays at 14 as in Figma. */
 @import "@fontsource-variable/bricolage-grotesque";
 @import "./tokens.css";
 
@@ -58,7 +57,6 @@
   --color-avatar-durazno-foreground: var(--avatar-durazno-foreground);
   --color-token-usdc: var(--token-usdc);
   --color-token-usdc-foreground: var(--token-usdc-foreground);
-  /* Figma radius scale: xs 6, sm 10, md 14, lg 20, xl 28 (px). */
   --radius-xs: calc(var(--radius) * 0.3);
   --radius-sm: calc(var(--radius) * 0.5);
   --radius-md: calc(var(--radius) * 0.7);
@@ -67,10 +65,7 @@
   --shadow-raised: 0 1px 2px var(--shadow-color-raised);
   --shadow-overlay: 0 2px 8px var(--shadow-color-overlay);
 }
-
-/* Figma text styles; letter spacing is a percentage of the font size. */
 @theme {
-  /* Figma "Spacing" collection is a 4px grid: space/N maps to the N/4 step (space/16 = p-4). */
   --spacing: 0.25rem;
 
   --font-sans: "Geist Variable", sans-serif;
@@ -135,8 +130,6 @@
   --text-keypad--letter-spacing: -0.01em;
   --text-keypad--font-weight: 500;
 }
-
-/* Device safe area (viewport-fit=cover); 16px floor where the inset is 0, e.g. in a browser tab. */
 @utility pt-safe {
   padding-top: max(env(safe-area-inset-top), --spacing(4));
 }

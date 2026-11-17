@@ -10,8 +10,6 @@ export const balancesToCheck = (
   db: Effect.Success<ReturnType<typeof makeDatabase>>,
 ) =>
   Effect.gen(function* () {
-    // Only settled creations can be proven gone. An authorized transaction may
-    // still create its balance after this read.
     const outstanding = and(
       eq(transfers.network, network),
       eq(transfers.testnetEpoch, epochAt(Date.now())),

@@ -22,7 +22,6 @@ export const Route = createFileRoute("/enviar/$activo")({
   component: EnviarDestino,
 });
 
-// Figma 03e · Enviar · Destino · Mobile (97:3169). Destination screens are not built yet.
 function EnviarDestino() {
   const asset = Route.useLoaderData();
 

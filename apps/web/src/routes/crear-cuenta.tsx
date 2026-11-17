@@ -21,7 +21,6 @@ export const Route = createFileRoute("/crear-cuenta")({
   component: EligeTuUsuario,
 });
 
-// Figma 01b · Elige tu usuario · Mobile (27:42).
 function EligeTuUsuario() {
   return (
     <Screen>

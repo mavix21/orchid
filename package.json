@@ -10,7 +10,7 @@
   "scripts": {
     "build": "bun tools/wallet/check-boundary.mjs && turbo build",
     "dev": "turbo dev",
-    "lint": "oxlint",
+    "lint": "bun tools/comments/check.mjs && oxlint",
     "typecheck": "turbo typecheck",
     "prepare": "git config core.hooksPath .githooks && effect-tsgo patch --typescript --no-oxlint",
     "fmt": "oxfmt",
@@ -20,6 +20,7 @@
     "@effect/tsgo": "0.69.0",
     "@oxlint/plugins": "1.93.0",
     "@shadcn/lint": "^0.2.5",
+    "oxc-parser": "0.148.0",
     "oxfmt": "^0.78.0",
     "oxlint": "1.93.0",
     "turbo": "^2.11.10",

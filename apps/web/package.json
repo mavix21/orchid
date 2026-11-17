@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 3000",
-    "generate-routes": "tsr generate",
-    "build": "vite build",
+    "generate-routes": "bun ../../tools/comments/generate.mjs src/routeTree.gen.ts tsr generate",
+    "build": "bun ../../tools/comments/generate.mjs src/routeTree.gen.ts vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "deploy": "bun run check:hyperdrive && bun run build && wrangler deploy",
     "check:hyperdrive": "bun ../../tools/wallet/check-hyperdrive-caching.mjs",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "bun ../../tools/comments/generate.mjs worker-configuration.d.ts wrangler types"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

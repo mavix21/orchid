@@ -40,7 +40,6 @@ export const wallets = pgTable(
   ],
 );
 
-// Inserted once when the signed opening is stored; never updated or deleted.
 export const usernames = pgTable("usernames", {
   username: text().primaryKey(),
   address: text()
@@ -75,8 +74,7 @@ export const transfers = pgTable(
     concludedAt: timestamp({ withTimezone: true }),
     sweepCheckedAt: timestamp({ withTimezone: true }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
-    // Set when the transaction creates a claimable balance instead of paying.
-    // The row is a lookup hint; whether the balance still exists is read from the ledger.
+
     balanceId: text(),
     balanceClosedAt: timestamp({ withTimezone: true }),
   },
@@ -97,9 +95,6 @@ export const transfers = pgTable(
   ],
 );
 
-// Trustline and claim transactions. They spend the wallet's sequence number
-// like a transfer does, so a wallet has one signed, unfinished record across
-// this table and `transfers`; the stores check both under the same lock.
 export const assetOrders = pgTable(
   "asset_orders",
   {
@@ -108,7 +103,7 @@ export const assetOrders = pgTable(
       .notNull()
       .references(() => wallets.address),
     order: text().notNull(),
-    // The trustline a claim opens in the same transaction, when it needs one.
+
     opens: text(),
     network: text().notNull(),
     testnetEpoch: text().notNull(),
@@ -134,9 +129,6 @@ export const assetOrders = pgTable(
   ],
 );
 
-// The trustlines Orchid opened beyond the base asset. RPC cannot list an
-// account's trustlines, so these rows say which ledger keys to read; the
-// ledger decides whether a trustline exists.
 export const trustlines = pgTable(
   "trustlines",
   {

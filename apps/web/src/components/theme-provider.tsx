@@ -1,8 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { ScriptOnce } from "@tanstack/react-router";
 
-// From shadcn's dark mode guide for TanStack Start:
-// https://ui.shadcn.com/docs/dark-mode/tanstack-start
 type Theme = "dark" | "light" | "system";
 
 type ThemeProviderProps = {

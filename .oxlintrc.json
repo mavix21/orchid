@@ -23,7 +23,11 @@
       "name": "anti-slop-effect",
       "specifier": "./tools/oxlint/anti-slop/effect/index.ts"
     },
-    "@shadcn/lint"
+    "@shadcn/lint",
+    {
+      "name": "orchid",
+      "specifier": "./tools/oxlint/no-comments.ts"
+    }
   ],
   "settings": {
     "shadcn": {
@@ -65,7 +69,8 @@
       {
         "allow": ["layout"]
       }
-    ]
+    ],
+    "orchid/no-comments": "error"
   },
   "overrides": [
     {

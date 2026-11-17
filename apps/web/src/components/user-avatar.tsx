@@ -2,7 +2,6 @@ import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar";
 
 import type { Profile } from "@/fixtures/types";
 
-// Figma Avatar: the flower takes the dark ink of its pastel tone via currentColor.
 export function UserAvatar({
   profile,
   size,
