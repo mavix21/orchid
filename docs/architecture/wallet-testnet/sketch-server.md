@@ -237,7 +237,7 @@ export const transfers = pgTable(
 
 Record network, testnet epoch and contract ID on relevant rows; the testnet reset is 2026-12-16. Defer `phone_identities`, `otp_challenges` and `pending_transfers`.
 
-Each transition is one conditional statement that returns the row, for example `UPDATE transfers SET status = 'authorized', envelope = …, hash = … WHERE id = … AND status = 'proposed' AND expires_at > now() RETURNING *`. No decision is made from a plain `SELECT`, because Hyperdrive may serve one from cache.
+Each transition is one conditional statement that returns the row, for example `UPDATE transfers SET status = 'authorized', envelope = …, hash = … WHERE id = … AND status = 'proposed' AND expires_at > now() RETURNING *`. Reads are plain `SELECT`s. That is correct only because the wallet's Hyperdrive configuration has query caching disabled, a deployment prerequisite that `apps/web` deploys check (see the package README). The name race is decided by the returned row of `INSERT … ON CONFLICT DO NOTHING RETURNING`, not by a read.
 
 ### Stellar code
 
