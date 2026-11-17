@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "deploy": "bun run build && wrangler deploy",
+    "deploy": "bun run check:hyperdrive && bun run build && wrangler deploy",
+    "check:hyperdrive": "bun ../../tools/wallet/check-hyperdrive-caching.mjs",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {

@@ -109,12 +109,12 @@ export class Directory extends Context.Service<
 
       type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+      // Plain reads rely on Hyperdrive query caching being disabled; see the package README.
       const find = (address: AccountAddress) =>
         db
-          .update(wallets)
-          .set({ address })
+          .select()
+          .from(wallets)
           .where(and(scope, eq(wallets.address, address)))
-          .returning()
           .pipe(Effect.map((rows) => Option.fromNullishOr(rows[0])));
 
       const current = Effect.fn("Directory.current")(function* (row: WalletRow) {
@@ -129,24 +129,14 @@ export class Directory extends Context.Service<
       const nameOrAddress = (claim: WalletClaim) =>
         or(eq(usernames.username, claim.username), eq(usernames.address, claim.address));
 
-      // Hyperdrive may cache a plain SELECT for up to `max_age` but never caches writes
-      // (https://developers.cloudflare.com/hyperdrive/concepts/query-caching/). Name rows are
-      // insert-only, so they are read through a no-op write to their wallet rows instead.
       const boundNames = (executor: typeof db | Transaction, matching: SQL | undefined) =>
         executor
-          .update(wallets)
-          .set({ address: sql`${wallets.address}` })
+          .select({ username: usernames.username, address: usernames.address })
           .from(usernames)
-          .where(and(eq(wallets.address, usernames.address), matching))
-          .returning({ username: usernames.username, address: usernames.address });
+          .where(matching);
 
-      // A no-op update locks the row like SELECT ... FOR UPDATE, and as a write it is never cached.
       const lockRow = (tx: Transaction, matching: SQL | undefined) =>
-        tx
-          .update(wallets)
-          .set({ address: sql`${wallets.address}` })
-          .where(matching)
-          .returning();
+        tx.select().from(wallets).where(matching).for("update");
 
       const bind = Effect.fn("Directory.bind")(function* (tx: Transaction, claim: WalletClaim) {
         if (reserved(claim.username)) {
@@ -343,10 +333,12 @@ export class Directory extends Context.Service<
           .pipe(Effect.asVoid);
 
       const byUsername = (username: Username) =>
-        boundNames(
-          db,
-          and(scope, eq(usernames.username, username), eq(wallets.status, "active")),
-        ).pipe(Effect.map((rows) => Option.fromNullishOr(rows[0]).pipe(Option.map(profileOf))));
+        db
+          .select({ username: usernames.username, address: usernames.address })
+          .from(usernames)
+          .innerJoin(wallets, eq(wallets.address, usernames.address))
+          .where(and(scope, eq(usernames.username, username), eq(wallets.status, "active")))
+          .pipe(Effect.map((rows) => Option.fromNullishOr(rows[0]).pipe(Option.map(profileOf))));
 
       const profile = Effect.fn("Directory.profile")(function* (row: WalletRow) {
         const bound = yield* boundNames(db, eq(usernames.address, row.address));
