@@ -4,47 +4,68 @@ import { dirname, resolve } from "node:path";
 // Wallet reads are plain SELECTs. Hyperdrive caches eligible reads by default, so every
 // deployed Hyperdrive configuration must have query caching disabled:
 // https://developers.cloudflare.com/hyperdrive/concepts/query-caching/
-// This check reads each configuration with `wrangler hyperdrive get <id>`, which prints the
-// configuration as JSON, and refuses to continue unless `caching.disabled` is true.
+// This check reads each configuration with `wrangler hyperdrive get <id>`. Cloudflare does not
+// document that command's output, so the check fails closed whenever it cannot find a boolean
+// `caching.disabled` in the printed JSON.
 
 const configPath = resolve(
   process.argv[2] ?? new URL("../../apps/web/wrangler.jsonc", import.meta.url).pathname,
 );
 
 const { default: config } = await import(configPath);
-const bindings = config.hyperdrive ?? [];
+
+// Hyperdrive bindings are not inherited by environments, so each `env.<name>` lists its own.
+const targets = [
+  ...(config.hyperdrive ?? []).map((entry) => ({ ...entry, env: undefined })),
+  ...Object.entries(config.env ?? {}).flatMap(([env, settings]) =>
+    (settings.hyperdrive ?? []).map((entry) => ({ ...entry, env })),
+  ),
+];
 
 const fail = (message) => {
   process.stderr.write(`Hyperdrive caching check failed: ${message}\n`);
   process.exit(1);
 };
 
-if (bindings.length === 0) fail(`no Hyperdrive binding in ${configPath}.`);
+const unreadableOutput = (label, id) =>
+  fail(
+    `could not read caching.disabled for ${label} (${id}) from \`wrangler hyperdrive get\`. Its output is not documented by Cloudflare and its shape may have changed. Verify manually that query caching is disabled for this configuration, then update this check before deploying.`,
+  );
 
-for (const { binding, id } of bindings) {
+if (targets.length === 0) fail(`no Hyperdrive binding in ${configPath}.`);
+
+for (const { binding, id, env } of targets) {
+  const label = env ? `env.${env} binding ${binding}` : `binding ${binding}`;
+
   if (/^0+$/.test(id))
     fail(
-      `binding ${binding} still has the placeholder id. Create the Hyperdrive configuration with --caching-disabled and set its id first.`,
+      `${label} still has the placeholder id. Create the Hyperdrive configuration with --caching-disabled and set its id first.`,
     );
 
-  const result = spawnSync("wrangler", ["hyperdrive", "get", id, "--config", configPath], {
-    cwd: dirname(configPath),
-    encoding: "utf8",
-  });
+  const args = ["hyperdrive", "get", id, "--config", configPath, ...(env ? ["--env", env] : [])];
+  const result = spawnSync("wrangler", args, { cwd: dirname(configPath), encoding: "utf8" });
 
   if (result.status !== 0)
     fail(`wrangler hyperdrive get ${id} exited with ${result.status}.\n${result.stderr}`);
 
   const start = result.stdout.indexOf("{");
 
-  if (start === -1) fail(`wrangler hyperdrive get ${id} printed no configuration.`);
+  if (start === -1) unreadableOutput(label, id);
 
-  const hyperdrive = JSON.parse(result.stdout.slice(start));
+  let disabled;
 
-  if (hyperdrive.caching?.disabled !== true)
+  try {
+    disabled = JSON.parse(result.stdout.slice(start)).caching?.disabled;
+  } catch {
+    unreadableOutput(label, id);
+  }
+
+  if (disabled === false)
     fail(
-      `binding ${binding} (${id}) has query caching enabled. Run: wrangler hyperdrive update ${id} --caching-disabled`,
+      `${label} (${id}) has query caching enabled. Run: wrangler hyperdrive update ${id} --caching-disabled`,
     );
 
-  process.stdout.write(`Hyperdrive ${binding} (${id}): query caching disabled.\n`);
+  if (disabled !== true) unreadableOutput(label, id);
+
+  process.stdout.write(`Hyperdrive ${label} (${id}): query caching disabled.\n`);
 }
