@@ -153,17 +153,16 @@ export class Transfers extends Context.Service<
 
       const find = Effect.fn("Transfers.find")(function* (id: TransferId) {
         const rows = yield* db
-          .update(transfers)
-          .set({ id })
-          .where(and(scope, eq(transfers.id, id)))
-          .returning();
+          .select()
+          .from(transfers)
+          .where(and(scope, eq(transfers.id, id)));
 
         return rows[0] ? Option.some(yield* decode(rows[0])) : Option.none();
       });
 
       const latest = Effect.fn("Transfers.latestFrom")(function* (sender: AccountAddress) {
-        const selected = db
-          .select({ id: transfers.id })
+        const rows = yield* db
+          .select()
           .from(transfers)
           .where(
             and(
@@ -174,12 +173,6 @@ export class Transfers extends Context.Service<
           )
           .orderBy(desc(sql`${transfers.status} = 'authorized'`), desc(transfers.createdAt))
           .limit(1);
-
-        const rows = yield* db
-          .update(transfers)
-          .set({ sender })
-          .where(and(scope, inArray(transfers.id, selected)))
-          .returning();
 
         return rows[0] ? Option.some(yield* decode(rows[0])) : Option.none();
       });
@@ -275,16 +268,15 @@ export class Transfers extends Context.Service<
             );
 
             const held = yield* tx
-              .update(transfers)
-              .set({ status: "authorized" })
+              .select()
+              .from(transfers)
               .where(
                 and(
                   scope,
                   eq(transfers.sender, proposed.order.from),
                   eq(transfers.status, "authorized"),
                 ),
-              )
-              .returning();
+              );
 
             if (held[0] && held[0].id !== id) {
               const holder = yield* decode(held[0]);
@@ -309,10 +301,9 @@ export class Transfers extends Context.Service<
             if (written[0]) return yield* decode(written[0]);
 
             const fresh = yield* tx
-              .update(transfers)
-              .set({ id })
-              .where(and(scope, eq(transfers.id, id)))
-              .returning();
+              .select()
+              .from(transfers)
+              .where(and(scope, eq(transfers.id, id)));
 
             if (!fresh[0])
               return yield* new StoreFailure({ cause: new Error("Transfer disappeared") });
