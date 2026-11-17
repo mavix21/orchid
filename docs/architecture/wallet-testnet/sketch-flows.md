@@ -1,6 +1,6 @@
 # Sketch: flows and boundaries
 
-Part of the [core wallet flow sketch](sketch.md). Server-side flows, failure handling, boundary rules, and checked API names.
+Server-side flows, failure handling and boundary rules of `packages/wallet`. Reasons are in [rationale.md](rationale.md); current behaviour and limits are in the [wallet README](../../../packages/wallet/README.md), which wins where the two differ.
 
 ## 8. Flows
 
@@ -92,17 +92,11 @@ They live in `stellar/network.ts` and nowhere else: the testnet passphrase, the 
 
 | Rule                                              | What enforces it                                                                                   |
 | ------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Nothing outside the package imports its internals | The planned `exports` lists two entries. Any other path fails to resolve in `tsc` and in Vite      |
+| Nothing outside the package imports its internals | `exports` lists two entries. Any other path fails to resolve in `tsc` and in Vite                  |
 | Tables are written by one module each             | `tables.ts` is not exported, so no other package can reach it. Inside the package it is convention |
 | No signature without a check                      | `Keyring` is not exported and has no raw sign method                                               |
 | The server signs only what it drafted             | `seal` takes a stored `SigningRequest`; `Approval` has no envelope field                           |
 | A final state needs ledger proof                  | `conclude` does not accept `Undecided`; `submit` returns `void`                                    |
 | The port's three sides agree                      | One `WalletPort` interface. `Wallet`, `port` and `connectWallet` are all typed by it               |
 | Every outcome is handled                          | Outcomes are tagged unions; `Match.valueTags` is exhaustive                                        |
-| Server code stays out of the browser              | Not yet enforced. See the open questions                                                           |
-
-## 10. API names and where they were checked
-
-Checked in installed source: `Context.Service`, `Layer.effect`, `Layer.succeed`, `Layer.suspend`, `Layer.provide`, `Effect.fn`, `Effect.die`, `Effect.flatMap`, `Schema.Class`, `Schema.TaggedClass`, `Schema.TaggedError`, `Schema.Union`, `Schema.Literals`, `Schema.Struct`, `Schema.brand`, `Schema.isPattern`, `Schema.isUUID`, `Schema.BigIntFromString`, `Schema.Uint8ArrayFromBase64`, `Schema.DateTimeUtcFromString`, `Schema.OptionFromNullOr`, `Schema.Defect`, `Schema.toStandardSchemaV1`, `Schema.encodeEffect`, `Match.valueTags`, `Redacted.make`, `createServerFn().validator().handler()`, `ssr: false`, `pgTable`, `uniqueIndex().on().where()`, `text({ enum })`, `bigint({ mode })`, `timestamp({ withTimezone })`, `uuid()`.
-
-Not checked: `.check(...)` applied to a schema that is already a transformation (`BigIntFromString`), the exact form of a bigint range filter, and `Layer.provide` taking an array. These are details of bodies, not of the design.
+| Server code stays out of the browser              | `*.server.ts` names and Start import protection; the build runs negative import checks             |
