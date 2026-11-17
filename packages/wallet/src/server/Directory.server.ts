@@ -1,30 +1,58 @@
 import { makeDatabase } from "@workspace/db";
-import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { AccountAddress, Profile, SigningRequest, Username, WalletClaim } from "../contract";
+import {
+  AccountAddress,
+  AddressBound,
+  Profile,
+  SigningRequest,
+  Username,
+  UsernameTaken,
+  WalletClaim,
+} from "../contract";
 import { RecoveryFacts } from "../stellar/envelopes";
-import { claimLifetime, epochAt, network, sweepBatchSize } from "../stellar/network";
+import { epochAt, network, sweepBatchSize } from "../stellar/network";
 import { Sealed } from "./Chain.server";
-import { wallets } from "./tables.server";
+import { usernames, wallets } from "./tables.server";
+import { reserved } from "./usernames.server";
 
 export class StoreFailure extends Schema.TaggedError<StoreFailure>()("StoreFailure", {
   cause: Schema.Defect(),
 }) {}
 
-export class Taken extends Schema.TaggedClass<Taken>()("Taken", {}) {}
-
 export type WalletRow = typeof wallets.$inferSelect;
 
-export function profile(row: WalletRow): Profile {
-  return new Profile({
-    address: Schema.decodeSync(AccountAddress)(row.address),
-    username: Schema.decodeSync(Username)(row.username),
+type NameRow = typeof usernames.$inferSelect;
+
+/** The name is free, or already bound to this address. */
+export class Available extends Schema.TaggedClass<Available>()("Available", {}) {}
+
+export type Unavailable = UsernameTaken | AddressBound;
+
+const profileOf = (name: NameRow) =>
+  new Profile({
+    address: Schema.decodeSync(AccountAddress)(name.address),
+    username: Schema.decodeSync(Username)(name.username),
   });
+
+// Reserved words block new bindings only; a name bound before it was reserved stays usable.
+function availability(claim: WalletClaim, found: ReadonlyArray<NameRow>): Available | Unavailable {
+  const own = found.find((name) => name.address === claim.address);
+
+  if (own)
+    return own.username === claim.username
+      ? new Available()
+      : new AddressBound({ profile: profileOf(own) });
+
+  if (found.length > 0 || reserved(claim.username))
+    return new UsernameTaken({ username: claim.username });
+
+  return new Available();
 }
 
 export function openingAttempt(row: WalletRow): Option.Option<SigningRequest | Sealed> {
@@ -46,18 +74,29 @@ export class Directory extends Context.Service<
   Directory,
   {
     byAddress(address: AccountAddress): Effect.Effect<Option.Option<WalletRow>, StoreFailure>;
+    /** Resolves only while the bound wallet is active. Bound forever does not mean always payable. */
     byUsername(username: Username): Effect.Effect<Option.Option<Profile>, StoreFailure>;
-    claim(claim: WalletClaim): Effect.Effect<WalletRow | Taken, StoreFailure>;
-    attempt(
+    /** The bound name; every active or recovered wallet has one. */
+    profile(row: WalletRow): Effect.Effect<Profile, StoreFailure>;
+    /** Soft check before signing. Reserves nothing; the binding write decides races. */
+    available(claim: WalletClaim): Effect.Effect<Available | Unavailable, StoreFailure>;
+    /** The wallet row for an address, created as `opening` on first use. It carries no name. */
+    start(address: AccountAddress): Effect.Effect<WalletRow, StoreFailure>;
+    draft(row: WalletRow, request: SigningRequest): Effect.Effect<WalletRow, StoreFailure>;
+    /** Binds the name in the same write that stores the signed opening, or stores nothing. */
+    seal(
       row: WalletRow,
-      request: SigningRequest | Sealed,
-    ): Effect.Effect<WalletRow, StoreFailure>;
+      sealed: Sealed,
+      claim: WalletClaim,
+    ): Effect.Effect<WalletRow | Unavailable, StoreFailure>;
     recoveryDraft(row: WalletRow, request: SigningRequest): Effect.Effect<WalletRow, StoreFailure>;
     activate(
       row: WalletRow,
       sealed: Sealed,
       facts: RecoveryFacts,
-    ): Effect.Effect<Option.Option<Profile>, StoreFailure>;
+      claim: WalletClaim,
+    ): Effect.Effect<Option.Option<Profile> | Unavailable, StoreFailure>;
+    /** Marks the wallet recovered and drops its spent opening and recovery data. */
     recover(row: WalletRow): Effect.Effect<void, StoreFailure>;
     readonly recoverable: Effect.Effect<ReadonlyArray<WalletRow>, StoreFailure>;
   }
@@ -68,16 +107,15 @@ export class Directory extends Context.Service<
       const db = yield* makeDatabase();
       const scope = eq(wallets.network, network);
 
+      type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
       const find = (address: AccountAddress) =>
         db
           .update(wallets)
           .set({ address })
           .where(and(scope, eq(wallets.address, address)))
           .returning()
-          .pipe(
-            Effect.map((rows) => Option.fromNullishOr(rows[0])),
-            Effect.mapError((cause) => new StoreFailure({ cause })),
-          );
+          .pipe(Effect.map((rows) => Option.fromNullishOr(rows[0])));
 
       const current = Effect.fn("Directory.current")(function* (row: WalletRow) {
         const found = yield* find(Schema.decodeSync(AccountAddress)(row.address));
@@ -88,99 +126,54 @@ export class Directory extends Context.Service<
         return found.value;
       });
 
-      const claim = Effect.fn("Directory.claim")(function* (claim: WalletClaim) {
+      // Name rows are immutable once inserted, so reading them needs no write-path workaround.
+      const nameOrAddress = (claim: WalletClaim) =>
+        or(eq(usernames.username, claim.username), eq(usernames.address, claim.address));
+
+      const names = (claim: WalletClaim) => db.select().from(usernames).where(nameOrAddress(claim));
+
+      const bind = Effect.fn("Directory.bind")(function* (tx: Transaction, claim: WalletClaim) {
+        const before = availability(
+          claim,
+          yield* tx.select().from(usernames).where(nameOrAddress(claim)),
+        );
+
+        if (!(before instanceof Available)) return before;
+
+        // A concurrent binder of the same name or address makes this insert a no-op;
+        // the read below then sees the committed winner.
+        yield* tx.insert(usernames).values(claim).onConflictDoNothing();
+
+        return availability(claim, yield* tx.select().from(usernames).where(nameOrAddress(claim)));
+      });
+
+      const start = Effect.fn("Directory.start")(function* (address: AccountAddress) {
         const inserted = yield* db
           .insert(wallets)
-          .values({
-            ...claim,
-            status: "claimed",
-            ownershipBound: false,
-            network,
-            testnetEpoch: epochAt(Date.now()),
-          })
+          .values({ address, status: "opening", network, testnetEpoch: epochAt(Date.now()) })
           .onConflictDoNothing()
           .returning();
 
         if (inserted[0]) return inserted[0];
 
-        const takeover = yield* db
-          .update(wallets)
-          .set({
-            address: claim.address,
-            version: sql`${wallets.version} + 1`,
-            claimedAt: new Date(),
-            attemptEnvelope: null,
-            attemptExpiresAt: null,
-          })
-          .where(
-            and(
-              scope,
-              eq(wallets.username, claim.username),
-              eq(wallets.status, "claimed"),
-              eq(wallets.ownershipBound, false),
-              isNull(wallets.attemptHash),
-              lt(wallets.claimedAt, new Date(Date.now() - claimLifetime * 1000)),
-            ),
-          )
-          .returning();
+        const found = yield* find(address);
 
-        if (takeover[0]) return takeover[0];
+        if (Option.isNone(found))
+          return yield* new StoreFailure({ cause: new Error("Wallet belongs to another network") });
 
-        const reopened = yield* db
-          .update(wallets)
-          .set({
-            status: "reopening",
-            version: sql`${wallets.version} + 1`,
-            testnetEpoch: epochAt(Date.now()),
-            claimedAt: new Date(),
-            attemptEnvelope: null,
-            attemptHash: null,
-            attemptExpiresAt: null,
-            recoveryDraft: null,
-            recoveryEnvelope: null,
-            recoveryHash: null,
-            recoverySequence: null,
-            recoveryMinTime: null,
-            recoveryMaxTime: null,
-          })
-          .where(
-            and(
-              scope,
-              eq(wallets.address, claim.address),
-              eq(wallets.username, claim.username),
-              eq(wallets.status, "recovered"),
-            ),
-          )
-          .returning();
-
-        if (reopened[0]) return reopened[0];
-
-        const existing = yield* db
-          .update(wallets)
-          .set({
-            username: claim.username,
-            claimedAt: sql`case when ${wallets.status} = 'claimed' and not ${wallets.ownershipBound} and ${wallets.attemptHash} is null then now() else ${wallets.claimedAt} end`,
-          })
-          .where(
-            and(scope, eq(wallets.address, claim.address), eq(wallets.username, claim.username)),
-          )
-          .returning();
-
-        return existing[0] ?? new Taken();
+        return found.value;
       });
 
-      const attempt = Effect.fn("Directory.attempt")(function* (
+      const draft = Effect.fn("Directory.draft")(function* (
         row: WalletRow,
-        request: SigningRequest | Sealed,
+        request: SigningRequest,
       ) {
         const written = yield* db
           .update(wallets)
           .set({
-            status: row.ownershipBound ? "reopening" : "claimed",
-            claimedAt: new Date(),
             version: row.version + 1,
             attemptEnvelope: request.envelope,
-            attemptHash: request instanceof Sealed ? request.hash : null,
+            attemptHash: null,
             attemptExpiresAt: DateTime.toDateUtc(request.expiresAt),
           })
           .where(and(scope, eq(wallets.address, row.address), eq(wallets.version, row.version)))
@@ -189,14 +182,44 @@ export class Directory extends Context.Service<
         return written[0] ?? (yield* current(row));
       });
 
-      const draft = Effect.fn("Directory.recoveryDraft")(function* (
+      const seal = Effect.fn("Directory.seal")(function* (
+        row: WalletRow,
+        sealed: Sealed,
+        claim: WalletClaim,
+      ) {
+        const outcome = yield* db.transaction((tx) =>
+          Effect.gen(function* () {
+            const bound = yield* bind(tx, claim);
+
+            if (!(bound instanceof Available)) return bound;
+
+            const written = yield* tx
+              .update(wallets)
+              .set({
+                version: row.version + 1,
+                attemptEnvelope: sealed.envelope,
+                attemptHash: sealed.hash,
+                attemptExpiresAt: DateTime.toDateUtc(sealed.expiresAt),
+              })
+              .where(and(scope, eq(wallets.address, row.address), eq(wallets.version, row.version)))
+              .returning();
+
+            return written[0];
+          }),
+        );
+
+        if (outcome instanceof UsernameTaken || outcome instanceof AddressBound) return outcome;
+
+        return outcome ?? (yield* current(row));
+      });
+
+      const recoveryDraft = Effect.fn("Directory.recoveryDraft")(function* (
         row: WalletRow,
         request: SigningRequest,
       ) {
         const written = yield* db
           .update(wallets)
           .set({
-            status: row.ownershipBound ? "reopening" : "opening",
             version: row.version + 1,
             recoveryDraft: request.envelope,
             recoveryMaxTime: DateTime.toDateUtc(request.expiresAt),
@@ -214,57 +237,97 @@ export class Directory extends Context.Service<
         return written[0] ?? (yield* current(row));
       });
 
-      const activate = (row: WalletRow, sealed: Sealed, facts: RecoveryFacts) =>
-        db
-          .update(wallets)
-          .set({
-            status: "active",
-            ownershipBound: true,
-            version: row.version + 1,
-            recoveryEnvelope: sealed.envelope,
-            recoveryHash: sealed.hash,
-            recoverySequence: facts.sequence,
-            recoveryMinTime: new Date(facts.minTime * 1000),
-            recoveryMaxTime: new Date(facts.maxTime * 1000),
-          })
-          .where(
-            and(
-              scope,
-              eq(wallets.address, row.address),
-              or(eq(wallets.status, "opening"), eq(wallets.status, "reopening")),
-              eq(wallets.version, row.version),
-              eq(wallets.recoveryDraft, row.recoveryDraft ?? ""),
-              isNull(wallets.recoveryEnvelope),
-            ),
-          )
-          .returning()
-          .pipe(Effect.map((rows) => Option.fromNullishOr(rows[0]).pipe(Option.map(profile))));
+      const activate = (row: WalletRow, sealed: Sealed, facts: RecoveryFacts, claim: WalletClaim) =>
+        db.transaction((tx) =>
+          Effect.gen(function* () {
+            // Normally a no-op: the name was bound with the signed opening. An account that
+            // already existed skips that step, so binding is repeated before activation.
+            const bound = yield* bind(tx, claim);
+
+            if (!(bound instanceof Available)) return bound;
+
+            const written = yield* tx
+              .update(wallets)
+              .set({
+                status: "active",
+                version: row.version + 1,
+                testnetEpoch: epochAt(Date.now()),
+                recoveryEnvelope: sealed.envelope,
+                recoveryHash: sealed.hash,
+                recoverySequence: facts.sequence,
+                recoveryMinTime: new Date(facts.minTime * 1000),
+                recoveryMaxTime: new Date(facts.maxTime * 1000),
+              })
+              .where(
+                and(
+                  scope,
+                  eq(wallets.address, row.address),
+                  or(eq(wallets.status, "opening"), eq(wallets.status, "recovered")),
+                  eq(wallets.version, row.version),
+                  eq(wallets.recoveryDraft, row.recoveryDraft ?? ""),
+                  isNull(wallets.recoveryEnvelope),
+                ),
+              )
+              .returning();
+
+            return written[0] ? Option.some(new Profile(claim)) : Option.none();
+          }),
+        );
 
       const recover = (row: WalletRow) =>
         db
           .update(wallets)
-          .set({ status: "recovered", version: row.version + 1 })
+          .set({
+            status: "recovered",
+            version: row.version + 1,
+            attemptEnvelope: null,
+            attemptHash: null,
+            attemptExpiresAt: null,
+            recoveryDraft: null,
+            recoveryEnvelope: null,
+            recoveryHash: null,
+            recoverySequence: null,
+            recoveryMinTime: null,
+            recoveryMaxTime: null,
+          })
           .where(and(scope, eq(wallets.address, row.address), eq(wallets.version, row.version)))
           .pipe(Effect.asVoid);
+
+      const byUsername = Effect.fn("Directory.byUsername")(function* (username: Username) {
+        const bound = yield* db.select().from(usernames).where(eq(usernames.username, username));
+
+        if (!bound[0]) return Option.none<Profile>();
+
+        const wallet = yield* find(Schema.decodeSync(AccountAddress)(bound[0].address));
+
+        return Option.isSome(wallet) && wallet.value.status === "active"
+          ? Option.some(profileOf(bound[0]))
+          : Option.none<Profile>();
+      });
+
+      const profile = Effect.fn("Directory.profile")(function* (row: WalletRow) {
+        const bound = yield* db.select().from(usernames).where(eq(usernames.address, row.address));
+
+        if (!bound[0])
+          return yield* new StoreFailure({ cause: new Error("Wallet has no bound username") });
+
+        return profileOf(bound[0]);
+      });
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.mapError((cause) => new StoreFailure({ cause })));
 
       return Directory.of({
-        byAddress: find,
-        byUsername: (username) =>
-          wrap(
-            db
-              .update(wallets)
-              .set({ username })
-              .where(and(scope, eq(wallets.username, username), eq(wallets.status, "active")))
-              .returning()
-              .pipe(Effect.map((rows) => Option.fromNullishOr(rows[0]).pipe(Option.map(profile)))),
-          ),
-        claim: (input) => wrap(claim(input)),
-        attempt: (row, request) => wrap(attempt(row, request)),
-        recoveryDraft: (row, request) => wrap(draft(row, request)),
-        activate: (row, sealed, facts) => wrap(activate(row, sealed, facts)),
+        byAddress: (address) => wrap(find(address)),
+        byUsername: (username) => wrap(byUsername(username)),
+        profile: (row) => wrap(profile(row)),
+        available: (claim) =>
+          wrap(names(claim).pipe(Effect.map((found) => availability(claim, found)))),
+        start: (address) => wrap(start(address)),
+        draft: (row, request) => wrap(draft(row, request)),
+        seal: (row, sealed, claim) => wrap(seal(row, sealed, claim)),
+        recoveryDraft: (row, request) => wrap(recoveryDraft(row, request)),
+        activate: (row, sealed, facts, claim) => wrap(activate(row, sealed, facts, claim)),
         recover: (row) => wrap(recover(row)),
         recoverable: wrap(
           db

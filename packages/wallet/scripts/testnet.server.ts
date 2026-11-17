@@ -26,6 +26,7 @@ import {
   Username,
   WalletClaim,
   NeedsReopening,
+  UsernameTaken,
   NotSponsored,
 } from "../src/contract";
 import { Applied, Chain, Rejected, Sealed } from "../src/server/Chain.server";
@@ -227,7 +228,26 @@ console.log(
   "PASS sponsorship gate rejects a fresh Friendbot account before claiming its username.",
 );
 
+// A second key drafts the same name first; drafts reserve nothing.
+const racer = Keypair.random();
+
+const racerClaim = new WalletClaim({
+  address: addressOf(racer),
+  username: Schema.decodeSync(Username)("verify_recovery"),
+});
+
+const racerDraft = await opening(racerClaim);
+
+assert.ok(racerDraft instanceof OpeningDraft);
+
 const first = await createWithShortRecovery(user, "verify_recovery");
+
+// The race loser's signature arrives after the name was bound with the winner's signed opening.
+assert.ok((await opening(racerClaim, approve(racerDraft.request, racer))) instanceof UsernameTaken);
+
+assert.ok(Option.isNone(await run(Chain.use((chain) => chain.account(racerClaim.address)))));
+
+console.log("PASS name race loser refused before submission; its account was never created.");
 
 const early = await server.sendTransaction(
   TransactionBuilder.fromXDR(first.sealed.envelope, networkPassphrase),
@@ -441,6 +461,7 @@ const result = {
   checks: [
     "raw getLedgerEntries extXdr identifies configured sponsor on account and trustline",
     "unsponsored Friendbot account refused before username claim",
+    "username bound with the signed opening; race loser refused before submission",
     "0 XLM sponsored opening + USDC trustline",
     "two-stage opening stores recovery unsubmitted",
     "recovery txTooEarly before minTime",

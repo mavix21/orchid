@@ -1,7 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
-  boolean,
   check,
   integer,
   pgTable,
@@ -15,15 +14,12 @@ export const wallets = pgTable(
   "wallets",
   {
     address: text().primaryKey(),
-    username: text().notNull().unique(),
-    status: text({ enum: ["claimed", "opening", "reopening", "active", "recovered"] }).notNull(),
-    ownershipBound: boolean().notNull().default(true),
+    status: text({ enum: ["opening", "active", "recovered"] }).notNull(),
     sweepCheckedAt: timestamp({ withTimezone: true }),
     version: integer().notNull().default(0),
     network: text().notNull(),
     testnetEpoch: text().notNull(),
     contractId: text(),
-    claimedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     attemptEnvelope: text(),
     attemptHash: text(),
     attemptExpiresAt: timestamp({ withTimezone: true }),
@@ -41,6 +37,16 @@ export const wallets = pgTable(
     ),
   ],
 );
+
+// Inserted once when the signed opening is stored; never updated or deleted.
+export const usernames = pgTable("usernames", {
+  username: text().primaryKey(),
+  address: text()
+    .notNull()
+    .unique()
+    .references(() => wallets.address),
+  boundAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
 
 export const transfers = pgTable(
   "transfers",

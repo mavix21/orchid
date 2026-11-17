@@ -8,6 +8,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  AddressBound,
   Approval,
   ExternalRecipient,
   Holding,
@@ -43,12 +44,11 @@ import { PaymentFacts, RecoveryFacts, readEnvelope } from "../stellar/envelopes"
 import { approvalMargin } from "../stellar/network";
 import { type AccountState, Chain, ChainUnreachable, Sealed } from "./Chain.server";
 import {
+  Available,
   Directory,
   StoreFailure,
-  Taken,
   type WalletRow,
   openingAttempt,
-  profile,
 } from "./Directory.server";
 import {
   Authorized,
@@ -115,6 +115,7 @@ export class Wallet extends Context.Service<
         row: WalletRow,
         state: AccountState,
         approval: Option.Option<Approval>,
+        claim: WalletClaim,
       ): Effect.fn.Return<OpenStep, StoreFailure | ChainUnreachable> {
         const address = Schema.decodeSync(AccountAddress)(row.address);
 
@@ -140,7 +141,8 @@ export class Wallet extends Context.Service<
           const request = yield* chain.draftRecovery(address);
           const written = yield* directory.recoveryDraft(row, request);
 
-          if (written.status === "active") return new Opened({ profile: profile(written) });
+          if (written.status === "active")
+            return new Opened({ profile: yield* directory.profile(written) });
 
           if (!written.recoveryDraft || !written.recoveryMaxTime) return new OpeningPending();
 
@@ -168,7 +170,9 @@ export class Wallet extends Context.Service<
         )
           return new OpeningPending();
 
-        const active = yield* directory.activate(row, sealed.value, facts.value);
+        const active = yield* directory.activate(row, sealed.value, facts.value, claim);
+
+        if (active instanceof UsernameTaken || active instanceof AddressBound) return active;
 
         return Option.isSome(active) ? new Opened({ profile: active.value }) : new OpeningPending();
       });
@@ -184,21 +188,25 @@ export class Wallet extends Context.Service<
 
         if (Option.isSome(state) && !state.value.accountSponsored) return new NotSponsored();
 
-        const row = yield* directory.claim(claim);
+        // Soft check only: nothing is reserved until the signed opening is stored.
+        const availability = yield* directory.available(claim);
 
-        if (row instanceof Taken) return new UsernameTaken({ username: claim.username });
+        if (!(availability instanceof Available)) return availability;
+
+        const row = yield* directory.start(claim.address);
 
         const usable = Option.isSome(state) && Option.isSome(state.value.balance);
 
         if (row.status === "active") {
-          if (usable) return new Opened({ profile: profile(row) });
+          if (usable) return new Opened({ profile: yield* directory.profile(row) });
 
           yield* directory.recover(row);
 
           return new OpeningPending();
         }
 
-        if (usable && Option.isSome(state)) return yield* recoveryStage(row, state.value, approval);
+        if (usable && Option.isSome(state))
+          return yield* recoveryStage(row, state.value, approval, claim);
 
         const attempt = openingAttempt(row);
 
@@ -224,7 +232,7 @@ export class Wallet extends Context.Service<
             const confirmed = yield* readAccount(claim.address);
 
             if (Option.isSome(confirmed) && Option.isSome(confirmed.value.balance))
-              return yield* recoveryStage(row, confirmed.value, Option.none());
+              return yield* recoveryStage(row, confirmed.value, Option.none(), claim);
           }
         }
 
@@ -241,7 +249,11 @@ export class Wallet extends Context.Service<
 
           if (Option.isNone(sealed)) return new OpeningDraft({ request: attempt.value });
 
-          const written = yield* directory.attempt(row, sealed.value);
+          const written = yield* directory.seal(row, sealed.value, claim);
+
+          // The loser of a race for the name submits nothing and costs nothing.
+          if (written instanceof UsernameTaken || written instanceof AddressBound) return written;
+
           const committed = openingAttempt(written);
 
           if (Option.isSome(committed) && committed.value instanceof Sealed)
@@ -251,7 +263,7 @@ export class Wallet extends Context.Service<
         }
 
         const request = yield* chain.draftOpening(claim.address);
-        const written = yield* directory.attempt(row, request);
+        const written = yield* directory.draft(row, request);
         const stored = openingAttempt(written);
 
         return Option.isSome(stored) && stored.value instanceof SigningRequest
@@ -423,10 +435,10 @@ export class Wallet extends Context.Service<
             directory
               .byAddress(value)
               .pipe(
-                Effect.map((found) =>
+                Effect.flatMap((found): Effect.Effect<ResolvedRecipient, StoreFailure> =>
                   Option.isSome(found) && found.value.status === "active"
-                    ? profile(found.value)
-                    : new ExternalRecipient({ address: value }),
+                    ? directory.profile(found.value)
+                    : Effect.succeed(new ExternalRecipient({ address: value })),
                 ),
               ),
           Phone: () => Effect.die("Phone was rejected before recipient resolution"),
@@ -470,11 +482,12 @@ export class Wallet extends Context.Service<
 
         if (Option.isNone(row)) return new NotOpened();
 
-        if (row.value.status === "recovered" || row.value.status === "reopening")
-          return new NeedsReopening({ profile: profile(row.value) });
+        if (row.value.status === "recovered")
+          return new NeedsReopening({ profile: yield* directory.profile(row.value) });
 
         if (row.value.status !== "active") return new NotOpened();
 
+        const owner = yield* directory.profile(row.value);
         const latest = yield* transfers.latestFrom(address);
         let receipt: Option.Option<Receipt> = Option.none();
 
@@ -490,11 +503,11 @@ export class Wallet extends Context.Service<
         if (Option.isNone(balance)) {
           yield* directory.recover(row.value);
 
-          return new NeedsReopening({ profile: profile(row.value) });
+          return new NeedsReopening({ profile: owner });
         }
 
         return new Holding({
-          profile: profile(row.value),
+          profile: owner,
           balance: balance.value,
           latest: receipt,
         });
