@@ -8,4 +8,6 @@ The configured @shadcn/lint and anti-slop rules are mandatory. Fix code rather t
 
 Use official documentation and installed package APIs. Do not introduce any/unknown, type assertions, suppression comments, or library patches to silence errors.
 
-Do not write temporary documentation in markdown: no test results, command outputs, evidence, review rounds, decision logs or dated status notes. Results go in the PR description, decisions in commit messages or the PR. Markdown is only for durable docs that describe the current system; update them in place, never append history.
+Keep no temporary records in any tracked file (.md, .txt, .json or otherwise): no test results, command outputs, evidence, review rounds, decision logs or dated status notes. Results go in the PR description, decisions in commit messages or the PR.
+
+Docs describe only code that exists. Write no docs for unbuilt designs. Prefer a code comment next to the code it explains. Keep docs minimal and update them in place; delete a doc that goes stale instead of growing it.

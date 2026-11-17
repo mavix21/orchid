@@ -28,7 +28,7 @@ Each scheduled run selects up to four transfers and four currently eligible reco
 
 ### Limits
 
-Device key storage and the UI replay loop, passkeys/PRF, `protect`/`recover`, enrollment envelopes, phone tables, OTP, escrow, Turnstile, mainnet and deployment are not implemented. `WalletClient` and `DeviceSigner` are types only, with no working-looking implementations.
+Device key storage and the UI replay loop, passkeys/PRF, `protect`/`recover`, enrollment envelopes, phone tables, OTP, escrow, Turnstile, mainnet and deployment are not implemented. `WalletClient` and `DeviceSigner` are types only, with no working-looking implementations. A live USDC payment and the recovery guard that skips a nonzero balance are not verified on testnet.
 
 An opening abandoned before recovery signing keeps its reserve locked: the server cannot produce the missing signature. Recovery covers only an account whose sequence has not advanced. The sweep skips observed nonzero USDC and native XLM balances. USDC deposits racing recovery are protected atomically by trustline removal; an XLM deposit racing the final check can still be merged to the sponsor by the pre-signed account merge. Mainnet recovery policy needs review before adoption.
 
@@ -86,4 +86,4 @@ bun run --cwd packages/wallet testnet:prepare
 bun run --cwd packages/wallet testnet:verify
 ```
 
-Friendbot funds separate reserve-sponsor and fee-payer accounts, plus an outsider used to verify the sponsorship refusal. Wallet users are created with 0 XLM. The driver checks raw `extXdr` sponsorship identities, alternate fee-payer inclusion via the inner hash, rejection of an absent transaction whose sequence another transaction consumed, and that a second key cannot bind a username the first key already bound. It uses a short recovery time through the internal builder and store; the public request path keeps the one-day testnet delay. It prints the public evidence (account addresses, transaction hashes and the checks performed) as JSON to stdout; put it in the pull request, not in a file. Payment signing, fee bumping, reconciliation and the nonzero-balance guard are covered by local tests.
+Friendbot funds separate reserve-sponsor and fee-payer accounts, plus an outsider used to verify the sponsorship refusal. Wallet users are created with 0 XLM. The driver checks raw `extXdr` sponsorship identities, alternate fee-payer inclusion via the inner hash, rejection of an absent transaction whose sequence another transaction consumed, and that a second key cannot bind a username the first key already bound. It uses a short recovery time through the internal builder and store; the public request path keeps the one-day testnet delay. It prints the public evidence (account addresses, transaction hashes and the checks performed) as JSON to stdout; put it in the pull request, not in a file.

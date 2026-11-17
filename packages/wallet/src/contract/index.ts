@@ -395,7 +395,6 @@ export interface WalletPort {
     claim: WalletClaim,
     approval: Option.Option<Approval>,
   ): Effect.Effect<OpenStep, WalletUnavailable>;
-  // Later backup step: protect(enrollment, approval) and recover(assertion); see backup.md.
   transfer(
     order: TransferOrder,
     approval: Option.Option<Approval>,
