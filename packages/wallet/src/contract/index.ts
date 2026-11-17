@@ -108,12 +108,18 @@ export class UsernameTaken extends Schema.TaggedClass<UsernameTaken>()("Username
   username: Username,
 }) {}
 
+/** This address is already bound to another username. Names never change hands or get renamed. */
+export class AddressBound extends Schema.TaggedClass<AddressBound>()("AddressBound", {
+  profile: Profile,
+}) {}
+
 export const OpenStep = Schema.Union([
   OpeningDraft,
   RecoveryDraft,
   OpeningPending,
   Opened,
   UsernameTaken,
+  AddressBound,
   InvalidAddress,
   NotSponsored,
 ]);

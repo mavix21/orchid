@@ -2,6 +2,7 @@ import type * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type { OpeningFacts, PaymentFacts, RecoveryFacts } from "../stellar/envelopes";
 import type {
+  AddressBound,
   Approval,
   InvalidAddress,
   NotSponsored,
@@ -59,6 +60,7 @@ export type CreateOutcome =
   | NotSponsored
   | Opened
   | UsernameTaken
+  | AddressBound
   | InvalidUsername
   | UnsupportedDevice
   | DraftRejected

@@ -1,4 +1,7 @@
 import { beforeAll, beforeEach, expect, test } from "bun:test";
+import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   Account,
   Transaction,
@@ -18,6 +21,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  AddressBound,
   AddressRecipient,
   PhoneRecipient,
   Approval,
@@ -48,6 +52,8 @@ import {
   Usdc,
   Username,
   UsernameRecipient,
+  UsernameTaken,
+  UnknownRecipient,
   WalletClaim,
 } from "../src/contract";
 import {
@@ -61,7 +67,8 @@ import {
   Undecided,
 } from "../src/server/Chain.server";
 import { KnownExchangeMemo, exchangeMemoFor } from "../src/server/exchange-memos.server";
-import { Directory, StoreFailure, Taken } from "../src/server/Directory.server";
+import { Directory, StoreFailure } from "../src/server/Directory.server";
+import { usernames, wallets } from "../src/server/tables.server";
 import {
   Authorized,
   Concluded,
@@ -282,7 +289,7 @@ beforeEach(async () => {
     Effect.gen(function* () {
       const db = yield* makeDatabase();
 
-      yield* db.execute(sql`truncate transfers, wallets`);
+      yield* db.execute(sql`truncate transfers, usernames, wallets`);
     }).pipe(Effect.provide(dbLayer)),
   );
 });
@@ -444,18 +451,20 @@ test("same id concurrent approvals keep one immutable sealed envelope", async ()
   expect(await runStores(Transfers.use((transfers) => transfers.inFlight))).toHaveLength(1);
 });
 
-test("phone support is a typed refusal and name claims cannot be stolen", async () => {
+test("phone support is a typed refusal and bound names cannot be taken by another key", async () => {
   const key = Keypair.random();
 
   expect(await send(orderFor(key, PhoneRecipient.make({ value: "+51999999999" })))).toBeInstanceOf(
     PhoneNotSupported,
   );
   await create(key, "maria");
-  expect(
-    await runStores(
-      Directory.use((directory) => directory.claim(claimFor(Keypair.random(), "maria"))),
-    ),
-  ).toBeInstanceOf(Taken);
+
+  const before = world.submitted.length;
+
+  expect(await opening(claimFor(Keypair.random(), "maria"))).toEqual(
+    new UsernameTaken({ username: Schema.decodeSync(Username)("maria") }),
+  );
+  expect(world.submitted).toHaveLength(before);
 });
 
 test("recovery sweep checks time, balance and sequence before submitting", async () => {
@@ -650,88 +659,139 @@ test("database failure during authorization submits nothing", async () => {
   ).toBeInstanceOf(Proposed);
 });
 
-test("reopening keeps the original username after the takeover lease expires", async () => {
+test("a name is bound only by the signed opening; drafts reserve nothing", async () => {
   const key = Keypair.random();
+  const first = claimFor(key, "maria");
+  const draft = await opening(first);
+
+  if (!(draft instanceof OpeningDraft)) throw new Error("Expected draft");
+
+  // Asking for another name before signing is not a conflict with the abandoned first choice.
+  const second = claimFor(key, "maria2");
+  const redraft = await opening(second);
+
+  if (!(redraft instanceof OpeningDraft)) throw new Error("Expected draft for the new name");
+
+  expect(await opening(claimFor(Keypair.random(), "maria"))).toBeInstanceOf(OpeningDraft);
+  expect(await opening(second, approve(redraft.request, key))).toBeInstanceOf(OpeningPending);
+  expect(await opening(first)).toEqual(new AddressBound({ profile: new Profile(second) }));
+  expect(await opening(claimFor(Keypair.random(), "maria2"))).toEqual(
+    new UsernameTaken({ username: second.username }),
+  );
+});
+
+test("concurrent signed openings bind a name once and the loser submits nothing", async () => {
+  const keys = [Keypair.random(), Keypair.random()];
+  const claims = keys.map((key) => claimFor(key, "maria"));
+  const drafts = await Promise.all(claims.map((claim) => opening(claim)));
+
+  const results = await Promise.all(
+    drafts.map((draft, index) => {
+      if (!(draft instanceof OpeningDraft)) throw new Error("Expected draft");
+
+      return opening(claims[index] ?? claims[0], approve(draft.request, keys[index] ?? keys[0]));
+    }),
+  );
+
+  expect(results.filter((result) => result instanceof OpeningPending)).toHaveLength(1);
+  expect(results.filter((result) => result instanceof UsernameTaken)).toHaveLength(1);
+  expect(world.submitted).toHaveLength(1);
+
+  const loser = results.findIndex((result) => result instanceof UsernameTaken);
+  const key = keys[loser] ?? keys[0];
+  const renamed = claimFor(key, "maria_2");
+  const retry = await opening(renamed);
+
+  if (!(retry instanceof OpeningDraft)) throw new Error("Expected loser to redraft");
+
+  expect(await opening(renamed, approve(retry.request, key))).toBeInstanceOf(OpeningPending);
+  expect(world.submitted).toHaveLength(2);
+});
+
+test("reserved names are never bound", async () => {
+  const key = Keypair.random();
+
+  for (const name of ["orchid", "support", "admin", "security", "wallet", "official"]) {
+    expect(await opening(claimFor(key, name))).toEqual(
+      new UsernameTaken({ username: Schema.decodeSync(Username)(name) }),
+    );
+  }
+
+  expect(
+    Option.isNone(
+      await runStores(Directory.use((directory) => directory.byAddress(addressOf(key)))),
+    ),
+  ).toBe(true);
+  expect(world.submitted).toHaveLength(0);
+});
+
+test("a recovered name stays bound to its address but is not payable until reopened", async () => {
+  const key = Keypair.random();
+  const sender = Keypair.random();
   const claim = await create(key, "maria");
 
+  await create(sender, "rosa");
+  fundHolder(sender);
   world.accounts.delete(claim.address);
-  await run(Wallet.use((wallet) => wallet.overview(claim.address)));
-  expect(await opening(claim)).toBeInstanceOf(OpeningDraft);
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const db = yield* makeDatabase();
-
-      yield* db.execute(
-        sql`update wallets set "claimedAt" = now() - interval '1 hour' where address = ${claim.address}`,
-      );
-    }).pipe(Effect.provide(dbLayer)),
-  );
-
-  const attacker = claimFor(Keypair.random(), "maria");
-
-  expect(await runStores(Directory.use((directory) => directory.claim(attacker)))).toBeInstanceOf(
-    Taken,
-  );
-
-  const row = Option.getOrThrow(
-    await runStores(Directory.use((directory) => directory.byAddress(claim.address))),
-  );
-
   expect(await run(Wallet.use((wallet) => wallet.overview(claim.address)))).toEqual(
     new NeedsReopening({ profile: new Profile(claim) }),
   );
-  expect(row.status).toBe("reopening");
-  expect(row.ownershipBound).toBe(true);
-  expect(await opening(claim)).toBeInstanceOf(OpeningDraft);
+
+  const order = orderFor(sender, UsernameRecipient.make({ value: claim.username }));
+
+  expect(await send(order)).toBeInstanceOf(UnknownRecipient);
+  expect(await opening(claimFor(Keypair.random(), "maria"))).toBeInstanceOf(UsernameTaken);
+  expect(await opening(claimFor(key, "maria2"))).toEqual(
+    new AddressBound({ profile: new Profile(claim) }),
+  );
+
+  const draft = await opening(claim);
+
+  if (!(draft instanceof OpeningDraft)) throw new Error("Expected reopening draft");
+
+  // Repair is in progress: the wallet stays recovered and unpayable until activation.
+  await opening(claim, approve(draft.request, key));
+  expect(await run(Wallet.use((wallet) => wallet.overview(claim.address)))).toBeInstanceOf(
+    NeedsReopening,
+  );
+  expect(await send(order)).toBeInstanceOf(UnknownRecipient);
+
+  const recovery = await opening(claim);
+
+  if (!(recovery instanceof RecoveryDraft)) throw new Error("Expected recovery draft");
+
+  expect(await opening(claim, approve(recovery.request, key))).toBeInstanceOf(Opened);
+  expect(await send(order)).toBeInstanceOf(TransferDraft);
 });
 
-test("an unsigned claim lease refreshes on activity but a truly stale first claim can expire", async () => {
+test("an existing account without a name binds it before activation", async () => {
   const key = Keypair.random();
   const claim = claimFor(key, "maria");
 
-  await opening(claim);
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const db = yield* makeDatabase();
+  world.accounts.set(claim.address, {
+    sequence: "1000",
+    ledger: 100,
+    accountSponsored: true,
+    sponsored: true,
+    nativeBalance: 0n,
+    balance: Option.some(Schema.decodeSync(Usdc)("0")),
+  });
 
-      yield* db.execute(
-        sql`update wallets set "claimedAt" = now() - interval '1 hour' where address = ${claim.address}`,
-      );
-    }).pipe(Effect.provide(dbLayer)),
+  const recovery = await opening(claim);
+
+  if (!(recovery instanceof RecoveryDraft)) throw new Error("Expected recovery draft");
+
+  expect(await opening(claim, approve(recovery.request, key))).toEqual(
+    new Opened({ profile: new Profile(claim) }),
   );
-  await opening(claim);
-  expect(
-    await runStores(
-      Directory.use((directory) => directory.claim(claimFor(Keypair.random(), "maria"))),
-    ),
-  ).toBeInstanceOf(Taken);
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const db = yield* makeDatabase();
-
-      yield* db.execute(
-        sql`update wallets set "claimedAt" = now() - interval '1 hour' where address = ${claim.address}`,
-      );
-    }).pipe(Effect.provide(dbLayer)),
-  );
-
-  const replacement = claimFor(Keypair.random(), "maria");
-  const taken = await runStores(Directory.use((directory) => directory.claim(replacement)));
-
-  expect(taken).not.toBeInstanceOf(Taken);
-  expect(
-    Option.isSome(
-      await runStores(Directory.use((directory) => directory.byAddress(replacement.address))),
-    ),
-  ).toBe(true);
+  expect(await opening(claimFor(Keypair.random(), "maria"))).toBeInstanceOf(UsernameTaken);
+  expect(world.submitted).toHaveLength(0);
 });
 
 test("a sealed opening outside RPC history redrafts after the ledger passes maxTime", async () => {
   const key = Keypair.random();
   const claim = claimFor(key, "maria");
-  const row = await runStores(Directory.use((directory) => directory.claim(claim)));
-
-  if (row instanceof Taken) throw new Error("Expected claim");
+  const row = await runStores(Directory.use((directory) => directory.start(claim.address)));
 
   const now = Math.floor(Date.now() / 1000);
 
@@ -764,7 +824,9 @@ test("a sealed opening outside RPC history redrafts after the ledger passes maxT
     expiresAt: DateTime.makeUnsafe((now - 80) * 1000),
   });
 
-  await runStores(Directory.use((directory) => directory.attempt(row, historical)));
+  expect(
+    await runStores(Directory.use((directory) => directory.seal(row, historical, claim))),
+  ).not.toBeInstanceOf(UsernameTaken);
 
   const retry = await opening(claim);
 
@@ -1416,4 +1478,172 @@ test("a stale redraft cannot replace a concurrent durable authorization", async 
   if (!(outer instanceof FeeBumpTransaction)) throw new Error("Expected fee bump");
 
   expect(outer.innerTransaction.sequence).toBe("1001");
+});
+
+test("existing wallet rows migrate into permanent name bindings", async () => {
+  const folder = `${import.meta.dir}/../drizzle`;
+  const before = await mkdtemp(join(tmpdir(), "orchid-wallet-migrations-"));
+  const scratchName = `wallet_migration_${crypto.randomUUID().replaceAll("-", "")}`;
+
+  const control = (statement: ReturnType<typeof sql>) =>
+    Effect.runPromise(
+      makeDatabase().pipe(
+        Effect.flatMap((db) => db.execute(statement)),
+        Effect.provide(dbLayer),
+      ),
+    );
+
+  const scratchLayer = databaseLayer({
+    connectionString: `postgres://orchid:orchid-local@127.0.0.1:55433/${scratchName}`,
+  });
+
+  const keys = Array.from({ length: 7 }, () => Keypair.random());
+
+  const [unsigned, signedClaim, legacyClaim, opened, reopening, active, recovered] =
+    keys.map(addressOf);
+
+  // The two migrations that existed before usernames moved to their own table.
+  for (const name of (await readdir(folder)).sort().slice(0, 2))
+    await cp(join(folder, name), join(before, name), { recursive: true });
+
+  await control(sql.raw(`create database ${scratchName}`));
+
+  try {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const db = yield* makeDatabase();
+
+        yield* migrate(db, { migrationsFolder: before });
+
+        const row = (
+          address: AccountAddress | undefined,
+          username: string,
+          status: string,
+          extra: string,
+        ) =>
+          db.execute(
+            sql.raw(
+              `insert into wallets (address, username, status, "ownershipBound", network, "testnetEpoch", "attemptEnvelope", "attemptHash", "attemptExpiresAt", "recoveryDraft", "recoveryEnvelope", "recoveryHash", "recoverySequence", "recoveryMinTime", "recoveryMaxTime") values ('${address}', '${username}', '${status}', ${extra})`,
+            ),
+          );
+
+        const recovery = `'draft', 'envelope', 'hash', '1001', now(), now() + interval '1 day'`;
+
+        yield* row(
+          unsigned,
+          "unsigned",
+          "claimed",
+          `false, 'testnet', 'before-2026-12-16', 'draft', null, now(), null, null, null, null, null, null`,
+        );
+        yield* row(
+          signedClaim,
+          "signed",
+          "claimed",
+          `false, 'testnet', 'before-2026-12-16', 'sealed', 'hash', now(), null, null, null, null, null, null`,
+        );
+        yield* row(
+          legacyClaim,
+          "legacy",
+          "claimed",
+          `true, 'testnet', 'before-2026-12-16', 'draft', null, now(), null, null, null, null, null, null`,
+        );
+        yield* row(
+          opened,
+          "opened",
+          "opening",
+          `true, 'testnet', 'before-2026-12-16', 'sealed', 'hash', now(), 'draft', null, null, null, null, now() + interval '1 day'`,
+        );
+        yield* row(
+          reopening,
+          "reopening",
+          "reopening",
+          `true, 'testnet', 'before-2026-12-16', 'draft', null, now(), null, null, null, null, null, null`,
+        );
+        yield* row(
+          active,
+          "active",
+          "active",
+          `true, 'testnet', 'before-2026-12-16', 'sealed', 'hash', now(), ${recovery}`,
+        );
+        yield* row(
+          recovered,
+          "recovered",
+          "recovered",
+          `true, 'testnet', 'before-2026-12-16', 'sealed', 'hash', now(), ${recovery}`,
+        );
+
+        yield* migrate(db, { migrationsFolder: folder });
+      }).pipe(Effect.provide(scratchLayer)),
+    );
+
+    const migrated = await Effect.runPromise(
+      Effect.gen(function* () {
+        const db = yield* makeDatabase();
+        const names = yield* db.select().from(usernames).orderBy(usernames.username);
+        const rows = yield* db.select().from(wallets);
+
+        return { names, rows };
+      }).pipe(Effect.provide(scratchLayer)),
+    );
+
+    expect(migrated.names.map((name) => [name.username, name.address])).toEqual([
+      ["active", active],
+      ["legacy", legacyClaim],
+      ["opened", opened],
+      ["recovered", recovered],
+      ["reopening", reopening],
+      ["signed", signedClaim],
+    ]);
+
+    const status = new Map(migrated.rows.map((row) => [row.address, row]));
+
+    expect(status.get(unsigned)?.status).toBe("opening");
+    expect(status.get(signedClaim)?.status).toBe("opening");
+    expect(status.get(legacyClaim)?.status).toBe("opening");
+    expect(status.get(opened)?.status).toBe("opening");
+    expect(status.get(reopening)?.status).toBe("recovered");
+    expect(status.get(reopening)?.attemptEnvelope).toBe("draft");
+    expect(status.get(active)?.status).toBe("active");
+    expect(status.get(recovered)?.status).toBe("recovered");
+    expect(status.get(recovered)?.recoveryEnvelope).toBeNull();
+    expect(status.get(recovered)?.attemptHash).toBeNull();
+
+    // The released name is free; the migrated recovered wallet reopens with its own name.
+    const scratchWallet = Wallet.serviceLayer.pipe(
+      Layer.provide(
+        Layer.mergeAll(Directory.layer, Transfers.layer).pipe(Layer.provide(scratchLayer)),
+      ),
+      Layer.provide(fakeChain),
+    );
+
+    const reopen = (claim: WalletClaim, approval: Option.Option<Approval> = Option.none()) =>
+      Effect.runPromise(
+        Wallet.use((wallet) => wallet.open(claim, approval)).pipe(Effect.provide(scratchWallet)),
+      );
+
+    const recoveredKey = keys[6] ?? Keypair.random();
+    const claim = claimFor(recoveredKey, "recovered");
+
+    expect(await reopen(claimFor(Keypair.random(), "unsigned"))).toBeInstanceOf(OpeningDraft);
+    expect(await reopen(claimFor(Keypair.random(), "signed"))).toBeInstanceOf(UsernameTaken);
+
+    const draft = await reopen(claim);
+
+    if (!(draft instanceof OpeningDraft)) throw new Error("Expected reopening draft");
+
+    expect(await reopen(claim, approve(draft.request, recoveredKey))).toBeInstanceOf(
+      OpeningPending,
+    );
+
+    const recoveryStep = await reopen(claim);
+
+    if (!(recoveryStep instanceof RecoveryDraft)) throw new Error("Expected recovery draft");
+
+    expect(await reopen(claim, approve(recoveryStep.request, recoveredKey))).toEqual(
+      new Opened({ profile: new Profile(claim) }),
+    );
+  } finally {
+    await control(sql.raw(`drop database if exists ${scratchName} with (force)`));
+    await rm(before, { recursive: true, force: true });
+  }
 });
