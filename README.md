@@ -19,20 +19,20 @@ Make these payment flows accessible from a mobile browser. Currently only the ap
 
 ## Tech stack
 
-Bun 1.4.4, React 19.3.1, TanStack Start 1.169.5, Vite 8.3.8, TypeScript 7.0.2, Tailwind CSS 4.3.5, shadcn 4.23.0, Base UI 1.9.0.
+Bun, React, TanStack Start, Vite, TypeScript, Tailwind CSS, shadcn, Base UI.
 
-Cloudflare Workers/Hyperdrive: Wrangler 4.162.0, Vite plugin 1.69.1. Drizzle ORM 1.0.0-rc.5, Effect and @effect/sql-pg 4.1.4. Oxlint 1.93.0, Oxfmt 0.78.0, Turbo 2.11.11, Effect language service 0.69.0.
+Cloudflare Workers/Hyperdrive: Wrangler, Vite plugin. Drizzle ORM, Effect and @effect/sql-pg. Oxlint, Oxfmt, Turbo, Effect language service.
 
 ## Getting started
 
-Install Bun 1.4.4 and Docker Desktop. Port 55432 must be free.
+Install Bun and Docker Desktop. Port 55432 must be free.
 
 ```sh
 bun install
 docker run -d --name orchid-postgres \
   -e POSTGRES_USER=orchid -e POSTGRES_PASSWORD=orchid-local -e POSTGRES_DB=orchid \
   -p 127.0.0.1:55432:5432 \
-  -v orchid-postgres-data:/var/lib/postgresql/data postgres:17.12
+  -v orchid-postgres-data:/var/lib/postgresql/data postgres:17
 bun run dev
 ```
 
