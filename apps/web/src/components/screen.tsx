@@ -1,7 +1,8 @@
-// Mobile-first screen column. The Figma status bar (9:41) is device chrome and is not rendered.
+// Mobile-first screen column. The Figma status bar (9:41) is device chrome, so the
+// column starts below the device safe area instead of drawing it.
 export function Screen({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-background text-foreground">
+    <div className="mx-auto flex min-h-dvh w-full pt-safe max-w-md flex-col bg-background text-foreground">
       {children}
     </div>
   );

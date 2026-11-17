@@ -136,6 +136,11 @@
   --text-keypad--font-weight: 500;
 }
 
+/* Device safe area (viewport-fit=cover); 16px floor where the inset is 0, e.g. in a browser tab. */
+@utility pt-safe {
+  padding-top: max(env(safe-area-inset-top), --spacing(4));
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
