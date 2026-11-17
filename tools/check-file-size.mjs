@@ -23,7 +23,9 @@ const paths = process.argv.slice(2);
 const staged = paths.length === 0;
 
 const candidates = staged
-  ? git(["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"]).split("\0")
+  ? git(["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"]).split(
+      "\0",
+    )
   : paths;
 
 const oversized = [];
@@ -33,7 +35,9 @@ for (const path of candidates) {
     continue;
   }
 
-  const bytes = staged ? Number(git(["cat-file", "-s", `:${path}`])) : statSync(path).size;
+  const bytes = staged
+    ? Number(git(["cat-file", "-s", `:${path}`]))
+    : statSync(path).size;
 
   if (bytes > maxTokens * bytesPerToken) {
     oversized.push(`  ${path}: ${Math.ceil(bytes / bytesPerToken)} tokens`);
