@@ -1,6 +1,7 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 
 import appCss from "@workspace/ui/globals.css?url";
+import { ThemeProvider } from "@/components/theme-provider";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -10,10 +11,10 @@ export const Route = createRootRoute({
       },
       {
         name: "viewport",
-        content: "width=device-width, initial-scale=1",
+        content: "width=device-width, initial-scale=1, viewport-fit=cover",
       },
       {
-        title: "TanStack Start Starter",
+        title: "Orchid",
       },
     ],
     links: [
@@ -24,9 +25,11 @@ export const Route = createRootRoute({
     ],
   }),
   notFoundComponent: () => (
-    <main className="container mx-auto p-4 pt-16">
-      <h1>404</h1>
-      <p>The requested page could not be found.</p>
+    <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-2 px-5 pt-16">
+      <h1 className="font-display text-h1">404</h1>
+      <p className="text-body text-muted-foreground">
+        No encontramos esta página.
+      </p>
     </main>
   ),
   shellComponent: RootDocument,
@@ -34,12 +37,14 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="es" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
       <body>
-        {children}
+        <ThemeProvider defaultTheme="system" storageKey="theme">
+          {children}
+        </ThemeProvider>
         <Scripts />
       </body>
     </html>
