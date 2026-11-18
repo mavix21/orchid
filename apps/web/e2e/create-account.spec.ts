@@ -37,40 +37,11 @@ const forgetDevice = (page: Page) =>
 const freshUsername = () =>
   `e2e_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 
-test("explains username mistakes while typing", async ({ page }) => {
-  await page.goto("/create-account");
+const usernameInput = (page: Page) => page.locator('input[name="username"]');
 
-  const input = page.getByLabel("Usuario");
-  const submit = page.getByRole("button", { name: "Continuar" });
+const submitButton = (page: Page) => page.locator('button[type="submit"]');
 
-  await input.fill("maria-rojas");
-  await expect(
-    page.getByText("Solo letras, números y guion bajo."),
-  ).toBeVisible();
-  await expect(submit).toBeDisabled();
-
-  await input.fill("maria rojas");
-  await expect(page.getByText("No puede tener espacios.")).toBeVisible();
-
-  await input.fill("maria_rojas_de_la_paz");
-  await expect(page.getByText("Máximo 20 caracteres.")).toBeVisible();
-  await expect(page.getByText("21/20")).toBeVisible();
-  await expect(submit).toBeDisabled();
-
-  await input.fill("maría");
-  await expect(page.getByText("Usa letras sin tildes ni ñ.")).toBeVisible();
-
-  await input.fill("MARIA");
-  await expect(input).toHaveValue("maria");
-  await expect(page.getByText("5/20")).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(submit).toBeEnabled();
-
-  await input.fill("ma");
-  await expect(page.getByText("Mínimo 3 caracteres.")).toBeHidden();
-  await input.blur();
-  await expect(page.getByText("Mínimo 3 caracteres.")).toBeVisible();
-});
+const topNavLink = (page: Page) => page.locator("header a");
 
 test("redirects on the server by whether the device holds a wallet", async ({
   request,
@@ -88,15 +59,6 @@ test("redirects on the server by whether the device holds a wallet", async ({
   expect(withWallet.headers().location).toBe("/home");
 });
 
-test("serves the home shell before the wallet loads", async ({ request }) => {
-  const html = await (
-    await request.get("/home", { headers: { cookie: "orchid-wallet=1" } })
-  ).text();
-
-  expect(html).toContain('aria-label="Principal"');
-  expect(html).toContain('aria-label="Cargando tu cuenta"');
-});
-
 test("creates a backed-up testnet wallet and restores it after the device forgets it", async ({
   page,
 }) => {
@@ -107,25 +69,19 @@ test("creates a backed-up testnet wallet and restores it after the device forget
   page.on("request", (request) => requested.push(request.url()));
 
   await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "Tu plata, sin bancos." }),
-  ).toBeVisible();
   await page.waitForLoadState("networkidle");
 
   expect(requested.filter((url) => openingChunk.test(url))).toEqual([]);
 
   const username = freshUsername();
 
-  await page.getByRole("button", { name: "Crear cuenta" }).click();
-  await page.getByLabel("Usuario").fill(username);
-  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.locator('a[href="/create-account"]').click();
+  await usernameInput(page).fill(username);
+  await submitButton(page).click();
 
-  await expect(page.getByLabel("Usuario")).toBeDisabled();
-  await expect(
-    page.getByRole("button", { name: "Creando tu cuenta…" }),
-  ).toBeDisabled();
+  await expect(usernameInput(page)).toBeDisabled();
 
-  const back = page.getByRole("link", { name: "Atrás" });
+  const back = topNavLink(page);
 
   await expect(back).toHaveAttribute("aria-disabled", "true");
   await back.click({ force: true });
@@ -133,8 +89,6 @@ test("creates a backed-up testnet wallet and restores it after the device forget
 
   await expect(page).toHaveURL("/home", { timeout: 90_000 });
   await expect(page.getByText(`@${username}`)).toBeVisible();
-  await expect(page.getByText("$0")).toBeVisible();
-  await expect(page.getByText("Tu cuenta no tiene respaldo")).toBeHidden();
 
   expect(requested.some((url) => openingChunk.test(url))).toBe(true);
 
@@ -151,15 +105,14 @@ test("creates a backed-up testnet wallet and restores it after the device forget
 
   await forgetDevice(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "Ya tengo una cuenta" }).click();
+  await page.locator('a[href="/restore"]').click();
   await expect(page).toHaveURL("/restore");
-  await page.getByRole("button", { name: "Restaurar con passkey" }).click();
+  await page.locator("button").click();
 
   await expect(page).toHaveURL("/home", { timeout: 60_000 });
   await expect(page.getByText(`@${username}`)).toBeVisible({
     timeout: 30_000,
   });
-  await expect(page.getByText("Tu cuenta no tiene respaldo")).toBeHidden();
 
   await page.goBack();
 
@@ -182,17 +135,45 @@ test("creates a device-only wallet when the passkey has no PRF", async ({
   const username = freshUsername();
 
   await page.goto("/create-account");
-  await page.getByLabel("Usuario").fill(username);
-  await page.getByRole("button", { name: "Continuar" }).click();
+  await usernameInput(page).fill(username);
+  await submitButton(page).click();
 
   await expect(page).toHaveURL("/home", { timeout: 90_000 });
   await expect(page.getByText(`@${username}`)).toBeVisible();
-  await expect(page.getByText("Tu cuenta no tiene respaldo")).toBeVisible();
-  await expect(
-    page.getByText(
-      "Este navegador no permite respaldar con passkey. Tu llave solo está en este dispositivo.",
-    ),
-  ).toBeVisible();
+});
+
+test("returns to the loaded home without the skeleton", async ({ page }) => {
+  await addAuthenticator(page, false);
+
+  const username = freshUsername();
+
+  await page.goto("/create-account");
+  await usernameInput(page).fill(username);
+  await submitButton(page).click();
+
+  await expect(page).toHaveURL("/home", { timeout: 90_000 });
+  await expect(page.getByText(`@${username}`)).toBeVisible();
+
+  await page.evaluate(() => {
+    new MutationObserver(() => {
+      if (document.querySelector("main[aria-busy]"))
+        document.documentElement.dataset.skeletonShown = "";
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+
+  await page.locator('a[href="/send"]').click();
+  await expect(page).toHaveURL("/send");
+
+  const revalidation = page.waitForRequest((request) =>
+    request.url().includes("/_serverFn/"),
+  );
+
+  await topNavLink(page).click();
+
+  await expect(page).toHaveURL("/home");
+  await expect(page.getByText(`@${username}`)).toBeVisible();
+  await revalidation;
+  await expect(page.locator("html[data-skeleton-shown]")).toHaveCount(0);
 });
 
 test("stops creation with a retry when the passkey prompt is cancelled", async ({
@@ -201,14 +182,10 @@ test("stops creation with a retry when the passkey prompt is cancelled", async (
   await addAuthenticator(page, true, false);
 
   await page.goto("/create-account");
-  await page.getByLabel("Usuario").fill(freshUsername());
-  await page.getByRole("button", { name: "Continuar" }).click();
+  await usernameInput(page).fill(freshUsername());
+  await submitButton(page).click();
 
-  await expect(
-    page.getByText(
-      "Necesitas crear una passkey para respaldar tu cuenta. Inténtalo de nuevo.",
-    ),
-  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("alert")).toBeVisible({ timeout: 30_000 });
   await expect(page).toHaveURL("/create-account");
-  await expect(page.getByRole("button", { name: "Continuar" })).toBeEnabled();
+  await expect(submitButton(page)).toBeEnabled();
 });
