@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Navigate, createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import {
   type BackUpOutcome,
+  type DeviceOverview,
   type Holding,
   type SavedBackup,
   type SavedOutcome,
@@ -20,7 +21,6 @@ import { recentActivity } from "@/fixtures/activity";
 export const Route = createFileRoute("/_app/home")({
   ssr: false,
   pendingMs: 0,
-  gcTime: 0,
   pendingComponent: HomeSkeleton,
   loader: async ({ context }) => {
     const [overview, saved] = await Promise.all([
@@ -28,10 +28,20 @@ export const Route = createFileRoute("/_app/home")({
       context.walletClient.saved(),
     ]);
 
-    return { overview, backup: savedBackup(saved) };
+    return { overview: shownOverview(overview), backup: savedBackup(saved) };
   },
   component: HomeScreen,
 });
+
+const shownOverview = Match.type<DeviceOverview>().pipe(
+  Match.tag("NoWallet", () => {
+    throw redirect({ to: "/", replace: true });
+  }),
+  Match.tag("NotOpened", () => {
+    throw redirect({ to: "/create-account", replace: true });
+  }),
+  Match.orElse((overview) => overview),
+);
 
 const savedBackup = (saved: SavedOutcome): SavedBackup =>
   Match.valueTags(saved, {
@@ -61,8 +71,6 @@ function HomeScreen() {
   const { overview, backup } = Route.useLoaderData();
 
   return Match.valueTags(overview, {
-    NoWallet: () => <Navigate to="/" replace />,
-    NotOpened: () => <Navigate to="/create-account" replace />,
     Holding: (holding) => <Home holding={holding} backup={backup} />,
     NeedsReopening: ({ profile }) => <Reopening username={profile.username} />,
     InvalidAddress: () => (
