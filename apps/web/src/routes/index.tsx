@@ -1,11 +1,15 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 
 import { BrandLogo } from "@/components/brand-logo";
 import { Screen, ScreenActions } from "@/components/screen";
 import { useHomeForSavedWallet } from "@/wallet/use-home-for-saved-wallet";
+import { deviceHoldsWallet } from "@/wallet/wallet-cookie";
 
 export const Route = createFileRoute("/")({
+  beforeLoad: () => {
+    if (deviceHoldsWallet()) throw redirect({ to: "/home" });
+  },
   component: Welcome,
 });
 
