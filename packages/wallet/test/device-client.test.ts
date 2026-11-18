@@ -10,12 +10,14 @@ import {
   OpeningDraft,
   RecoveryDraft,
   SigningRequest,
+  Username,
   WalletUnavailable,
   type WalletPort,
 } from "../src/contract";
 import {
   DraftRejected,
   NoWallet,
+  SavedWallet,
   makeWalletClient,
 } from "../src/device/client";
 import { DeviceWallet, type KeyStore } from "../src/device/key-store";
@@ -134,6 +136,17 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           ).toBe("Offline");
 
           const before = yield* savedWallet(store);
+
+          expect(
+            yield* Effect.promise(() =>
+              makeWalletClient(wallet, store).saved(),
+            ),
+          ).toEqual(
+            new SavedWallet({
+              username: Schema.decodeSync(Username)("maria"),
+              openingApproved: true,
+            }),
+          );
 
           expect(yield* walletStatus(store)).toEqual(Option.some("opening"));
 

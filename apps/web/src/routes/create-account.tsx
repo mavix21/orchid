@@ -1,5 +1,5 @@
 import { ChevronLeftIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -13,8 +13,16 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@workspace/ui/components/input-group";
-import type { CreateOutcome } from "@workspace/wallet";
+import {
+  type CreateOutcome,
+  type UsernameIssue,
+  usernameIssue,
+  usernameMaxLength,
+  usernameMinLength,
+} from "@workspace/wallet";
 import * as Match from "effect/Match";
+import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 
 import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
@@ -28,7 +36,7 @@ export const Route = createFileRoute("/create-account")({
 const refusal = (outcome: Exclude<CreateOutcome, { _tag: "Opened" }>) =>
   Match.valueTags(outcome, {
     InvalidUsername: () =>
-      "Usa de 3 a 20 caracteres: letras minúsculas, números o _.",
+      `Usa de ${usernameMinLength} a ${usernameMaxLength} caracteres: letras minúsculas, números o _.`,
     UsernameTaken: () => "Ese usuario ya está tomado. Prueba con otro.",
     AddressBound: ({ profile }) => `Tu llave ya es @${profile.username}.`,
     OpeningPending: () =>
@@ -42,27 +50,79 @@ const refusal = (outcome: Exclude<CreateOutcome, { _tag: "Opened" }>) =>
     Offline: () => "Sin conexión. Inténtalo de nuevo.",
   });
 
+const issueMessage = (issue: UsernameIssue) =>
+  Match.valueTags(issue, {
+    ForbiddenCharacter: ({ character }) =>
+      character.trim() === ""
+        ? "No se permiten espacios."
+        : `No se permite «${character}». Usa letras, números o _.`,
+    UsernameTooLong: ({ length }) =>
+      `Máximo ${usernameMaxLength} caracteres. Te sobran ${length - usernameMaxLength}.`,
+    UsernameTooShort: () => `Mínimo ${usernameMinLength} caracteres.`,
+  });
+
 function ChooseUsername() {
   const navigate = useNavigate();
   const { walletClient } = Route.useRouteContext();
   const [username, setUsername] = useState("");
+  const [touched, setTouched] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const [problem, setProblem] = useState<string>();
 
-  const create = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const typedIssue = usernameIssue(username);
+
+  const blockingIssue = typedIssue.pipe(
+    Option.filter((found) => !Predicate.isTagged(found, "UsernameTooShort")),
+  );
+
+  const issue = touched ? typedIssue : blockingIssue;
+
+  const message = Option.match(issue, {
+    onNone: () => problem,
+    onSome: issueMessage,
+  });
+
+  const create = async (name: string) => {
     setCreating(true);
     setProblem(undefined);
 
-    const outcome = await walletClient.create(username);
+    const outcome = await walletClient.create(name);
 
     await Match.value(outcome).pipe(
       Match.tag("Opened", () => navigate({ to: "/home" })),
       Match.orElse((refused) => {
         setProblem(refusal(refused));
         setCreating(false);
+        setResuming(false);
       }),
     );
+  };
+
+  useEffect(() => {
+    let current = true;
+
+    void walletClient.saved().then((saved) => {
+      if (!current || !Predicate.isTagged(saved, "SavedWallet")) return;
+
+      setUsername(saved.username);
+
+      if (!saved.openingApproved) return;
+
+      setResuming(true);
+      void create(saved.username);
+    });
+
+    return () => {
+      current = false;
+    };
+  }, [walletClient]);
+
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setTouched(true);
+
+    if (Option.isNone(typedIssue)) void create(username);
   };
 
   return (
@@ -73,7 +133,7 @@ function ChooseUsername() {
         icon={<ChevronLeftIcon />}
         link={<Link to="/" />}
       />
-      <form className="flex flex-1 flex-col" onSubmit={create}>
+      <form className="flex flex-1 flex-col" noValidate onSubmit={submit}>
         <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
           <div className="flex flex-col gap-2">
             <h1 className="font-display text-h1">Elige tu @usuario</h1>
@@ -92,20 +152,27 @@ function ChooseUsername() {
                 id="username"
                 name="username"
                 value={username}
-                onChange={(event) =>
-                  setUsername(event.target.value.toLowerCase())
-                }
-                aria-invalid={problem ? true : undefined}
+                onChange={(event) => {
+                  setUsername(event.target.value.toLowerCase());
+                  setProblem(undefined);
+                }}
+                onBlur={() => setTouched(username.length > 0)}
+                disabled={resuming}
+                aria-invalid={message ? true : undefined}
+                aria-describedby="username-hint"
                 autoComplete="username"
                 autoCapitalize="none"
                 spellCheck={false}
                 autoFocus
               />
             </InputGroup>
-            {problem ? (
-              <FieldError>{problem}</FieldError>
+            {message ? (
+              <FieldError id="username-hint">{message}</FieldError>
             ) : (
-              <FieldDescription>Es permanente: elígelo bien.</FieldDescription>
+              <FieldDescription id="username-hint">
+                Letras, números o _ · {Array.from(username).length}/
+                {usernameMaxLength} · Es permanente.
+              </FieldDescription>
             )}
           </Field>
         </main>
@@ -113,9 +180,15 @@ function ChooseUsername() {
           <Button
             className="w-full"
             type="submit"
-            disabled={creating || username.length === 0}
+            disabled={
+              creating || username.length === 0 || Option.isSome(blockingIssue)
+            }
           >
-            {creating ? "Creando tu cuenta…" : "Continuar"}
+            {resuming
+              ? "Terminando de crear tu cuenta…"
+              : creating
+                ? "Creando tu cuenta…"
+                : "Continuar"}
           </Button>
         </ScreenActions>
       </form>
