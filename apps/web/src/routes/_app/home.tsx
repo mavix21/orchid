@@ -20,6 +20,7 @@ import { recentActivity } from "@/fixtures/activity";
 export const Route = createFileRoute("/_app/home")({
   ssr: false,
   pendingMs: 0,
+  gcTime: 0,
   pendingComponent: HomeSkeleton,
   loader: async ({ context }) => {
     const [overview, saved] = await Promise.all([

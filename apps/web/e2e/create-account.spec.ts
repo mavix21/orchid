@@ -72,8 +72,26 @@ test("explains username mistakes while typing", async ({ page }) => {
   await expect(page.getByText("Mínimo 3 caracteres.")).toBeVisible();
 });
 
+test("redirects on the server by whether the device holds a wallet", async ({
+  request,
+}) => {
+  const withoutWallet = await request.get("/home", { maxRedirects: 0 });
+
+  const withWallet = await request.get("/", {
+    maxRedirects: 0,
+    headers: { cookie: "orchid-wallet=1" },
+  });
+
+  expect(withoutWallet.status()).toBe(307);
+  expect(withoutWallet.headers().location).toBe("/");
+  expect(withWallet.status()).toBe(307);
+  expect(withWallet.headers().location).toBe("/home");
+});
+
 test("serves the home shell before the wallet loads", async ({ request }) => {
-  const html = await (await request.get("/home")).text();
+  const html = await (
+    await request.get("/home", { headers: { cookie: "orchid-wallet=1" } })
+  ).text();
 
   expect(html).toContain('aria-label="Principal"');
   expect(html).toContain('aria-label="Cargando tu cuenta"');
