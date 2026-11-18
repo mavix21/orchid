@@ -9,21 +9,26 @@ test("explains username mistakes while typing", async ({ page }) => {
   const submit = page.getByRole("button", { name: "Continuar" });
 
   await input.fill("maria-rojas");
-  await expect(page.getByText("No se permite «-»")).toBeVisible();
+  await expect(
+    page.getByText("Solo letras, números y guion bajo."),
+  ).toBeVisible();
   await expect(submit).toBeDisabled();
 
   await input.fill("maria rojas");
-  await expect(page.getByText("No se permiten espacios.")).toBeVisible();
+  await expect(page.getByText("No puede tener espacios.")).toBeVisible();
 
   await input.fill("maria_rojas_de_la_paz");
-  await expect(
-    page.getByText("Máximo 20 caracteres. Te sobran 1."),
-  ).toBeVisible();
+  await expect(page.getByText("Máximo 20 caracteres.")).toBeVisible();
+  await expect(page.getByText("21/20")).toBeVisible();
   await expect(submit).toBeDisabled();
+
+  await input.fill("maría");
+  await expect(page.getByText("Usa letras sin tildes ni ñ.")).toBeVisible();
 
   await input.fill("MARIA");
   await expect(input).toHaveValue("maria");
   await expect(page.getByText("5/20")).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(submit).toBeEnabled();
 
   await input.fill("ma");
