@@ -1,13 +1,13 @@
 import { ChevronLeftIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import type { RestoreOutcome } from "@workspace/wallet";
 import * as Match from "effect/Match";
-import * as Predicate from "effect/Predicate";
 
 import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
+import { useHomeForSavedWallet } from "@/wallet/use-home-for-saved-wallet";
 
 export const Route = createFileRoute("/restore")({
   component: RestoreAccount,
@@ -38,18 +38,7 @@ function RestoreAccount() {
   const [restoring, setRestoring] = useState(false);
   const [problem, setProblem] = useState<string>();
 
-  useEffect(() => {
-    let current = true;
-
-    void walletClient.saved().then((saved) => {
-      if (current && Predicate.isTagged(saved, "SavedWallet"))
-        void navigate({ to: "/home", replace: true });
-    });
-
-    return () => {
-      current = false;
-    };
-  }, [walletClient, navigate]);
+  useHomeForSavedWallet();
 
   const restore = async () => {
     setRestoring(true);
