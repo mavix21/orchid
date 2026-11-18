@@ -17,7 +17,7 @@ import {
   Username,
   type UsernameTaken,
 } from "../contract";
-import type { PasskeyCancelled } from "./passkeys";
+import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";
 
 export class NoWallet extends Schema.TaggedClass<NoWallet>()("NoWallet", {}) {}
 
@@ -70,6 +70,7 @@ export class Restored extends Schema.TaggedClass<Restored>()("Restored", {
 
 export type EnrollmentRefusal =
   | PasskeyCancelled
+  | PasskeyFailed
   | ChallengeRefused
   | RegistrationRefused
   | UnsupportedDevice;
@@ -86,6 +87,7 @@ export type RestoreOutcome =
   | WalletOnDevice
   | BackupUnsupported
   | PasskeyCancelled
+  | PasskeyFailed
   | ChallengeRefused
   | NoBackup
   | AssertionRefused

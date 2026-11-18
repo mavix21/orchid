@@ -20,6 +20,7 @@ const refusal = (
     BackupUnsupported: () =>
       "Este navegador no puede abrir tu respaldo con esa passkey.",
     PasskeyCancelled: () => "No usaste ninguna passkey. Inténtalo de nuevo.",
+    PasskeyFailed: () => "No pudimos usar tu passkey. Inténtalo de nuevo.",
     ChallengeRefused: () => "La solicitud venció. Inténtalo de nuevo.",
     NoBackup: () => "No encontramos un respaldo para esa passkey.",
     AssertionRefused: () =>

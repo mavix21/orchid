@@ -2,7 +2,11 @@ import { type Page, expect, test } from "@playwright/test";
 
 const openingChunk = /\/assets\/opening-[\w-]+\.js$/;
 
-const addAuthenticator = async (page: Page, hasPrf: boolean) => {
+const addAuthenticator = async (
+  page: Page,
+  hasPrf: boolean,
+  isUserVerified = true,
+) => {
   const session = await page.context().newCDPSession(page);
 
   await session.send("WebAuthn.enable");
@@ -12,7 +16,7 @@ const addAuthenticator = async (page: Page, hasPrf: boolean) => {
       transport: "internal",
       hasResidentKey: true,
       hasUserVerification: true,
-      isUserVerified: true,
+      isUserVerified,
       hasPrf,
       automaticPresenceSimulation: true,
     },
@@ -152,4 +156,22 @@ test("creates a device-only wallet when the passkey has no PRF", async ({
       "Este navegador no permite respaldar con passkey. Tu llave solo está en este dispositivo.",
     ),
   ).toBeVisible();
+});
+
+test("stops creation with a retry when the passkey prompt is cancelled", async ({
+  page,
+}) => {
+  await addAuthenticator(page, true, false);
+
+  await page.goto("/create-account");
+  await page.getByLabel("Usuario").fill(freshUsername());
+  await page.getByRole("button", { name: "Continuar" }).click();
+
+  await expect(
+    page.getByText(
+      "Necesitas crear una passkey para respaldar tu cuenta. Inténtalo de nuevo.",
+    ),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(page).toHaveURL("/create-account");
+  await expect(page.getByRole("button", { name: "Continuar" })).toBeEnabled();
 });
