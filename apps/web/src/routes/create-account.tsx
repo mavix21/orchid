@@ -2,12 +2,7 @@ import { ChevronLeftIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldLabel,
-} from "@workspace/ui/components/field";
+import { Field, FieldError, FieldLabel } from "@workspace/ui/components/field";
 import {
   InputGroup,
   InputGroupAddon,
@@ -36,7 +31,7 @@ export const Route = createFileRoute("/create-account")({
 const refusal = (outcome: Exclude<CreateOutcome, { _tag: "Opened" }>) =>
   Match.valueTags(outcome, {
     InvalidUsername: () =>
-      `Usa de ${usernameMinLength} a ${usernameMaxLength} caracteres: letras minúsculas, números o _.`,
+      `Solo letras, números y guion bajo, de ${usernameMinLength} a ${usernameMaxLength} caracteres.`,
     UsernameTaken: () => "Ese usuario ya está tomado. Prueba con otro.",
     AddressBound: ({ profile }) => `Tu llave ya es @${profile.username}.`,
     OpeningPending: () =>
@@ -53,11 +48,12 @@ const refusal = (outcome: Exclude<CreateOutcome, { _tag: "Opened" }>) =>
 const issueMessage = (issue: UsernameIssue) =>
   Match.valueTags(issue, {
     ForbiddenCharacter: ({ character }) =>
-      character.trim() === ""
-        ? "No se permiten espacios."
-        : `No se permite «${character}». Usa letras, números o _.`,
-    UsernameTooLong: ({ length }) =>
-      `Máximo ${usernameMaxLength} caracteres. Te sobran ${length - usernameMaxLength}.`,
+      /\s/u.test(character)
+        ? "No puede tener espacios."
+        : /\p{L}/u.test(character)
+          ? "Usa letras sin tildes ni ñ."
+          : "Solo letras, números y guion bajo.",
+    UsernameTooLong: () => `Máximo ${usernameMaxLength} caracteres.`,
     UsernameTooShort: () => `Mínimo ${usernameMinLength} caracteres.`,
   });
 
@@ -71,6 +67,7 @@ function ChooseUsername() {
   const [problem, setProblem] = useState<string>();
 
   const typedIssue = usernameIssue(username);
+  const length = Array.from(username).length;
 
   const blockingIssue = typedIssue.pipe(
     Option.filter((found) => !Predicate.isTagged(found, "UsernameTooShort")),
@@ -159,21 +156,24 @@ function ChooseUsername() {
                 onBlur={() => setTouched(username.length > 0)}
                 disabled={resuming}
                 aria-invalid={message ? true : undefined}
-                aria-describedby="username-hint"
+                aria-describedby={message ? "username-error" : undefined}
                 autoComplete="username"
                 autoCapitalize="none"
                 spellCheck={false}
                 autoFocus
               />
+              <InputGroupAddon align="inline-end">
+                <span
+                  data-exceeded={length > usernameMaxLength}
+                  className="text-label tabular-nums data-[exceeded=true]:text-destructive"
+                >
+                  {length}/{usernameMaxLength}
+                </span>
+              </InputGroupAddon>
             </InputGroup>
             {message ? (
-              <FieldError id="username-hint">{message}</FieldError>
-            ) : (
-              <FieldDescription id="username-hint">
-                Letras, números o _ · {Array.from(username).length}/
-                {usernameMaxLength} · Es permanente.
-              </FieldDescription>
-            )}
+              <FieldError id="username-error">{message}</FieldError>
+            ) : null}
           </Field>
         </main>
         <ScreenActions>
