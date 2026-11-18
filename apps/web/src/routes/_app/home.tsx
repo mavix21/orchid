@@ -4,6 +4,7 @@ import { Button } from "@workspace/ui/components/button";
 import {
   type BackUpOutcome,
   type Holding,
+  type SavedBackup,
   type SavedOutcome,
   assetKey,
   baseAsset,
@@ -26,18 +27,16 @@ export const Route = createFileRoute("/_app/home")({
       context.walletClient.saved(),
     ]);
 
-    return { overview, backup: backupState(saved) };
+    return { overview, backup: savedBackup(saved) };
   },
   component: HomeScreen,
 });
 
-type BackupState = "stored" | "deviceOnly" | "none";
-
-const backupState = (saved: SavedOutcome): BackupState =>
+const savedBackup = (saved: SavedOutcome): SavedBackup =>
   Match.valueTags(saved, {
     SavedWallet: ({ backup }) => backup,
-    NoWallet: (): BackupState => "none",
-    UnsupportedDevice: (): BackupState => "none",
+    NoWallet: (): SavedBackup => "none",
+    UnsupportedDevice: (): SavedBackup => "none",
   });
 
 const backUpRefusal = (
@@ -75,7 +74,7 @@ function HomeScreen() {
   });
 }
 
-function Home({ holding, backup }: { holding: Holding; backup: BackupState }) {
+function Home({ holding, backup }: { holding: Holding; backup: SavedBackup }) {
   const dollars =
     holding.balances.find(
       (balance) => assetKey(balance.asset) === assetKey(baseAsset),
@@ -107,7 +106,7 @@ function Home({ holding, backup }: { holding: Holding; backup: BackupState }) {
   );
 }
 
-function BackupNotice({ backup }: { backup: "deviceOnly" | "none" }) {
+function BackupNotice({ backup }: { backup: Exclude<SavedBackup, "stored"> }) {
   const router = useRouter();
   const { walletClient } = Route.useRouteContext();
   const [backingUp, setBackingUp] = useState(false);

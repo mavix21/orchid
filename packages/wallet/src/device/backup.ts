@@ -18,7 +18,7 @@ import type { Passkeys } from "./passkeys";
 import { backupSalt, openPhrase, sealPhrase } from "./phrase-seal";
 import { signingKey } from "./signing";
 
-export function backupFlow(
+export function deviceBackup(
   port: WalletPort,
   passkeys: Passkeys,
   store: KeyStore,

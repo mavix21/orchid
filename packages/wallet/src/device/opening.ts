@@ -13,7 +13,7 @@ import {
   type WalletUnavailable,
 } from "../contract";
 import { OpeningFacts, RecoveryFacts } from "../stellar/envelopes";
-import { backupFlow } from "./backup";
+import { deviceBackup } from "./backup";
 import {
   DeviceWallet,
   type KeyStore,
@@ -37,7 +37,7 @@ export function openWallet(
   store: KeyStore,
   passkeys: Passkeys,
 ) {
-  const { enroll } = backupFlow(port, passkeys, store);
+  const { enroll } = deviceBackup(port, passkeys, store);
 
   const deviceWallet = Effect.fn("Device.wallet")(function* (
     username: Username,

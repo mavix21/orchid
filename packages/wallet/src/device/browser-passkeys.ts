@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
+  CredentialId,
   type PasskeyChallenge,
   PasskeyAssertion,
   PasskeyRegistration,
@@ -132,7 +133,7 @@ const register = Effect.fn("Device.registerPasskey")(function* (
   return Option.some({
     prf: prf.value,
     registration: new PasskeyRegistration({
-      id: created.id,
+      id: Schema.decodeSync(CredentialId)(created.id),
       clientDataJSON: toBase64Url(response.clientDataJSON),
       authenticatorData: toBase64Url(response.getAuthenticatorData()),
       attestationObject: toBase64Url(response.attestationObject),
@@ -178,7 +179,7 @@ const authenticate = Effect.fn("Device.authenticatePasskey")(function* (
   return Option.some({
     prf: prf.value,
     assertion: new PasskeyAssertion({
-      id: asserted.id,
+      id: Schema.decodeSync(CredentialId)(asserted.id),
       clientDataJSON: toBase64Url(response.clientDataJSON),
       authenticatorData: toBase64Url(response.authenticatorData),
       signature: toBase64Url(response.signature),

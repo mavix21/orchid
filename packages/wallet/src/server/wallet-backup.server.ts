@@ -7,7 +7,6 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
-  AccountAddress,
   AssertionRefused,
   BackupEnrollment,
   BackupFound,
@@ -17,10 +16,8 @@ import {
   NoBackup,
   PasskeyAssertion,
   PasskeyChallenge,
-  Profile,
   RegistrationRefused,
   SealedPhrase,
-  Username,
 } from "../contract";
 import { Backups } from "./Backups.server";
 import { WalletSettings } from "./settings.server";
@@ -102,7 +99,7 @@ export const backupFlow = Effect.gen(function* () {
     const sealed = Schema.encodeSync(SealedPhrase)(enrollment.sealed);
 
     const stored = yield* backups.enroll({
-      credentialId: verified.value.credential.id,
+      credentialId: registration.id,
       address: enrollment.address,
       username: enrollment.username,
       publicKey: verified.value.credential.publicKey,
@@ -126,7 +123,7 @@ export const backupFlow = Effect.gen(function* () {
 
     if (Option.isNone(found)) return new NoBackup();
 
-    const { backup, boundUsername } = found.value;
+    const backup = found.value;
 
     const authenticationJson: AuthenticationJSON = {
       id: assertion.id,
@@ -162,16 +159,7 @@ export const backupFlow = Effect.gen(function* () {
 
     yield* backups.advance(backup.credentialId, verified.value.counter);
 
-    return new BackupFound({
-      profile: new Profile({
-        address: Schema.decodeSync(AccountAddress)(backup.address),
-        username: Schema.decodeSync(Username)(boundUsername ?? backup.username),
-      }),
-      sealed: Schema.decodeSync(SealedPhrase)({
-        iv: backup.iv,
-        ciphertext: backup.ciphertext,
-      }),
-    });
+    return new BackupFound({ profile: backup.profile, sealed: backup.sealed });
   });
 
   return {
