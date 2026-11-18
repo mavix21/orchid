@@ -21,12 +21,43 @@ const verifiableAlgorithms: Array<PublicKeyCredentialParameters> = [
   { type: "public-key", alg: -257 },
 ];
 
+class PasskeyUnavailable extends Schema.TaggedError<PasskeyUnavailable>()(
+  "PasskeyUnavailable",
+  {},
+) {}
+
 const ceremony = (run: () => Promise<Credential | null>) =>
-  Effect.tryPromise({ try: run, catch: () => new PasskeyCancelled() }).pipe(
+  Effect.tryPromise({
+    try: run,
+    catch: (cause) =>
+      cause instanceof DOMException &&
+      (cause.name === "NotAllowedError" || cause.name === "AbortError")
+        ? new PasskeyCancelled()
+        : new PasskeyUnavailable(),
+  }).pipe(
     Effect.flatMap((credential) =>
       credential instanceof PublicKeyCredential
         ? Effect.succeed(credential)
-        : Effect.fail(new PasskeyCancelled()),
+        : Effect.fail(new PasskeyUnavailable()),
+    ),
+  );
+
+const prfReported = Effect.tryPromise(async () =>
+  "getClientCapabilities" in PublicKeyCredential
+    ? (await PublicKeyCredential.getClientCapabilities())["extension:prf"] !==
+      false
+    : true,
+).pipe(Effect.orElseSucceed(() => true));
+
+const withoutPasskey = <A>(
+  ceremonyResult: Effect.Effect<
+    Option.Option<A>,
+    PasskeyCancelled | PasskeyUnavailable
+  >,
+) =>
+  ceremonyResult.pipe(
+    Effect.catchTag("PasskeyUnavailable", () =>
+      Effect.succeed(Option.none<A>()),
     ),
   );
 
@@ -69,7 +100,7 @@ const register = Effect.fn("Device.registerPasskey")(function* (
   username: Username,
   salt: Uint8Array<ArrayBuffer>,
 ) {
-  if (!webAuthnAvailable()) return Option.none();
+  if (!webAuthnAvailable() || !(yield* prfReported)) return Option.none();
 
   const created = yield* ceremony(() =>
     navigator.credentials.create({
@@ -133,7 +164,7 @@ const register = Effect.fn("Device.registerPasskey")(function* (
         ),
     }),
   });
-});
+}, withoutPasskey);
 
 const authenticate = Effect.fn("Device.authenticatePasskey")(function* (
   challenge: PasskeyChallenge,
@@ -170,6 +201,6 @@ const authenticate = Effect.fn("Device.authenticatePasskey")(function* (
       signature: toBase64Url(response.signature),
     }),
   });
-});
+}, withoutPasskey);
 
 export const browserPasskeys: Passkeys = { register, authenticate };

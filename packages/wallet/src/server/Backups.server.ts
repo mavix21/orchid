@@ -9,7 +9,7 @@ import { type ChallengePurpose, PasskeyChallenge } from "../contract";
 import { StoreFailure } from "./Directory.server";
 import { backups, passkeyChallenges, usernames } from "./tables.server";
 
-export const challengeLifetimeMillis = 5 * 60_000;
+const challengeLifetimeMillis = 5 * 60_000;
 
 export type BackupRow = typeof backups.$inferSelect;
 
@@ -23,7 +23,7 @@ export class Backups extends Context.Service<
     ): Effect.Effect<PasskeyChallenge, StoreFailure>;
 
     consume(
-      challenge: string,
+      challenge: PasskeyChallenge,
       purpose: ChallengePurpose,
     ): Effect.Effect<boolean, StoreFailure>;
 
@@ -70,7 +70,7 @@ export class Backups extends Context.Service<
       });
 
       const consume = Effect.fn("Backups.consume")(function* (
-        challenge: string,
+        challenge: PasskeyChallenge,
         purpose: ChallengePurpose,
       ) {
         const removed = yield* db

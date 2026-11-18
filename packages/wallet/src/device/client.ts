@@ -1,8 +1,17 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { BackupStored, Username, type WalletPort } from "../contract";
-import { DeviceWallet, type KeyStore } from "./key-store";
+import {
+  BackupStored,
+  Username,
+  type WalletPort,
+  type WalletUnavailable,
+} from "../contract";
+import {
+  DeviceWallet,
+  type KeyStore,
+  type KeyStoreUnavailable,
+} from "./key-store";
 import {
   type BackUpOutcome,
   BackupUnsupported,
@@ -16,7 +25,7 @@ import {
   SavedWallet,
   UnsupportedDevice,
 } from "./outcomes";
-import type { Passkeys } from "./passkeys";
+import type { PasskeyCancelled, Passkeys } from "./passkeys";
 
 export * from "./outcomes";
 
@@ -91,6 +100,21 @@ export function makeWalletClient(
     });
   });
 
+  const settle = <A>(
+    program: Effect.Effect<
+      A,
+      KeyStoreUnavailable | WalletUnavailable | PasskeyCancelled
+    >,
+  ) =>
+    program.pipe(
+      Effect.catchTags({
+        KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
+        WalletUnavailable: () => Effect.succeed(new Offline()),
+        PasskeyCancelled: (cancelled) => Effect.succeed(cancelled),
+      }),
+      Effect.runPromise,
+    );
+
   const client: WalletClient = {
     saved: () =>
       saved().pipe(
@@ -107,33 +131,9 @@ export function makeWalletClient(
         }),
         Effect.runPromise,
       ),
-    create: (usernameText) =>
-      create(usernameText).pipe(
-        Effect.catchTags({
-          KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
-          WalletUnavailable: () => Effect.succeed(new Offline()),
-          PasskeyCancelled: (cancelled) => Effect.succeed(cancelled),
-        }),
-        Effect.runPromise,
-      ),
-    backUp: () =>
-      backUp().pipe(
-        Effect.catchTags({
-          KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
-          WalletUnavailable: () => Effect.succeed(new Offline()),
-          PasskeyCancelled: (cancelled) => Effect.succeed(cancelled),
-        }),
-        Effect.runPromise,
-      ),
-    restore: () =>
-      restore().pipe(
-        Effect.catchTags({
-          KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
-          WalletUnavailable: () => Effect.succeed(new Offline()),
-          PasskeyCancelled: (cancelled) => Effect.succeed(cancelled),
-        }),
-        Effect.runPromise,
-      ),
+    create: (usernameText) => settle(create(usernameText)),
+    backUp: () => settle(backUp()),
+    restore: () => settle(restore()),
   };
 
   return client;

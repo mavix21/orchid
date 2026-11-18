@@ -37,8 +37,6 @@ export function openWallet(
   store: KeyStore,
   passkeys: Passkeys,
 ) {
-  const remembered = (wallet: DeviceWallet) => remember(store, wallet);
-
   const { enroll } = backupFlow(port, passkeys, store);
 
   const deviceWallet = Effect.fn("Device.wallet")(function* (
@@ -99,7 +97,8 @@ export function openWallet(
           )
             return new DraftRejected();
 
-          const sponsored = yield* remembered(
+          const sponsored = yield* remember(
+            store,
             new DeviceWallet({
               ...wallet,
               reserveSponsor: facts.value.reserveSponsor,
@@ -141,7 +140,8 @@ export function openWallet(
       AddressBound: (bound) =>
         bound.profile.address === wallet.address &&
         bound.profile.username !== wallet.username
-          ? remembered(
+          ? remember(
+              store,
               new DeviceWallet({
                 ...wallet,
                 username: bound.profile.username,
@@ -163,7 +163,7 @@ export function openWallet(
     });
 
   return Effect.fn("Device.open")(function* (username: Username) {
-    const wallet = yield* remembered(yield* deviceWallet(username));
+    const wallet = yield* remember(store, yield* deviceWallet(username));
 
     if (Option.isNone(wallet)) return new UnsupportedDevice();
 
