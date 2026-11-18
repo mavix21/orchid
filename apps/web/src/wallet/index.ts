@@ -5,6 +5,7 @@ const loadClient = () =>
 
 export const walletClient: WalletClient = {
   overview: () => loadClient().then((client) => client.overview()),
+  saved: () => loadClient().then((client) => client.saved()),
   create: (usernameText) =>
     loadClient().then((client) => client.create(usernameText)),
 };

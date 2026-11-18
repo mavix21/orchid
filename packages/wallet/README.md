@@ -24,7 +24,7 @@ Recovery signing and submission require matching reserve-sponsor identities on b
 
 ### Device
 
-`makeWalletClient(port, store)` implements `create` and `overview` on the device. Each wallet's signing key derives from a 12-word English BIP-39 secret phrase on the SEP-5 path `m/44'/148'/0'`, so the phrase imports into other Stellar wallets. Before the first `open`, the client stores the phrase, address and username and reads them back; every retry reuses the stored phrase. It approves an opening only while the draft is live and opens its own address, and stores that opening's reserve sponsor before approving. It approves a recovery only when it merges into the same sponsor. Any other draft returns `DraftRejected` unsigned. Consecutive `OpeningPending` steps are polled two seconds apart, for at most twelve steps.
+`makeWalletClient(port, store)` implements `create`, `overview` and `saved` on the device. `saved` reads only the device: the stored username and whether an opening was approved, so an interrupted creation can resume. Each wallet's signing key derives from a 12-word English BIP-39 secret phrase on the SEP-5 path `m/44'/148'/0'`, so the phrase imports into other Stellar wallets. Before the first `open`, the client stores the phrase, address and username and reads them back; every retry reuses the stored phrase. It approves an opening only while the draft is live and opens its own address, and stores that opening's reserve sponsor before approving. It approves a recovery only when it merges into the same sponsor. Any other draft returns `DraftRejected` unsigned. Consecutive `OpeningPending` steps are polled two seconds apart, for at most twelve steps.
 
 `browserKeyStore` keeps the phrase in IndexedDB, encrypted with a non-extractable AES-GCM key stored beside it. This keeps the phrase out of raw storage exports but not out of reach of script running on the Orchid origin.
 
@@ -34,7 +34,7 @@ Each scheduled run selects up to four transfers and four currently eligible reco
 
 ### Limits
 
-The device client covers creation and overview only; sending from the device, secret phrase export, passkeys/PRF, `protect`/`recover`, enrollment envelopes, phone tables, OTP, escrow, Turnstile, mainnet and deployment are not implemented. A live USDC payment and the recovery guard that skips a nonzero balance are not verified on testnet.
+The device client covers creation, overview and resuming only; sending from the device, secret phrase export, passkeys/PRF, `protect`/`recover`, enrollment envelopes, phone tables, OTP, escrow, Turnstile, mainnet and deployment are not implemented. A live USDC payment and the recovery guard that skips a nonzero balance are not verified on testnet.
 
 An opening abandoned before recovery signing keeps its reserve locked: the server cannot produce the missing signature. Recovery covers only an account whose sequence has not advanced. The sweep skips observed nonzero USDC and native XLM balances. USDC deposits racing recovery are protected atomically by trustline removal; an XLM deposit racing the final check can still be merged to the sponsor by the pre-signed account merge. Mainnet recovery policy needs review before adoption.
 

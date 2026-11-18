@@ -9,6 +9,8 @@ import {
   InvalidUsername,
   NoWallet,
   Offline,
+  type SavedOutcome,
+  SavedWallet,
   UnsupportedDevice,
 } from "./outcomes";
 
@@ -16,6 +18,7 @@ export * from "./outcomes";
 
 export interface WalletClient {
   overview(): Promise<DeviceOverview>;
+  saved(): Promise<SavedOutcome>;
   create(usernameText: string): Promise<CreateOutcome>;
 }
 
@@ -38,7 +41,27 @@ export function makeWalletClient(port: WalletPort, store: KeyStore) {
     return yield* port.overview(stored.value.address);
   });
 
+  const saved = Effect.fn("Device.saved")(function* () {
+    const stored = yield* store.read();
+
+    return Option.match(stored, {
+      onNone: () => new NoWallet(),
+      onSome: (wallet) =>
+        new SavedWallet({
+          username: wallet.username,
+          openingApproved: wallet.reserveSponsor !== undefined,
+        }),
+    });
+  });
+
   const client: WalletClient = {
+    saved: () =>
+      saved().pipe(
+        Effect.catchTag("KeyStoreUnavailable", () =>
+          Effect.succeed(new UnsupportedDevice()),
+        ),
+        Effect.runPromise,
+      ),
     overview: () =>
       overview().pipe(
         Effect.catchTags({
