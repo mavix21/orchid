@@ -10,8 +10,9 @@
 
 import { Route as rootRouteImport } from "./routes/__root";
 import { Route as IndexRouteImport } from "./routes/index";
+import { Route as AppRouteImport } from "./routes/_app";
 import { Route as CreateAccountRouteImport } from "./routes/create-account";
-import { Route as HomeRouteImport } from "./routes/home";
+import { Route as AppHomeRouteImport } from "./routes/_app/home";
 import { Route as SendIndexRouteImport } from "./routes/send/index";
 import { Route as SendAssetRouteImport } from "./routes/send/$asset";
 
@@ -20,15 +21,19 @@ const IndexRoute = IndexRouteImport.update({
   path: "/",
   getParentRoute: () => rootRouteImport,
 } as any);
+const AppRoute = AppRouteImport.update({
+  id: "/_app",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const CreateAccountRoute = CreateAccountRouteImport.update({
   id: "/create-account",
   path: "/create-account",
   getParentRoute: () => rootRouteImport,
 } as any);
-const HomeRoute = HomeRouteImport.update({
+const AppHomeRoute = AppHomeRouteImport.update({
   id: "/home",
   path: "/home",
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any);
 const SendIndexRoute = SendIndexRouteImport.update({
   id: "/send/",
@@ -44,22 +49,23 @@ const SendAssetRoute = SendAssetRouteImport.update({
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/create-account": typeof CreateAccountRoute;
-  "/home": typeof HomeRoute;
+  "/home": typeof AppHomeRoute;
   "/send/$asset": typeof SendAssetRoute;
   "/send/": typeof SendIndexRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/create-account": typeof CreateAccountRoute;
-  "/home": typeof HomeRoute;
+  "/home": typeof AppHomeRoute;
   "/send/$asset": typeof SendAssetRoute;
   "/send": typeof SendIndexRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
+  "/_app": typeof AppRouteWithChildren;
   "/create-account": typeof CreateAccountRoute;
-  "/home": typeof HomeRoute;
+  "/_app/home": typeof AppHomeRoute;
   "/send/$asset": typeof SendAssetRoute;
   "/send/": typeof SendIndexRoute;
 }
@@ -69,13 +75,19 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo;
   to: "/" | "/create-account" | "/home" | "/send/$asset" | "/send";
   id:
-    "__root__" | "/" | "/create-account" | "/home" | "/send/$asset" | "/send/";
+    | "__root__"
+    | "/"
+    | "/_app"
+    | "/create-account"
+    | "/_app/home"
+    | "/send/$asset"
+    | "/send/";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
+  AppRoute: typeof AppRouteWithChildren;
   CreateAccountRoute: typeof CreateAccountRoute;
-  HomeRoute: typeof HomeRoute;
   SendAssetRoute: typeof SendAssetRoute;
   SendIndexRoute: typeof SendIndexRoute;
 }
@@ -89,6 +101,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof IndexRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/_app": {
+      id: "/_app";
+      path: "";
+      fullPath: "/";
+      preLoaderRoute: typeof AppRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/create-account": {
       id: "/create-account";
       path: "/create-account";
@@ -96,12 +115,12 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof CreateAccountRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/home": {
-      id: "/home";
+    "/_app/home": {
+      id: "/_app/home";
       path: "/home";
       fullPath: "/home";
-      preLoaderRoute: typeof HomeRouteImport;
-      parentRoute: typeof rootRouteImport;
+      preLoaderRoute: typeof AppHomeRouteImport;
+      parentRoute: typeof AppRoute;
     };
     "/send/": {
       id: "/send/";
@@ -120,10 +139,20 @@ declare module "@tanstack/react-router" {
   }
 }
 
+interface AppRouteChildren {
+  AppHomeRoute: typeof AppHomeRoute;
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppHomeRoute: AppHomeRoute,
+};
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren);
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
   CreateAccountRoute: CreateAccountRoute,
-  HomeRoute: HomeRoute,
   SendAssetRoute: SendAssetRoute,
   SendIndexRoute: SendIndexRoute,
 };

@@ -6,12 +6,14 @@ import * as Match from "effect/Match";
 
 import { ActivityRow } from "@/components/activity-row";
 import { BalanceHeader } from "@/components/balance-header";
-import { Screen, ScreenActions } from "@/components/screen";
-import { TabBar } from "@/components/tab-bar";
+import { HomeSkeleton } from "@/components/home-skeleton";
+import { Screen } from "@/components/screen";
 import { recentActivity } from "@/fixtures/activity";
 
-export const Route = createFileRoute("/home")({
+export const Route = createFileRoute("/_app/home")({
   ssr: false,
+  pendingMs: 0,
+  pendingComponent: HomeSkeleton,
   loader: ({ context }) => context.walletClient.overview(),
   component: HomeScreen,
 });
@@ -59,7 +61,6 @@ function Home({ holding }: { holding: Holding }) {
           </div>
         </section>
       </main>
-      <TabBar />
     </Screen>
   );
 }
@@ -116,15 +117,13 @@ function Notice({
 }) {
   return (
     <Screen>
-      <main className="flex flex-1 flex-col justify-end gap-2 px-5 pb-6">
+      <main className="flex flex-1 flex-col justify-end gap-2 px-5 pb-30">
         <h1 className="font-display text-h1">{title}</h1>
         <p className="text-body text-muted-foreground">{message}</p>
-      </main>
-      <ScreenActions>
-        <Button className="w-full" disabled={busy} onClick={onAction}>
+        <Button className="mt-4 w-full" disabled={busy} onClick={onAction}>
           {action}
         </Button>
-      </ScreenActions>
+      </main>
     </Screen>
   );
 }

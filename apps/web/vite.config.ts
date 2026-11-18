@@ -58,7 +58,18 @@ const config = defineConfig(({ command, mode }) => {
       tailwindcss(),
       tanstackStart({
         importProtection: { include: ["src/**", "**/packages/wallet/src/**"] },
-        router: { quoteStyle: "double", semicolons: true },
+        router: {
+          quoteStyle: "double",
+          semicolons: true,
+          codeSplittingOptions: {
+            defaultBehavior: [
+              ["component"],
+              ["pendingComponent"],
+              ["errorComponent"],
+              ["notFoundComponent"],
+            ],
+          },
+        },
       }),
       viteReact(),
     ],
