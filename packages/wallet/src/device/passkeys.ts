@@ -13,6 +13,11 @@ export class PasskeyCancelled extends Schema.TaggedError<PasskeyCancelled>()(
   {},
 ) {}
 
+export class PasskeyFailed extends Schema.TaggedError<PasskeyFailed>()(
+  "PasskeyFailed",
+  {},
+) {}
+
 export interface RegisteredPasskey {
   readonly registration: PasskeyRegistration;
   readonly prf: Uint8Array<ArrayBuffer>;
@@ -28,9 +33,15 @@ export interface Passkeys {
     challenge: PasskeyChallenge,
     username: Username,
     salt: Uint8Array<ArrayBuffer>,
-  ): Effect.Effect<Option.Option<RegisteredPasskey>, PasskeyCancelled>;
+  ): Effect.Effect<
+    Option.Option<RegisteredPasskey>,
+    PasskeyCancelled | PasskeyFailed
+  >;
   authenticate(
     challenge: PasskeyChallenge,
     salt: Uint8Array<ArrayBuffer>,
-  ): Effect.Effect<Option.Option<AuthenticatedPasskey>, PasskeyCancelled>;
+  ): Effect.Effect<
+    Option.Option<AuthenticatedPasskey>,
+    PasskeyCancelled | PasskeyFailed
+  >;
 }

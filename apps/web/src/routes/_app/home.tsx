@@ -47,6 +47,7 @@ const backUpRefusal = (
     BackupUnsupported: () =>
       "Este navegador no permite respaldar tu cuenta con passkey.",
     PasskeyCancelled: () => "No se creó la passkey. Inténtalo de nuevo.",
+    PasskeyFailed: () => "No pudimos crear la passkey. Inténtalo de nuevo.",
     ChallengeRefused: () => "El respaldo tardó demasiado. Inténtalo de nuevo.",
     RegistrationRefused: () =>
       "No pudimos guardar el respaldo. Inténtalo de nuevo.",

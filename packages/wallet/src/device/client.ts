@@ -25,7 +25,7 @@ import {
   SavedWallet,
   UnsupportedDevice,
 } from "./outcomes";
-import type { PasskeyCancelled, Passkeys } from "./passkeys";
+import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
 
 export * from "./outcomes";
 
@@ -103,7 +103,7 @@ export function makeWalletClient(
   const settle = <A>(
     program: Effect.Effect<
       A,
-      KeyStoreUnavailable | WalletUnavailable | PasskeyCancelled
+      KeyStoreUnavailable | WalletUnavailable | PasskeyCancelled | PasskeyFailed
     >,
   ) =>
     program.pipe(
@@ -111,6 +111,7 @@ export function makeWalletClient(
         KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
         WalletUnavailable: () => Effect.succeed(new Offline()),
         PasskeyCancelled: (cancelled) => Effect.succeed(cancelled),
+        PasskeyFailed: (failed) => Effect.succeed(failed),
       }),
       Effect.runPromise,
     );

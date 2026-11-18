@@ -44,6 +44,8 @@ const refusal = (outcome: Exclude<CreateOutcome, { _tag: "Opened" }>) =>
     NotSponsored: () => "No pudimos abrir tu cuenta.",
     PasskeyCancelled: () =>
       "Necesitas crear una passkey para respaldar tu cuenta. Inténtalo de nuevo.",
+    PasskeyFailed: () =>
+      "No pudimos crear la passkey para respaldar tu cuenta. Inténtalo de nuevo.",
     ChallengeRefused: () => "El respaldo tardó demasiado. Inténtalo de nuevo.",
     RegistrationRefused: () =>
       "No pudimos guardar el respaldo de tu cuenta. Inténtalo de nuevo.",
