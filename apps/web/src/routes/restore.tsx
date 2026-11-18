@@ -22,6 +22,8 @@ const refusal = (
     PasskeyCancelled: () => "No usaste ninguna passkey. Inténtalo de nuevo.",
     ChallengeRefused: () => "La solicitud venció. Inténtalo de nuevo.",
     NoBackup: () => "No encontramos un respaldo para esa passkey.",
+    AssertionRefused: () =>
+      "No pudimos verificar esa passkey. Inténtalo de nuevo.",
     BackupMismatch: () =>
       "El respaldo no coincide con la cuenta. No lo guardamos.",
     UnsupportedDevice: () =>

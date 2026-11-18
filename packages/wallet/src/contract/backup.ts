@@ -89,11 +89,17 @@ export class BackupFound extends Schema.TaggedClass<BackupFound>()(
   { profile: Profile, sealed: SealedPhrase },
 ) {}
 
+export class AssertionRefused extends Schema.TaggedClass<AssertionRefused>()(
+  "AssertionRefused",
+  {},
+) {}
+
 export class NoBackup extends Schema.TaggedClass<NoBackup>()("NoBackup", {}) {}
 
 export const RestoreStep = Schema.Union([
   BackupFound,
   NoBackup,
+  AssertionRefused,
   ChallengeRefused,
 ]);
 

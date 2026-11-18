@@ -8,6 +8,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  AssertionRefused,
   BackupEnrollment,
   BackupFound,
   BackupStored,
@@ -15,6 +16,7 @@ import {
   type ChallengePurpose,
   NoBackup,
   PasskeyAssertion,
+  PasskeyChallenge,
   Profile,
   RegistrationRefused,
   SealedPhrase,
@@ -30,7 +32,9 @@ const ClientData = Schema.fromJsonString(
 const clientChallenge = (clientDataJSON: string) =>
   Schema.decodeUnknownOption(Schema.StringFromBase64Url)(clientDataJSON).pipe(
     Option.flatMap(Schema.decodeUnknownOption(ClientData)),
-    Option.map((data) => data.challenge),
+    Option.flatMap((data) =>
+      Schema.decodeUnknownOption(PasskeyChallenge)(data.challenge),
+    ),
   );
 
 const verifiableAlgorithm = Schema.Literals(["ES256", "RS256"]);
@@ -48,11 +52,11 @@ export const backupFlow = Effect.gen(function* () {
   ) {
     const challenge = clientChallenge(clientDataJSON);
 
-    if (Option.isNone(challenge)) return Option.none<string>();
+    if (Option.isNone(challenge)) return Option.none<PasskeyChallenge>();
 
     return (yield* backups.consume(challenge.value, purpose))
       ? challenge
-      : Option.none<string>();
+      : Option.none<PasskeyChallenge>();
   });
 
   const enroll = Effect.fn("Wallet.enroll")(function* (
@@ -154,7 +158,7 @@ export const backupFlow = Effect.gen(function* () {
       ),
     ).pipe(Effect.option);
 
-    if (Option.isNone(verified)) return new NoBackup();
+    if (Option.isNone(verified)) return new AssertionRefused();
 
     yield* backups.advance(backup.credentialId, verified.value.counter);
 

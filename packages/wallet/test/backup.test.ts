@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
+  AssertionRefused,
   BackupFound,
   BackupStored,
   ChallengeRefused,
@@ -320,7 +321,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(
             yield* wallet.restore(yield* assertion(wallet, impostor)),
-          ).toEqual(new NoBackup());
+          ).toEqual(new AssertionRefused());
 
           const stranger = new SoftwareAuthenticator(passkeyOrigin);
 

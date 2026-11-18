@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 import {
   type AddressBound,
+  type AssertionRefused,
   type BackupStored,
   type ChallengeRefused,
   type NoBackup,
@@ -87,6 +88,7 @@ export type RestoreOutcome =
   | PasskeyCancelled
   | ChallengeRefused
   | NoBackup
+  | AssertionRefused
   | BackupMismatch
   | UnsupportedDevice
   | Offline;

@@ -64,7 +64,7 @@ export function backupFlow(
     });
   });
 
-  const adopt = Effect.fn("Device.adopt")(function* (
+  const keepRestored = Effect.fn("Device.keepRestored")(function* (
     found: BackupFound,
     prf: Uint8Array<ArrayBuffer>,
   ) {
@@ -108,8 +108,9 @@ export function backupFlow(
     const step = yield* port.restore(authenticated.value.assertion);
 
     return yield* Match.valueTags(step, {
-      BackupFound: (found) => adopt(found, authenticated.value.prf),
+      BackupFound: (found) => keepRestored(found, authenticated.value.prf),
       NoBackup: Effect.succeed,
+      AssertionRefused: Effect.succeed,
       ChallengeRefused: Effect.succeed,
     });
   });
