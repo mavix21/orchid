@@ -29,10 +29,14 @@ import { draftOpening, draftRecovery } from "../src/stellar/envelopes";
 import {
   addressOf,
   reserveSponsor,
+  passkeyOrigin,
   useDisposableDatabase,
   walletTestLayer,
   world,
 } from "./wallet-harness";
+import { SoftwareAuthenticator } from "./software-authenticator";
+
+const passkeys = new SoftwareAuthenticator(passkeyOrigin).passkeys;
 
 function memoryKeyStore() {
   let saved = Option.none<DeviceWallet>();
@@ -90,7 +94,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         Effect.gen(function* () {
           const wallet = yield* Wallet;
           const store = memoryKeyStore();
-          const client = makeWalletClient(wallet, store);
+          const client = makeWalletClient(wallet, store, passkeys);
 
           expect(yield* Effect.promise(() => client.overview())).toEqual(
             new NoWallet(),
@@ -131,7 +135,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(
             (yield* Effect.promise(() =>
-              makeWalletClient(interrupted, store).create("maria"),
+              makeWalletClient(interrupted, store, passkeys).create("maria"),
             ))._tag,
           ).toBe("Offline");
 
@@ -139,19 +143,20 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(
             yield* Effect.promise(() =>
-              makeWalletClient(wallet, store).saved(),
+              makeWalletClient(wallet, store, passkeys).saved(),
             ),
           ).toEqual(
             new SavedWallet({
               username: Schema.decodeSync(Username)("maria"),
               openingApproved: true,
+              backup: "stored",
             }),
           );
 
           expect(yield* walletStatus(store)).toEqual(Option.some("opening"));
 
           const resumed = yield* Effect.promise(() =>
-            makeWalletClient(wallet, store).create("maria"),
+            makeWalletClient(wallet, store, passkeys).create("maria"),
           );
 
           expect(resumed).toBeInstanceOf(Opened);
@@ -179,11 +184,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           };
 
           yield* Effect.promise(() =>
-            makeWalletClient(interrupted, store).create("maria"),
+            makeWalletClient(interrupted, store, passkeys).create("maria"),
           );
 
           const resumed = yield* Effect.promise(() =>
-            makeWalletClient(wallet, store).create("pedro"),
+            makeWalletClient(wallet, store, passkeys).create("pedro"),
           );
 
           expect(resumed instanceof Opened && resumed.profile.username).toBe(
@@ -217,7 +222,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
         expect(
           yield* Effect.promise(() =>
-            makeWalletClient(expired, store).create("maria"),
+            makeWalletClient(expired, store, passkeys).create("maria"),
           ),
         ).toEqual(new DraftRejected());
         expect(world.submitted).toHaveLength(0);
@@ -255,7 +260,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
         expect(
           yield* Effect.promise(() =>
-            makeWalletClient(tampered, store).create("maria"),
+            makeWalletClient(tampered, store, passkeys).create("maria"),
           ),
         ).toEqual(new DraftRejected());
         expect(world.submitted).toHaveLength(0);
@@ -298,7 +303,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(
             yield* Effect.promise(() =>
-              makeWalletClient(tampered, store).create("maria"),
+              makeWalletClient(tampered, store, passkeys).create("maria"),
             ),
           ).toEqual(new DraftRejected());
           expect(yield* walletStatus(store)).toEqual(Option.some("opening"));

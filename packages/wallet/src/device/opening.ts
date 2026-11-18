@@ -13,38 +13,33 @@ import {
   type WalletUnavailable,
 } from "../contract";
 import { OpeningFacts, RecoveryFacts } from "../stellar/envelopes";
+import { backupFlow } from "./backup";
 import {
   DeviceWallet,
   type KeyStore,
   type KeyStoreUnavailable,
+  remember,
 } from "./key-store";
 import {
   type CreateOutcome,
   DraftRejected,
   UnsupportedDevice,
 } from "./outcomes";
+import type { Passkeys } from "./passkeys";
 import { generateSecretPhrase } from "./secret-phrase";
 import { approve, liveFacts, signingKey } from "./signing";
 
 const openingSteps = 12;
 const pendingPause = "2 seconds";
 
-export function openWallet(port: WalletPort, store: KeyStore) {
-  const remember = Effect.fn("Device.remember")(function* (
-    wallet: DeviceWallet,
-  ) {
-    yield* store.write(wallet);
+export function openWallet(
+  port: WalletPort,
+  store: KeyStore,
+  passkeys: Passkeys,
+) {
+  const remembered = (wallet: DeviceWallet) => remember(store, wallet);
 
-    const stored = yield* store.read();
-
-    return Option.isSome(stored) &&
-      stored.value.phrase === wallet.phrase &&
-      stored.value.address === wallet.address &&
-      stored.value.username === wallet.username &&
-      stored.value.reserveSponsor === wallet.reserveSponsor
-      ? Option.some(stored.value)
-      : Option.none();
-  });
+  const { enroll } = backupFlow(port, passkeys, store);
 
   const deviceWallet = Effect.fn("Device.wallet")(function* (
     username: Username,
@@ -104,7 +99,7 @@ export function openWallet(port: WalletPort, store: KeyStore) {
           )
             return new DraftRejected();
 
-          const sponsored = yield* remember(
+          const sponsored = yield* remembered(
             new DeviceWallet({
               ...wallet,
               reserveSponsor: facts.value.reserveSponsor,
@@ -146,7 +141,7 @@ export function openWallet(port: WalletPort, store: KeyStore) {
       AddressBound: (bound) =>
         bound.profile.address === wallet.address &&
         bound.profile.username !== wallet.username
-          ? remember(
+          ? remembered(
               new DeviceWallet({
                 ...wallet,
                 username: bound.profile.username,
@@ -168,10 +163,18 @@ export function openWallet(port: WalletPort, store: KeyStore) {
     });
 
   return Effect.fn("Device.open")(function* (username: Username) {
-    const wallet = yield* remember(yield* deviceWallet(username));
+    const wallet = yield* remembered(yield* deviceWallet(username));
 
     if (Option.isNone(wallet)) return new UnsupportedDevice();
 
-    return yield* advance(wallet.value, Option.none(), openingSteps);
+    const enrolled =
+      wallet.value.backup === undefined &&
+      wallet.value.reserveSponsor === undefined
+        ? yield* enroll(wallet.value)
+        : wallet.value;
+
+    if (!(enrolled instanceof DeviceWallet)) return enrolled;
+
+    return yield* advance(enrolled, Option.none(), openingSteps);
   });
 }

@@ -13,6 +13,7 @@ const requestWalletLayer = Layer.suspend(() =>
         rpcUrl: env.STELLAR_RPC_URL,
         reserveSponsorSecret: Redacted.make(env.RESERVE_SPONSOR_SECRET),
         feePayerSecret: Redacted.make(env.FEE_PAYER_SECRET),
+        passkeyOrigins: env.PASSKEY_ORIGINS.split(","),
       }),
     ),
     Layer.provide(databaseLayer(env.HYPERDRIVE)),

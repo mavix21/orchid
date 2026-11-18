@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from "./routes/__root";
 import { Route as IndexRouteImport } from "./routes/index";
 import { Route as AppRouteImport } from "./routes/_app";
 import { Route as CreateAccountRouteImport } from "./routes/create-account";
+import { Route as RestoreRouteImport } from "./routes/restore";
 import { Route as AppHomeRouteImport } from "./routes/_app/home";
 import { Route as SendIndexRouteImport } from "./routes/send/index";
 import { Route as SendAssetRouteImport } from "./routes/send/$asset";
@@ -28,6 +29,11 @@ const AppRoute = AppRouteImport.update({
 const CreateAccountRoute = CreateAccountRouteImport.update({
   id: "/create-account",
   path: "/create-account",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const RestoreRoute = RestoreRouteImport.update({
+  id: "/restore",
+  path: "/restore",
   getParentRoute: () => rootRouteImport,
 } as any);
 const AppHomeRoute = AppHomeRouteImport.update({
@@ -49,6 +55,7 @@ const SendAssetRoute = SendAssetRouteImport.update({
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/create-account": typeof CreateAccountRoute;
+  "/restore": typeof RestoreRoute;
   "/home": typeof AppHomeRoute;
   "/send/$asset": typeof SendAssetRoute;
   "/send/": typeof SendIndexRoute;
@@ -56,6 +63,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/create-account": typeof CreateAccountRoute;
+  "/restore": typeof RestoreRoute;
   "/home": typeof AppHomeRoute;
   "/send/$asset": typeof SendAssetRoute;
   "/send": typeof SendIndexRoute;
@@ -65,20 +73,23 @@ export interface FileRoutesById {
   "/": typeof IndexRoute;
   "/_app": typeof AppRouteWithChildren;
   "/create-account": typeof CreateAccountRoute;
+  "/restore": typeof RestoreRoute;
   "/_app/home": typeof AppHomeRoute;
   "/send/$asset": typeof SendAssetRoute;
   "/send/": typeof SendIndexRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/create-account" | "/home" | "/send/$asset" | "/send/";
+  fullPaths:
+    "/" | "/create-account" | "/restore" | "/home" | "/send/$asset" | "/send/";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/create-account" | "/home" | "/send/$asset" | "/send";
+  to: "/" | "/create-account" | "/restore" | "/home" | "/send/$asset" | "/send";
   id:
     | "__root__"
     | "/"
     | "/_app"
     | "/create-account"
+    | "/restore"
     | "/_app/home"
     | "/send/$asset"
     | "/send/";
@@ -88,6 +99,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
   AppRoute: typeof AppRouteWithChildren;
   CreateAccountRoute: typeof CreateAccountRoute;
+  RestoreRoute: typeof RestoreRoute;
   SendAssetRoute: typeof SendAssetRoute;
   SendIndexRoute: typeof SendIndexRoute;
 }
@@ -113,6 +125,13 @@ declare module "@tanstack/react-router" {
       path: "/create-account";
       fullPath: "/create-account";
       preLoaderRoute: typeof CreateAccountRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/restore": {
+      id: "/restore";
+      path: "/restore";
+      fullPath: "/restore";
+      preLoaderRoute: typeof RestoreRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/_app/home": {
@@ -153,6 +172,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   CreateAccountRoute: CreateAccountRoute,
+  RestoreRoute: RestoreRoute,
   SendAssetRoute: SendAssetRoute,
   SendIndexRoute: SendIndexRoute,
 };

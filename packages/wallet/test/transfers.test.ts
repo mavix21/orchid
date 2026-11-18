@@ -1,4 +1,5 @@
 import { AssetOrders } from "../src/server/AssetOrders.server";
+import { Backups } from "../src/server/Backups.server";
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
@@ -29,6 +30,7 @@ import {
   dbLayer,
   world,
   fakeChain,
+  settings,
   addressOf,
   approve,
   create,
@@ -235,9 +237,15 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
         const brokenWallet = Wallet.serviceLayer.pipe(
           Layer.provide(
-            Layer.mergeAll(Directory.layer, brokenTransfers, AssetOrders.layer),
+            Layer.mergeAll(
+              Directory.layer,
+              brokenTransfers,
+              AssetOrders.layer,
+              Backups.layer,
+            ),
           ),
           Layer.provide(fakeChain),
+          Layer.provide(settings),
           Layer.provide(dbLayer),
         );
 

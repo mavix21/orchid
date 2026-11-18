@@ -1,6 +1,37 @@
-import { expect, test } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 
 const openingChunk = /\/assets\/opening-[\w-]+\.js$/;
+
+const addAuthenticator = async (page: Page, hasPrf: boolean) => {
+  const session = await page.context().newCDPSession(page);
+
+  await session.send("WebAuthn.enable");
+  await session.send("WebAuthn.addVirtualAuthenticator", {
+    options: {
+      protocol: "ctap2",
+      transport: "internal",
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      hasPrf,
+      automaticPresenceSimulation: true,
+    },
+  });
+};
+
+const forgetDevice = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.deleteDatabase("orchid-device");
+
+        request.addEventListener("success", () => resolve());
+        request.addEventListener("error", () => reject(request.error));
+      }),
+  );
+
+const freshUsername = () =>
+  `e2e_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 
 test("explains username mistakes while typing", async ({ page }) => {
   await page.goto("/create-account");
@@ -44,8 +75,12 @@ test("serves the home shell before the wallet loads", async ({ request }) => {
   expect(html).toContain('aria-label="Cargando tu cuenta"');
 });
 
-test("creates a testnet wallet that survives a reload", async ({ page }) => {
+test("creates a backed-up testnet wallet and restores it after the device forgets it", async ({
+  page,
+}) => {
   const requested: Array<string> = [];
+
+  await addAuthenticator(page, true);
 
   page.on("request", (request) => requested.push(request.url()));
 
@@ -57,7 +92,7 @@ test("creates a testnet wallet that survives a reload", async ({ page }) => {
 
   expect(requested.filter((url) => openingChunk.test(url))).toEqual([]);
 
-  const username = `e2e_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const username = freshUsername();
 
   await page.getByRole("button", { name: "Crear cuenta" }).click();
   await page.getByLabel("Usuario").fill(username);
@@ -66,6 +101,7 @@ test("creates a testnet wallet that survives a reload", async ({ page }) => {
   await expect(page).toHaveURL("/home", { timeout: 90_000 });
   await expect(page.getByText(`@${username}`)).toBeVisible();
   await expect(page.getByText("$0")).toBeVisible();
+  await expect(page.getByText("Tu cuenta no tiene respaldo")).toBeHidden();
 
   expect(requested.some((url) => openingChunk.test(url))).toBe(true);
 
@@ -79,4 +115,41 @@ test("creates a testnet wallet that survives a reload", async ({ page }) => {
 
   await expect(page).toHaveURL("/home", { timeout: 60_000 });
   await expect(page.getByText(`@${username}`)).toBeVisible();
+
+  await forgetDevice(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Ya tengo una cuenta" }).click();
+  await expect(page).toHaveURL("/restore");
+  await page.getByRole("button", { name: "Restaurar con passkey" }).click();
+
+  await expect(page).toHaveURL("/home", { timeout: 60_000 });
+  await expect(page.getByText(`@${username}`)).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByText("Tu cuenta no tiene respaldo")).toBeHidden();
+
+  await page.goto("/restore");
+
+  await expect(page).toHaveURL("/home", { timeout: 30_000 });
+});
+
+test("creates a device-only wallet when the passkey has no PRF", async ({
+  page,
+}) => {
+  await addAuthenticator(page, false);
+
+  const username = freshUsername();
+
+  await page.goto("/create-account");
+  await page.getByLabel("Usuario").fill(username);
+  await page.getByRole("button", { name: "Continuar" }).click();
+
+  await expect(page).toHaveURL("/home", { timeout: 90_000 });
+  await expect(page.getByText(`@${username}`)).toBeVisible();
+  await expect(page.getByText("Tu cuenta no tiene respaldo")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Este navegador no permite respaldar con passkey. Tu llave solo está en este dispositivo.",
+    ),
+  ).toBeVisible();
 });

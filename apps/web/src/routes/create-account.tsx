@@ -42,6 +42,11 @@ const refusal = (outcome: Exclude<CreateOutcome, { _tag: "Opened" }>) =>
       "Este navegador no puede guardar tu llave de forma segura.",
     InvalidAddress: () => "No pudimos abrir tu cuenta.",
     NotSponsored: () => "No pudimos abrir tu cuenta.",
+    PasskeyCancelled: () =>
+      "Necesitas crear una passkey para respaldar tu cuenta. Inténtalo de nuevo.",
+    ChallengeRefused: () => "El respaldo tardó demasiado. Inténtalo de nuevo.",
+    RegistrationRefused: () =>
+      "No pudimos guardar el respaldo de tu cuenta. Inténtalo de nuevo.",
     Offline: () => "Sin conexión. Inténtalo de nuevo.",
   });
 

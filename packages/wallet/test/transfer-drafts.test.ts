@@ -1,4 +1,5 @@
 import { AssetOrders } from "../src/server/AssetOrders.server";
+import { Backups } from "../src/server/Backups.server";
 import { expect, layer } from "@effect/vitest";
 import {
   FeeBumpTransaction,
@@ -40,6 +41,7 @@ import {
   stores,
   world,
   fakeChain,
+  settings,
   walletLayer,
   addressOf,
   approve,
@@ -254,9 +256,15 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const finishingWallet = Wallet.serviceLayer.pipe(
             Layer.provide(
-              Layer.mergeAll(Directory.layer, finishing, AssetOrders.layer),
+              Layer.mergeAll(
+                Directory.layer,
+                finishing,
+                AssetOrders.layer,
+                Backups.layer,
+              ),
             ),
             Layer.provide(fakeChain),
+            Layer.provide(settings),
             Layer.provide(dbLayer),
           );
 
@@ -418,6 +426,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const advancingWallet = Wallet.serviceLayer.pipe(
             Layer.provide(stores),
             Layer.provide(advancing),
+            Layer.provide(settings),
           );
 
           const result = yield* Wallet.use((wallet) =>

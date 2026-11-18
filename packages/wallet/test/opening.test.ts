@@ -37,6 +37,7 @@ import {
   reserveSponsor,
   world,
   fakeChain,
+  settings,
   addressOf,
   approve,
   claimFor,
@@ -218,6 +219,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const transientWallet = Wallet.serviceLayer.pipe(
             Layer.provide(stores),
             Layer.provide(transient),
+            Layer.provide(settings),
           );
 
           const result = yield* Wallet.use((wallet) =>

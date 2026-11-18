@@ -1,4 +1,5 @@
 import { AssetOrders } from "../src/server/AssetOrders.server";
+import { Backups } from "../src/server/Backups.server";
 import assert from "node:assert/strict";
 import {
   Account,
@@ -69,6 +70,7 @@ const dependencies = Layer.mergeAll(
   Directory.layer,
   Transfers.layer,
   AssetOrders.layer,
+  Backups.layer,
 );
 
 const services = Layer.merge(
@@ -80,6 +82,7 @@ const services = Layer.merge(
       rpcUrl: "https://soroban-testnet.stellar.org",
       reserveSponsorSecret: Redacted.make(sponsor.secret()),
       feePayerSecret: Redacted.make(feePayer.secret()),
+      passkeyOrigins: [],
     }),
   ),
   Layer.provide(dbLayer),

@@ -95,6 +95,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@effect/sql-pg": "4.1.4",
+        "@passwordless-id/webauthn": "2.4.1",
         "@scure/bip39": "2.4.0",
         "@stellar/stellar-sdk": "17.4.0",
         "@workspace/db": "workspace:*",
@@ -570,6 +571,8 @@
     "@oxlint/binding-win32-x64-msvc": ["@oxlint/binding-win32-x64-msvc@1.93.0", "", { "os": "win32", "cpu": "x64" }, "sha512-ZzzIIVs/Qkm8trUWYKF0OYub5ALlv50/3gsEZbKAvWgz+yNJX6uRmQ8ySPXU2Q0/Y9m4JCOjhpmC8XUYbPHX5Q=="],
 
     "@oxlint/plugins": ["@oxlint/plugins@1.93.0", "", {}, "sha512-bKWQI1g9jn8bWUZsvhbOLfgva576Fbp1KwoTNSUCMdT9tlTAvQS2JkifX1UrhPPdyN4GHvM20HhvIMqqU1yotQ=="],
+
+    "@passwordless-id/webauthn": ["@passwordless-id/webauthn@2.4.1", "", {}, "sha512-hKXb9JdzVMWT9haQEEqf/OrAFTNBQNeTMUa68DDh1awEqXKA3DTa0glkbWytjyrE8b8TGBj55am627uE/vtBkA=="],
 
     "@playwright/test": ["@playwright/test@1.65.1", "", { "dependencies": { "playwright": "1.65.1" }, "bin": { "playwright": "cli.js" } }, "sha512-y+NCIRm2LvY4slUVWvGh1nujJ8RF/hEisIsq2mtUPgdQC4L701bq5hZGMhrpeXjACvwvO9tj5dJqhvM6TP9lbw=="],
 

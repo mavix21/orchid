@@ -31,7 +31,7 @@ function Welcome() {
           className="w-full"
           variant="ghost"
           nativeButton={false}
-          render={<Link to="/home" />}
+          render={<Link to="/restore" />}
         >
           Ya tengo una cuenta
         </Button>

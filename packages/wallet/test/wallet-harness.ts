@@ -5,6 +5,7 @@ import type {
   ClaimableEntry,
 } from "../src/server/ledger-assets.server";
 import { AssetOrders } from "../src/server/AssetOrders.server";
+import { Backups } from "../src/server/Backups.server";
 import { baseAsset } from "../src/contract";
 import { beforeAll, beforeEach, expect } from "@effect/vitest";
 import {
@@ -74,6 +75,7 @@ export const stores = Layer.mergeAll(
   Directory.layer,
   Transfers.layer,
   AssetOrders.layer,
+  Backups.layer,
 ).pipe(Layer.provide(dbLayer));
 
 export const sponsor = Keypair.random();
@@ -83,10 +85,13 @@ export const reserveSponsor = Schema.decodeSync(AccountAddress)(
   sponsor.publicKey(),
 );
 
+export const passkeyOrigin = "http://localhost:3000";
+
 export const settings = Layer.succeed(WalletSettings, {
   rpcUrl: "https://soroban-testnet.stellar.org",
   reserveSponsorSecret: Redacted.make(sponsor.secret()),
   feePayerSecret: Redacted.make(feePayer.secret()),
+  passkeyOrigins: [passkeyOrigin],
 });
 
 export const realChain = Chain.layer.pipe(Layer.provide(settings));
@@ -298,6 +303,7 @@ export const fakeChain = Layer.effect(
 export const walletLayer = Wallet.serviceLayer.pipe(
   Layer.provide(stores),
   Layer.provide(fakeChain),
+  Layer.provide(settings),
 );
 
 export const walletTestLayer = Layer.mergeAll(walletLayer, stores, dbLayer);
@@ -432,7 +438,7 @@ export function useDisposableDatabase() {
         const db = yield* makeDatabase();
 
         yield* db.execute(
-          sql`truncate asset_orders, trustlines, transfers, usernames, wallets`,
+          sql`truncate asset_orders, trustlines, transfers, usernames, wallets, backups, passkey_challenges`,
         );
       }).pipe(Effect.provide(dbLayer)),
     );
