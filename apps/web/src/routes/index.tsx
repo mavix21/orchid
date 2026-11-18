@@ -3,12 +3,15 @@ import { Button } from "@workspace/ui/components/button";
 
 import { BrandLogo } from "@/components/brand-logo";
 import { Screen, ScreenActions } from "@/components/screen";
+import { useHomeForSavedWallet } from "@/wallet/use-home-for-saved-wallet";
 
 export const Route = createFileRoute("/")({
   component: Welcome,
 });
 
 function Welcome() {
+  useHomeForSavedWallet();
+
   return (
     <Screen>
       <main className="flex flex-1 flex-col gap-2 px-5 pt-2 pb-6">

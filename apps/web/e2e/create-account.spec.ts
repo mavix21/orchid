@@ -143,7 +143,15 @@ test("creates a backed-up testnet wallet and restores it after the device forget
   });
   await expect(page.getByText("Tu cuenta no tiene respaldo")).toBeHidden();
 
+  await page.goBack();
+
+  await expect(page).toHaveURL("/home", { timeout: 30_000 });
+
   await page.goto("/restore");
+
+  await expect(page).toHaveURL("/home", { timeout: 30_000 });
+
+  await page.goto("/");
 
   await expect(page).toHaveURL("/home", { timeout: 30_000 });
 });
