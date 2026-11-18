@@ -17,16 +17,21 @@ import {
   Username,
   type UsernameTaken,
 } from "../contract";
+import { BackupState } from "./key-store";
 import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";
 
 export class NoWallet extends Schema.TaggedClass<NoWallet>()("NoWallet", {}) {}
+
+export const SavedBackup = Schema.Literals([...BackupState.literals, "none"]);
+
+export type SavedBackup = typeof SavedBackup.Type;
 
 export class SavedWallet extends Schema.TaggedClass<SavedWallet>()(
   "SavedWallet",
   {
     username: Username,
     openingApproved: Schema.Boolean,
-    backup: Schema.Literals(["stored", "deviceOnly", "none"]),
+    backup: SavedBackup,
   },
 ) {}
 

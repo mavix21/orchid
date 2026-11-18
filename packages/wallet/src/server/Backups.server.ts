@@ -5,13 +5,48 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { type ChallengePurpose, PasskeyChallenge } from "../contract";
+import {
+  AccountAddress,
+  type ChallengePurpose,
+  CredentialId,
+  PasskeyChallenge,
+  Profile,
+  SealedPhrase,
+  Username,
+} from "../contract";
 import { StoreFailure } from "./Directory.server";
 import { backups, passkeyChallenges, usernames } from "./tables.server";
 
 const challengeLifetimeMillis = 5 * 60_000;
 
-export type BackupRow = typeof backups.$inferSelect;
+type BackupRow = typeof backups.$inferSelect;
+
+export interface StoredBackup {
+  readonly credentialId: CredentialId;
+  readonly profile: Profile;
+  readonly publicKey: string;
+  readonly algorithm: BackupRow["algorithm"];
+  readonly counter: number;
+  readonly sealed: SealedPhrase;
+}
+
+const storedBackup = (
+  backup: BackupRow,
+  boundUsername: string | null,
+): StoredBackup => ({
+  credentialId: Schema.decodeSync(CredentialId)(backup.credentialId),
+  profile: new Profile({
+    address: Schema.decodeSync(AccountAddress)(backup.address),
+    username: Schema.decodeSync(Username)(boundUsername ?? backup.username),
+  }),
+  publicKey: backup.publicKey,
+  algorithm: backup.algorithm,
+  counter: backup.counter,
+  sealed: Schema.decodeSync(SealedPhrase)({
+    iv: backup.iv,
+    ciphertext: backup.ciphertext,
+  }),
+});
 
 export type NewBackup = Omit<typeof backups.$inferInsert, "enrolledAt">;
 
@@ -30,14 +65,11 @@ export class Backups extends Context.Service<
     enroll(backup: NewBackup): Effect.Effect<boolean, StoreFailure>;
 
     byCredential(
-      credentialId: string,
-    ): Effect.Effect<
-      Option.Option<{ backup: BackupRow; boundUsername: string | null }>,
-      StoreFailure
-    >;
+      credentialId: CredentialId,
+    ): Effect.Effect<Option.Option<StoredBackup>, StoreFailure>;
 
     advance(
-      credentialId: string,
+      credentialId: CredentialId,
       counter: number,
     ): Effect.Effect<void, StoreFailure>;
   }
@@ -97,7 +129,7 @@ export class Backups extends Context.Service<
       });
 
       const byCredential = Effect.fn("Backups.byCredential")(function* (
-        credentialId: string,
+        credentialId: CredentialId,
       ) {
         const found = yield* db
           .select({ backup: backups, boundUsername: usernames.username })
@@ -105,10 +137,12 @@ export class Backups extends Context.Service<
           .leftJoin(usernames, eq(usernames.address, backups.address))
           .where(eq(backups.credentialId, credentialId));
 
-        return Option.fromNullishOr(found[0]);
+        return Option.fromNullishOr(found[0]).pipe(
+          Option.map((row) => storedBackup(row.backup, row.boundUsername)),
+        );
       });
 
-      const advance = (credentialId: string, counter: number) =>
+      const advance = (credentialId: CredentialId, counter: number) =>
         db
           .update(backups)
           .set({ counter })

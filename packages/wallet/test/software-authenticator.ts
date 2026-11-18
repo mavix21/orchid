@@ -8,7 +8,9 @@ import {
 } from "node:crypto";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import {
+  CredentialId,
   PasskeyAssertion,
   type PasskeyChallenge,
   PasskeyRegistration,
@@ -138,7 +140,9 @@ export class SoftwareAuthenticator {
           Option.some({
             prf: this.evaluate(credential, salt),
             registration: new PasskeyRegistration({
-              id: credential.id.toString("base64url"),
+              id: Schema.decodeSync(CredentialId)(
+                credential.id.toString("base64url"),
+              ),
               clientDataJSON: this.clientData(
                 "webauthn.create",
                 challenge,
@@ -184,7 +188,9 @@ export class SoftwareAuthenticator {
           Option.some({
             prf: this.evaluate(credential, salt),
             assertion: new PasskeyAssertion({
-              id: credential.id.toString("base64url"),
+              id: Schema.decodeSync(CredentialId)(
+                credential.id.toString("base64url"),
+              ),
               clientDataJSON: clientDataJSON.toString("base64url"),
               authenticatorData: authenticatorData.toString("base64url"),
               signature: signature.toString("base64url"),

@@ -45,7 +45,7 @@ export function makeWalletClient(
   passkeys: Passkeys,
 ) {
   const backups = Effect.promise(() => import("./backup")).pipe(
-    Effect.map(({ backupFlow }) => backupFlow(port, passkeys, store)),
+    Effect.map(({ deviceBackup }) => deviceBackup(port, passkeys, store)),
   );
 
   const create = Effect.fn("Device.create")(function* (usernameText: string) {

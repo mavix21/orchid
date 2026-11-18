@@ -15,6 +15,10 @@ export const Base64Url = Schema.String.check(
   Schema.isPattern(/^[A-Za-z0-9_-]+$/),
 );
 
+export const CredentialId = Base64Url.pipe(Schema.brand("CredentialId"));
+
+export type CredentialId = typeof CredentialId.Type;
+
 export const PasskeyTransport = Schema.Literals([
   "usb",
   "nfc",
@@ -27,7 +31,7 @@ export const PasskeyTransport = Schema.Literals([
 export class PasskeyRegistration extends Schema.Class<PasskeyRegistration>(
   "@workspace/wallet/PasskeyRegistration",
 )({
-  id: Base64Url,
+  id: CredentialId,
   clientDataJSON: Base64Url,
   authenticatorData: Base64Url,
   attestationObject: Base64Url,
@@ -39,7 +43,7 @@ export class PasskeyRegistration extends Schema.Class<PasskeyRegistration>(
 export class PasskeyAssertion extends Schema.Class<PasskeyAssertion>(
   "@workspace/wallet/PasskeyAssertion",
 )({
-  id: Base64Url,
+  id: CredentialId,
   clientDataJSON: Base64Url,
   authenticatorData: Base64Url,
   signature: Base64Url,
