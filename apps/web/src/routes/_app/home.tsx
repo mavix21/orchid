@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Navigate, createFileRoute, useRouter } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
-import { assetKey, baseAsset, type Holding } from "@workspace/wallet";
+import {
+  type BackUpOutcome,
+  type Holding,
+  type SavedOutcome,
+  assetKey,
+  baseAsset,
+} from "@workspace/wallet";
 import * as Match from "effect/Match";
 
 import { ActivityRow } from "@/components/activity-row";
@@ -14,15 +20,49 @@ export const Route = createFileRoute("/_app/home")({
   ssr: false,
   pendingMs: 0,
   pendingComponent: HomeSkeleton,
-  loader: ({ context }) => context.walletClient.overview(),
+  loader: async ({ context }) => {
+    const [overview, saved] = await Promise.all([
+      context.walletClient.overview(),
+      context.walletClient.saved(),
+    ]);
+
+    return { overview, backup: backupState(saved) };
+  },
   component: HomeScreen,
 });
 
+type BackupState = "stored" | "deviceOnly" | "none";
+
+const backupState = (saved: SavedOutcome): BackupState =>
+  Match.valueTags(saved, {
+    SavedWallet: ({ backup }) => backup,
+    NoWallet: (): BackupState => "none",
+    UnsupportedDevice: (): BackupState => "none",
+  });
+
+const backUpRefusal = (
+  outcome: Exclude<BackUpOutcome, { _tag: "BackupStored" }>,
+) =>
+  Match.valueTags(outcome, {
+    BackupUnsupported: () =>
+      "Este navegador no permite respaldar tu cuenta con passkey.",
+    PasskeyCancelled: () => "No se creó la passkey. Inténtalo de nuevo.",
+    ChallengeRefused: () => "El respaldo tardó demasiado. Inténtalo de nuevo.",
+    RegistrationRefused: () =>
+      "No pudimos guardar el respaldo. Inténtalo de nuevo.",
+    NoWallet: () => "Este navegador no puede leer tu llave de forma segura.",
+    UnsupportedDevice: () =>
+      "Este navegador no puede leer tu llave de forma segura.",
+    Offline: () => "Sin conexión. Inténtalo de nuevo.",
+  });
+
 function HomeScreen() {
-  return Match.valueTags(Route.useLoaderData(), {
+  const { overview, backup } = Route.useLoaderData();
+
+  return Match.valueTags(overview, {
     NoWallet: () => <Navigate to="/" replace />,
     NotOpened: () => <Navigate to="/create-account" replace />,
-    Holding: (holding) => <Home holding={holding} />,
+    Holding: (holding) => <Home holding={holding} backup={backup} />,
     NeedsReopening: ({ profile }) => <Reopening username={profile.username} />,
     InvalidAddress: () => (
       <Problem message="La llave guardada en este dispositivo no es válida." />
@@ -34,7 +74,7 @@ function HomeScreen() {
   });
 }
 
-function Home({ holding }: { holding: Holding }) {
+function Home({ holding, backup }: { holding: Holding; backup: BackupState }) {
   const dollars =
     holding.balances.find(
       (balance) => assetKey(balance.asset) === assetKey(baseAsset),
@@ -44,6 +84,7 @@ function Home({ holding }: { holding: Holding }) {
     <Screen>
       <main className="flex flex-1 flex-col gap-10 px-5 pt-2 pb-30">
         <BalanceHeader username={holding.profile.username} dollars={dollars} />
+        {backup === "stored" ? null : <BackupNotice backup={backup} />}
         <section className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <h2 className="text-label-lg">Actividad</h2>
@@ -62,6 +103,51 @@ function Home({ holding }: { holding: Holding }) {
         </section>
       </main>
     </Screen>
+  );
+}
+
+function BackupNotice({ backup }: { backup: "deviceOnly" | "none" }) {
+  const router = useRouter();
+  const { walletClient } = Route.useRouteContext();
+  const [backingUp, setBackingUp] = useState(false);
+  const [problem, setProblem] = useState<string>();
+
+  const backUp = async () => {
+    setBackingUp(true);
+    setProblem(undefined);
+
+    const outcome = await walletClient.backUp();
+
+    await Match.value(outcome).pipe(
+      Match.tag("BackupStored", () => router.invalidate()),
+      Match.orElse((refused) => setProblem(backUpRefusal(refused))),
+    );
+
+    setBackingUp(false);
+  };
+
+  return (
+    <section
+      aria-labelledby="backup-title"
+      className="flex flex-col gap-3 rounded-lg bg-muted p-4"
+    >
+      <h2 id="backup-title" className="text-label-lg">
+        Tu cuenta no tiene respaldo
+      </h2>
+      <p className="text-body text-muted-foreground">
+        {backup === "deviceOnly"
+          ? "Este navegador no permite respaldar con passkey. Tu llave solo está en este dispositivo."
+          : "Si pierdes este dispositivo, pierdes tu cuenta. Respáldala con una passkey."}
+      </p>
+      {problem ? (
+        <p role="alert" className="text-body text-destructive">
+          {problem}
+        </p>
+      ) : null}
+      <Button className="w-full" disabled={backingUp} onClick={backUp}>
+        {backingUp ? "Respaldando…" : "Respaldar con passkey"}
+      </Button>
+    </section>
   );
 }
 

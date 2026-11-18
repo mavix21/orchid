@@ -1,4 +1,5 @@
 import { AssetOrders } from "../src/server/AssetOrders.server";
+import { Backups } from "../src/server/Backups.server";
 import { expect, it } from "@effect/vitest";
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -28,6 +29,7 @@ import { Wallet } from "../src/server/Wallet.server";
 import {
   dbLayer,
   fakeChain,
+  settings,
   addressOf,
   approve,
   claimFor,
@@ -193,9 +195,11 @@ it.live("existing wallet rows migrate into permanent name bindings", () =>
           Directory.layer,
           Transfers.layer,
           AssetOrders.layer,
+          Backups.layer,
         ).pipe(Layer.provide(scratchLayer)),
       ),
       Layer.provide(fakeChain),
+      Layer.provide(settings),
     );
 
     const reopen = (

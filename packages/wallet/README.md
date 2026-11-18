@@ -28,13 +28,17 @@ Recovery signing and submission require matching reserve-sponsor identities on b
 
 `browserKeyStore` keeps the phrase in IndexedDB, encrypted with a non-extractable AES-GCM key stored beside it. This keeps the phrase out of raw storage exports but not out of reach of script running on the Orchid origin.
 
+`makeWalletClient(port, store, passkeys)` also implements `backUp` and `restore`. Before the first `open`, creation registers a discoverable passkey (`browserPasskeys`, user verification required, ES256 or RS256) and stores a backup, so a username is never claimed without one. The passkey's PRF output for the salt `SHA-256("orchid secret phrase backup v1")` derives an AES-GCM-256 key through HKDF-SHA-256 (empty salt, info `orchid-secret-phrase-backup`); the server receives only the ciphertext and its 12-byte IV. When `create()` returns no PRF result, the client asks once more with `get()`. A cancelled passkey prompt returns `PasskeyCancelled` and claims nothing. A passkey without PRF records the wallet as device-only and creation continues. `DeviceWallet.backup` records `stored` or `deviceOnly`, so a resumed creation does not enroll again; a wallet whose opening was already approved enrolls only through `backUp`. `restore` refuses when the device already holds a wallet, never generates a phrase, and stores the restored wallet only when the decrypted phrase derives the returned account address.
+
+The server issues single-use enrollment and restore challenges that expire after five minutes; a challenge is consumed before its signature is checked. It verifies registrations and assertions with `@passwordless-id/webauthn`, which documents Cloudflare Workers support, against the origins in `WalletSettings.passkeyOrigins`; the relying party ID is the origin's hostname. Backups are insert-only rows keyed by credential ID, so an enrollment cannot change what another passkey restores. Restore returns the username bound to the address, or the name requested at enrollment if the opening never finished.
+
 ### Scheduled sweep
 
 Each scheduled run selects up to four transfers and four currently eligible recovery wallets. Queue selection is a conditional write that rotates least-recently checked records. Two independent negative reads protect against demotion from one transient missing response.
 
 ### Limits
 
-The device client covers creation, overview and resuming only; sending from the device, secret phrase export, passkeys/PRF, `protect`/`recover`, enrollment envelopes, phone tables, OTP, escrow, Turnstile, mainnet and deployment are not implemented. A live USDC payment and the recovery guard that skips a nonzero balance are not verified on testnet.
+The device client covers creation, overview, resuming, backup and restore only; sending from the device, secret phrase export, `protect`/`recover`, enrollment envelopes, phone tables, OTP, escrow, Turnstile, mainnet and deployment are not implemented. A live USDC payment and the recovery guard that skips a nonzero balance are not verified on testnet.
 
 An opening abandoned before recovery signing keeps its reserve locked: the server cannot produce the missing signature. Recovery covers only an account whose sequence has not advanced. The sweep skips observed nonzero USDC and native XLM balances. USDC deposits racing recovery are protected atomically by trustline removal; an XLM deposit racing the final check can still be merged to the sponsor by the pre-signed account merge. Mainnet recovery policy needs review before adoption.
 
@@ -84,7 +88,7 @@ The generated SQL and snapshot are in `drizzle/`. From the repository root, `bun
 
 ## Live device verification
 
-`testnet:device` runs the device client against the real `Wallet`, live testnet and the `wallet_live` database, using the reserve sponsor and fee payer from `apps/web/.dev.vars`. Each run creates a new wallet with a fresh secret phrase and checks the opening, sponsorship, signed recovery and overview. It prints public evidence as JSON to stdout; put it in the pull request, not in a file.
+`testnet:device` runs the device client against the real `Wallet`, live testnet and the `wallet_live` database, using the reserve sponsor and fee payer from `apps/web/.dev.vars`. Each run creates a new wallet with a fresh secret phrase and a software passkey, checks the opening, sponsorship, signed recovery and overview, and restores the wallet on a second in-memory device. It prints public evidence as JSON to stdout; put it in the pull request, not in a file.
 
 ```sh
 docker exec orchid-wallet-verification createdb -U orchid wallet_live

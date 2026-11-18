@@ -8,4 +8,6 @@ export const walletClient: WalletClient = {
   saved: () => loadClient().then((client) => client.saved()),
   create: (usernameText) =>
     loadClient().then((client) => client.create(usernameText)),
+  backUp: () => loadClient().then((client) => client.backUp()),
+  restore: () => loadClient().then((client) => client.restore()),
 };

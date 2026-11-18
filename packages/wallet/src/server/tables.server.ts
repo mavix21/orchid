@@ -153,3 +153,21 @@ export const trustlines = pgTable(
     }),
   ],
 );
+
+export const backups = pgTable("backups", {
+  credentialId: text().primaryKey(),
+  address: text().notNull(),
+  username: text().notNull(),
+  publicKey: text().notNull(),
+  algorithm: text({ enum: ["ES256", "RS256"] }).notNull(),
+  counter: bigint({ mode: "number" }).notNull(),
+  iv: text().notNull(),
+  ciphertext: text().notNull(),
+  enrolledAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+export const passkeyChallenges = pgTable("passkey_challenges", {
+  challenge: text().primaryKey(),
+  purpose: text({ enum: ["enrollment", "restore"] }).notNull(),
+  expiresAt: timestamp({ withTimezone: true }).notNull(),
+});

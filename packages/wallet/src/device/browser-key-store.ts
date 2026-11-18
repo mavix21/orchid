@@ -2,7 +2,12 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AccountAddress, Username } from "../contract";
-import { DeviceWallet, type KeyStore, KeyStoreUnavailable } from "./key-store";
+import {
+  BackupState,
+  DeviceWallet,
+  type KeyStore,
+  KeyStoreUnavailable,
+} from "./key-store";
 import { SecretPhrase } from "./secret-phrase";
 
 const databaseName = "orchid-device";
@@ -14,6 +19,7 @@ const SealedWallet = Schema.Struct({
   address: AccountAddress,
   username: Username,
   reserveSponsor: Schema.optional(AccountAddress),
+  backup: Schema.optional(BackupState),
   iv: Schema.Uint8ArrayFromBase64,
   phrase: Schema.Uint8ArrayFromBase64,
 });
@@ -104,6 +110,7 @@ async function readWallet(): Promise<Option.Option<DeviceWallet>> {
       address: sealed.address,
       username: sealed.username,
       reserveSponsor: sealed.reserveSponsor,
+      backup: sealed.backup,
       phrase: Schema.decodeSync(SecretPhrase)(new TextDecoder().decode(phrase)),
     }),
   );
@@ -124,6 +131,7 @@ async function writeWallet(wallet: DeviceWallet): Promise<void> {
       address: wallet.address,
       username: wallet.username,
       reserveSponsor: wallet.reserveSponsor,
+      backup: wallet.backup,
       iv,
       phrase: new Uint8Array(phrase),
     }),

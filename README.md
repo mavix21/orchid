@@ -8,13 +8,13 @@ Crypto payments require users to manage addresses, networks and exchange deposit
 
 ## Solution
 
-Make these payment flows accessible from a mobile browser. The wallet server for Stellar testnet exists: sponsored account opening with permanent usernames, USDC transfers between usernames and to external addresses, and a scheduled sweep that settles transfers and recovers abandoned reserves. The web app creates a wallet from a secret phrase kept on the device and shows its username and USDC balance; the activity list and the send flow still use local mock data. Passkey backup and secret phrase export are not built yet.
+Make these payment flows accessible from a mobile browser. The wallet server for Stellar testnet exists: sponsored account opening with permanent usernames, USDC transfers between usernames and to external addresses, and a scheduled sweep that settles transfers and recovers abandoned reserves. The web app creates a wallet from a secret phrase kept on the device and shows its username and USDC balance; the phrase is backed up with a passkey and can be restored on another device; the activity list and the send flow still use local mock data. Secret phrase export is not built yet.
 
 ## Key features
 
 - Usernames and USDC transfers on Stellar testnet — account creation and balance are wired to the server; activity and sending use mock data.
 - Exchange withdrawals with memo — server accepts text and ID memos; the known-exchange registry is empty.
-- Self-custody — the server never holds user keys; the device stores an encrypted SEP-5 secret phrase. Passkey backup and phrase export are not built.
+- Self-custody — the server never holds user keys; the device stores an encrypted SEP-5 secret phrase, and Orchid keeps only a passkey-encrypted backup. Phrase export is not built.
 
 ## Tech stack
 
@@ -45,9 +45,9 @@ RESERVE_SPONSOR_SECRET=S...
 FEE_PAYER_SECRET=S...
 ```
 
-Fund each public key with Friendbot (`https://friendbot.stellar.org/?addr=G...`). `STELLAR_RPC_URL` is already set in `apps/web/wrangler.jsonc`. Testnet resets wipe both accounts; fund them again afterwards.
+Fund each public key with Friendbot (`https://friendbot.stellar.org/?addr=G...`). `STELLAR_RPC_URL` and `PASSKEY_ORIGINS` (the comma-separated origins whose passkeys the server accepts) are already set in `apps/web/wrangler.jsonc`. Testnet resets wipe both accounts; fund them again afterwards.
 
-`bun run --cwd apps/web test:e2e` builds the app, serves it with `vite preview` and creates a real testnet wallet in Chromium (`bunx playwright install chromium` once). It needs the database above and `apps/web/.dev.vars`. Restart an existing database with `docker start orchid-postgres`.
+`bun run --cwd apps/web test:e2e` builds the app, serves it with `vite preview` and creates and restores real testnet wallets in Chromium with a virtual passkey (`bunx playwright install chromium` once). It needs the database above and `apps/web/.dev.vars`. Restart an existing database with `docker start orchid-postgres`.
 
 Wrangler config supplies `nodejs_compat` and the local Docker connection string. `bun run dev` uses Docker even when Neon credentials exist in the root `.env.local`. Override the local connection string if needed:
 

@@ -20,15 +20,18 @@ import {
   Holding,
   type KeyStore,
   Opened,
+  Restored,
   assetKey,
   baseAsset,
   makeWalletClient,
 } from "@workspace/wallet";
 import { signingKey } from "../src/device/signing";
+import { SoftwareAuthenticator } from "../test/software-authenticator";
 import { Chain } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { AssetOrders } from "../src/server/AssetOrders.server";
+import { Backups } from "../src/server/Backups.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { WalletSettings } from "../src/server/settings.server";
 import { networkPassphrase, usdc } from "../src/stellar/network";
@@ -45,6 +48,8 @@ const secret = (name: string) => {
 const sponsor = Keypair.fromSecret(secret("RESERVE_SPONSOR_SECRET"));
 const feePayer = Keypair.fromSecret(secret("FEE_PAYER_SECRET"));
 const rpcUrl = "https://soroban-testnet.stellar.org";
+const passkeyOrigin = "http://localhost:3000";
+const authenticator = new SoftwareAuthenticator(passkeyOrigin);
 const server = new rpc.Server(rpcUrl);
 const horizon = new Horizon.Server("https://horizon-testnet.stellar.org");
 
@@ -58,6 +63,7 @@ const dependencies = Layer.mergeAll(
   Directory.layer,
   Transfers.layer,
   AssetOrders.layer,
+  Backups.layer,
 );
 
 const services = Layer.merge(
@@ -69,6 +75,7 @@ const services = Layer.merge(
       rpcUrl,
       reserveSponsorSecret: Redacted.make(sponsor.secret()),
       feePayerSecret: Redacted.make(feePayer.secret()),
+      passkeyOrigins: [passkeyOrigin],
     }),
   ),
   Layer.provide(dbLayer),
@@ -99,7 +106,12 @@ await Effect.runPromise(
   }).pipe(Effect.provide(dbLayer)),
 );
 
-const client = makeWalletClient(await run(Wallet), store);
+const client = makeWalletClient(
+  await run(Wallet),
+  store,
+  authenticator.passkeys,
+);
+
 const username = `device_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 
 let outcome: CreateOutcome = await client.create(username);
@@ -222,6 +234,37 @@ assert.equal(
 
 console.log("PASS overview reads the opened wallet with a zero USDC balance.");
 
+let restoredWallet = Option.none<DeviceWallet>();
+
+const restoringClient = makeWalletClient(
+  await run(Wallet),
+  {
+    read: () => Effect.sync(() => restoredWallet),
+    write: (wallet) =>
+      Effect.sync(() => {
+        restoredWallet = Option.some(wallet);
+      }),
+  },
+  authenticator.passkeys,
+);
+
+const restored = await restoringClient.restore();
+
+assert.ok(
+  restored instanceof Restored,
+  `Expected Restored, got ${restored._tag}`,
+);
+
+assert.equal(restored.profile.username, username);
+
+assert.equal(Option.getOrThrow(restoredWallet).phrase, device.phrase);
+
+assert.ok((await restoringClient.overview()) instanceof Holding);
+
+console.log(
+  "PASS a second device restores the same wallet from its passkey backup.",
+);
+
 console.log(
   JSON.stringify(
     {
@@ -239,6 +282,7 @@ console.log(
         "raw extXdr identifies Orchid as account and trustline sponsor; 0 XLM, num_sponsored 3",
         "stored recovery signed by the derived key and merging into the reserve sponsor",
         "overview returns Holding with a zero USDC balance",
+        "a second device restores the same secret phrase and username from the passkey backup",
       ],
     },
     null,

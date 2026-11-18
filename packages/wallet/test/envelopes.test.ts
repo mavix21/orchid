@@ -64,6 +64,7 @@ const layer = Chain.layer.pipe(
       rpcUrl: "https://soroban-testnet.stellar.org",
       reserveSponsorSecret: Redacted.make(sponsor.secret()),
       feePayerSecret: Redacted.make(feePayer.secret()),
+      passkeyOrigins: [],
     }),
   ),
 );

@@ -10,6 +10,12 @@ _Avoid_: Account when referring to the complete Orchid identity.
 **Secret phrase**: The words on the user's device from which the wallet's signing key derives; whoever holds them controls the wallet.
 _Avoid_: Recovery phrase, seed, private key when referring to the words.
 
+**Backup**: The passkey-encrypted copy of a wallet's secret phrase that Orchid holds; only the passkey that encrypted it can unlock it.
+_Avoid_: Recovery, seed backup.
+
+**Restore**: Recovering a wallet on a device from its backup, after the device proves it holds the passkey.
+_Avoid_: Recovery, reserve recovery, import.
+
 **Account address**: The public Stellar address identifying an account on the network.
 _Avoid_: Username, private key.
 

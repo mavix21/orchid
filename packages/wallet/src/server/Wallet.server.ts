@@ -57,6 +57,8 @@ import { assetFlow } from "./wallet-assets.server";
 import { SlotOccupied } from "./slot.server";
 import { maxOpenClaimables } from "../stellar/network";
 import { openingFlow } from "./wallet-opening.server";
+import { Backups } from "./Backups.server";
+import { backupFlow } from "./wallet-backup.server";
 import { confirmedReads, live } from "./wallet-reads.server";
 
 export class Wallet extends Context.Service<
@@ -81,6 +83,7 @@ export class Wallet extends Context.Service<
 
       const { readAccount, readBalance } = yield* confirmedReads;
       const open = yield* openingFlow;
+      const backup = yield* backupFlow;
 
       const reconcile = Effect.fn("Wallet.reconcile")(function* (
         authorized: Authorized,
@@ -502,6 +505,9 @@ export class Wallet extends Context.Service<
         open: (claim, approval) => wrap(open(claim, approval)),
         transfer: (order, approval) => wrap(transfer(order, approval)),
         overview: (address) => wrap(overview(address)),
+        passkeyChallenge: (purpose) => wrap(backup.passkeyChallenge(purpose)),
+        enroll: (enrollment) => wrap(backup.enroll(enrollment)),
+        restore: (assertion) => wrap(backup.restore(assertion)),
         sweep: wrap(sweep),
       });
     }),
@@ -511,6 +517,7 @@ export class Wallet extends Context.Service<
       Directory.layer,
       Transfers.layer,
       AssetOrders.layer,
+      Backups.layer,
       Chain.layer,
     ]),
   );

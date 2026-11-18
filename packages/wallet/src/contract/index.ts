@@ -17,6 +17,14 @@ import {
   Unchanged,
 } from "./asset-orders";
 import { Amount, Asset, BalanceId, PositiveAmount } from "./assets";
+import type {
+  BackupEnrollment,
+  ChallengePurpose,
+  EnrollStep,
+  PasskeyAssertion,
+  PasskeyChallenge,
+  RestoreStep,
+} from "./backup";
 import { AccountAddress, Profile, Username } from "./identity";
 
 export * from "./approval";
@@ -24,6 +32,8 @@ export * from "./approval";
 export * from "./asset-orders";
 
 export * from "./assets";
+
+export * from "./backup";
 
 export * from "./identity";
 
@@ -386,4 +396,13 @@ export interface WalletPort {
     order: AssetOrder,
     approval: Option.Option<Approval>,
   ): Effect.Effect<AssetStep, WalletUnavailable>;
+  passkeyChallenge(
+    purpose: ChallengePurpose,
+  ): Effect.Effect<PasskeyChallenge, WalletUnavailable>;
+  enroll(
+    enrollment: BackupEnrollment,
+  ): Effect.Effect<EnrollStep, WalletUnavailable>;
+  restore(
+    assertion: PasskeyAssertion,
+  ): Effect.Effect<RestoreStep, WalletUnavailable>;
 }
