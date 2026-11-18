@@ -5,11 +5,13 @@ export function TopNav({
   label,
   icon,
   link,
+  disabled = false,
 }: {
   title: string;
   label: string;
   icon: React.ReactNode;
   link: React.ReactElement;
+  disabled?: boolean;
 }) {
   return (
     <header className="flex h-14 items-center gap-2 px-5">
@@ -18,6 +20,7 @@ export function TopNav({
         size="icon"
         aria-label={label}
         nativeButton={false}
+        disabled={disabled}
         render={link}
       >
         {icon}

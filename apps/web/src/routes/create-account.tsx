@@ -73,6 +73,7 @@ function ChooseUsername() {
   const [resuming, setResuming] = useState(false);
   const [problem, setProblem] = useState<string>();
 
+  const busy = creating || resuming;
   const typedIssue = usernameIssue(username);
   const length = Array.from(username).length;
 
@@ -135,7 +136,8 @@ function ChooseUsername() {
         title="Crea tu cuenta"
         label="Atrás"
         icon={<ChevronLeftIcon />}
-        link={<Link to="/" />}
+        link={<Link to="/" disabled={busy} />}
+        disabled={busy}
       />
       <form className="flex flex-1 flex-col" noValidate onSubmit={submit}>
         <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
@@ -161,7 +163,7 @@ function ChooseUsername() {
                   setProblem(undefined);
                 }}
                 onBlur={() => setTouched(username.length > 0)}
-                disabled={resuming}
+                disabled={busy}
                 aria-invalid={message ? true : undefined}
                 aria-describedby={message ? "username-error" : undefined}
                 autoComplete="username"
@@ -188,7 +190,7 @@ function ChooseUsername() {
             className="w-full"
             type="submit"
             disabled={
-              creating || username.length === 0 || Option.isSome(blockingIssue)
+              busy || username.length === 0 || Option.isSome(blockingIssue)
             }
           >
             {resuming

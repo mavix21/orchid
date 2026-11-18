@@ -102,6 +102,17 @@ test("creates a backed-up testnet wallet and restores it after the device forget
   await page.getByLabel("Usuario").fill(username);
   await page.getByRole("button", { name: "Continuar" }).click();
 
+  await expect(page.getByLabel("Usuario")).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Creando tu cuenta…" }),
+  ).toBeDisabled();
+
+  const back = page.getByRole("link", { name: "Atrás" });
+
+  await expect(back).toHaveAttribute("aria-disabled", "true");
+  await back.click({ force: true });
+  await expect(page).toHaveURL("/create-account");
+
   await expect(page).toHaveURL("/home", { timeout: 90_000 });
   await expect(page.getByText(`@${username}`)).toBeVisible();
   await expect(page.getByText("$0")).toBeVisible();
