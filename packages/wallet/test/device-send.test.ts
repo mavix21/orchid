@@ -6,6 +6,8 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   Amount,
+  AssetCode,
+  IssuedAsset,
   PositiveAmount,
   Settled,
   Username,
@@ -23,6 +25,7 @@ import {
   addressOf,
   create,
   passkeyOrigin,
+  reserveSponsor,
   useDisposableDatabase,
   walletTestLayer,
   world,
@@ -46,6 +49,11 @@ function memoryKeyStore(initial = Option.none<DeviceWallet>()) {
 
 const savedWallet = (store: KeyStore) =>
   store.read().pipe(Effect.flatMap(Effect.fromOption), Effect.orDie);
+
+const euro = IssuedAsset.make({
+  code: Schema.decodeSync(AssetCode)("EUR"),
+  issuer: addressOf(Keypair.random()),
+});
 
 const toPedro = new TransferIntent({
   to: UsernameRecipient.make({ value: Schema.decodeSync(Username)("pedro") }),
@@ -147,28 +155,40 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "a restored wallet approves a claimable to a username without a USDC trustline",
+      "a restored wallet approves a claimable of an asset the recipient has not opened",
       () =>
         Effect.gen(function* () {
-          const pedro = Keypair.random();
-
-          yield* create(pedro, "pedro");
+          yield* create(Keypair.random(), "pedro");
 
           const opened = memoryKeyStore();
           const wallet = yield* openSender(opened);
-          const account = world.accounts.get(addressOf(pedro));
+          const sender = yield* savedWallet(opened);
+          const account = world.accounts.get(sender.address);
 
-          if (!account) throw new Error("Expected an opened recipient");
+          if (!account) throw new Error("Expected an opened sender");
 
-          world.accounts.set(addressOf(pedro), {
-            ...account,
-            balance: Option.none(),
+          const held = Schema.decodeSync(Amount)("50000000");
+
+          world.holdings.set(sender.address, {
+            account,
+            reserveSponsor: Option.some(reserveSponsor),
+            native: Schema.decodeSync(Amount)("0"),
+            reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
+            lines: [
+              {
+                asset: euro,
+                balance: held,
+                spendable: held,
+                authorized: true,
+                sponsored: true,
+              },
+            ],
           });
 
           const restored = memoryKeyStore(
             Option.some(
               new DeviceWallet({
-                ...(yield* savedWallet(opened)),
+                ...sender,
                 reserveSponsor: undefined,
               }),
             ),
@@ -182,7 +202,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           yield* Effect.promise(() => client.overview());
 
-          const sent = yield* Effect.promise(() => client.send(toPedro));
+          const sent = yield* Effect.promise(() =>
+            client.send(new TransferIntent({ ...toPedro, asset: euro })),
+          );
 
           expect(sent instanceof Settled && sent.claimable).toBeTruthy();
         }),
