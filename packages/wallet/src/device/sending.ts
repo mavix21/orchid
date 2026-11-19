@@ -8,7 +8,9 @@ import {
   type Approval,
   type PaymentMemo,
   Profile,
-  type TransferDraft,
+  Failed,
+  Settled,
+  TransferDraft,
   TransferId,
   TransferOrder,
   type TransferStep,
@@ -154,7 +156,12 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
           )
             return new DraftRejected();
 
-          if (facts.value.maxTime - now < approvalMargin)
+          const deadline = Math.min(
+            facts.value.maxTime,
+            Math.floor(DateTime.toEpochMillis(draft.request.expiresAt) / 1000),
+          );
+
+          if (deadline - now < approvalMargin)
             return refreshed
               ? new DraftRejected()
               : yield* advance(wallet, order, Option.none(), remaining, true);
@@ -212,12 +219,17 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
           new TransferOrder({ ...intent, id: kept.id, from: wallet.address }),
         );
 
-    if (
-      !replayed &&
-      kept !== undefined &&
-      approvalOutstanding(wallet, yield* nowSeconds)
-    )
-      return new ApprovalOutstanding({ order: kept });
+    if (!replayed && kept !== undefined && wallet.approvedUntil !== undefined) {
+      const signed = yield* port.transfer(kept, Option.none());
+      const now = yield* nowSeconds;
+
+      const resolved =
+        signed instanceof Settled ||
+        signed instanceof Failed ||
+        (signed instanceof TransferDraft && !approvalOutstanding(wallet, now));
+
+      if (!resolved) return new ApprovalOutstanding({ order: kept });
+    }
 
     const order = replayed
       ? kept

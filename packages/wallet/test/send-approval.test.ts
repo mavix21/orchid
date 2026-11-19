@@ -17,7 +17,10 @@ import {
   type ResolvedRecipient,
   SigningRequest,
   TransferDraft,
-  type TransferOrder,
+  TransferId,
+  TransferOrder,
+  type TransferStep,
+  Pending,
   type UnsignedEnvelope,
   Username,
   UsernameRecipient,
@@ -95,7 +98,9 @@ const claimable = (source = sender) =>
 const deviceWith = (
   envelope: () => UnsignedEnvelope,
   lifetime = 120,
-  redraftsAfterApproval = false,
+  answer: (approval: Option.Option<Approval>) => Option.Option<TransferStep> = (
+    approval,
+  ) => (Option.isSome(approval) ? Option.some(new NotOpened()) : Option.none()),
 ) => {
   const approvals: Array<Option.Option<Approval>> = [];
 
@@ -137,16 +142,18 @@ const deviceWith = (
       Effect.sync(() => {
         approvals.push(approval);
 
-        return Option.isSome(approval) && !redraftsAfterApproval
-          ? new NotOpened()
-          : new TransferDraft({
+        return Option.getOrElse(
+          answer(approval),
+          () =>
+            new TransferDraft({
               request: new SigningRequest({
                 envelope: envelope(),
                 expiresAt: DateTime.makeUnsafe((now() + lifetime) * 1000),
               }),
               recipient: recipientOf(order),
               memoRequired: false,
-            });
+            }),
+        );
       }),
   };
 
@@ -156,7 +163,7 @@ const deviceWith = (
     new SoftwareAuthenticator("http://localhost:3000").passkeys,
   );
 
-  return { approvals, client };
+  return { approvals, client, store };
 };
 
 it.effect("signs a live draft whose facts match the order", () =>
@@ -265,7 +272,7 @@ it.effect(
   "asks once for a fresh draft when the draft expires within the approval margin",
   () =>
     Effect.gen(function* () {
-      const { approvals, client } = deviceWith(() => payment(sender, 10), 10);
+      const { approvals, client } = deviceWith(() => payment(), 10);
 
       expect(yield* Effect.promise(() => client.send(toExchange))).toEqual(
         new DraftRejected(),
@@ -276,7 +283,11 @@ it.effect(
 
 it.effect("signs only one draft for an order", () =>
   Effect.gen(function* () {
-    const { approvals, client } = deviceWith(() => payment(), 120, true);
+    const { approvals, client } = deviceWith(
+      () => payment(),
+      120,
+      () => Option.none(),
+    );
 
     expect(yield* Effect.promise(() => client.send(toExchange))).toEqual(
       new DraftRejected(),
@@ -285,17 +296,48 @@ it.effect("signs only one draft for an order", () =>
   }),
 );
 
-it.effect("keeps an approved order until it can no longer settle", () =>
-  Effect.gen(function* () {
-    const { approvals, client } = deviceWith(() => payment());
+it.effect(
+  "keeps a signed order whose signature expired while the server reports it pending",
+  () =>
+    Effect.gen(function* () {
+      const signed = new TransferOrder({
+        ...toExchange,
+        id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
+        from: sender,
+      });
 
-    yield* Effect.promise(() => client.send(toExchange));
+      const inFlight = new Pending({
+        ...signed,
+        recipient: new ExternalRecipient({ address: exchange }),
+        expiresAt: DateTime.makeUnsafe(Date.now()),
+      });
 
-    expect(
-      (yield* Effect.promise(() =>
-        client.send(new TransferIntent({ ...toExchange, amount: otherAmount })),
-      ))._tag,
-    ).toBe("ApprovalOutstanding");
-    expect(approvals).toHaveLength(2);
-  }),
+      const { approvals, client, store } = deviceWith(
+        () => payment(),
+        120,
+        () => Option.some(inFlight),
+      );
+
+      const wallet = Option.getOrThrow(yield* store.read());
+
+      yield* store.write(
+        new DeviceWallet({
+          ...wallet,
+          transfer: signed,
+          approvedUntil: now() - 3600,
+        }),
+      );
+
+      expect(
+        (yield* Effect.promise(() =>
+          client.send(
+            new TransferIntent({ ...toExchange, amount: otherAmount }),
+          ),
+        ))._tag,
+      ).toBe("ApprovalOutstanding");
+      expect(approvals).toEqual([Option.none()]);
+      expect(Option.getOrThrow(yield* store.read()).transfer?.id).toBe(
+        signed.id,
+      );
+    }),
 );
