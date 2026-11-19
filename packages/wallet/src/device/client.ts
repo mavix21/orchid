@@ -94,15 +94,19 @@ export function makeWalletClient(
 
     const overview = yield* port.overview(stored.value.address);
 
+    const current = yield* store.read();
+
     if (
       overview instanceof Holding &&
-      stored.value.reserveSponsor === undefined &&
-      Option.isSome(overview.reserveSponsor)
+      Option.isSome(overview.reserveSponsor) &&
+      Option.isSome(current) &&
+      current.value.address === stored.value.address &&
+      current.value.reserveSponsor === undefined
     )
       yield* remember(
         store,
         new DeviceWallet({
-          ...stored.value,
+          ...current.value,
           reserveSponsor: overview.reserveSponsor.value,
         }),
       );

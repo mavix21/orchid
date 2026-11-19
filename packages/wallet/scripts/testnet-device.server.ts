@@ -55,7 +55,6 @@ const secret = (name: string) => {
 
 const sponsor = Keypair.fromSecret(secret("RESERVE_SPONSOR_SECRET"));
 const feePayer = Keypair.fromSecret(secret("FEE_PAYER_SECRET"));
-const usdcFunder = Keypair.fromSecret(secret("USDC_FUNDER_SECRET"));
 const rpcUrl = "https://soroban-testnet.stellar.org";
 const passkeyOrigin = "http://localhost:3000";
 const authenticator = new SoftwareAuthenticator(passkeyOrigin);
@@ -270,6 +269,7 @@ await openWallet(
   recipientName,
 );
 
+const usdcFunder = Keypair.fromSecret(secret("USDC_FUNDER_SECRET"));
 const funder = await horizon.loadAccount(usdcFunder.publicKey());
 
 const funding = new TransactionBuilder(funder, {
@@ -311,14 +311,14 @@ assert.ok(sent instanceof Settled, `Expected Settled, got ${sent._tag}`);
 
 assert.equal(sent.claimable, undefined);
 
-const [paymentRecord] = (
+const paymentRecord = (
   await horizon
     .transactions()
     .forAccount(wallet.address)
     .order("desc")
-    .limit(1)
+    .limit(5)
     .call()
-).records;
+).records.find((record) => record.source_account === wallet.address);
 
 assert.ok(paymentRecord?.successful, "Payment must be applied on testnet");
 
