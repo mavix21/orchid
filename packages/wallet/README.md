@@ -40,7 +40,7 @@ Each scheduled run selects up to four transfers and four currently eligible reco
 
 ### Limits
 
-The device client covers creation, overview, resuming, backup, restore and sending only; secret phrase export, `protect`/`recover`, enrollment envelopes, phone tables, OTP, escrow, Turnstile, mainnet and deployment are not implemented. A live USDC payment and the recovery guard that skips a nonzero balance are not verified on testnet.
+The device client covers creation, overview, resuming, backup, restore and sending only; secret phrase export, `protect`/`recover`, enrollment envelopes, phone tables, OTP, escrow, Turnstile, mainnet and deployment are not implemented. The recovery guard that skips a nonzero balance is not verified on testnet.
 
 A restored wallet learns its reserve sponsor only from its first `Holding` overview. If it was restored after its opening was approved but before the recovery transaction was signed, the device rejects that recovery draft as `DraftRejected`.
 
@@ -92,7 +92,7 @@ The generated SQL and snapshot are in `drizzle/`. From the repository root, `bun
 
 ## Live device verification
 
-`testnet:device` runs the device client against the real `Wallet`, live testnet and the `wallet_live` database, using the reserve sponsor and fee payer from `apps/web/.dev.vars`. Each run creates a new wallet with a fresh secret phrase and a software passkey, checks the opening, sponsorship, signed recovery and overview, then opens a second username, funds the first wallet with 1 testnet USDC from `USDC_FUNDER_SECRET` in `apps/web/.dev.vars` (a testnet account holding Circle testnet USDC), pays 0.5 USDC between the two usernames through `send`, and restores the wallet on a second in-memory device. It prints public evidence, including the payment's transaction hash, as JSON to stdout; put it in the pull request, not in a file.
+`testnet:device` runs the device client against the real `Wallet`, live testnet and the `wallet_live` database, using the reserve sponsor and fee payer from `apps/web/.dev.vars`. Each run creates a new wallet with a fresh secret phrase and a software passkey, checks the opening, sponsorship, signed recovery and overview, then opens a second username, funds the first wallet with 1 testnet USDC from `USDC_FUNDER_SECRET` in `apps/web/.dev.vars` (a testnet account holding Circle testnet USDC; Circle's faucet or a testnet path payment from XLM can fund one), pays 0.5 USDC between the two usernames through `send`, and restores the wallet on a second in-memory device. It prints public evidence, including the payment's transaction hash, as JSON to stdout; put it in the pull request, not in a file.
 
 ```sh
 docker exec orchid-wallet-verification createdb -U orchid wallet_live

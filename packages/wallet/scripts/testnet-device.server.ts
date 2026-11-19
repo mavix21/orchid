@@ -264,7 +264,7 @@ await openWallet(
   makeWalletClient(
     await run(Wallet),
     memoryKeyStore().store,
-    authenticator.passkeys,
+    new SoftwareAuthenticator(passkeyOrigin).passkeys,
   ),
   recipientName,
 );
