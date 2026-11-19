@@ -27,10 +27,8 @@ import {
 } from "./outcomes";
 import type { Passkeys } from "./passkeys";
 import { generateSecretPhrase } from "./secret-phrase";
+import { pendingPause, pendingSteps } from "./polling";
 import { approve, liveFacts, signingKey } from "./signing";
-
-const openingSteps = 12;
-const pendingPause = "2 seconds";
 
 export function openWallet(
   port: WalletPort,
@@ -175,6 +173,6 @@ export function openWallet(
 
     if (!(enrolled instanceof DeviceWallet)) return enrolled;
 
-    return yield* advance(enrolled, Option.none(), openingSteps);
+    return yield* advance(enrolled, Option.none(), pendingSteps);
   });
 }

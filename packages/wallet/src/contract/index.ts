@@ -1,4 +1,4 @@
-import type * as Effect from "effect/Effect";
+import * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { Approval, SigningRequest } from "./approval";
@@ -355,6 +355,9 @@ export class ClaimableBalance extends Schema.Class<ClaimableBalance>(
 
 export class Holding extends Schema.TaggedClass<Holding>()("Holding", {
   profile: Profile,
+  reserveSponsor: Schema.OptionFromNullOr(AccountAddress).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
 
   balances: Schema.Array(Balance),
   claimable: Schema.Array(ClaimableBalance),

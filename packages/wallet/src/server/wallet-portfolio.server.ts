@@ -89,6 +89,13 @@ export const portfolioFlow = Effect.gen(function* () {
       );
     }
 
-    return { balances, claimable };
+    return {
+      reserveSponsor: Option.flatMap(
+        state,
+        (holdings) => holdings.reserveSponsor,
+      ),
+      balances,
+      claimable,
+    };
   });
 });

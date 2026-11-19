@@ -132,6 +132,9 @@ export const fakeChain = Layer.effect(
               Effect.map(
                 Option.map((state) => ({
                   account: state,
+                  reserveSponsor: state.accountSponsored
+                    ? Option.some(reserveSponsor)
+                    : Option.none(),
                   native: Schema.decodeSync(Amount)(
                     state.nativeBalance.toString(),
                   ),

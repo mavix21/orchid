@@ -20,6 +20,7 @@ import {
   type AccountState,
   type LedgerEntry,
   accountFromEntries,
+  sponsorOf,
   sponsoredBy,
 } from "./ledger.server";
 
@@ -41,6 +42,7 @@ export interface Reserves {
 
 export interface Holdings {
   readonly account: AccountState;
+  readonly reserveSponsor: Option.Option<AccountAddress>;
 
   readonly native: Amount;
   readonly reserves: Reserves;
@@ -149,6 +151,7 @@ export function holdingsFromEntries(
 
   return Option.some({
     account: state.value,
+    reserveSponsor: sponsorOf(account.raw),
     native: amountOf(account.data.value.balance - locked),
     reserves: {
       subentries: reserves.subentries,

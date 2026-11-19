@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { AccountAddress, Username } from "../contract";
+import { AccountAddress, TransferOrder, Username } from "../contract";
 import { SecretPhrase } from "./secret-phrase";
 
 export const BackupState = Schema.Literals(["stored", "deviceOnly"]);
@@ -14,6 +14,8 @@ export class DeviceWallet extends Schema.Class<DeviceWallet>(
   username: Username,
   reserveSponsor: Schema.optional(AccountAddress),
   backup: Schema.optional(BackupState),
+  transfer: Schema.optional(TransferOrder),
+  approvedUntil: Schema.optional(Schema.Number),
 }) {}
 
 export class KeyStoreUnavailable extends Schema.TaggedError<KeyStoreUnavailable>()(
@@ -39,7 +41,9 @@ export const remember = Effect.fn("Device.remember")(function* (
     stored.value.address === wallet.address &&
     stored.value.username === wallet.username &&
     stored.value.reserveSponsor === wallet.reserveSponsor &&
-    stored.value.backup === wallet.backup
+    stored.value.backup === wallet.backup &&
+    stored.value.transfer?.id === wallet.transfer?.id &&
+    stored.value.approvedUntil === wallet.approvedUntil
     ? Option.some(stored.value)
     : Option.none();
 });

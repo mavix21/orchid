@@ -37,6 +37,9 @@ _Avoid_: Symbol alone when identifying an issued asset.
 **Transfer order**: A uniquely identified instruction to send an asset amount to a recipient, with an optional external payment memo.
 _Avoid_: Transaction when referring to the user's instruction rather than its network execution.
 
+**Transfer intent**: What the user entered to send (recipient, asset, amount and optional payment memo) before the device turns it into a transfer order.
+_Avoid_: Order when referring to the entry before it has an id.
+
 **Asset order**: A uniquely identified instruction to open or close a trustline, or claim a claimable balance.
 
 **Draft**: An unsigned transaction offered for approval before its expiry.
