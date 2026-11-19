@@ -162,10 +162,14 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
             DateTime.toEpochMillis(draft.request.expiresAt),
           );
 
-          const remainingMillis =
-            deadline - DateTime.toEpochMillis(yield* DateTime.now);
+          const withinMargin = Effect.map(
+            DateTime.now,
+            (current) =>
+              deadline - DateTime.toEpochMillis(current) >=
+              approvalMargin * 1000,
+          );
 
-          if (remainingMillis < approvalMargin * 1000)
+          if (!(yield* withinMargin))
             return refreshed
               ? new DraftRejected()
               : yield* advance(wallet, order, Option.none(), remaining, true);
@@ -176,6 +180,8 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
           );
 
           if (Option.isNone(approved)) return new UnsupportedDevice();
+
+          if (!(yield* withinMargin)) return new DraftRejected();
 
           return yield* advance(
             approved.value,

@@ -102,6 +102,7 @@ const deviceWith = (
   answer: (approval: Option.Option<Approval>) => Option.Option<TransferStep> = (
     approval,
   ) => (Option.isSome(approval) ? Option.some(new NotOpened()) : Option.none()),
+  storage = Effect.void,
 ) => {
   const approvals: Array<Option.Option<Approval>> = [];
 
@@ -118,9 +119,13 @@ const deviceWith = (
   const store: KeyStore = {
     read: () => Effect.sync(() => saved),
     write: (wallet) =>
-      Effect.sync(() => {
-        saved = Option.some(wallet);
-      }),
+      storage.pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            saved = Option.some(wallet);
+          }),
+        ),
+      ),
   };
 
   const recipientOf = (order: TransferOrder) =>
@@ -376,5 +381,21 @@ it.effect("releases an expired signed order the server never authorized", () =>
         client.send(new TransferIntent({ ...toExchange, amount: otherAmount })),
       ),
     ).toEqual(refusal);
+  }),
+);
+
+it.effect("rechecks the approval margin after recording the approval", () =>
+  Effect.gen(function* () {
+    const { approvals, client } = deviceWith(
+      () => payment(sender, 21),
+      21,
+      undefined,
+      Effect.sleep("1500 millis"),
+    );
+
+    expect(yield* Effect.promise(() => client.send(toExchange))).toEqual(
+      new DraftRejected(),
+    );
+    expect(approvals.filter(Option.isSome)).toHaveLength(0);
   }),
 );
