@@ -3,6 +3,7 @@ import {
   FeeBumpTransaction,
   Horizon,
   Keypair,
+  Operation,
   TransactionBuilder,
   rpc,
 } from "@stellar/stellar-sdk";
@@ -14,13 +15,20 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
 import {
   type CreateOutcome,
   type DeviceWallet,
   Holding,
   type KeyStore,
   Opened,
+  PositiveAmount,
   Restored,
+  type SendOutcome,
+  Settled,
+  TransferIntent,
+  Username,
+  UsernameRecipient,
   assetKey,
   baseAsset,
   makeWalletClient,
@@ -34,7 +42,7 @@ import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { WalletSettings } from "../src/server/settings.server";
-import { networkPassphrase, usdc } from "../src/stellar/network";
+import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 
 const secret = (name: string) => {
   const value = process.env[name];
@@ -47,6 +55,7 @@ const secret = (name: string) => {
 
 const sponsor = Keypair.fromSecret(secret("RESERVE_SPONSOR_SECRET"));
 const feePayer = Keypair.fromSecret(secret("FEE_PAYER_SECRET"));
+const usdcFunder = Keypair.fromSecret(secret("USDC_FUNDER_SECRET"));
 const rpcUrl = "https://soroban-testnet.stellar.org";
 const passkeyOrigin = "http://localhost:3000";
 const authenticator = new SoftwareAuthenticator(passkeyOrigin);
@@ -86,14 +95,38 @@ const runtime = ManagedRuntime.make(services);
 const run = <A, E>(program: Effect.Effect<A, E, Wallet | Chain | Directory>) =>
   runtime.runPromise(program);
 
-let saved = Option.none<DeviceWallet>();
+function memoryKeyStore() {
+  let saved = Option.none<DeviceWallet>();
 
-const store: KeyStore = {
-  read: () => Effect.sync(() => saved),
-  write: (wallet) =>
-    Effect.sync(() => {
-      saved = Option.some(wallet);
-    }),
+  const store: KeyStore = {
+    read: () => Effect.sync(() => saved),
+    write: (wallet) =>
+      Effect.sync(() => {
+        saved = Option.some(wallet);
+      }),
+  };
+
+  return { store, saved: () => saved };
+}
+
+const device = memoryKeyStore();
+
+const openWallet = async (
+  client: ReturnType<typeof makeWalletClient>,
+  username: string,
+) => {
+  let opened: CreateOutcome = await client.create(username);
+
+  for (
+    let attempt = 0;
+    attempt < 3 && Predicate.isTagged(opened, "OpeningPending");
+    attempt++
+  )
+    opened = await client.create(username);
+
+  assert.ok(opened instanceof Opened, `Expected Opened, got ${opened._tag}`);
+
+  return opened;
 };
 
 assert.equal((await server.getNetwork()).passphrase, networkPassphrase);
@@ -108,47 +141,39 @@ await Effect.runPromise(
 
 const client = makeWalletClient(
   await run(Wallet),
-  store,
+  device.store,
   authenticator.passkeys,
 );
 
-const username = `device_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+const freshUsername = () =>
+  `device_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 
-let outcome: CreateOutcome = await client.create(username);
-
-for (
-  let attempt = 0;
-  attempt < 3 && Predicate.isTagged(outcome, "OpeningPending");
-  attempt++
-)
-  outcome = await client.create(username);
-
-assert.ok(outcome instanceof Opened, `Expected Opened, got ${outcome._tag}`);
-
-const device = Option.getOrThrow(saved);
-const key = signingKey(device.phrase);
+const username = freshUsername();
+const outcome = await openWallet(client, username);
+const wallet = Option.getOrThrow(device.saved());
+const key = signingKey(wallet.phrase);
 
 assert.equal(outcome.profile.username, username);
 
-assert.equal(outcome.profile.address, device.address);
+assert.equal(outcome.profile.address, wallet.address);
 
-assert.equal(key.publicKey(), device.address);
+assert.equal(key.publicKey(), wallet.address);
 
-assert.equal(device.phrase.split(" ").length, 12);
+assert.equal(wallet.phrase.split(" ").length, 12);
 
-assert.equal(device.reserveSponsor, sponsor.publicKey());
+assert.equal(wallet.reserveSponsor, sponsor.publicKey());
 
 console.log(
   "PASS device client opened a wallet whose key derives from its stored secret phrase.",
 );
 
 const sponsorship = Option.getOrThrow(
-  await run(Chain.use((chain) => chain.account(device.address))),
+  await run(Chain.use((chain) => chain.account(wallet.address))),
 );
 
 assert.ok(sponsorship.accountSponsored && sponsorship.sponsored);
 
-const account = await horizon.loadAccount(device.address);
+const account = await horizon.loadAccount(wallet.address);
 
 const native = account.balances.find(
   (balance) => balance.asset_type === "native",
@@ -172,7 +197,7 @@ console.log(
 );
 
 const row = Option.getOrThrow(
-  await run(Directory.use((directory) => directory.byAddress(device.address))),
+  await run(Directory.use((directory) => directory.byAddress(wallet.address))),
 );
 
 assert.equal(row.status, "active");
@@ -191,7 +216,7 @@ const recovery =
 
 const [removal, merge] = recovery.operations;
 
-assert.equal(recovery.source, device.address);
+assert.equal(recovery.source, wallet.address);
 
 assert.equal(removal?.type, "changeTrust");
 
@@ -204,7 +229,7 @@ assert.equal(
 
 assert.ok(
   recovery.signatures.some((signature) =>
-    Keypair.fromPublicKey(device.address).verify(
+    Keypair.fromPublicKey(wallet.address).verify(
       recovery.hash(),
       signature.signature.toXdrObject(),
     ),
@@ -234,6 +259,73 @@ assert.equal(
 
 console.log("PASS overview reads the opened wallet with a zero USDC balance.");
 
+const recipientName = freshUsername();
+
+await openWallet(
+  makeWalletClient(
+    await run(Wallet),
+    memoryKeyStore().store,
+    authenticator.passkeys,
+  ),
+  recipientName,
+);
+
+const funder = await horizon.loadAccount(usdcFunder.publicKey());
+
+const funding = new TransactionBuilder(funder, {
+  fee: baseFee,
+  networkPassphrase,
+})
+  .addOperation(
+    Operation.payment({
+      destination: wallet.address,
+      asset: usdc,
+      amount: "1",
+    }),
+  )
+  .setTimeout(60)
+  .build();
+
+funding.sign(usdcFunder);
+
+await horizon.submitTransaction(funding);
+
+const payment = new TransferIntent({
+  to: UsernameRecipient.make({
+    value: Schema.decodeSync(Username)(recipientName),
+  }),
+  asset: baseAsset,
+  amount: Schema.decodeSync(PositiveAmount)("5000000"),
+});
+
+let sent: SendOutcome = await client.send(payment);
+
+for (
+  let attempt = 0;
+  attempt < 3 && Predicate.isTagged(sent, "Pending");
+  attempt++
+)
+  sent = await client.send(payment);
+
+assert.ok(sent instanceof Settled, `Expected Settled, got ${sent._tag}`);
+
+assert.equal(sent.claimable, undefined);
+
+const [paymentRecord] = (
+  await horizon
+    .transactions()
+    .forAccount(wallet.address)
+    .order("desc")
+    .limit(1)
+    .call()
+).records;
+
+assert.ok(paymentRecord?.successful, "Payment must be applied on testnet");
+
+console.log(
+  `PASS device client paid 0.5 USDC from ${username} to ${recipientName} in ${paymentRecord.hash}.`,
+);
+
 let restoredWallet = Option.none<DeviceWallet>();
 
 const restoringClient = makeWalletClient(
@@ -257,7 +349,7 @@ assert.ok(
 
 assert.equal(restored.profile.username, username);
 
-assert.equal(Option.getOrThrow(restoredWallet).phrase, device.phrase);
+assert.equal(Option.getOrThrow(restoredWallet).phrase, wallet.phrase);
 
 assert.ok((await restoringClient.overview()) instanceof Holding);
 
@@ -271,17 +363,20 @@ console.log(
       verifiedAt: new Date().toISOString(),
       network: "testnet",
       username,
-      address: device.address,
+      address: wallet.address,
       reserveSponsor: sponsor.publicKey(),
       feePayer: feePayer.publicKey(),
       openingHash: row.attemptHash,
       recoveryHash: row.recoveryHash,
+      paymentRecipient: recipientName,
+      paymentHash: paymentRecord.hash,
       checks: [
         "device client generated, stored and reused a 12-word SEP-5 secret phrase",
         "opening and recovery approved by the device client against real testnet drafts",
         "raw extXdr identifies Orchid as account and trustline sponsor; 0 XLM, num_sponsored 3",
         "stored recovery signed by the derived key and merging into the reserve sponsor",
         "overview returns Holding with a zero USDC balance",
+        "the device client approved a USDC payment draft between two Orchid usernames and it settled on testnet",
         "a second device restores the same secret phrase and username from the passkey backup",
       ],
     },

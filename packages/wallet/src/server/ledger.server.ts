@@ -1,7 +1,7 @@
-import { Keypair, xdr } from "@stellar/stellar-sdk";
+import { StrKey, xdr } from "@stellar/stellar-sdk";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { Amount } from "../contract";
+import { AccountAddress, Amount } from "../contract";
 
 export const LedgerEntry = Schema.Struct({
   xdr: Schema.String,
@@ -50,17 +50,22 @@ export async function fetchEntries(
   return Schema.decodeSync(LedgerResponse)(await response.text()).result;
 }
 
-export function sponsoredBy(entry: LedgerEntry, sponsor: string): boolean {
-  if (!entry.extXdr) return false;
+export function sponsorOf(entry: LedgerEntry): Option.Option<AccountAddress> {
+  if (!entry.extXdr) return Option.none();
 
   const extension = xdr.LedgerEntryExt.fromXDR(entry.extXdr, "base64");
 
-  return (
-    extension.type === "v1" &&
-    extension.v1.sponsoringId !== null &&
-    extension.v1.sponsoringId.toXDR("base64") ===
-      Keypair.fromPublicKey(sponsor).xdrPublicKey().toXDR("base64")
-  );
+  return extension.type === "v1" && extension.v1.sponsoringId !== null
+    ? Schema.decodeOption(AccountAddress)(
+        StrKey.encodeEd25519PublicKey(
+          extension.v1.sponsoringId.ed25519.toBytes(),
+        ),
+      )
+    : Option.none();
+}
+
+export function sponsoredBy(entry: LedgerEntry, sponsor: string): boolean {
+  return Option.exists(sponsorOf(entry), (address) => address === sponsor);
 }
 
 export function accountFromEntries(

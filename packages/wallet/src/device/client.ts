@@ -3,6 +3,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   BackupStored,
+  Holding,
   Username,
   type WalletPort,
   type WalletUnavailable,
@@ -11,6 +12,7 @@ import {
   DeviceWallet,
   type KeyStore,
   type KeyStoreUnavailable,
+  remember,
 } from "./key-store";
 import {
   type BackUpOutcome,
@@ -23,6 +25,8 @@ import {
   type RestoreOutcome,
   type SavedOutcome,
   SavedWallet,
+  type SendOutcome,
+  type TransferIntent,
   UnsupportedDevice,
 } from "./outcomes";
 import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
@@ -37,6 +41,7 @@ export interface WalletClient {
   create(usernameText: string): Promise<CreateOutcome>;
   backUp(): Promise<BackUpOutcome>;
   restore(): Promise<RestoreOutcome>;
+  send(intent: TransferIntent): Promise<SendOutcome>;
 }
 
 export function makeWalletClient(
@@ -46,6 +51,10 @@ export function makeWalletClient(
 ) {
   const backups = Effect.promise(() => import("./backup")).pipe(
     Effect.map(({ deviceBackup }) => deviceBackup(port, passkeys, store)),
+  );
+
+  const sending = Effect.promise(() => import("./sending")).pipe(
+    Effect.map(({ sendTransfer }) => sendTransfer(port, store)),
   );
 
   const create = Effect.fn("Device.create")(function* (usernameText: string) {
@@ -83,8 +92,26 @@ export function makeWalletClient(
 
     if (Option.isNone(stored)) return new NoWallet();
 
-    return yield* port.overview(stored.value.address);
+    const overview = yield* port.overview(stored.value.address);
+
+    if (
+      overview instanceof Holding &&
+      stored.value.reserveSponsor === undefined &&
+      Option.isSome(overview.reserveSponsor)
+    )
+      yield* remember(
+        store,
+        new DeviceWallet({
+          ...stored.value,
+          reserveSponsor: overview.reserveSponsor.value,
+        }),
+      );
+
+    return overview;
   });
+
+  const send = (intent: TransferIntent) =>
+    sending.pipe(Effect.flatMap((sendIntent) => sendIntent(intent)));
 
   const saved = Effect.fn("Device.saved")(function* () {
     const stored = yield* store.read();
@@ -135,6 +162,14 @@ export function makeWalletClient(
     create: (usernameText) => settle(create(usernameText)),
     backUp: () => settle(backUp()),
     restore: () => settle(restore()),
+    send: (intent) =>
+      send(intent).pipe(
+        Effect.catchTags({
+          KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
+          WalletUnavailable: () => Effect.succeed(new Offline()),
+        }),
+        Effect.runPromise,
+      ),
   };
 
   return client;

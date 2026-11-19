@@ -355,6 +355,7 @@ export class ClaimableBalance extends Schema.Class<ClaimableBalance>(
 
 export class Holding extends Schema.TaggedClass<Holding>()("Holding", {
   profile: Profile,
+  reserveSponsor: Schema.OptionFromNullOr(AccountAddress),
 
   balances: Schema.Array(Balance),
   claimable: Schema.Array(ClaimableBalance),

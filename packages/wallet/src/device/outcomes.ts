@@ -1,9 +1,15 @@
 import * as Schema from "effect/Schema";
 import {
+  Asset,
   type AddressBound,
   type AssertionRefused,
   type BackupStored,
   type ChallengeRefused,
+  PaymentMemo,
+  PositiveAmount,
+  Recipient,
+  type TransferDraft,
+  type TransferStep,
   type NoBackup,
   Profile,
   type RegistrationRefused,
@@ -120,4 +126,20 @@ export type CreateOutcome =
   | UnsupportedDevice
   | DraftRejected
   | EnrollmentRefusal
+  | Offline;
+
+export class TransferIntent extends Schema.Class<TransferIntent>(
+  "@workspace/wallet/TransferIntent",
+)({
+  to: Recipient,
+  asset: Asset,
+  amount: PositiveAmount,
+  memo: Schema.optional(PaymentMemo),
+}) {}
+
+export type SendOutcome =
+  | Exclude<TransferStep, TransferDraft>
+  | DraftRejected
+  | NoWallet
+  | UnsupportedDevice
   | Offline;

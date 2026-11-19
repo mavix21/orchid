@@ -10,4 +10,5 @@ export const walletClient: WalletClient = {
     loadClient().then((client) => client.create(usernameText)),
   backUp: () => loadClient().then((client) => client.backUp()),
   restore: () => loadClient().then((client) => client.restore()),
+  send: (intent) => loadClient().then((client) => client.send(intent)),
 };

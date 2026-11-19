@@ -128,6 +128,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           world.holdings.set(addressOf(key), {
             account,
+            reserveSponsor: Option.none(),
             native: Schema.decodeSync(Amount)("0"),
             reserves: { subentries: 6, sponsored: 8, sponsoring: 0 },
             lines: [],
@@ -137,6 +138,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           ).toBeInstanceOf(TrustlineLimitReached);
           world.holdings.set(addressOf(key), {
             account,
+            reserveSponsor: Option.none(),
             native: Schema.decodeSync(Amount)("0"),
             reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
             lines: [
@@ -173,6 +175,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           world.holdings.set(addressOf(sender), {
             account,
+            reserveSponsor: Option.none(),
             native: Schema.decodeSync(Amount)("0"),
             reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
             lines: [
@@ -278,6 +281,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           world.holdings.set(addressOf(key), {
             account,
+            reserveSponsor: Option.none(),
             native: Schema.decodeSync(Amount)("50000000"),
             reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
             lines: [
