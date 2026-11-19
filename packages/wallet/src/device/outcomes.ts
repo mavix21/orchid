@@ -9,6 +9,7 @@ import {
   PositiveAmount,
   Recipient,
   type TransferDraft,
+  TransferOrder,
   type TransferStep,
   type NoBackup,
   Profile,
@@ -137,8 +138,14 @@ export class TransferIntent extends Schema.Class<TransferIntent>(
   memo: Schema.optional(PaymentMemo),
 }) {}
 
+export class ApprovalOutstanding extends Schema.TaggedClass<ApprovalOutstanding>()(
+  "ApprovalOutstanding",
+  { order: TransferOrder },
+) {}
+
 export type SendOutcome =
   | Exclude<TransferStep, TransferDraft>
+  | ApprovalOutstanding
   | DraftRejected
   | NoWallet
   | UnsupportedDevice

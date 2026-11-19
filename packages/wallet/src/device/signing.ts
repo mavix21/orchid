@@ -21,22 +21,12 @@ export function signingKey(phrase: SecretPhrase): Keypair {
   );
 }
 
-export const liveFor = Effect.fn("Device.liveFor")(function* (
-  request: SigningRequest,
-  marginSeconds: number,
-) {
-  const now = yield* DateTime.now;
-
-  return DateTime.isGreaterThan(
-    request.expiresAt,
-    DateTime.add(now, { seconds: marginSeconds }),
-  );
-});
-
 export const liveFacts = Effect.fn("Device.liveFacts")(function* (
   request: SigningRequest,
 ) {
-  return (yield* liveFor(request, 0))
+  const now = yield* DateTime.now;
+
+  return DateTime.isGreaterThan(request.expiresAt, now)
     ? readEnvelope(request.envelope)
     : Option.none<EnvelopeFacts>();
 });

@@ -21,6 +21,7 @@ const SealedWallet = Schema.Struct({
   reserveSponsor: Schema.optional(AccountAddress),
   backup: Schema.optional(BackupState),
   transfer: Schema.optional(TransferOrder),
+  approvedUntil: Schema.optional(Schema.Number),
   iv: Schema.Uint8ArrayFromBase64,
   phrase: Schema.Uint8ArrayFromBase64,
 });
@@ -113,6 +114,7 @@ async function readWallet(): Promise<Option.Option<DeviceWallet>> {
       reserveSponsor: sealed.reserveSponsor,
       backup: sealed.backup,
       transfer: sealed.transfer,
+      approvedUntil: sealed.approvedUntil,
       phrase: Schema.decodeSync(SecretPhrase)(new TextDecoder().decode(phrase)),
     }),
   );
@@ -135,6 +137,7 @@ async function writeWallet(wallet: DeviceWallet): Promise<void> {
       reserveSponsor: wallet.reserveSponsor,
       backup: wallet.backup,
       transfer: wallet.transfer,
+      approvedUntil: wallet.approvedUntil,
       iv,
       phrase: new Uint8Array(phrase),
     }),

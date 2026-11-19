@@ -70,7 +70,7 @@ const toPedro = new TransferIntent({
   amount,
 });
 
-const payment = (source = sender) =>
+const payment = (source = sender, lifetime = 120) =>
   draftPayment({
     source: new Account(source, "100"),
     to: exchange,
@@ -78,7 +78,7 @@ const payment = (source = sender) =>
     amount,
     memo,
     minTime: now(),
-    maxTime: now() + 120,
+    maxTime: now() + lifetime,
   });
 
 const claimable = (source = sender) =>
@@ -92,7 +92,11 @@ const claimable = (source = sender) =>
     maxTime: now() + 120,
   });
 
-const deviceWith = (envelope: () => UnsignedEnvelope, lifetime = 120) => {
+const deviceWith = (
+  envelope: () => UnsignedEnvelope,
+  lifetime = 120,
+  redraftsAfterApproval = false,
+) => {
   const approvals: Array<Option.Option<Approval>> = [];
 
   let saved = Option.some(
@@ -133,7 +137,7 @@ const deviceWith = (envelope: () => UnsignedEnvelope, lifetime = 120) => {
       Effect.sync(() => {
         approvals.push(approval);
 
-        return Option.isSome(approval)
+        return Option.isSome(approval) && !redraftsAfterApproval
           ? new NotOpened()
           : new TransferDraft({
               request: new SigningRequest({
@@ -167,6 +171,19 @@ it.effect("signs a live draft whose facts match the order", () =>
 );
 
 const mismatches: Array<[string, TransferIntent, () => UnsignedEnvelope]> = [
+  [
+    "a payment whose envelope expires before the draft says",
+    toExchange,
+    () => payment(sender, 10),
+  ],
+  [
+    "a claimable for an external address",
+    new TransferIntent({
+      ...toPedro,
+      to: AddressRecipient.make({ value: pedro }),
+    }),
+    () => claimable(),
+  ],
   ["a payment from another account", toExchange, () => payment(stranger)],
   [
     "a payment to another address",
@@ -248,11 +265,37 @@ it.effect(
   "asks once for a fresh draft when the draft expires within the approval margin",
   () =>
     Effect.gen(function* () {
-      const { approvals, client } = deviceWith(() => payment(), 10);
+      const { approvals, client } = deviceWith(() => payment(sender, 10), 10);
 
       expect(yield* Effect.promise(() => client.send(toExchange))).toEqual(
         new DraftRejected(),
       );
       expect(approvals).toEqual([Option.none(), Option.none()]);
     }),
+);
+
+it.effect("signs only one draft for an order", () =>
+  Effect.gen(function* () {
+    const { approvals, client } = deviceWith(() => payment(), 120, true);
+
+    expect(yield* Effect.promise(() => client.send(toExchange))).toEqual(
+      new DraftRejected(),
+    );
+    expect(approvals.filter(Option.isSome)).toHaveLength(1);
+  }),
+);
+
+it.effect("keeps an approved order until it can no longer settle", () =>
+  Effect.gen(function* () {
+    const { approvals, client } = deviceWith(() => payment());
+
+    yield* Effect.promise(() => client.send(toExchange));
+
+    expect(
+      (yield* Effect.promise(() =>
+        client.send(new TransferIntent({ ...toExchange, amount: otherAmount })),
+      ))._tag,
+    ).toBe("ApprovalOutstanding");
+    expect(approvals).toHaveLength(2);
+  }),
 );

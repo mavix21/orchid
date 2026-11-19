@@ -15,6 +15,7 @@ export class DeviceWallet extends Schema.Class<DeviceWallet>(
   reserveSponsor: Schema.optional(AccountAddress),
   backup: Schema.optional(BackupState),
   transfer: Schema.optional(TransferOrder),
+  approvedUntil: Schema.optional(Schema.Number),
 }) {}
 
 export class KeyStoreUnavailable extends Schema.TaggedError<KeyStoreUnavailable>()(
@@ -41,7 +42,8 @@ export const remember = Effect.fn("Device.remember")(function* (
     stored.value.username === wallet.username &&
     stored.value.reserveSponsor === wallet.reserveSponsor &&
     stored.value.backup === wallet.backup &&
-    stored.value.transfer?.id === wallet.transfer?.id
+    stored.value.transfer?.id === wallet.transfer?.id &&
+    stored.value.approvedUntil === wallet.approvedUntil
     ? Option.some(stored.value)
     : Option.none();
 });

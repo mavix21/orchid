@@ -1,3 +1,4 @@
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
@@ -17,7 +18,7 @@ import {
 } from "../contract";
 import { ClaimableFacts } from "../stellar/asset-envelopes";
 import { PaymentFacts, readEnvelope } from "../stellar/envelopes";
-import { approvalMargin } from "../stellar/network";
+import { approvalMargin, paymentLifetime } from "../stellar/network";
 import {
   DeviceWallet,
   type KeyStore,
@@ -25,6 +26,7 @@ import {
   remember,
 } from "./key-store";
 import {
+  ApprovalOutstanding,
   DraftRejected,
   NoWallet,
   type SendOutcome,
@@ -32,7 +34,7 @@ import {
   UnsupportedDevice,
 } from "./outcomes";
 import { pendingPause, pendingSteps } from "./polling";
-import { approve, liveFor, signingKey } from "./signing";
+import { approve, signingKey } from "./signing";
 
 const orderJson = Schema.encodeSync(Schema.fromJsonString(TransferOrder));
 
@@ -51,7 +53,17 @@ const destination = (order: TransferOrder, draft: TransferDraft) =>
     Phone: () => Option.none<AccountAddress>(),
   });
 
-const matchesOrder = (
+const clockAllowance = 60;
+
+const nowSeconds = Effect.map(DateTime.now, (now) =>
+  Math.floor(DateTime.toEpochMillis(now) / 1000),
+);
+
+const approvalOutstanding = (wallet: DeviceWallet, now: number) =>
+  wallet.approvedUntil !== undefined &&
+  wallet.approvedUntil + clockAllowance >= now;
+
+const orderedFacts = (
   wallet: DeviceWallet,
   order: TransferOrder,
   draft: TransferDraft,
@@ -59,27 +71,28 @@ const matchesOrder = (
   const facts = readEnvelope(draft.request.envelope);
   const to = destination(order, draft);
 
-  if (Option.isNone(facts) || Option.isNone(to)) return false;
+  if (Option.isNone(facts) || Option.isNone(to)) return Option.none();
+
+  const drafted = facts.value;
+
+  if (!(drafted instanceof PaymentFacts || drafted instanceof ClaimableFacts))
+    return Option.none();
 
   const moves =
-    (facts.value instanceof PaymentFacts ||
-      facts.value instanceof ClaimableFacts) &&
-    facts.value.from === wallet.address &&
-    facts.value.to === to.value &&
-    assetKey(facts.value.asset) === assetKey(order.asset) &&
-    facts.value.amount === order.amount;
+    drafted.from === wallet.address &&
+    drafted.to === to.value &&
+    assetKey(drafted.asset) === assetKey(order.asset) &&
+    drafted.amount === order.amount;
 
-  if (facts.value instanceof PaymentFacts)
-    return moves && sameMemo(facts.value.memo, order.memo);
+  const matches =
+    drafted instanceof PaymentFacts
+      ? moves && sameMemo(drafted.memo, order.memo)
+      : moves &&
+        order.memo === undefined &&
+        draft.recipient instanceof Profile &&
+        drafted.reserveSponsor === wallet.reserveSponsor;
 
-  if (facts.value instanceof ClaimableFacts)
-    return (
-      moves &&
-      order.memo === undefined &&
-      facts.value.reserveSponsor === wallet.reserveSponsor
-    );
-
-  return false;
+  return matches ? Option.some(drafted) : Option.none();
 };
 
 export function sendTransfer(port: WalletPort, store: KeyStore) {
@@ -89,7 +102,11 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
 
       if (Option.isSome(stored) && stored.value.transfer?.id === order.id)
         yield* store.write(
-          new DeviceWallet({ ...stored.value, transfer: undefined }),
+          new DeviceWallet({
+            ...stored.value,
+            transfer: undefined,
+            approvedUntil: undefined,
+          }),
         );
     });
 
@@ -126,21 +143,36 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
     Match.valueTags(step, {
       TransferDraft: (draft) =>
         Effect.gen(function* () {
-          if (remaining === 0 || !matchesOrder(wallet, order, draft))
+          const facts = orderedFacts(wallet, order, draft);
+          const now = yield* nowSeconds;
+
+          if (
+            remaining === 0 ||
+            Option.isNone(facts) ||
+            approvalOutstanding(wallet, now) ||
+            facts.value.maxTime > now + paymentLifetime + clockAllowance
+          )
             return new DraftRejected();
 
-          if (yield* liveFor(draft.request, approvalMargin))
-            return yield* advance(
-              wallet,
-              order,
-              Option.some(approve(draft.request, signingKey(wallet.phrase))),
-              remaining,
-              refreshed,
-            );
+          if (facts.value.maxTime - now < approvalMargin)
+            return refreshed
+              ? new DraftRejected()
+              : yield* advance(wallet, order, Option.none(), remaining, true);
 
-          return refreshed
-            ? new DraftRejected()
-            : yield* advance(wallet, order, Option.none(), remaining, true);
+          const approved = yield* remember(
+            store,
+            new DeviceWallet({ ...wallet, approvedUntil: facts.value.maxTime }),
+          );
+
+          if (Option.isNone(approved)) return new UnsupportedDevice();
+
+          return yield* advance(
+            approved.value,
+            order,
+            Option.some(approve(draft.request, signingKey(wallet.phrase))),
+            remaining,
+            refreshed,
+          );
         }),
       Pending: (pending) =>
         remaining === 0
@@ -180,6 +212,13 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
           new TransferOrder({ ...intent, id: kept.id, from: wallet.address }),
         );
 
+    if (
+      !replayed &&
+      kept !== undefined &&
+      approvalOutstanding(wallet, yield* nowSeconds)
+    )
+      return new ApprovalOutstanding({ order: kept });
+
     const order = replayed
       ? kept
       : new TransferOrder({
@@ -192,7 +231,11 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
       ? Option.some(wallet)
       : yield* remember(
           store,
-          new DeviceWallet({ ...wallet, transfer: order }),
+          new DeviceWallet({
+            ...wallet,
+            transfer: order,
+            approvedUntil: undefined,
+          }),
         );
 
     if (Option.isNone(ready)) return new UnsupportedDevice();
