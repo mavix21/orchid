@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 import {
   AddressRecipient,
   type Approval,
+  ExternalMemoRequired,
   ExternalRecipient,
   NativeAsset,
   NotOpened,
@@ -340,4 +341,40 @@ it.effect(
         signed.id,
       );
     }),
+);
+
+it.effect("releases an expired signed order the server never authorized", () =>
+  Effect.gen(function* () {
+    const refusal = new ExternalMemoRequired({
+      address: exchange,
+      exchange: "Synthetic exchange",
+      source: "https://example.com",
+    });
+
+    const { client, store } = deviceWith(
+      () => payment(),
+      120,
+      () => Option.some(refusal),
+    );
+
+    const wallet = Option.getOrThrow(yield* store.read());
+
+    yield* store.write(
+      new DeviceWallet({
+        ...wallet,
+        transfer: new TransferOrder({
+          ...toExchange,
+          id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
+          from: sender,
+        }),
+        approvedUntil: now() - 3600,
+      }),
+    );
+
+    expect(
+      yield* Effect.promise(() =>
+        client.send(new TransferIntent({ ...toExchange, amount: otherAmount })),
+      ),
+    ).toEqual(refusal);
+  }),
 );

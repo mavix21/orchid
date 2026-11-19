@@ -9,8 +9,9 @@ import {
   type PaymentMemo,
   Profile,
   Failed,
+  Pending,
   Settled,
-  TransferDraft,
+  type TransferDraft,
   TransferId,
   TransferOrder,
   type TransferStep,
@@ -157,11 +158,14 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
             return new DraftRejected();
 
           const deadline = Math.min(
-            facts.value.maxTime,
-            Math.floor(DateTime.toEpochMillis(draft.request.expiresAt) / 1000),
+            facts.value.maxTime * 1000,
+            DateTime.toEpochMillis(draft.request.expiresAt),
           );
 
-          if (deadline - now < approvalMargin)
+          const remainingMillis =
+            deadline - DateTime.toEpochMillis(yield* DateTime.now);
+
+          if (remainingMillis < approvalMargin * 1000)
             return refreshed
               ? new DraftRejected()
               : yield* advance(wallet, order, Option.none(), remaining, true);
@@ -226,7 +230,7 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
       const resolved =
         signed instanceof Settled ||
         signed instanceof Failed ||
-        (signed instanceof TransferDraft && !approvalOutstanding(wallet, now));
+        (!(signed instanceof Pending) && !approvalOutstanding(wallet, now));
 
       if (!resolved) return new ApprovalOutstanding({ order: kept });
     }
