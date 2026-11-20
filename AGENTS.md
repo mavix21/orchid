@@ -20,6 +20,8 @@ Never write code comments, including JSDoc, inline explanations, TODOs, or comme
 
 Use GitHub Issues in `mavix21/orchid` for tickets and specs. Read `docs/agents/issue-tracker.md` before tracker operations.
 
+Work each issue on its own branch named `<type>/<name>` after its commit type, such as `feat/send-flow`, cut from `main` before the first change, and open its pull request from that branch.
+
 ### Triage labels
 
 Use the five canonical roles in `docs/agents/triage-labels.md` when triaging issues.
