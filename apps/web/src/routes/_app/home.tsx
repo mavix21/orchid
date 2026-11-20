@@ -11,6 +11,7 @@ import {
   baseAsset,
 } from "@workspace/wallet";
 import * as Match from "effect/Match";
+import * as Option from "effect/Option";
 
 import { ActivityRow } from "@/components/activity-row";
 import { BalanceHeader } from "@/components/balance-header";
@@ -18,7 +19,11 @@ import { HomeSkeleton } from "@/components/home-skeleton";
 import { Screen } from "@/components/screen";
 import { recentActivity } from "@/fixtures/activity";
 import { shownOverview } from "@/wallet/shown-overview";
-import { unavailableMessage, unavailableNotice } from "@/wallet/unavailable";
+import {
+  retryable,
+  unavailableMessage,
+  unavailableNotice,
+} from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/_app/home")({
   ssr: false,
@@ -35,11 +40,16 @@ export const Route = createFileRoute("/_app/home")({
   component: HomeScreen,
 });
 
-const savedBackup = (saved: SavedOutcome): SavedBackup =>
+const savedBackup = (saved: SavedOutcome): Option.Option<SavedBackup> =>
   Match.valueTags(saved, {
-    SavedWallet: ({ backup }) => backup,
-    NoWallet: (): SavedBackup => "none",
-    UnsupportedDevice: (): SavedBackup => "none",
+    SavedWallet: ({ backup }) => Option.some(backup),
+    NoWallet: () => Option.some<SavedBackup>("none"),
+    UnsupportedDevice: () => Option.some<SavedBackup>("none"),
+    Offline: () => Option.none(),
+    ServerUnreachable: () => Option.none(),
+    LedgerUnreachable: () => Option.none(),
+    ServiceFailed: () => Option.none(),
+    InvalidResponse: () => Option.none(),
   });
 
 const backUpRefusal = (
@@ -57,6 +67,7 @@ const backUpRefusal = (
     UnsupportedDevice: () =>
       "Este navegador no puede leer tu llave de forma segura.",
     Offline: unavailableMessage,
+    ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
     ServiceFailed: unavailableMessage,
     InvalidResponse: unavailableMessage,
@@ -75,13 +86,20 @@ function HomeScreen() {
       <Problem message="Este navegador no puede leer tu llave de forma segura." />
     ),
     Offline: (failure) => <Unavailable failure={failure} />,
+    ServerUnreachable: (failure) => <Unavailable failure={failure} />,
     LedgerUnreachable: (failure) => <Unavailable failure={failure} />,
     ServiceFailed: (failure) => <Unavailable failure={failure} />,
     InvalidResponse: (failure) => <Unavailable failure={failure} />,
   });
 }
 
-function Home({ holding, backup }: { holding: Holding; backup: SavedBackup }) {
+function Home({
+  holding,
+  backup,
+}: {
+  holding: Holding;
+  backup: Option.Option<SavedBackup>;
+}) {
   const dollars =
     holding.balances.find(
       (balance) => assetKey(balance.asset) === assetKey(baseAsset),
@@ -91,7 +109,9 @@ function Home({ holding, backup }: { holding: Holding; backup: SavedBackup }) {
     <Screen>
       <main className="flex flex-1 flex-col gap-10 px-5 pt-2 pb-30">
         <BalanceHeader username={holding.profile.username} dollars={dollars} />
-        {backup === "stored" ? null : <BackupNotice backup={backup} />}
+        {Option.isSome(backup) && backup.value !== "stored" ? (
+          <BackupNotice backup={backup.value} />
+        ) : null}
         <section className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <h2 className="text-label-lg">Actividad</h2>
@@ -118,6 +138,7 @@ function BackupNotice({ backup }: { backup: Exclude<SavedBackup, "stored"> }) {
   const { walletClient } = Route.useRouteContext();
   const [backingUp, setBackingUp] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const [stopped, setStopped] = useState(false);
 
   const backUp = async () => {
     setBackingUp(true);
@@ -127,7 +148,10 @@ function BackupNotice({ backup }: { backup: Exclude<SavedBackup, "stored"> }) {
 
     await Match.value(outcome).pipe(
       Match.tag("BackupStored", () => router.invalidate()),
-      Match.orElse((refused) => setProblem(backUpRefusal(refused))),
+      Match.orElse((refused) => {
+        setProblem(backUpRefusal(refused));
+        setStopped(!retryable(refused));
+      }),
     );
 
     setBackingUp(false);
@@ -151,7 +175,11 @@ function BackupNotice({ backup }: { backup: Exclude<SavedBackup, "stored"> }) {
           {problem}
         </p>
       ) : null}
-      <Button className="w-full" disabled={backingUp} onClick={backUp}>
+      <Button
+        className="w-full"
+        disabled={backingUp || stopped}
+        onClick={backUp}
+      >
         {backingUp ? "Respaldando…" : "Respaldar con passkey"}
       </Button>
     </section>

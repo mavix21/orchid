@@ -25,6 +25,7 @@ import type {
 import * as Exit from "effect/Exit";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 
 import { OptionRow } from "@/components/option-row";
@@ -149,6 +150,10 @@ function TransferStatus({
 
   useEffect(() => lookup.start(id), [id]);
 
+  const failed = Option.exists(settledValue(lookup.state), (value) =>
+    Predicate.isTagged(value, "Failed"),
+  );
+
   return (
     <AnswerScreen
       answer={lookup.state}
@@ -156,7 +161,7 @@ function TransferStatus({
       working="Buscando tu pago…"
       onConfirm={onStartOver}
       onEdit={onStartOver}
-      onAgain={onStartOver}
+      onAgain={failed ? onStartOver : () => lookup.start(id)}
     />
   );
 }
@@ -389,6 +394,7 @@ export function SendFlow({
   }, [review.state, confirmation.state]);
 
   const reviewIntent = (entered: TransferIntent) => {
+    onTransfer(Option.none());
     setIntent(Option.some(entered));
     setProblem(Option.none());
     setEditing(false);

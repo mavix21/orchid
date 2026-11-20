@@ -102,6 +102,7 @@ export const world = {
   failSubmit: false,
   ledgerDown: false,
   unreadable: new Set<string>(),
+  claimablesDown: false,
   holdings: new Map<AccountAddress, Holdings>(),
   claimables: new Map<string, ClaimableEntry>(),
 };
@@ -162,13 +163,15 @@ export const fakeChain = Layer.effect(
               ),
             ),
       claimable: (ids) =>
-        Effect.succeed(
-          ids.flatMap((id) => {
-            const entry = world.claimables.get(id);
+        world.claimablesDown
+          ? Effect.fail(new ChainUnreachable({ cause: new Error("RPC down") }))
+          : Effect.succeed(
+              ids.flatMap((id) => {
+                const entry = world.claimables.get(id);
 
-            return entry ? [entry] : [];
-          }),
-        ),
+                return entry ? [entry] : [];
+              }),
+            ),
       issuer: () => Effect.succeed(Option.some({ authRequired: false })),
       draftAsset: (address, plan) =>
         Effect.sync(() => {
@@ -441,6 +444,7 @@ export function useDisposableDatabase() {
     world.failSubmit = false;
     world.ledgerDown = false;
     world.unreadable.clear();
+    world.claimablesDown = false;
     await Effect.runPromise(
       Effect.gen(function* () {
         const db = yield* makeDatabase();

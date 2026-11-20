@@ -2,6 +2,7 @@ import { portfolioFlow } from "./wallet-portfolio.server";
 import { deliveryFlow } from "./wallet-delivery.server";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Predicate from "effect/Predicate";
@@ -35,6 +36,7 @@ import {
   TransferStep,
   UnknownRecipient,
   type WalletPort,
+  type BalanceId,
   type ServerFailure,
 } from "../contract";
 import { readEnvelope } from "../stellar/envelopes";
@@ -470,24 +472,33 @@ export class Wallet extends Context.Service<
           yield* chain.submit(sealed).pipe(Effect.ignore);
       });
 
-      const sweep = Effect.gen(function* () {
+      const closeGoneBalance = (id: BalanceId) =>
+        chain
+          .claimable([id])
+          .pipe(
+            Effect.flatMap((confirmed) =>
+              confirmed.length === 0 ? transfers.closeBalance(id) : Effect.void,
+            ),
+          );
+
+      const goneBalanceChecks = Effect.gen(function* () {
         const balanceIds = yield* transfers.balancesToCheck;
         const entries = yield* chain.claimable(balanceIds);
 
-        for (const id of balanceIds) {
-          if (!entries.some((entry) => entry.balance === id)) {
-            const confirmed = yield* chain.claimable([id]);
+        return balanceIds
+          .filter((id) => !entries.some((entry) => entry.balance === id))
+          .map(closeGoneBalance);
+      });
 
-            if (confirmed.length === 0) yield* transfers.closeBalance(id);
-          }
-        }
-
+      const sweep = Effect.gen(function* () {
+        const balanceChecks = yield* goneBalanceChecks.pipe(Effect.exit);
         const inFlight = yield* transfers.inFlight;
         const wallets = yield* directory.recoverable;
         const assetOrders = yield* assets.inFlight;
 
-        const results = yield* Effect.forEach(
+        const records = yield* Effect.forEach(
           [
+            ...(Exit.isSuccess(balanceChecks) ? balanceChecks.value : []),
             ...assetOrders.map((entry) =>
               assetActions.reconcile(entry).pipe(Effect.asVoid),
             ),
@@ -497,12 +508,21 @@ export class Wallet extends Context.Service<
           (program) => program.pipe(Effect.exit),
         );
 
-        for (const result of results) {
-          if (Exit.isFailure(result))
-            return yield* Effect.die(
-              new Error("One or more sweep records could not be reconciled"),
-            );
-        }
+        const failed = [
+          ...(Exit.isFailure(balanceChecks) ? [balanceChecks.cause] : []),
+          ...records.flatMap((exit) =>
+            Exit.isFailure(exit) ? [exit.cause] : [],
+          ),
+        ];
+
+        yield* Effect.forEach(failed, (cause) =>
+          Effect.logError("Sweep record failed", Cause.pretty(cause)),
+        );
+
+        if (failed.length > 0)
+          return yield* Effect.die(
+            new Error(`${failed.length} sweep records could not be reconciled`),
+          );
       });
 
       return Wallet.of({

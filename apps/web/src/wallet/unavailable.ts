@@ -1,5 +1,6 @@
-import type { WalletUnavailable } from "@workspace/wallet";
+import { WalletUnavailable } from "@workspace/wallet";
 import * as Match from "effect/Match";
+import * as Schema from "effect/Schema";
 
 export class UnavailableNotice {
   constructor(
@@ -13,6 +14,11 @@ export const unavailableNotice = (failure: WalletUnavailable) =>
     Offline: () =>
       new UnavailableNotice(
         "Sin conexión. Revisa tu internet e inténtalo de nuevo.",
+        true,
+      ),
+    ServerUnreachable: () =>
+      new UnavailableNotice(
+        "No pudimos conectar con Orchid. Inténtalo de nuevo en unos minutos.",
         true,
       ),
     LedgerUnreachable: () =>
@@ -31,3 +37,8 @@ export const unavailableNotice = (failure: WalletUnavailable) =>
 
 export const unavailableMessage = (failure: WalletUnavailable) =>
   unavailableNotice(failure).message;
+
+const isUnavailable = Schema.is(WalletUnavailable);
+
+export const retryable = (outcome: { readonly _tag: string }) =>
+  !isUnavailable(outcome) || unavailableNotice(outcome).actionable;

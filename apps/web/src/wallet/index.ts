@@ -1,21 +1,30 @@
-import type { WalletClient, WalletEffects } from "@workspace/wallet";
+import {
+  type WalletClient,
+  type WalletEffects,
+  loadFromServer,
+} from "@workspace/wallet";
 import * as Effect from "effect/Effect";
 
-const loaded = Effect.promise(() => import("./client")).pipe(
+const loaded = loadFromServer(() => import("./client")).pipe(
   Effect.map((client) => client.walletEffects),
 );
 
+const withWallet = <A>(use: (wallet: WalletEffects) => Effect.Effect<A>) =>
+  loaded.pipe(
+    Effect.flatMap(use),
+    Effect.catch((failure) => Effect.succeed(failure)),
+  );
+
 export const walletEffects: WalletEffects = {
-  overview: () => Effect.flatMap(loaded, (wallet) => wallet.overview()),
-  saved: () => Effect.flatMap(loaded, (wallet) => wallet.saved()),
-  create: (usernameText) =>
-    Effect.flatMap(loaded, (wallet) => wallet.create(usernameText)),
-  backUp: () => Effect.flatMap(loaded, (wallet) => wallet.backUp()),
-  restore: () => Effect.flatMap(loaded, (wallet) => wallet.restore()),
-  send: (intent) => Effect.flatMap(loaded, (wallet) => wallet.send(intent)),
-  review: (intent) => Effect.flatMap(loaded, (wallet) => wallet.review(intent)),
-  confirm: (shown) => Effect.flatMap(loaded, (wallet) => wallet.confirm(shown)),
-  resume: (id) => Effect.flatMap(loaded, (wallet) => wallet.resume(id)),
+  overview: () => withWallet((wallet) => wallet.overview()),
+  saved: () => withWallet((wallet) => wallet.saved()),
+  create: (usernameText) => withWallet((wallet) => wallet.create(usernameText)),
+  backUp: () => withWallet((wallet) => wallet.backUp()),
+  restore: () => withWallet((wallet) => wallet.restore()),
+  send: (intent) => withWallet((wallet) => wallet.send(intent)),
+  review: (intent) => withWallet((wallet) => wallet.review(intent)),
+  confirm: (shown) => withWallet((wallet) => wallet.confirm(shown)),
+  resume: (id) => withWallet((wallet) => wallet.resume(id)),
 };
 
 export const walletClient: WalletClient = {

@@ -126,6 +126,31 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       }),
     );
 
+    it.effect(
+      "keeps reconciling transfers when the claimable-balance read fails",
+      () =>
+        Effect.gen(function* () {
+          const signed = yield* signedTransfer("maria");
+
+          world.claimablesDown = true;
+          world.evidence.set(
+            signed.hash,
+            new Applied({ at: DateTime.nowUnsafe() }),
+          );
+
+          expect(
+            yield* Wallet.use((wallet) => wallet.sweep).pipe(Effect.flip),
+          ).toEqual(new ServiceFailed());
+          expect(
+            Option.getOrThrow(
+              yield* Transfers.use((transfers) =>
+                transfers.find(signed.order.id),
+              ),
+            )._tag,
+          ).toBe("Concluded");
+        }),
+    );
+
     it.effect("answers LedgerUnreachable when Stellar does not answer", () =>
       Effect.gen(function* () {
         const key = yield* fundedSender();

@@ -45,7 +45,11 @@ export class SavedWallet extends Schema.TaggedClass<SavedWallet>()(
   },
 ) {}
 
-export type SavedOutcome = SavedWallet | NoWallet | UnsupportedDevice;
+export type SavedOutcome =
+  | SavedWallet
+  | NoWallet
+  | UnsupportedDevice
+  | WalletUnavailable;
 
 export class InvalidUsername extends Schema.TaggedClass<InvalidUsername>()(
   "InvalidUsername",

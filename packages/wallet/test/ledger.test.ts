@@ -1,7 +1,10 @@
 import { createServer } from "node:http";
 import { expect, it } from "@effect/vitest";
 import { Keypair, xdr } from "@stellar/stellar-sdk";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
+import { ChainUnreachable } from "../src/server/chain-errors.server";
 import { fetchEntries } from "../src/server/ledger.server";
 
 const RpcRequest = Schema.fromJsonString(
@@ -10,18 +13,48 @@ const RpcRequest = Schema.fromJsonString(
   }),
 );
 
-const strictRpc = createServer((request, response) => {
-  let body = "";
+const rpcAnswering = (reply: (keys: ReadonlyArray<string>) => string) =>
+  Effect.acquireRelease(
+    Effect.promise(() => {
+      const server = createServer((request, response) => {
+        let body = "";
 
-  request.on("data", (chunk) => {
-    body += String(chunk);
-  });
+        request.on("data", (chunk) => {
+          body += String(chunk);
+        });
 
-  request.on("end", () => {
-    const { keys } = Schema.decodeSync(RpcRequest)(body).params;
+        request.on("end", () => {
+          response.setHeader("Content-Type", "application/json");
+          response.end(reply(Schema.decodeSync(RpcRequest)(body).params.keys));
+        });
+      });
 
-    response.setHeader("Content-Type", "application/json");
-    response.end(
+      return new Promise<typeof server>((resolve) =>
+        server.listen(0, () => resolve(server)),
+      );
+    }),
+    (server) =>
+      Effect.promise(
+        () => new Promise((resolve) => server.close(() => resolve(true))),
+      ),
+  ).pipe(
+    Effect.map(
+      (server) =>
+        `http://127.0.0.1:${
+          Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Number }))(
+            server.address(),
+          ).port
+        }`,
+    ),
+  );
+
+const account = xdr.LedgerKey.account(
+  new xdr.LedgerKeyAccount({ accountId: Keypair.random().xdrAccountId() }),
+);
+
+it.effect("asks the ledger RPC for each repeated key only once", () =>
+  Effect.gen(function* () {
+    const rpcUrl = yield* rpcAnswering((keys) =>
       JSON.stringify(
         new Set(keys).size === keys.length
           ? { jsonrpc: "2.0", id: 1, result: { entries: [], latestLedger: 7 } }
@@ -32,27 +65,38 @@ const strictRpc = createServer((request, response) => {
             },
       ),
     );
-  });
-});
 
-it("asks the ledger RPC for each repeated key only once", async () => {
-  await new Promise<void>((resolve) => strictRpc.listen(0, resolve));
+    expect(yield* fetchEntries(rpcUrl, [account, account])).toEqual({
+      entries: [],
+      latestLedger: 7,
+    });
+  }).pipe(Effect.scoped),
+);
 
-  const bound = Schema.decodeUnknownSync(
-    Schema.Struct({ port: Schema.Number }),
-  )(strictRpc.address());
+it.effect("treats an RPC error reply as an unreachable ledger", () =>
+  Effect.gen(function* () {
+    const rpcUrl = yield* rpcAnswering(() =>
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        error: { code: -32603, message: "could not query captive core" },
+      }),
+    );
 
-  const account = xdr.LedgerKey.account(
-    new xdr.LedgerKeyAccount({
-      accountId: Keypair.random().xdrAccountId(),
-    }),
-  );
-
-  try {
     expect(
-      await fetchEntries(`http://127.0.0.1:${bound.port}`, [account, account]),
-    ).toEqual({ entries: [], latestLedger: 7 });
-  } finally {
-    await new Promise((resolve) => strictRpc.close(resolve));
-  }
-});
+      yield* fetchEntries(rpcUrl, [account]).pipe(Effect.flip),
+    ).toBeInstanceOf(ChainUnreachable);
+  }).pipe(Effect.scoped),
+);
+
+it.effect("does not treat an undecodable reply as an unreachable ledger", () =>
+  Effect.gen(function* () {
+    const rpcUrl = yield* rpcAnswering(() =>
+      JSON.stringify({ jsonrpc: "2.0", id: 1, result: { entries: "none" } }),
+    );
+
+    const exit = yield* fetchEntries(rpcUrl, [account]).pipe(Effect.exit);
+
+    expect(Exit.hasDies(exit)).toBe(true);
+  }).pipe(Effect.scoped),
+);

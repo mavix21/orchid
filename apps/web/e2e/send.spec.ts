@@ -119,6 +119,13 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   ).toBeDisabled();
   await choose(page, "A un @usuario");
   await fill(page, recipient, "0.5");
+
+  const reviewRequest = page.waitForRequest(
+    (request) =>
+      request.url().includes(serverFunction) &&
+      (request.postData()?.includes(recipient) ?? false),
+  );
+
   await review(page);
 
   const summary = page.getByRole("definition");
@@ -130,6 +137,8 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await expect(summary.filter({ hasText: /^USDC$/ })).toBeVisible();
   await expect(summary.filter({ hasText: /^0\.5$/ })).toBeVisible();
   await expect(page.getByText("Orchid paga la comisión")).toBeVisible();
+
+  const transferRequest = await reviewRequest;
 
   const approved = page.waitForResponse(
     (response) =>
@@ -215,10 +224,23 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   };
 
   await answerFor(
-    (route) => route.abort("internetdisconnected"),
-    "Sin conexión",
+    (route) => route.abort("connectionrefused"),
+    "No pudimos conectar con Orchid",
   );
   await expect(page.getByRole("button", { name: "Reintentar" })).toBeVisible();
+  await expect(page.getByText("Sin conexión")).toHaveCount(0);
+
+  await page.goto(sendUsdc);
+  await choose(page, "A una dirección Stellar");
+  await fill(page, Keypair.random().publicKey(), "0.1");
+  await page.context().setOffline(true);
+  await review(page);
+  await expect(page.getByRole("heading", { name: "Sin conexión" })).toBeVisible(
+    {
+      timeout: 30_000,
+    },
+  );
+  await page.context().setOffline(false);
 
   await answerFor(
     (route) =>
@@ -235,4 +257,18 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
     "Algo falló de nuestro lado",
   );
   await expect(page.getByRole("button", { name: "Reintentar" })).toHaveCount(0);
+
+  const reviewed = transferRequest.postData() ?? "";
+
+  expect(reviewed).toContain('"USDC"');
+
+  const tampered = await page.request.post(transferRequest.url(), {
+    headers: await transferRequest.allHeaders(),
+    data: reviewed.replace('"USDC"', '"U$DC"'),
+  });
+
+  const answered = await tampered.text();
+
+  expect(answered).toContain("ServiceFailed");
+  expect(answered).not.toMatch(/AssetCode|Expected|pattern|issue/i);
 });

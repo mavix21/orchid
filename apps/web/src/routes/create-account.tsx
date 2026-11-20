@@ -23,7 +23,7 @@ import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { UserAvatar } from "@/components/user-avatar";
 import { me } from "@/fixtures/account";
-import { unavailableMessage } from "@/wallet/unavailable";
+import { retryable, unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/create-account")({
   component: ChooseUsername,
@@ -51,6 +51,7 @@ const refusal = (outcome: Exclude<CreateOutcome, { _tag: "Opened" }>) =>
     RegistrationRefused: () =>
       "No pudimos guardar el respaldo de tu cuenta. Inténtalo de nuevo.",
     Offline: unavailableMessage,
+    ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
     ServiceFailed: unavailableMessage,
     InvalidResponse: unavailableMessage,
@@ -76,6 +77,7 @@ function ChooseUsername() {
   const [creating, setCreating] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const [stopped, setStopped] = useState(false);
 
   const busy = creating || resuming;
   const typedIssue = usernameIssue(username);
@@ -102,6 +104,7 @@ function ChooseUsername() {
       Match.tag("Opened", () => navigate({ to: "/home" })),
       Match.orElse((refused) => {
         setProblem(refusal(refused));
+        setStopped(!retryable(refused));
         setCreating(false);
         setResuming(false);
       }),
@@ -194,7 +197,10 @@ function ChooseUsername() {
             className="w-full"
             type="submit"
             disabled={
-              busy || username.length === 0 || Option.isSome(blockingIssue)
+              busy ||
+              stopped ||
+              username.length === 0 ||
+              Option.isSome(blockingIssue)
             }
           >
             {resuming

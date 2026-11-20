@@ -69,6 +69,9 @@ function ChooseAsset() {
           <SendUnavailable overview={unavailable} />
         ),
         Offline: (unavailable) => <SendUnavailable overview={unavailable} />,
+        ServerUnreachable: (unavailable) => (
+          <SendUnavailable overview={unavailable} />
+        ),
         LedgerUnreachable: (unavailable) => (
           <SendUnavailable overview={unavailable} />
         ),

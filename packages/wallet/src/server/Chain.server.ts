@@ -209,10 +209,7 @@ export class Chain extends Context.Service<
           ),
         ];
 
-        const response = yield* Effect.tryPromise({
-          try: () => fetchEntries(settings.rpcUrl, keys),
-          catch: (cause) => new ChainUnreachable({ cause }),
-        });
+        const response = yield* fetchEntries(settings.rpcUrl, keys);
 
         return accountFromEntries(
           response.entries ?? [],

@@ -382,6 +382,11 @@ export type Overview = typeof Overview.Type;
 
 export class Offline extends Schema.TaggedError<Offline>()("Offline", {}) {}
 
+export class ServerUnreachable extends Schema.TaggedError<ServerUnreachable>()(
+  "ServerUnreachable",
+  {},
+) {}
+
 export class LedgerUnreachable extends Schema.TaggedError<LedgerUnreachable>()(
   "LedgerUnreachable",
   {},
@@ -401,11 +406,15 @@ export const ServerFailure = Schema.Union([LedgerUnreachable, ServiceFailed]);
 
 export type ServerFailure = typeof ServerFailure.Type;
 
-export type WalletUnavailable =
-  | Offline
-  | LedgerUnreachable
-  | ServiceFailed
-  | InvalidResponse;
+export const WalletUnavailable = Schema.Union([
+  Offline,
+  ServerUnreachable,
+  LedgerUnreachable,
+  ServiceFailed,
+  InvalidResponse,
+]);
+
+export type WalletUnavailable = typeof WalletUnavailable.Type;
 
 export interface WalletPort<E = WalletUnavailable> {
   overview(address: AccountAddress): Effect.Effect<Overview, E>;

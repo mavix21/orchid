@@ -165,6 +165,12 @@ export const sendResult = (
         "Sin conexión. Si ya confirmaste, revisaremos el pago al volver",
         "retry",
       ),
+    ServerUnreachable: () =>
+      new SendScreen(
+        "No pudimos conectar con Orchid",
+        "Inténtalo de nuevo en unos minutos. Si ya confirmaste, revisaremos el pago al reintentar",
+        "retry",
+      ),
     LedgerUnreachable: () =>
       new SendScreen(
         "La red Stellar no responde",

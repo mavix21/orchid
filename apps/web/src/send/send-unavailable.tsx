@@ -41,6 +41,7 @@ export function SendUnavailable({
         false,
       ),
     Offline: unavailableNotice,
+    ServerUnreachable: unavailableNotice,
     LedgerUnreachable: unavailableNotice,
     ServiceFailed: unavailableNotice,
     InvalidResponse: unavailableNotice,
