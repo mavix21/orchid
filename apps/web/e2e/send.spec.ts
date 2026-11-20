@@ -54,9 +54,7 @@ const openWallet = async (page: Page, username: string) => {
 const fundWithUsdc = async (address: string, amount: string) => {
   const funder = Keypair.random();
 
-  await fundWithFriendbot(funder.publicKey());
-
-  const source = await horizon.loadAccount(funder.publicKey());
+  const source = await fundWithFriendbot(funder.publicKey());
 
   const payment = new TransactionBuilder(source, {
     fee: "10000",
