@@ -9,6 +9,7 @@ export default defineConfig({
   workers: 1,
   use: {
     baseURL: "http://localhost:4173",
+    actionTimeout: 30_000,
     ...devices["Pixel 7"],
   },
   webServer: {

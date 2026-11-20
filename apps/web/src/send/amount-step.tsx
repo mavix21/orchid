@@ -1,9 +1,9 @@
-import { NotebookPenIcon, UserRoundIcon, WalletIcon } from "lucide-react";
+import { DeleteIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { FieldError } from "@workspace/ui/components/field";
 import {
-  Amount,
+  type Amount,
   type Asset,
   type TransferIntent,
   formatAmount,
@@ -11,9 +11,7 @@ import {
 } from "@workspace/wallet";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
-import * as Schema from "effect/Schema";
 
-import { OptionRow } from "@/components/option-row";
 import { ScreenActions } from "@/components/screen";
 import { TokenIcon } from "@/components/token-icon";
 
@@ -27,17 +25,18 @@ import {
 import { MemoDrawer } from "./memo-drawer";
 import { amountLabel, assetCode, shortAddress } from "./money";
 
-const shares = [
-  { label: "25%", percent: 25n },
-  { label: "50%", percent: 50n },
-  { label: "75%", percent: 75n },
-  { label: "Máx", percent: 100n },
-];
+const amountPattern = /^(0|[1-9][0-9]*)?(\.[0-9]{0,7})?$/;
 
-const shareOf = (available: Amount, percent: bigint) =>
-  formatAmount(
-    Schema.decodeSync(Amount)(((available * percent) / 100n).toString()),
-  );
+const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"];
+
+const typedAmount = (current: string, typed: string) => {
+  const next = typed.replace(",", ".");
+  const normalized = next.startsWith(".") ? `0${next}` : next;
+
+  return normalized.length <= 20 && amountPattern.test(normalized)
+    ? normalized
+    : current;
+};
 
 const messageFor = (problem: Option.Option<FieldProblem>, field: SendField) =>
   problem.pipe(
@@ -77,8 +76,10 @@ export function AmountStep({
     if (Option.isSome(amountProblem)) amountField.current?.focus();
   }, [problem]);
 
-  const typed = form.amount.trim().replace(",", ".");
-  const entered = Option.isSome(parseAmount(typed));
+  const entered = Option.isSome(parseAmount(form.amount));
+
+  const type = (typed: string) =>
+    onEdit("amount", typedAmount(form.amount, typed));
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -89,95 +90,110 @@ export function AmountStep({
     });
   };
 
+  const recipient = form.recipient.trim();
+
   return (
     <>
       <form className="flex flex-1 flex-col" noValidate onSubmit={submit}>
         <main className="flex flex-1 flex-col gap-4 px-5 pt-2">
-          <OptionRow
-            title={
-              destination === "username"
-                ? `@${form.recipient.trim()}`
-                : shortAddress(form.recipient.trim())
-            }
-            description={
-              destination === "username"
-                ? "Usuario de Orchid"
-                : "Dirección Stellar"
-            }
-            media={
-              destination === "username" ? <UserRoundIcon /> : <WalletIcon />
-            }
-            render={<button type="button" onClick={onChangeRecipient} />}
-          />
-          <section
-            aria-label="Monto"
-            className="flex flex-col gap-3 rounded-lg border border-border p-4"
+          <button
+            type="button"
+            onClick={onChangeRecipient}
+            aria-label="Cambiar destinatario"
+            className="flex items-center gap-3 rounded-lg bg-secondary px-4 py-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
-            <div className="flex items-center justify-between gap-3 text-body text-muted-foreground">
-              <label htmlFor="amount">Enviando</label>
-              <span>{amountLabel(available, asset)} disponibles</span>
-            </div>
-            <div className="flex items-center gap-3">
+            <span className="text-body text-muted-foreground">Para</span>
+            <span className="truncate text-label-lg">
+              {destination === "username"
+                ? `@${recipient}`
+                : shortAddress(recipient)}
+            </span>
+          </button>
+          <div className="flex flex-1 flex-col items-center justify-center gap-2">
+            <div className="flex w-full items-baseline justify-center gap-2">
               <input
                 id="amount"
                 name="amount"
                 ref={amountField}
                 value={form.amount}
-                onChange={(event) => onEdit("amount", event.target.value)}
-                inputMode="decimal"
+                onChange={(event) => type(event.target.value)}
+                inputMode="none"
                 autoComplete="off"
+                autoFocus
                 placeholder="0"
+                size={Math.max(form.amount.length, 1)}
+                aria-label={`Monto en ${assetCode(asset)}`}
                 aria-invalid={Option.isSome(amountProblem) ? true : undefined}
                 aria-describedby={
                   Option.isSome(amountProblem) ? "amount-error" : undefined
                 }
-                className="min-w-0 flex-1 bg-transparent font-display text-display outline-none placeholder:text-muted-foreground"
+                className="max-w-full min-w-0 field-sizing-content bg-transparent text-right font-display text-display outline-none placeholder:text-muted-foreground"
               />
-              <span className="flex items-center gap-2 rounded-full bg-secondary px-3 py-2 text-label-lg">
-                <TokenIcon asset={asset} />
+              <label
+                htmlFor="amount"
+                className="font-display text-h1 text-muted-foreground"
+              >
                 {assetCode(asset)}
-              </span>
+              </label>
             </div>
             {Option.isSome(amountProblem) ? (
               <FieldError id="amount-error">{amountProblem.value}</FieldError>
             ) : null}
-          </section>
-          <div className="grid grid-cols-4 gap-2">
-            {shares.map((share) => (
+          </div>
+          <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+            <TokenIcon asset={asset} />
+            <div className="flex flex-1 flex-col">
+              <span className="text-label-lg">{assetCode(asset)}</span>
+              <span className="text-body text-muted-foreground">
+                {amountLabel(available, asset)} disponibles
+              </span>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => onEdit("amount", formatAmount(available))}
+            >
+              Usar todo
+            </Button>
+          </div>
+          <div className="grid grid-cols-3 gap-1">
+            {keys.map((key) => (
               <Button
-                key={share.label}
+                key={key}
                 type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() =>
-                  onEdit("amount", shareOf(available, share.percent))
-                }
+                variant="ghost"
+                onClick={() => type(`${form.amount}${key}`)}
               >
-                {share.label}
+                {key}
               </Button>
             ))}
+            <Button
+              type="button"
+              variant="ghost"
+              aria-label="Borrar"
+              onClick={() => type(form.amount.slice(0, -1))}
+            >
+              <DeleteIcon />
+            </Button>
           </div>
         </main>
         <ScreenActions>
-          <div className="flex w-full items-center justify-between gap-3">
-            <p className="text-body text-muted-foreground">
-              Orchid paga la comisión
-            </p>
+          <div className="flex w-full gap-2">
             {destination === "address" ? (
               <Button
                 type="button"
-                size="sm"
                 variant="secondary"
+                className="flex-1"
                 onClick={() => setMemoOpen(true)}
               >
-                <NotebookPenIcon />
-                {form.memo === "" ? "Memo" : "Memo agregado"}
+                {form.memo === "" ? "Agregar memo" : "Editar memo"}
               </Button>
             ) : null}
+            <Button className="flex-1" type="submit" disabled={!entered}>
+              Revisar
+            </Button>
           </div>
-          <Button className="w-full" type="submit" disabled={!entered}>
-            {entered ? "Revisar" : "Escribe un monto"}
-          </Button>
         </ScreenActions>
       </form>
       {destination === "address" ? (
