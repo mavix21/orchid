@@ -1,5 +1,6 @@
-import { Transfers, Authorized, pending } from "./Transfers.server";
+import { Transfers, pending } from "./Transfers.server";
 import * as Effect from "effect/Effect";
+import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -30,15 +31,17 @@ import { maxSponsoredTrustlines, usdc } from "../stellar/network";
 import {
   AssetOrders,
   AssetAuthorized,
-  AssetConcluded,
-  AssetProposed,
   AssetOrderJson,
   assetPending,
 } from "./AssetOrders.server";
-import { Chain, Undecided } from "./Chain.server";
+import {
+  type Applied,
+  Chain,
+  type Expired,
+  type Rejected,
+} from "./Chain.server";
 import { Directory, StoreFailure } from "./Directory.server";
 import { claimableAt } from "./ledger-assets.server";
-import { SlotOccupied } from "./slot.server";
 import { live } from "./wallet-reads.server";
 
 export const assetFlow = Effect.gen(function* () {
@@ -52,13 +55,20 @@ export const assetFlow = Effect.gen(function* () {
   ) {
     const evidence = yield* chain.settlement(stored.sealed);
 
-    if (evidence instanceof Undecided) {
-      yield* chain.submit(stored.sealed).pipe(Effect.ignore);
+    const concluded = (decided: Applied | Rejected | Expired) =>
+      orders
+        .conclude(stored.order.id, decided)
+        .pipe(Effect.map((done) => done.receipt));
 
-      return assetPending(stored);
-    }
-
-    return (yield* orders.conclude(stored.order.id, evidence)).receipt;
+    return yield* Match.valueTags(evidence, {
+      Applied: concluded,
+      Rejected: concluded,
+      Expired: concluded,
+      Undecided: () =>
+        chain
+          .submit(stored.sealed)
+          .pipe(Effect.ignore, Effect.as(assetPending(stored))),
+    });
   });
 
   const manage = Effect.fn("Wallet.manage")(function* (
@@ -85,16 +95,16 @@ export const assetFlow = Effect.gen(function* () {
           cause: new Error("Asset order id cannot identify a different order"),
         });
 
-      if (existing.value instanceof AssetConcluded)
+      if (Predicate.isTagged(existing.value, "AssetConcluded"))
         return existing.value.receipt;
 
-      if (existing.value instanceof AssetAuthorized)
+      if (Predicate.isTagged(existing.value, "AssetAuthorized"))
         return yield* reconcile(existing.value);
     }
 
     const paying = yield* transfers.latestFrom(order.wallet);
 
-    if (Option.isSome(paying) && paying.value instanceof Authorized)
+    if (Option.isSome(paying) && Predicate.isTagged(paying.value, "Authorized"))
       return new SenderBusy({ inFlight: pending(paying.value) });
 
     const held = yield* orders.inFlightFor(order.wallet);
@@ -177,7 +187,7 @@ export const assetFlow = Effect.gen(function* () {
 
     if (
       Option.isSome(existing) &&
-      existing.value instanceof AssetProposed &&
+      Predicate.isTagged(existing.value, "AssetProposed") &&
       live(existing.value.request)
     ) {
       const stored = existing.value;
@@ -200,30 +210,31 @@ export const assetFlow = Effect.gen(function* () {
           return new AssetDraft({ request: stored.request });
         const authorized = yield* orders.authorize(stored, sealed.value);
 
-        if (authorized instanceof SlotOccupied)
-          return new AssetDraft({ request: stored.request });
-
-        if (authorized instanceof AssetAuthorized)
-          return yield* reconcile(authorized);
-
-        if (authorized instanceof AssetConcluded) return authorized.receipt;
-
-        return new AssetDraft({ request: authorized.request });
+        return yield* Match.valueTags(authorized, {
+          SlotOccupied: () =>
+            Effect.succeed(new AssetDraft({ request: stored.request })),
+          AssetAuthorized: reconcile,
+          AssetConcluded: (concluded) => Effect.succeed(concluded.receipt),
+          AssetProposed: (proposed) =>
+            Effect.succeed(new AssetDraft({ request: proposed.request })),
+        });
       }
     }
 
     const request = yield* chain.draftAsset(order.wallet, plan);
 
     const stored =
-      Option.isSome(existing) && existing.value instanceof AssetProposed
+      Option.isSome(existing) &&
+      Predicate.isTagged(existing.value, "AssetProposed")
         ? yield* orders.redraft(existing.value, request)
         : yield* orders.propose(order, request);
 
-    if (stored instanceof AssetAuthorized) return yield* reconcile(stored);
-
-    if (stored instanceof AssetConcluded) return stored.receipt;
-
-    return new AssetDraft({ request: stored.request });
+    return yield* Match.valueTags(stored, {
+      AssetAuthorized: reconcile,
+      AssetConcluded: (concluded) => Effect.succeed(concluded.receipt),
+      AssetProposed: (proposed) =>
+        Effect.succeed(new AssetDraft({ request: proposed.request })),
+    });
   });
 
   return { manage, reconcile };

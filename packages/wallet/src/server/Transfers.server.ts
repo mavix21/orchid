@@ -16,6 +16,7 @@ import {
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
@@ -436,7 +437,7 @@ export class Transfers extends Context.Service<
             if (held[0] && held[0].id !== id) {
               const holder = yield* decode(held[0]);
 
-              if (holder instanceof Authorized)
+              if (Predicate.isTagged(holder, "Authorized"))
                 return new SlotTaken({ holder });
             }
 
@@ -539,7 +540,7 @@ export class Transfers extends Context.Service<
           ? yield* decode(rows[0])
           : Option.getOrUndefined(yield* find(id));
 
-        if (!(current instanceof Concluded))
+        if (!Predicate.isTagged(current, "Concluded"))
           return yield* new StoreFailure({
             cause: new Error("Transfer is not concluded"),
           });
@@ -577,7 +578,7 @@ export class Transfers extends Context.Service<
             Effect.forEach(rows, (row) =>
               decode(row).pipe(
                 Effect.flatMap((transfer) =>
-                  transfer instanceof Authorized
+                  Predicate.isTagged(transfer, "Authorized")
                     ? Effect.succeed(transfer)
                     : Effect.fail(
                         new StoreFailure({

@@ -1,3 +1,4 @@
+import { assertTagged } from "./tagged";
 import * as Effect from "effect/Effect";
 import { expect, layer } from "@effect/vitest";
 import {
@@ -15,17 +16,11 @@ import {
   MemoNotAllowed,
   PaymentMemo,
   Pending,
-  Settled,
-  TransferDraft,
   TransferOrder,
 } from "../src/contract";
 import { Applied } from "../src/server/Chain.server";
-import {
-  Authorized,
-  Proposed,
-  Transfers,
-} from "../src/server/Transfers.server";
-import { PaymentFacts, readEnvelope } from "../src/stellar/envelopes";
+import { Proposed, Transfers } from "../src/server/Transfers.server";
+import { readEnvelope } from "../src/stellar/envelopes";
 import { networkPassphrase } from "../src/stellar/network";
 import {
   world,
@@ -64,8 +59,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const draft = yield* send(order);
 
-          if (!(draft instanceof TransferDraft))
-            throw new Error("Expected external draft");
+          assertTagged(draft, "TransferDraft");
 
           expect(draft.recipient).toEqual(
             new ExternalRecipient({ address: destination }),
@@ -73,8 +67,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(draft.memoRequired).toBe(false);
           const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
 
-          if (!(facts instanceof PaymentFacts))
-            throw new Error("Expected payment facts");
+          assertTagged(facts, "PaymentFacts");
 
           expect(facts.memo).toBeUndefined();
           expect(
@@ -85,8 +78,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             yield* Transfers.use((service) => service.find(order.id)),
           );
 
-          if (!(signed instanceof Authorized))
-            throw new Error("Expected authorization");
+          assertTagged(signed, "Authorized");
 
           expect(signed.order.memo).toBeUndefined();
 
@@ -105,8 +97,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
           const receipt = yield* send(order);
 
-          if (!(receipt instanceof Settled))
-            throw new Error("Expected settled receipt");
+          assertTagged(receipt, "Settled");
 
           expect(receipt.memo).toBeUndefined();
         }),
@@ -165,8 +156,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const draft = yield* send(order);
 
-          if (!(draft instanceof TransferDraft))
-            throw new Error("Expected draft");
+          assertTagged(draft, "TransferDraft");
 
           registerExchange(destination);
           expect(
@@ -215,8 +205,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
               const draft = yield* send(order);
 
-              if (!(draft instanceof TransferDraft))
-                throw new Error("Expected memo draft");
+              assertTagged(draft, "TransferDraft");
 
               expect(draft.recipient).toBeInstanceOf(ExternalRecipient);
               expect(draft.memoRequired).toBe(required);
@@ -225,8 +214,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 readEnvelope(draft.request.envelope),
               );
 
-              if (!(facts instanceof PaymentFacts))
-                throw new Error("Expected payment facts");
+              assertTagged(facts, "PaymentFacts");
 
               expect(facts.memo).toEqual(memo);
               yield* send(order, approve(draft.request, key));
@@ -235,8 +223,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 yield* Transfers.use((service) => service.find(order.id)),
               );
 
-              if (!(signed instanceof Authorized))
-                throw new Error("Expected authorization");
+              assertTagged(signed, "Authorized");
 
               expect(signed.order.memo).toEqual(memo);
               world.evidence.set(
@@ -246,8 +233,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
               const receipt = yield* send(order);
 
-              if (!(receipt instanceof Settled))
-                throw new Error("Expected receipt");
+              assertTagged(receipt, "Settled");
 
               expect(receipt.memo).toEqual(memo);
               expect(receipt.recipient).toEqual(
@@ -262,8 +248,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             orderFor(key, AddressRecipient.make({ value: addressOf(key) })),
           );
 
-          if (!(plain instanceof TransferDraft))
-            throw new Error("Expected Orchid draft");
+          assertTagged(plain, "TransferDraft");
 
           expect(plain.memoRequired).toBe(false);
 

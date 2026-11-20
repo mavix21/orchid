@@ -11,6 +11,7 @@ import {
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
@@ -461,7 +462,11 @@ export const resolveSettlement = Effect.fn("Chain.resolveSettlement")(
     const outerResponse = yield* reader.transaction(sealed.hash);
     const outer = settlementFromResponse(outerResponse, sealed, Option.none());
 
-    if (outer instanceof Applied || outer instanceof Rejected) return outer;
+    if (
+      Predicate.isTagged(outer, "Applied") ||
+      Predicate.isTagged(outer, "Rejected")
+    )
+      return outer;
 
     const innerResponse =
       innerHash === sealed.hash
@@ -470,7 +475,11 @@ export const resolveSettlement = Effect.fn("Chain.resolveSettlement")(
 
     const found = settlementFromResponse(innerResponse, sealed, Option.none());
 
-    if (found instanceof Applied || found instanceof Rejected) return found;
+    if (
+      Predicate.isTagged(found, "Applied") ||
+      Predicate.isTagged(found, "Rejected")
+    )
+      return found;
 
     const sender = yield* reader.account(
       Schema.decodeSync(AccountAddress)(inner.source),

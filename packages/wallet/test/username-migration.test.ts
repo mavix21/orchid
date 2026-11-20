@@ -1,3 +1,4 @@
+import { assertTagged } from "./tagged";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import { expect, it } from "@effect/vitest";
@@ -18,7 +19,6 @@ import {
   OpeningDraft,
   OpeningPending,
   Profile,
-  RecoveryDraft,
   UsernameTaken,
   WalletClaim,
 } from "../src/contract";
@@ -220,15 +220,13 @@ it.live("existing wallet rows migrate into permanent name bindings", () =>
     );
     const draft = yield* reopen(claim);
 
-    if (!(draft instanceof OpeningDraft))
-      throw new Error("Expected reopening draft");
+    assertTagged(draft, "OpeningDraft");
     expect(
       yield* reopen(claim, approve(draft.request, recoveredKey)),
     ).toBeInstanceOf(OpeningPending);
     const recoveryStep = yield* reopen(claim);
 
-    if (!(recoveryStep instanceof RecoveryDraft))
-      throw new Error("Expected recovery draft");
+    assertTagged(recoveryStep, "RecoveryDraft");
     expect(
       yield* reopen(claim, approve(recoveryStep.request, recoveredKey)),
     ).toEqual(new Opened({ profile: new Profile(claim) }));

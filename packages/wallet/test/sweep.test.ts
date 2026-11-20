@@ -1,3 +1,4 @@
+import { assertTagged } from "./tagged";
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import { makeDatabase } from "@workspace/db";
@@ -9,7 +10,6 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   AddressRecipient,
-  TransferDraft,
   TransferId,
   Amount,
 } from "../src/contract";
@@ -190,8 +190,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
             const draft = yield* send(order);
 
-            if (!(draft instanceof TransferDraft))
-              throw new Error("Expected draft");
+            assertTagged(draft, "TransferDraft");
 
             yield* send(order, approve(draft.request, key));
             ids.push(order.id);

@@ -1,9 +1,9 @@
 import { portfolioFlow } from "./wallet-portfolio.server";
-import { ClaimableFacts } from "../stellar/asset-envelopes";
 import { deliveryFlow } from "./wallet-delivery.server";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
@@ -26,7 +26,6 @@ import {
   NeedsReopening,
   NotOpened,
   Overview,
-  Pending,
   PhoneNotSupported,
   Receipt,
   ResolvedRecipient,
@@ -38,23 +37,19 @@ import {
   type WalletPort,
   WalletUnavailable,
 } from "../contract";
-import { PaymentFacts, readEnvelope } from "../stellar/envelopes";
+import { readEnvelope } from "../stellar/envelopes";
 import { Chain, ChainUnreachable, Sealed } from "./Chain.server";
 import { Directory, StoreFailure, type WalletRow } from "./Directory.server";
 import {
   Authorized,
-  ClaimablesFull,
-  Concluded,
   OrderJson,
   Proposed,
-  SlotTaken,
   type Transfer,
   Transfers,
   pending,
 } from "./Transfers.server";
 import { AssetOrders, assetPending } from "./AssetOrders.server";
 import { assetFlow } from "./wallet-assets.server";
-import { SlotOccupied } from "./slot.server";
 import { maxOpenClaimables } from "../stellar/network";
 import { openingFlow } from "./wallet-opening.server";
 import { Backups } from "./Backups.server";
@@ -149,11 +144,11 @@ export class Wallet extends Context.Service<
       const resumed = Effect.fn("Wallet.resumed")(function* (
         transfer: Transfer,
       ): Effect.fn.Return<TransferStep, StoreFailure | ChainUnreachable> {
-        if (transfer instanceof Concluded) return transfer.receipt;
-
-        if (transfer instanceof Authorized) return yield* reconcile(transfer);
-
-        return proposedStep(transfer);
+        return yield* Match.valueTags(transfer, {
+          Concluded: (concluded) => Effect.succeed(concluded.receipt),
+          Authorized: reconcile,
+          Proposed: (proposed) => Effect.succeed(proposedStep(proposed)),
+        });
       });
 
       const refreshDraft = Effect.fn("Wallet.refreshDraft")(function* (
@@ -175,8 +170,8 @@ export class Wallet extends Context.Service<
         return (
           Option.isSome(state) &&
           Option.isSome(facts) &&
-          (facts.value instanceof PaymentFacts ||
-            facts.value instanceof ClaimableFacts) &&
+          (Predicate.isTagged(facts.value, "PaymentFacts") ||
+            Predicate.isTagged(facts.value, "ClaimableFacts")) &&
           BigInt(state.value.sequence) + 1n === BigInt(facts.value.sequence)
         );
       });
@@ -222,7 +217,8 @@ export class Wallet extends Context.Service<
               cause: new Error("Transfer id cannot identify a different order"),
             });
 
-          if (!(stored instanceof Proposed)) return yield* resumed(stored);
+          if (!Predicate.isTagged(stored, "Proposed"))
+            return yield* resumed(stored);
 
           const refusal = memoRefusal(order, stored.recipient);
 
@@ -245,31 +241,37 @@ export class Wallet extends Context.Service<
 
             const authorized = yield* transfers.authorize(stored, sealed.value);
 
-            if (authorized instanceof SlotTaken) {
-              const receipt = yield* reconcile(authorized.holder);
+            return yield* Match.valueTags(authorized, {
+              SlotTaken: ({ holder }) =>
+                Effect.gen(function* () {
+                  const receipt = yield* reconcile(holder);
 
-              return receipt instanceof Pending
-                ? new SenderBusy({ inFlight: receipt })
-                : yield* resumed(
-                    (yield* currentDraft(stored))
-                      ? stored
-                      : yield* refreshDraft(stored),
-                  );
-            }
-
-            if (authorized instanceof ClaimablesFull)
-              return new ClaimableLimitReached({ limit: maxOpenClaimables });
-
-            if (authorized instanceof SlotOccupied) {
-              const busy = yield* assets.inFlightFor(order.from);
-
-              if (Option.isSome(busy))
-                return new AssetBusy({ inFlight: assetPending(busy.value) });
-
-              return proposedStep(stored);
-            }
-
-            return yield* resumed(authorized);
+                  return Predicate.isTagged(receipt, "Pending")
+                    ? new SenderBusy({ inFlight: receipt })
+                    : yield* resumed(
+                        (yield* currentDraft(stored))
+                          ? stored
+                          : yield* refreshDraft(stored),
+                      );
+                }),
+              ClaimablesFull: () =>
+                Effect.succeed(
+                  new ClaimableLimitReached({ limit: maxOpenClaimables }),
+                ),
+              SlotOccupied: () =>
+                assets
+                  .inFlightFor(order.from)
+                  .pipe(
+                    Effect.map((busy) =>
+                      Option.isSome(busy)
+                        ? new AssetBusy({ inFlight: assetPending(busy.value) })
+                        : proposedStep(stored),
+                    ),
+                  ),
+              Proposed: resumed,
+              Authorized: resumed,
+              Concluded: resumed,
+            });
           }
         }
 
@@ -280,10 +282,13 @@ export class Wallet extends Context.Service<
 
         const held = yield* transfers.latestFrom(order.from);
 
-        if (Option.isSome(held) && held.value instanceof Authorized) {
+        if (
+          Option.isSome(held) &&
+          Predicate.isTagged(held.value, "Authorized")
+        ) {
           const receipt = yield* reconcile(held.value);
 
-          if (receipt instanceof Pending)
+          if (Predicate.isTagged(receipt, "Pending"))
             return new SenderBusy({ inFlight: receipt });
         }
 
@@ -315,7 +320,7 @@ export class Wallet extends Context.Service<
             Effect.die("Phone was rejected before recipient resolution"),
         });
 
-        if (recipient instanceof UnknownRecipient) return recipient;
+        if (Predicate.isTagged(recipient, "UnknownRecipient")) return recipient;
 
         const refusal = memoRefusal(order, recipient);
 
@@ -377,15 +382,16 @@ export class Wallet extends Context.Service<
 
         const owner = yield* directory.profile(row.value);
         const latest = yield* transfers.latestFrom(address);
-        let receipt: Option.Option<Receipt> = Option.none();
 
-        if (Option.isSome(latest)) {
-          if (latest.value instanceof Authorized)
-            receipt = Option.some(yield* reconcile(latest.value));
-
-          if (latest.value instanceof Concluded)
-            receipt = Option.some(latest.value.receipt);
-        }
+        const receipt: Option.Option<Receipt> = Option.isSome(latest)
+          ? yield* Match.valueTags(latest.value, {
+              Authorized: (held) =>
+                reconcile(held).pipe(Effect.map(Option.some)),
+              Concluded: (concluded) =>
+                Effect.succeed(Option.some(concluded.receipt)),
+              Proposed: () => Effect.succeed(Option.none()),
+            })
+          : Option.none();
 
         const balance = yield* readBalance(address);
 

@@ -1,3 +1,4 @@
+import { assertTagged } from "./tagged";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import { expect, layer } from "@effect/vitest";
@@ -18,22 +19,15 @@ import {
   AddressRecipient,
   ExternalRecipient,
   Failed,
-  Holding,
   Pending,
   PositiveAmount,
   Settled,
-  TransferDraft,
   TransferOrder,
   Amount,
 } from "../src/contract";
 import { Applied, Chain, Rejected } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
-import {
-  Authorized,
-  Proposed,
-  SlotTaken,
-  Transfers,
-} from "../src/server/Transfers.server";
+import { Proposed, SlotTaken, Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { networkPassphrase } from "../src/stellar/network";
 import {
@@ -90,8 +84,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const refreshed = yield* send(order);
 
-          if (!(refreshed instanceof TransferDraft))
-            throw new Error("Expected refreshed draft");
+          assertTagged(refreshed, "TransferDraft");
 
           expect(
             DateTime.toEpochMillis(refreshed.request.expiresAt),
@@ -102,8 +95,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             yield* Transfers.use((service) => service.find(order.id)),
           );
 
-          if (!(authorized instanceof Authorized))
-            throw new Error("Expected authorization");
+          assertTagged(authorized, "Authorized");
 
           const competing = yield* Transfers.use((service) =>
             service.propose(
@@ -155,11 +147,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const firstDraft = yield* send(first);
           const secondDraft = yield* send(second);
 
-          if (
-            !(firstDraft instanceof TransferDraft) ||
-            !(secondDraft instanceof TransferDraft)
-          )
-            throw new Error("Expected drafts");
+          assertTagged(firstDraft, "TransferDraft");
+          assertTagged(secondDraft, "TransferDraft");
 
           expect(paymentSequence(firstDraft)).toBe("1001");
           expect(paymentSequence(secondDraft)).toBe("1001");
@@ -169,8 +158,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             yield* Transfers.use((service) => service.find(first.id)),
           );
 
-          if (!(signed instanceof Authorized))
-            throw new Error("Expected authorization");
+          assertTagged(signed, "Authorized");
 
           fundHolder(key, "1001");
           world.evidence.set(
@@ -184,8 +172,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             approve(secondDraft.request, key),
           );
 
-          if (!(redrafted instanceof TransferDraft))
-            throw new Error("Expected redraft");
+          assertTagged(redrafted, "TransferDraft");
 
           expect(paymentSequence(redrafted)).toBe("1002");
           expect(
@@ -221,11 +208,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const firstDraft = yield* send(first);
           const secondDraft = yield* send(second);
 
-          if (
-            !(firstDraft instanceof TransferDraft) ||
-            !(secondDraft instanceof TransferDraft)
-          )
-            throw new Error("Expected drafts");
+          assertTagged(firstDraft, "TransferDraft");
+          assertTagged(secondDraft, "TransferDraft");
 
           yield* send(first, approve(firstDraft.request, key));
 
@@ -272,8 +256,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             wallet.transfer(second, approve(secondDraft.request, key)),
           ).pipe(Effect.provide(Layer.fresh(finishingWallet)));
 
-          if (!(result instanceof TransferDraft))
-            throw new Error("Expected redraft");
+          assertTagged(result, "TransferDraft");
 
           expect(paymentSequence(result)).toBe("1002");
           expect(
@@ -298,8 +281,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const draft = yield* send(order);
 
-          if (!(draft instanceof TransferDraft))
-            throw new Error("Expected draft");
+          assertTagged(draft, "TransferDraft");
 
           yield* send(order, approve(draft.request, key));
 
@@ -307,8 +289,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             yield* Transfers.use((service) => service.find(order.id)),
           );
 
-          if (!(signed instanceof Authorized))
-            throw new Error("Expected authorization");
+          assertTagged(signed, "Authorized");
 
           fundHolder(key, "1001");
           world.evidence.set(
@@ -325,8 +306,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             orderFor(key, AddressRecipient.make({ value: addressOf(key) })),
           );
 
-          if (!(next instanceof TransferDraft))
-            throw new Error("Expected next draft");
+          assertTagged(next, "TransferDraft");
 
           expect(paymentSequence(next)).toBe("1002");
         }),
@@ -353,8 +333,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const draft = yield* send(first);
 
-          if (!(draft instanceof TransferDraft))
-            throw new Error("Expected draft");
+          assertTagged(draft, "TransferDraft");
 
           yield* send(second);
           yield* send(first, approve(draft.request, key));
@@ -363,8 +342,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             yield* Transfers.use((service) => service.find(first.id)),
           );
 
-          if (!(signed instanceof Authorized))
-            throw new Error("Expected authorization");
+          assertTagged(signed, "Authorized");
 
           world.evidence.set(
             signed.sealed.hash,
@@ -377,8 +355,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             wallet.overview(addressOf(key)),
           );
 
-          if (!(overview instanceof Holding))
-            throw new Error("Expected holding");
+          assertTagged(overview, "Holding");
 
           expect(Option.getOrThrow(overview.latest).id).toBe(first.id);
           expect(Option.getOrThrow(overview.latest)).toBeInstanceOf(Settled);
@@ -401,8 +378,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const draft = yield* send(order);
 
-          if (!(draft instanceof TransferDraft))
-            throw new Error("Expected draft");
+          assertTagged(draft, "TransferDraft");
 
           const advancing = Layer.effect(
             Chain,
@@ -433,8 +409,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             wallet.transfer(order, approve(draft.request, key)),
           ).pipe(Effect.provide(Layer.fresh(advancingWallet)));
 
-          if (!(result instanceof TransferDraft))
-            throw new Error("Expected redraft");
+          assertTagged(result, "TransferDraft");
 
           expect(paymentSequence(result)).toBe("1002");
           expect(
@@ -468,11 +443,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             yield* Transfers.use((service) => service.find(order.id)),
           );
 
-          if (
-            !(draft instanceof TransferDraft) ||
-            !(proposed instanceof Proposed)
-          )
-            throw new Error("Expected draft");
+          assertTagged(draft, "TransferDraft");
+          assertTagged(proposed, "Proposed");
 
           yield* send(order, approve(draft.request, key));
           fundHolder(key, "1001");
@@ -490,8 +462,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             service.redraft(proposed, replacement),
           );
 
-          if (!(saved instanceof Authorized))
-            throw new Error("Expected frozen authorization");
+          assertTagged(saved, "Authorized");
 
           const outer = TransactionBuilder.fromXDR(
             saved.sealed.envelope,

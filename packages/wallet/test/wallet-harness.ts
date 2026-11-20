@@ -1,3 +1,4 @@
+import { assertTagged } from "./tagged";
 import { draftPlan } from "../src/stellar/asset-plans";
 import { draftClaimable } from "../src/stellar/asset-envelopes";
 import type {
@@ -27,11 +28,9 @@ import {
   AccountAddress,
   Approval,
   Opened,
-  OpeningDraft,
   OpeningPending,
   PositiveAmount,
   Recipient,
-  RecoveryDraft,
   SigningRequest,
   TransferDraft,
   TransferId,
@@ -57,7 +56,6 @@ import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { WalletSettings } from "../src/server/settings.server";
 import {
-  PaymentFacts,
   readEnvelope,
   draftOpening,
   draftPayment,
@@ -347,8 +345,7 @@ export const create = Effect.fn(function* (key: Keypair, name: string) {
   const claim = claimFor(key, name);
   const draft = yield* opening(claim);
 
-  if (!(draft instanceof OpeningDraft))
-    throw new Error("Expected opening draft");
+  assertTagged(draft, "OpeningDraft");
 
   expect(yield* opening(claim, approve(draft.request, key))).toBeInstanceOf(
     OpeningPending,
@@ -356,8 +353,7 @@ export const create = Effect.fn(function* (key: Keypair, name: string) {
 
   const recovery = yield* opening(claim);
 
-  if (!(recovery instanceof RecoveryDraft))
-    throw new Error("Expected recovery draft");
+  assertTagged(recovery, "RecoveryDraft");
 
   expect(yield* opening(claim, approve(recovery.request, key))).toBeInstanceOf(
     Opened,
@@ -406,8 +402,7 @@ export const fundHolder = (key: Keypair, sequence = "1000") =>
 export const paymentSequence = (draft: TransferDraft) => {
   const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
 
-  if (!(facts instanceof PaymentFacts))
-    throw new Error("Expected payment facts");
+  assertTagged(facts, "PaymentFacts");
 
   return facts.sequence;
 };

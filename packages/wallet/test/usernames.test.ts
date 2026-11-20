@@ -1,3 +1,4 @@
+import { assertTagged } from "./tagged";
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import { makeDatabase } from "@workspace/db";
@@ -13,7 +14,6 @@ import {
   OpeningPending,
   PhoneNotSupported,
   Profile,
-  RecoveryDraft,
   TransferDraft,
   Amount,
   Username,
@@ -24,7 +24,7 @@ import {
 import { Directory } from "../src/server/Directory.server";
 import { usernames } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
-import { RecoveryFacts, readEnvelope } from "../src/stellar/envelopes";
+import { readEnvelope } from "../src/stellar/envelopes";
 import {
   dbLayer,
   world,
@@ -67,14 +67,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const first = claimFor(key, "maria");
           const draft = yield* opening(first);
 
-          if (!(draft instanceof OpeningDraft))
-            throw new Error("Expected draft");
+          assertTagged(draft, "OpeningDraft");
 
           const second = claimFor(key, "maria2");
           const redraft = yield* opening(second);
 
-          if (!(redraft instanceof OpeningDraft))
-            throw new Error("Expected draft for the new name");
+          assertTagged(redraft, "OpeningDraft");
 
           expect(
             yield* opening(claimFor(Keypair.random(), "maria")),
@@ -105,8 +103,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const results = yield* Effect.all(
             drafts.map((draft, index) => {
-              if (!(draft instanceof OpeningDraft))
-                throw new Error("Expected draft");
+              assertTagged(draft, "OpeningDraft");
 
               return opening(
                 claims[index] ?? claims[0],
@@ -132,8 +129,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const renamed = claimFor(key, "maria_2");
           const retry = yield* opening(renamed);
 
-          if (!(retry instanceof OpeningDraft))
-            throw new Error("Expected loser to redraft");
+          assertTagged(retry, "OpeningDraft");
 
           expect(
             yield* opening(renamed, approve(retry.request, key)),
@@ -284,8 +280,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const draft = yield* opening(claim);
 
-          if (!(draft instanceof OpeningDraft))
-            throw new Error("Expected reopening draft");
+          assertTagged(draft, "OpeningDraft");
 
           yield* opening(claim, approve(draft.request, key));
           expect(
@@ -295,8 +290,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const recovery = yield* opening(claim);
 
-          if (!(recovery instanceof RecoveryDraft))
-            throw new Error("Expected recovery draft");
+          assertTagged(recovery, "RecoveryDraft");
 
           expect(
             yield* opening(claim, approve(recovery.request, key)),
@@ -323,8 +317,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const recovery = yield* opening(claim);
 
-          if (!(recovery instanceof RecoveryDraft))
-            throw new Error("Expected recovery draft");
+          assertTagged(recovery, "RecoveryDraft");
 
           expect(yield* opening(claim, approve(recovery.request, key))).toEqual(
             new Opened({ profile: new Profile(claim) }),
@@ -381,8 +374,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const recovery = yield* opening(claim);
 
-          if (!(recovery instanceof RecoveryDraft))
-            throw new Error("Expected recovery draft");
+          assertTagged(recovery, "RecoveryDraft");
 
           const row = Option.getOrThrow(
             yield* Directory.use((directory) =>
@@ -394,8 +386,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             readEnvelope(recovery.request.envelope),
           );
 
-          if (!(facts instanceof RecoveryFacts))
-            throw new Error("Expected recovery facts");
+          assertTagged(facts, "RecoveryFacts");
 
           yield* create(Keypair.random(), "maria");
           expect(
@@ -435,8 +426,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const draft = yield* send(order);
 
-          if (!(draft instanceof TransferDraft))
-            throw new Error("Expected draft to the new user");
+          assertTagged(draft, "TransferDraft");
 
           expect(draft.recipient.address).toBe(addressOf(recipient));
         }),

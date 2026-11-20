@@ -1,3 +1,4 @@
+import { assertTagged } from "./tagged";
 import { expect, layer } from "@effect/vitest";
 import {
   Account,
@@ -61,8 +62,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const claim = claimFor(key, "maria");
           const draft = yield* opening(claim);
 
-          if (!(draft instanceof OpeningDraft))
-            throw new Error("Expected draft");
+          assertTagged(draft, "OpeningDraft");
 
           yield* opening(claim, approve(draft.request, key));
 
@@ -77,8 +77,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             )).pipe(Option.map((row) => row.status)),
           ).toEqual(Option.some("opening"));
 
-          if (!(recovery instanceof RecoveryDraft))
-            throw new Error("Expected recovery");
+          assertTagged(recovery, "RecoveryDraft");
 
           expect(
             yield* opening(claim, approve(recovery.request, Keypair.random())),

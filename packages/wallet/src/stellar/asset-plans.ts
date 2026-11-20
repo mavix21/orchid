@@ -1,3 +1,4 @@
+import * as Predicate from "effect/Predicate";
 import type { Account } from "@stellar/stellar-sdk";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
@@ -12,9 +13,6 @@ import {
   assetKey,
 } from "../contract";
 import {
-  ClaimFacts,
-  TrustlineFacts,
-  TrustlineRemovalFacts,
   draftClaim,
   draftTrustline,
   draftTrustlineRemoval,
@@ -65,13 +63,13 @@ export function plannedSequence(
     Option.filter((facts) =>
       Match.valueTags(plan, {
         OpenTrustline: ({ asset }) =>
-          facts instanceof TrustlineFacts &&
+          Predicate.isTagged(facts, "TrustlineFacts") &&
           assetKey(facts.asset) === assetKey(asset),
         CloseTrustline: ({ asset }) =>
-          facts instanceof TrustlineRemovalFacts &&
+          Predicate.isTagged(facts, "TrustlineRemovalFacts") &&
           assetKey(facts.asset) === assetKey(asset),
         ClaimPlan: ({ balance, opens }) =>
-          facts instanceof ClaimFacts &&
+          Predicate.isTagged(facts, "ClaimFacts") &&
           facts.balance === balance &&
           (facts.opens ? assetKey(facts.opens) : undefined) ===
             (opens ? assetKey(opens) : undefined),

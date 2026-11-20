@@ -14,7 +14,9 @@ import {
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
+import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
@@ -49,6 +51,15 @@ export class Available extends Schema.TaggedClass<Available>()(
 ) {}
 
 export type Unavailable = UsernameTaken | AddressBound;
+
+export const unavailability = (
+  availability: Available | Unavailable,
+): Option.Option<Unavailable> =>
+  Match.valueTags(availability, {
+    Available: () => Option.none(),
+    UsernameTaken: Option.some,
+    AddressBound: Option.some,
+  });
 
 const profileOf = (name: NameRow) =>
   new Profile({
@@ -286,7 +297,9 @@ export class Directory extends Context.Service<
 
             const bound = yield* bind(tx, claim);
 
-            if (!(bound instanceof Available)) return bound;
+            const refused = unavailability(bound);
+
+            if (Option.isSome(refused)) return refused.value;
 
             const written = yield* tx
               .update(wallets)
@@ -303,7 +316,10 @@ export class Directory extends Context.Service<
           }),
         );
 
-        if (outcome instanceof UsernameTaken || outcome instanceof AddressBound)
+        if (
+          Predicate.isTagged(outcome, "UsernameTaken") ||
+          Predicate.isTagged(outcome, "AddressBound")
+        )
           return outcome;
 
         return outcome ?? (yield* current(row));
@@ -356,7 +372,9 @@ export class Directory extends Context.Service<
 
             const bound = yield* bind(tx, claim);
 
-            if (!(bound instanceof Available)) return bound;
+            const refused = unavailability(bound);
+
+            if (Option.isSome(refused)) return refused.value;
 
             const written = yield* tx
               .update(wallets)

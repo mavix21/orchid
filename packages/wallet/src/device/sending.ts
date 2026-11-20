@@ -1,5 +1,6 @@
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -8,9 +9,6 @@ import {
   type Approval,
   type PaymentMemo,
   Profile,
-  Failed,
-  Pending,
-  Settled,
   type TransferDraft,
   TransferId,
   TransferOrder,
@@ -19,8 +17,7 @@ import {
   type WalletUnavailable,
   assetKey,
 } from "../contract";
-import { ClaimableFacts } from "../stellar/asset-envelopes";
-import { PaymentFacts, readEnvelope } from "../stellar/envelopes";
+import { readEnvelope } from "../stellar/envelopes";
 import { approvalMargin, paymentLifetime } from "../stellar/network";
 import {
   DeviceWallet,
@@ -78,7 +75,12 @@ const orderedFacts = (
 
   const drafted = facts.value;
 
-  if (!(drafted instanceof PaymentFacts || drafted instanceof ClaimableFacts))
+  if (
+    !(
+      Predicate.isTagged(drafted, "PaymentFacts") ||
+      Predicate.isTagged(drafted, "ClaimableFacts")
+    )
+  )
     return Option.none();
 
   const moves =
@@ -87,13 +89,12 @@ const orderedFacts = (
     assetKey(drafted.asset) === assetKey(order.asset) &&
     drafted.amount === order.amount;
 
-  const matches =
-    drafted instanceof PaymentFacts
-      ? moves && sameMemo(drafted.memo, order.memo)
-      : moves &&
-        order.memo === undefined &&
-        draft.recipient instanceof Profile &&
-        drafted.reserveSponsor === wallet.reserveSponsor;
+  const matches = Predicate.isTagged(drafted, "PaymentFacts")
+    ? moves && sameMemo(drafted.memo, order.memo)
+    : moves &&
+      order.memo === undefined &&
+      draft.recipient instanceof Profile &&
+      drafted.reserveSponsor === wallet.reserveSponsor;
 
   return matches ? Option.some(drafted) : Option.none();
 };
@@ -234,9 +235,10 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
       const now = yield* nowSeconds;
 
       const resolved =
-        signed instanceof Settled ||
-        signed instanceof Failed ||
-        (!(signed instanceof Pending) && !approvalOutstanding(wallet, now));
+        Predicate.isTagged(signed, "Settled") ||
+        Predicate.isTagged(signed, "Failed") ||
+        (!Predicate.isTagged(signed, "Pending") &&
+          !approvalOutstanding(wallet, now));
 
       if (!resolved) return new ApprovalOutstanding({ order: kept });
     }

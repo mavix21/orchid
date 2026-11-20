@@ -1,3 +1,4 @@
+import { assertTagged } from "./tagged";
 import { baseAsset } from "../src/contract";
 import { expect, it } from "@effect/vitest";
 import {
@@ -654,8 +655,7 @@ it.live(
 
         const facts = Option.getOrThrow(readEnvelope(envelope));
 
-        if (!(facts instanceof PaymentFacts))
-          throw new Error("Expected payment");
+        assertTagged(facts, "PaymentFacts");
 
         expect(facts.memo).toEqual(checked);
 

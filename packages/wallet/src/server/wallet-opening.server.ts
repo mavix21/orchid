@@ -1,11 +1,11 @@
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
-  AddressBound,
   Approval,
   InvalidAddress,
   NotSponsored,
@@ -15,10 +15,9 @@ import {
   OpenStep,
   RecoveryDraft,
   SigningRequest,
-  UsernameTaken,
   WalletClaim,
 } from "../contract";
-import { RecoveryFacts, readEnvelope } from "../stellar/envelopes";
+import { readEnvelope } from "../stellar/envelopes";
 import {
   type AccountState,
   Chain,
@@ -26,11 +25,11 @@ import {
   Sealed,
 } from "./Chain.server";
 import {
-  Available,
   Directory,
   StoreFailure,
   type WalletRow,
   openingAttempt,
+  unavailability,
 } from "./Directory.server";
 import { confirmedReads, live } from "./wallet-reads.server";
 
@@ -65,7 +64,7 @@ export const openingFlow = Effect.gen(function* () {
       !stored ||
       !live(stored) ||
       Option.isNone(facts) ||
-      !(facts.value instanceof RecoveryFacts) ||
+      !Predicate.isTagged(facts.value, "RecoveryFacts") ||
       BigInt(facts.value.sequence) !== BigInt(state.sequence) + 1n
     ) {
       const request = yield* chain.draftRecovery(address);
@@ -112,7 +111,10 @@ export const openingFlow = Effect.gen(function* () {
       claim,
     );
 
-    if (active instanceof UsernameTaken || active instanceof AddressBound)
+    if (
+      Predicate.isTagged(active, "UsernameTaken") ||
+      Predicate.isTagged(active, "AddressBound")
+    )
       return active;
 
     return Option.isSome(active)
@@ -134,7 +136,9 @@ export const openingFlow = Effect.gen(function* () {
 
     const availability = yield* directory.available(claim);
 
-    if (!(availability instanceof Available)) return availability;
+    const refused = unavailability(availability);
+
+    if (Option.isSome(refused)) return refused.value;
 
     const row = yield* directory.start(claim.address);
 
@@ -202,7 +206,10 @@ export const openingFlow = Effect.gen(function* () {
 
       const written = yield* directory.seal(row, sealed.value, claim);
 
-      if (written instanceof UsernameTaken || written instanceof AddressBound)
+      if (
+        Predicate.isTagged(written, "UsernameTaken") ||
+        Predicate.isTagged(written, "AddressBound")
+      )
         return written;
 
       const committed = openingAttempt(written);

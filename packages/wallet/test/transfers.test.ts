@@ -1,3 +1,4 @@
+import { assertTagged } from "./tagged";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import { expect, layer } from "@effect/vitest";
@@ -14,17 +15,11 @@ import {
   Profile,
   SenderBusy,
   Settled,
-  TransferDraft,
   Amount,
 } from "../src/contract";
 import { Applied } from "../src/server/Chain.server";
 import { Directory, StoreFailure } from "../src/server/Directory.server";
-import {
-  Authorized,
-  Concluded,
-  Proposed,
-  Transfers,
-} from "../src/server/Transfers.server";
+import { Concluded, Proposed, Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import {
   dbLayer,
@@ -67,8 +62,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const draft = yield* send(order);
 
-          if (!(draft instanceof TransferDraft))
-            throw new Error("Expected draft");
+          assertTagged(draft, "TransferDraft");
 
           expect(draft.recipient).toBeInstanceOf(Profile);
           expect(yield* send(order)).toEqual(draft);
@@ -81,8 +75,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             yield* Transfers.use((transfers) => transfers.find(order.id)),
           );
 
-          if (!(stored instanceof Authorized))
-            throw new Error("Expected durable authorization");
+          assertTagged(stored, "Authorized");
 
           world.failSubmit = false;
           yield* Wallet.use((wallet) => wallet.sweep);
@@ -129,8 +122,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             orders.map((order, index) => {
               const draft = drafts[index];
 
-              if (!(draft instanceof TransferDraft))
-                throw new Error("Expected draft");
+              assertTagged(draft, "TransferDraft");
 
               return send(order, approve(draft.request, key));
             }),
@@ -172,8 +164,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const draft = yield* send(order);
 
-          if (!(draft instanceof TransferDraft))
-            throw new Error("Expected draft");
+          assertTagged(draft, "TransferDraft");
 
           const results = yield* Effect.all(
             [
@@ -213,8 +204,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
         const draft = yield* send(order);
 
-        if (!(draft instanceof TransferDraft))
-          throw new Error("Expected draft");
+        assertTagged(draft, "TransferDraft");
 
         const initial = world.submitted.length;
 

@@ -1,3 +1,4 @@
+import { assertTagged } from "./tagged";
 import * as Effect from "effect/Effect";
 import { Transfers } from "../src/server/Transfers.server";
 import { expect, layer } from "@effect/vitest";
@@ -30,11 +31,7 @@ import {
 } from "../src/contract";
 import { Wallet } from "../src/server/Wallet.server";
 import { Applied } from "../src/server/Chain.server";
-import {
-  ClaimableFacts,
-  ClaimFacts,
-  TrustlineFacts,
-} from "../src/stellar/asset-envelopes";
+import { ClaimFacts, TrustlineFacts } from "../src/stellar/asset-envelopes";
 import { readEnvelope } from "../src/stellar/envelopes";
 import {
   addressOf,
@@ -83,8 +80,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(draft).toBeInstanceOf(AssetDraft);
 
-          if (!(draft instanceof AssetDraft))
-            throw new Error("Expected asset draft");
+          assertTagged(draft, "AssetDraft");
 
           expect(
             Option.getOrThrow(readEnvelope(draft.request.envelope)),
@@ -201,13 +197,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const draft = yield* send(payment);
 
-          if (!(draft instanceof TransferDraft))
-            throw new Error("Expected transfer draft");
+          assertTagged(draft, "TransferDraft");
 
           const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
 
-          if (!(facts instanceof ClaimableFacts))
-            throw new Error("Expected claimable");
+          assertTagged(facts, "ClaimableFacts");
 
           expect(
             yield* send(payment, approve(draft.request, sender)),
@@ -236,8 +230,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             order(recipient, ClaimBalance.make({ balance: facts.balance })),
           );
 
-          if (!(claim instanceof AssetDraft))
-            throw new Error("Expected claim draft");
+          assertTagged(claim, "AssetDraft");
 
           const claimed = Option.getOrThrow(
             readEnvelope(claim.request.envelope),
@@ -245,8 +238,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(claimed).toBeInstanceOf(ClaimFacts);
 
-          if (!(claimed instanceof ClaimFacts))
-            throw new Error("Expected claim facts");
+          assertTagged(claimed, "ClaimFacts");
 
           expect(claimed.opens).toEqual(asset);
 
@@ -257,8 +249,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const claimDraft = yield* manage(claimOrder);
 
-          if (!(claimDraft instanceof AssetDraft))
-            throw new Error("Expected claim draft");
+          assertTagged(claimDraft, "AssetDraft");
 
           expect(
             yield* manage(claimOrder, approve(claimDraft.request, recipient)),
@@ -309,8 +300,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(draft).toBeInstanceOf(TransferDraft);
 
-          if (!(draft instanceof TransferDraft))
-            throw new Error("Expected native draft");
+          assertTagged(draft, "TransferDraft");
 
           const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
 
@@ -319,8 +309,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const close = order(key, CloseTrustline.make({ asset }));
           const removal = yield* manage(close);
 
-          if (!(removal instanceof AssetDraft))
-            throw new Error("Expected removal draft");
+          assertTagged(removal, "AssetDraft");
 
           expect(
             yield* manage(close, approve(removal.request, key)),

@@ -3,6 +3,7 @@ import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
@@ -18,7 +19,6 @@ import {
   IssuedAsset,
   SigningRequest,
 } from "../contract";
-import { ClaimFacts } from "../stellar/asset-envelopes";
 import { readEnvelope } from "../stellar/envelopes";
 import {
   approvalMargin,
@@ -136,7 +136,7 @@ function opensOf(request: SigningRequest): string | null {
   const facts = readEnvelope(request.envelope);
 
   return Option.isSome(facts) &&
-    facts.value instanceof ClaimFacts &&
+    Predicate.isTagged(facts.value, "ClaimFacts") &&
     facts.value.opens
     ? Schema.encodeSync(OpensJson)(facts.value.opens)
     : null;
@@ -209,7 +209,7 @@ export class AssetOrders extends Context.Service<
       ) {
         const stored = yield* decode(row);
 
-        if (!(stored instanceof AssetAuthorized))
+        if (!Predicate.isTagged(stored, "AssetAuthorized"))
           return yield* new StoreFailure({
             cause: new Error("Invalid in-flight state"),
           });
@@ -494,7 +494,7 @@ export class AssetOrders extends Context.Service<
           ? yield* decode(written)
           : Option.getOrUndefined(yield* find(id));
 
-        if (!(current instanceof AssetConcluded))
+        if (!Predicate.isTagged(current, "AssetConcluded"))
           return yield* new StoreFailure({
             cause: new Error("Asset order is not concluded"),
           });

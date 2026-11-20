@@ -1,9 +1,9 @@
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   BackupStored,
-  Holding,
   Username,
   type WalletPort,
   type WalletUnavailable,
@@ -97,7 +97,7 @@ export function makeWalletClient(
     const current = yield* store.read();
 
     if (
-      overview instanceof Holding &&
+      Predicate.isTagged(overview, "Holding") &&
       Option.isSome(overview.reserveSponsor) &&
       Option.isSome(current) &&
       current.value.address === stored.value.address &&

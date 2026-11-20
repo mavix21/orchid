@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -12,7 +13,6 @@ import {
   type WalletPort,
   type WalletUnavailable,
 } from "../contract";
-import { OpeningFacts, RecoveryFacts } from "../stellar/envelopes";
 import { deviceBackup } from "./backup";
 import {
   DeviceWallet,
@@ -90,7 +90,7 @@ export function openWallet(
 
           if (
             Option.isNone(facts) ||
-            !(facts.value instanceof OpeningFacts) ||
+            !Predicate.isTagged(facts.value, "OpeningFacts") ||
             facts.value.address !== wallet.address
           )
             return new DraftRejected();
@@ -117,7 +117,7 @@ export function openWallet(
 
           if (
             Option.isNone(facts) ||
-            !(facts.value instanceof RecoveryFacts) ||
+            !Predicate.isTagged(facts.value, "RecoveryFacts") ||
             facts.value.address !== wallet.address ||
             facts.value.reserveSponsor !== wallet.reserveSponsor
           )
