@@ -19,7 +19,12 @@ import {
   type UnsignedEnvelope,
   Username,
   UsernameRecipient,
+  InvalidResponse,
+  LedgerUnreachable,
+  Offline,
+  ServiceFailed,
   type WalletPort,
+  type WalletUnavailable,
   baseAsset,
 } from "../src/contract";
 import { TransferIntent, makeWalletClient } from "../src/device/client";
@@ -106,6 +111,8 @@ const draftOf = (
 
 const deviceAnswering = (
   answer: (approval: Option.Option<Approval>, call: number) => TransferStep,
+  unavailable: (call: number) => Option.Option<WalletUnavailable> = () =>
+    Option.none(),
 ) => {
   const approvals: Array<Option.Option<Approval>> = [];
   const orderIds: Array<string> = [];
@@ -138,11 +145,14 @@ const deviceAnswering = (
     enroll: unused,
     restore: unused,
     transfer: (order, approval) =>
-      Effect.sync(() => {
+      Effect.suspend(() => {
         approvals.push(approval);
         orderIds.push(order.id);
 
-        return answer(approval, approvals.length);
+        return Option.match(unavailable(approvals.length), {
+          onNone: () => Effect.succeed(answer(approval, approvals.length)),
+          onSome: Effect.fail,
+        });
       }),
   };
 
@@ -270,3 +280,33 @@ it.effect(
       expect(approvals.filter(Option.isSome)).toHaveLength(0);
     }),
 );
+
+const unavailableAnswers: ReadonlyArray<WalletUnavailable> = [
+  new Offline(),
+  new LedgerUnreachable(),
+  new ServiceFailed(),
+  new InvalidResponse(),
+];
+
+for (const failure of unavailableAnswers)
+  it.effect(
+    `keeps the signed order when confirming answers ${failure._tag}`,
+    () =>
+      Effect.gen(function* () {
+        const { client, store } = deviceAnswering(
+          () => draftOf(pedroPayment(), pedroProfile),
+          (call) => (call === 3 ? Option.some(failure) : Option.none()),
+        );
+
+        const review = yield* reviewed(client, toPedro);
+
+        expect(yield* Effect.promise(() => client.confirm(review))).toEqual(
+          failure,
+        );
+
+        const kept = Option.getOrThrow(yield* store.read().pipe(Effect.orDie));
+
+        expect(kept.transfer?.id).toBe(review.order.id);
+        expect(kept.approvedUntil).toBeDefined();
+      }),
+  );

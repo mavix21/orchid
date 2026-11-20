@@ -1,4 +1,4 @@
-import { createServerFn } from "@tanstack/react-start";
+import { type CustomFetch, createServerFn } from "@tanstack/react-start";
 import {
   AccountAddress,
   AssetOrder,
@@ -14,14 +14,17 @@ import {
   Overview,
   TransferOrder,
   TransferStep,
+  InvalidResponse,
+  Offline,
+  ServerFailure,
   WalletClaim,
-  WalletUnavailable,
   type WalletPort,
 } from "@workspace/wallet";
 import { Wallet } from "@workspace/wallet/server";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import { runWallet } from "../server/wallet.server";
+import { answerWallet } from "../server/wallet.server";
 
 const OverviewCall = Schema.Struct({ address: AccountAddress });
 
@@ -35,58 +38,10 @@ const TransferCall = Schema.Struct({
   approval: Schema.OptionFromNullOr(Approval),
 });
 
-const overviewFn = createServerFn({ method: "POST" })
-  .validator(Schema.toStandardSchemaV1(OverviewCall))
-  .handler(({ data }) =>
-    runWallet(
-      Wallet.use((wallet) => wallet.overview(data.address)).pipe(
-        Effect.flatMap((value) =>
-          Schema.encodeEffect(Overview)(value).pipe(Effect.orDie),
-        ),
-      ),
-    ),
-  );
-
-const openFn = createServerFn({ method: "POST" })
-  .validator(Schema.toStandardSchemaV1(OpenCall))
-  .handler(({ data }) =>
-    runWallet(
-      Wallet.use((wallet) => wallet.open(data.claim, data.approval)).pipe(
-        Effect.flatMap((value) =>
-          Schema.encodeEffect(OpenStep)(value).pipe(Effect.orDie),
-        ),
-      ),
-    ),
-  );
-
-const transferFn = createServerFn({ method: "POST" })
-  .validator(Schema.toStandardSchemaV1(TransferCall))
-  .handler(({ data }) =>
-    runWallet(
-      Wallet.use((wallet) => wallet.transfer(data.order, data.approval)).pipe(
-        Effect.flatMap((value) =>
-          Schema.encodeEffect(TransferStep)(value).pipe(Effect.orDie),
-        ),
-      ),
-    ),
-  );
-
 const ManageCall = Schema.Struct({
   order: AssetOrder,
   approval: Schema.OptionFromNullOr(Approval),
 });
-
-const manageFn = createServerFn({ method: "POST" })
-  .validator(Schema.toStandardSchemaV1(ManageCall))
-  .handler(({ data }) =>
-    runWallet(
-      Wallet.use((wallet) => wallet.manage(data.order, data.approval)).pipe(
-        Effect.flatMap((value) =>
-          Schema.encodeEffect(AssetStep)(value).pipe(Effect.orDie),
-        ),
-      ),
-    ),
-  );
 
 const ChallengeCall = Schema.Struct({ purpose: ChallengePurpose });
 
@@ -94,85 +49,113 @@ const EnrollCall = Schema.Struct({ enrollment: BackupEnrollment });
 
 const RestoreCall = Schema.Struct({ assertion: PasskeyAssertion });
 
+const overviewFn = createServerFn({ method: "POST" })
+  .validator(Schema.toStandardSchemaV1(OverviewCall))
+  .handler(({ data }) =>
+    answerWallet(
+      Overview,
+      Wallet.use((wallet) => wallet.overview(data.address)),
+    ),
+  );
+
+const openFn = createServerFn({ method: "POST" })
+  .validator(Schema.toStandardSchemaV1(OpenCall))
+  .handler(({ data }) =>
+    answerWallet(
+      OpenStep,
+      Wallet.use((wallet) => wallet.open(data.claim, data.approval)),
+    ),
+  );
+
+const transferFn = createServerFn({ method: "POST" })
+  .validator(Schema.toStandardSchemaV1(TransferCall))
+  .handler(({ data }) =>
+    answerWallet(
+      TransferStep,
+      Wallet.use((wallet) => wallet.transfer(data.order, data.approval)),
+    ),
+  );
+
+const manageFn = createServerFn({ method: "POST" })
+  .validator(Schema.toStandardSchemaV1(ManageCall))
+  .handler(({ data }) =>
+    answerWallet(
+      AssetStep,
+      Wallet.use((wallet) => wallet.manage(data.order, data.approval)),
+    ),
+  );
+
 const passkeyChallengeFn = createServerFn({ method: "POST" })
   .validator(Schema.toStandardSchemaV1(ChallengeCall))
   .handler(({ data }) =>
-    runWallet(
-      Wallet.use((wallet) => wallet.passkeyChallenge(data.purpose)).pipe(
-        Effect.flatMap((value) =>
-          Schema.encodeEffect(PasskeyChallenge)(value).pipe(Effect.orDie),
-        ),
-      ),
+    answerWallet(
+      PasskeyChallenge,
+      Wallet.use((wallet) => wallet.passkeyChallenge(data.purpose)),
     ),
   );
 
 const enrollFn = createServerFn({ method: "POST" })
   .validator(Schema.toStandardSchemaV1(EnrollCall))
   .handler(({ data }) =>
-    runWallet(
-      Wallet.use((wallet) => wallet.enroll(data.enrollment)).pipe(
-        Effect.flatMap((value) =>
-          Schema.encodeEffect(EnrollStep)(value).pipe(Effect.orDie),
-        ),
-      ),
+    answerWallet(
+      EnrollStep,
+      Wallet.use((wallet) => wallet.enroll(data.enrollment)),
     ),
   );
 
 const restoreFn = createServerFn({ method: "POST" })
   .validator(Schema.toStandardSchemaV1(RestoreCall))
   .handler(({ data }) =>
-    runWallet(
-      Wallet.use((wallet) => wallet.restore(data.assertion)).pipe(
-        Effect.flatMap((value) =>
-          Schema.encodeEffect(RestoreStep)(value).pipe(Effect.orDie),
-        ),
-      ),
+    answerWallet(
+      RestoreStep,
+      Wallet.use((wallet) => wallet.restore(data.assertion)),
+    ),
+  );
+
+const reachingFetch: CustomFetch = (input, init) =>
+  fetch(input, init).catch(() => Promise.reject(new Offline()));
+
+const isServerFailure = Schema.is(ServerFailure);
+
+const reach = <A, I, C, D, R>(
+  step: Schema.Codec<A, I>,
+  call: Schema.Codec<C, D>,
+  request: C,
+  serverFn: (options: { data: D; fetch: CustomFetch }) => Promise<R>,
+) =>
+  Schema.encodeEffect(call)(request).pipe(
+    Effect.orDie,
+    Effect.flatMap((data) =>
+      Effect.tryPromise({
+        try: () => serverFn({ data, fetch: reachingFetch }),
+        catch: (cause) =>
+          Predicate.isTagged(cause, "Offline")
+            ? new Offline()
+            : new InvalidResponse(),
+      }),
+    ),
+    Effect.flatMap((answer) =>
+      Schema.decodeUnknownEffect(Schema.Union([step, ServerFailure]))(
+        answer,
+      ).pipe(Effect.mapError(() => new InvalidResponse())),
+    ),
+    Effect.flatMap((answer) =>
+      isServerFailure(answer) ? Effect.fail(answer) : Effect.succeed(answer),
     ),
   );
 
 export const port: WalletPort = {
   passkeyChallenge: (purpose) =>
-    Schema.encodeEffect(ChallengeCall)({ purpose }).pipe(
-      Effect.flatMap((data) =>
-        Effect.tryPromise(() => passkeyChallengeFn({ data })),
-      ),
-      Effect.flatMap(Schema.decodeEffect(PasskeyChallenge)),
-      Effect.mapError((cause) => new WalletUnavailable({ cause })),
-    ),
+    reach(PasskeyChallenge, ChallengeCall, { purpose }, passkeyChallengeFn),
   enroll: (enrollment) =>
-    Schema.encodeEffect(EnrollCall)({ enrollment }).pipe(
-      Effect.flatMap((data) => Effect.tryPromise(() => enrollFn({ data }))),
-      Effect.flatMap(Schema.decodeEffect(EnrollStep)),
-      Effect.mapError((cause) => new WalletUnavailable({ cause })),
-    ),
+    reach(EnrollStep, EnrollCall, { enrollment }, enrollFn),
   restore: (assertion) =>
-    Schema.encodeEffect(RestoreCall)({ assertion }).pipe(
-      Effect.flatMap((data) => Effect.tryPromise(() => restoreFn({ data }))),
-      Effect.flatMap(Schema.decodeEffect(RestoreStep)),
-      Effect.mapError((cause) => new WalletUnavailable({ cause })),
-    ),
+    reach(RestoreStep, RestoreCall, { assertion }, restoreFn),
   manage: (order, approval) =>
-    Schema.encodeEffect(ManageCall)({ order, approval }).pipe(
-      Effect.flatMap((data) => Effect.tryPromise(() => manageFn({ data }))),
-      Effect.flatMap(Schema.decodeEffect(AssetStep)),
-      Effect.mapError((cause) => new WalletUnavailable({ cause })),
-    ),
-  overview: (address) =>
-    Schema.encodeEffect(OverviewCall)({ address }).pipe(
-      Effect.flatMap((data) => Effect.tryPromise(() => overviewFn({ data }))),
-      Effect.flatMap(Schema.decodeEffect(Overview)),
-      Effect.mapError((cause) => new WalletUnavailable({ cause })),
-    ),
+    reach(AssetStep, ManageCall, { order, approval }, manageFn),
+  overview: (address) => reach(Overview, OverviewCall, { address }, overviewFn),
   open: (claim, approval) =>
-    Schema.encodeEffect(OpenCall)({ claim, approval }).pipe(
-      Effect.flatMap((data) => Effect.tryPromise(() => openFn({ data }))),
-      Effect.flatMap(Schema.decodeEffect(OpenStep)),
-      Effect.mapError((cause) => new WalletUnavailable({ cause })),
-    ),
+    reach(OpenStep, OpenCall, { claim, approval }, openFn),
   transfer: (order, approval) =>
-    Schema.encodeEffect(TransferCall)({ order, approval }).pipe(
-      Effect.flatMap((data) => Effect.tryPromise(() => transferFn({ data }))),
-      Effect.flatMap(Schema.decodeEffect(TransferStep)),
-      Effect.mapError((cause) => new WalletUnavailable({ cause })),
-    ),
+    reach(TransferStep, TransferCall, { order, approval }, transferFn),
 };

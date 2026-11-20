@@ -14,7 +14,7 @@ import {
   Opened,
   PasskeyChallenge,
   RegistrationRefused,
-  WalletUnavailable,
+  Offline,
   type WalletPort,
 } from "../src/contract";
 import {
@@ -245,10 +245,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const offline: WalletPort = {
             ...wallet,
-            open: () =>
-              Effect.fail(
-                new WalletUnavailable({ cause: new Error("Offline") }),
-              ),
+            open: () => Effect.fail(new Offline()),
           };
 
           const first = device(offline, authenticator);

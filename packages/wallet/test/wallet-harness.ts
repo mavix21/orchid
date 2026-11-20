@@ -100,6 +100,7 @@ export const world = {
   submitted: new Array<Sealed>(),
   exchangeMemos: new Array<KnownExchangeMemo>(),
   failSubmit: false,
+  ledgerDown: false,
   holdings: new Map<AccountAddress, Holdings>(),
   claimables: new Map<string, ClaimableEntry>(),
 };
@@ -109,8 +110,12 @@ export const fakeChain = Layer.effect(
   Effect.gen(function* () {
     const real = yield* Chain;
 
-    const account = (address: AccountAddress) =>
-      Effect.succeed(Option.fromNullishOr(world.accounts.get(address)));
+    const account = (
+      address: AccountAddress,
+    ): Effect.Effect<Option.Option<AccountState>, ChainUnreachable> =>
+      world.ledgerDown
+        ? Effect.fail(new ChainUnreachable({ cause: new Error("RPC down") }))
+        : Effect.succeed(Option.fromNullishOr(world.accounts.get(address)));
 
     const request = (envelope: SigningRequest["envelope"], maxTime: number) =>
       new SigningRequest({
@@ -431,6 +436,7 @@ export function useDisposableDatabase() {
     world.submitted.length = 0;
     world.exchangeMemos.length = 0;
     world.failSubmit = false;
+    world.ledgerDown = false;
     await Effect.runPromise(
       Effect.gen(function* () {
         const db = yield* makeDatabase();

@@ -35,7 +35,7 @@ import {
   TransferStep,
   UnknownRecipient,
   type WalletPort,
-  WalletUnavailable,
+  type ServerFailure,
 } from "../contract";
 import { readEnvelope } from "../stellar/envelopes";
 import { Chain, ChainUnreachable, Sealed } from "./Chain.server";
@@ -53,12 +53,15 @@ import { assetFlow } from "./wallet-assets.server";
 import { maxOpenClaimables } from "../stellar/network";
 import { openingFlow } from "./wallet-opening.server";
 import { Backups } from "./Backups.server";
+import { concealFailure } from "./failures.server";
 import { backupFlow } from "./wallet-backup.server";
 import { confirmedReads, live } from "./wallet-reads.server";
 
 export class Wallet extends Context.Service<
   Wallet,
-  WalletPort & { readonly sweep: Effect.Effect<void, WalletUnavailable> }
+  WalletPort<ServerFailure> & {
+    readonly sweep: Effect.Effect<void, ServerFailure>;
+  }
 >()("@workspace/wallet/server/Wallet") {
   static readonly serviceLayer = Layer.effect(
     Wallet,
@@ -72,9 +75,7 @@ export class Wallet extends Context.Service<
       const portfolio = yield* portfolioFlow;
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
-        program.pipe(
-          Effect.mapError((cause) => new WalletUnavailable({ cause })),
-        );
+        program.pipe(Effect.catchCause(concealFailure));
 
       const { readAccount, readBalance } = yield* confirmedReads;
       const open = yield* openingFlow;
@@ -498,11 +499,9 @@ export class Wallet extends Context.Service<
 
         for (const result of results) {
           if (Result.isFailure(result))
-            return yield* new WalletUnavailable({
-              cause: new Error(
-                "One or more sweep records could not be reconciled",
-              ),
-            });
+            return yield* Effect.die(
+              new Error("One or more sweep records could not be reconciled"),
+            );
         }
       });
 

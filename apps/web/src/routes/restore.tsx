@@ -8,6 +8,7 @@ import * as Match from "effect/Match";
 import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { useHomeForSavedWallet } from "@/wallet/use-home-for-saved-wallet";
+import { unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/restore")({
   component: RestoreAccount,
@@ -29,7 +30,10 @@ const refusal = (
       "El respaldo no coincide con la cuenta. No lo guardamos.",
     UnsupportedDevice: () =>
       "Este navegador no puede guardar tu llave de forma segura.",
-    Offline: () => "Sin conexión. Inténtalo de nuevo.",
+    Offline: unavailableMessage,
+    LedgerUnreachable: unavailableMessage,
+    ServiceFailed: unavailableMessage,
+    InvalidResponse: unavailableMessage,
   });
 
 function RestoreAccount() {

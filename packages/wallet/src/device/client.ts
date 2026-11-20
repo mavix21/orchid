@@ -22,7 +22,6 @@ import {
   type DeviceOverview,
   InvalidUsername,
   NoWallet,
-  Offline,
   type PaymentReview,
   type RestoreOutcome,
   type ResumeOutcome,
@@ -144,7 +143,10 @@ export function makeWalletClient(
     program.pipe(
       Effect.catchTags({
         KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
-        WalletUnavailable: () => Effect.succeed(new Offline()),
+        Offline: (failure) => Effect.succeed(failure),
+        LedgerUnreachable: (failure) => Effect.succeed(failure),
+        ServiceFailed: (failure) => Effect.succeed(failure),
+        InvalidResponse: (failure) => Effect.succeed(failure),
         PasskeyCancelled: (cancelled) => Effect.succeed(cancelled),
         PasskeyFailed: (failed) => Effect.succeed(failed),
       }),
@@ -157,7 +159,10 @@ export function makeWalletClient(
     program.pipe(
       Effect.catchTags({
         KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
-        WalletUnavailable: () => Effect.succeed(new Offline()),
+        Offline: (failure) => Effect.succeed(failure),
+        LedgerUnreachable: (failure) => Effect.succeed(failure),
+        ServiceFailed: (failure) => Effect.succeed(failure),
+        InvalidResponse: (failure) => Effect.succeed(failure),
       }),
       Effect.runPromise,
     );
@@ -174,7 +179,10 @@ export function makeWalletClient(
       overview().pipe(
         Effect.catchTags({
           KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
-          WalletUnavailable: () => Effect.succeed(new Offline()),
+          Offline: (failure) => Effect.succeed(failure),
+          LedgerUnreachable: (failure) => Effect.succeed(failure),
+          ServiceFailed: (failure) => Effect.succeed(failure),
+          InvalidResponse: (failure) => Effect.succeed(failure),
         }),
         Effect.runPromise,
       ),

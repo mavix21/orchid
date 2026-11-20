@@ -12,7 +12,7 @@ import {
   Settled,
   Username,
   UsernameRecipient,
-  WalletUnavailable,
+  Offline,
   type WalletPort,
   baseAsset,
 } from "../src/contract";
@@ -115,15 +115,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ...wallet,
             transfer: (order, approval) =>
               Option.isSome(approval)
-                ? wallet.transfer(order, approval).pipe(
-                    Effect.andThen(
-                      Effect.fail(
-                        new WalletUnavailable({
-                          cause: new Error("Reloaded"),
-                        }),
-                      ),
-                    ),
-                  )
+                ? wallet
+                    .transfer(order, approval)
+                    .pipe(Effect.andThen(Effect.fail(new Offline())))
                 : wallet.transfer(order, approval),
           };
 

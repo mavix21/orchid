@@ -1,10 +1,15 @@
 import { env } from "cloudflare:workers";
 import { databaseLayer } from "@workspace/db";
-import { Wallet, WalletSettings } from "@workspace/wallet/server";
-import type { WalletUnavailable } from "@workspace/wallet";
+import { ServerFailure } from "@workspace/wallet";
+import {
+  Wallet,
+  WalletSettings,
+  concealFailure,
+} from "@workspace/wallet/server";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
 
 const requestWalletLayer = Layer.suspend(() =>
   Wallet.layer.pipe(
@@ -20,8 +25,27 @@ const requestWalletLayer = Layer.suspend(() =>
   ),
 );
 
+const concealed = <A, E>(program: Effect.Effect<A, E, Wallet>) =>
+  program.pipe(
+    Effect.provide(requestWalletLayer),
+    Effect.catchCause(concealFailure),
+  );
+
 export function runWallet<A>(
-  program: Effect.Effect<A, WalletUnavailable, Wallet>,
+  program: Effect.Effect<A, ServerFailure, Wallet>,
 ): Promise<A> {
-  return Effect.runPromise(program.pipe(Effect.provide(requestWalletLayer)));
+  return Effect.runPromise(concealed(program));
+}
+
+export function answerWallet<A, I>(
+  step: Schema.Codec<A, I>,
+  program: Effect.Effect<A, ServerFailure, Wallet>,
+): Promise<I | typeof ServerFailure.Encoded> {
+  return Effect.runPromise(
+    concealed(program.pipe(Effect.flatMap(Schema.encodeEffect(step)))).pipe(
+      Effect.catch((failure) =>
+        Effect.succeed(Schema.encodeSync(ServerFailure)(failure)),
+      ),
+    ),
+  );
 }
