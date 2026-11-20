@@ -106,7 +106,11 @@ export function RecipientStep({
         </Field>
       </main>
       <ScreenActions>
-        <Button className="w-full" type="submit">
+        <Button
+          className="w-full"
+          type="submit"
+          data-testid="continue-recipient"
+        >
           Continuar
         </Button>
         <Button
@@ -114,6 +118,7 @@ export function RecipientStep({
           type="button"
           variant="secondary"
           onClick={onChangeDestination}
+          data-testid="change-destination"
         >
           Cambiar destino
         </Button>

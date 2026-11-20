@@ -84,7 +84,11 @@ function AnswerScreen({
 
   return Exit.match(answer.answered.value, {
     onFailure: () => (
-      <SendResultScreen screen={deviceFailure} onAgain={onAgain} />
+      <SendResultScreen
+        outcome="DeviceFailure"
+        screen={deviceFailure}
+        onAgain={onAgain}
+      />
     ),
     onSuccess: (value) =>
       Match.value(value).pipe(
@@ -95,7 +99,11 @@ function AnswerScreen({
               <PaymentReviewCard review={shown} />
             </main>
             <ScreenActions>
-              <Button className="w-full" onClick={() => onConfirm(shown)}>
+              <Button
+                className="w-full"
+                onClick={() => onConfirm(shown)}
+                data-testid="confirm-payment"
+              >
                 Enviar
               </Button>
               <Button className="w-full" variant="secondary" onClick={onEdit}>
@@ -110,7 +118,11 @@ function AnswerScreen({
           return result instanceof FieldProblem ? (
             <Working label={working} />
           ) : (
-            <SendResultScreen screen={result} onAgain={onAgain} />
+            <SendResultScreen
+              outcome={outcome._tag}
+              screen={result}
+              onAgain={onAgain}
+            />
           );
         }),
       ),
@@ -159,13 +171,25 @@ function DestinationChoice({
           title="A un @usuario"
           description="Alguien que tenga Orchid"
           media={<UserRoundIcon />}
-          render={<button type="button" onClick={() => onChoose("username")} />}
+          render={
+            <button
+              type="button"
+              onClick={() => onChoose("username")}
+              data-testid="choose-username"
+            />
+          }
         />
         <OptionRow
           title="A una dirección Stellar"
           description="Otra wallet o un exchange"
           media={<WalletIcon />}
-          render={<button type="button" onClick={() => onChoose("address")} />}
+          render={
+            <button
+              type="button"
+              onClick={() => onChoose("address")}
+              data-testid="choose-address"
+            />
+          }
         />
         <OptionRow
           title="A un teléfono"

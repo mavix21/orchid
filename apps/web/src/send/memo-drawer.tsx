@@ -90,7 +90,7 @@ export function MemoDrawer({
             </Field>
           </div>
           <DrawerFooter>
-            <Button className="w-full" type="submit">
+            <Button className="w-full" type="submit" data-testid="save-memo">
               Guardar memo
             </Button>
             {memo === "" ? null : (

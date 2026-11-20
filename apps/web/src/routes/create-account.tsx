@@ -206,6 +206,7 @@ function ChooseUsername() {
           <Button
             className="w-full"
             type="submit"
+            data-testid="create-submit"
             disabled={
               busy ||
               stopped ||

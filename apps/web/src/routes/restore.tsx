@@ -89,6 +89,7 @@ function RestoreAccount() {
           className="w-full"
           disabled={restoring || stopped}
           onClick={restore}
+          data-testid="restore-submit"
         >
           {restoring ? "Restaurando…" : "Restaurar con passkey"}
         </Button>

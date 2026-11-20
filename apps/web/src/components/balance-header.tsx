@@ -50,7 +50,7 @@ export function BalanceHeader({
         <ActionTile
           label="Enviar"
           icon={<ArrowUpRightIcon />}
-          render={<Link to="/send" />}
+          render={<Link to="/send" data-testid="open-send" />}
         />
         <ActionTile label="Cobrar" icon={<LinkIcon />} />
         <ActionTile label="Recibir" icon={<ArrowDownLeftIcon />} />
