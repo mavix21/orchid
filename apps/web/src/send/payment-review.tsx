@@ -33,7 +33,7 @@ export function PaymentReviewCard({ review }: { review: PaymentReview }) {
               <span>{address}</span>
               {review.memoRequired ? (
                 <span className="text-caption text-muted-foreground">
-                  Exchange · requiere memo
+                  Este exchange requiere memo
                 </span>
               ) : null}
             </span>
