@@ -24,10 +24,8 @@ export const addAuthenticator = async (
 export const freshUsername = () =>
   `e2e_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 
-export const usernameInput = (page: Page) =>
-  page.locator('input[name="username"]');
+export const usernameInput = (page: Page) => page.getByRole("textbox");
 
-export const submitButton = (page: Page) =>
-  page.locator('button[type="submit"]');
+export const submitButton = (page: Page) => page.getByTestId("create-submit");
 
-export const topNavLink = (page: Page) => page.locator("header a");
+export const topNavLink = (page: Page) => page.getByTestId("top-nav-action");

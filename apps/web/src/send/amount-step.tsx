@@ -100,6 +100,7 @@ export function AmountStep({
             type="button"
             onClick={onChangeRecipient}
             aria-label="Cambiar destinatario"
+            data-testid="change-recipient"
             className="flex items-center gap-3 rounded-lg bg-secondary px-4 py-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             <span className="text-body text-muted-foreground">Para</span>
@@ -186,11 +187,17 @@ export function AmountStep({
                 variant="secondary"
                 className="flex-1"
                 onClick={() => setMemoOpen(true)}
+                data-testid="edit-memo"
               >
                 {form.memo === "" ? "Agregar memo" : "Editar memo"}
               </Button>
             ) : null}
-            <Button className="flex-1" type="submit" disabled={!entered}>
+            <Button
+              className="flex-1"
+              type="submit"
+              data-testid="review-payment"
+              disabled={!entered}
+            >
               Revisar
             </Button>
           </div>

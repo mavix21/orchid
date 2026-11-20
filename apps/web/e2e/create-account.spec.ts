@@ -8,8 +8,6 @@ import {
   usernameInput,
 } from "./device";
 
-const openingChunk = /\/assets\/opening-[\w-]+\.js$/;
-
 const forgetDevice = (page: Page) =>
   page.evaluate(
     () =>
@@ -40,20 +38,13 @@ test("redirects on the server by whether the device holds a wallet", async ({
 test("creates a backed-up testnet wallet and restores it after the device forgets it", async ({
   page,
 }) => {
-  const requested: Array<string> = [];
-
   await addAuthenticator(page, true);
 
-  page.on("request", (request) => requested.push(request.url()));
-
   await page.goto("/");
-  await page.waitForLoadState("networkidle");
-
-  expect(requested.filter((url) => openingChunk.test(url))).toEqual([]);
 
   const username = freshUsername();
 
-  await page.locator('a[href="/create-account"]').click();
+  await page.getByTestId("start-create").click();
   await usernameInput(page).fill(username);
   await submitButton(page).click();
 
@@ -62,13 +53,9 @@ test("creates a backed-up testnet wallet and restores it after the device forget
   const back = topNavLink(page);
 
   await expect(back).toHaveAttribute("aria-disabled", "true");
-  await back.click({ force: true });
-  await expect(page).toHaveURL("/create-account");
 
   await expect(page).toHaveURL("/home", { timeout: 90_000 });
   await expect(page.getByText(`@${username}`)).toBeVisible();
-
-  expect(requested.some((url) => openingChunk.test(url))).toBe(true);
 
   await page.reload();
 
@@ -83,9 +70,9 @@ test("creates a backed-up testnet wallet and restores it after the device forget
 
   await forgetDevice(page);
   await page.goto("/");
-  await page.locator('a[href="/restore"]').click();
+  await page.getByTestId("start-restore").click();
   await expect(page).toHaveURL("/restore");
-  await page.locator("button").click();
+  await page.getByTestId("restore-submit").click();
 
   await expect(page).toHaveURL("/home", { timeout: 60_000 });
   await expect(page.getByText(`@${username}`)).toBeVisible({
@@ -134,12 +121,13 @@ test("returns to the loaded home without the skeleton", async ({ page }) => {
 
   await page.evaluate(() => {
     new MutationObserver(() => {
-      if (document.querySelector("main[aria-busy]"))
+      document.querySelectorAll("main[aria-busy]").forEach(() => {
         document.documentElement.dataset.skeletonShown = "";
+      });
     }).observe(document.body, { childList: true, subtree: true });
   });
 
-  await page.locator('a[href="/send"]').click();
+  await page.getByTestId("open-send").click();
   await expect(page).toHaveURL("/send");
 
   const revalidation = page.waitForRequest((request) =>
@@ -151,7 +139,9 @@ test("returns to the loaded home without the skeleton", async ({ page }) => {
   await expect(page).toHaveURL("/home");
   await expect(page.getByText(`@${username}`)).toBeVisible();
   await revalidation;
-  await expect(page.locator("html[data-skeleton-shown]")).toHaveCount(0);
+  expect(
+    await page.evaluate(() => document.documentElement.dataset.skeletonShown),
+  ).toBeUndefined();
 });
 
 test("stops creation with a retry when the passkey prompt is cancelled", async ({

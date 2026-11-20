@@ -7,9 +7,11 @@ import { ScreenActions } from "@/components/screen";
 import { type SendScreen, outstandingLabel } from "./outcomes";
 
 export function SendResultScreen({
+  outcome,
   screen,
   onAgain,
 }: {
+  outcome: string;
   screen: SendScreen;
   onAgain: () => void;
 }) {
@@ -17,14 +19,14 @@ export function SendResultScreen({
     <Button
       className="w-full"
       nativeButton={false}
-      render={<Link to="/home" />}
+      render={<Link to="/home" data-testid="result-home" />}
     >
       {label}
     </Button>
   );
 
   const again = (label: string) => (
-    <Button className="w-full" onClick={onAgain}>
+    <Button className="w-full" onClick={onAgain} data-testid="result-again">
       {label}
     </Button>
   );
@@ -33,6 +35,7 @@ export function SendResultScreen({
     <>
       <main
         role="status"
+        data-outcome={outcome}
         className="flex flex-1 flex-col justify-end gap-2 px-5"
       >
         <h1 className="font-display text-h1">{screen.title}</h1>

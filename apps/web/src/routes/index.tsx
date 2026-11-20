@@ -30,7 +30,7 @@ function Welcome() {
         <Button
           className="w-full"
           nativeButton={false}
-          render={<Link to="/create-account" />}
+          render={<Link to="/create-account" data-testid="start-create" />}
         >
           Crear cuenta
         </Button>
@@ -38,7 +38,7 @@ function Welcome() {
           className="w-full"
           variant="ghost"
           nativeButton={false}
-          render={<Link to="/restore" />}
+          render={<Link to="/restore" data-testid="start-restore" />}
         >
           Ya tengo una cuenta
         </Button>

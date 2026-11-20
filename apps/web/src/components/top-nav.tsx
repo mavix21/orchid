@@ -18,6 +18,7 @@ export function TopNav({
       <Button
         variant="secondary"
         size="icon"
+        data-testid="top-nav-action"
         aria-label={label}
         nativeButton={false}
         disabled={disabled}

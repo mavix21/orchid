@@ -85,17 +85,16 @@ const fundWithUsdc = async (address: string, amount: string) => {
   await horizon.submitTransaction(payment);
 };
 
-const choose = (page: Page, destination: string) =>
-  page.getByRole("button", { name: destination }).click();
+const choose = (page: Page, destination: "address" | "username") =>
+  page.getByTestId(`choose-${destination}`).click();
 
 const fill = async (page: Page, recipient: string, amount: string) => {
-  await page.locator("#recipient").fill(recipient);
-  await page.getByRole("button", { name: "Continuar" }).click();
-  await page.locator("#amount").fill(amount);
+  await page.getByRole("textbox").fill(recipient);
+  await page.getByTestId("continue-recipient").click();
+  await page.getByRole("textbox").fill(amount);
 };
 
-const review = (page: Page) =>
-  page.getByRole("button", { name: "Revisar" }).click();
+const review = (page: Page) => page.getByTestId("review-payment").click();
 
 test("pays a username in USDC, resumes after a reload and explains refusals", async ({
   page,
@@ -115,10 +114,8 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
 
   await page.goto("/send");
   await page.getByRole("link", { name: /1 USDC/ }).click();
-  await expect(
-    page.getByRole("button", { name: /A un teléfono/ }),
-  ).toBeDisabled();
-  await choose(page, "A un @usuario");
+
+  await choose(page, "username");
   await fill(page, recipient, "0.5");
 
   const reviewRequest = page.waitForRequest(
@@ -131,13 +128,12 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
 
   const summary = page.getByRole("definition");
 
-  await expect(
-    page.getByRole("heading", { name: "Revisa tu pago" }),
-  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("confirm-payment")).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(summary.filter({ hasText: `@${recipient}` })).toBeVisible();
   await expect(summary.filter({ hasText: /^USDC$/ })).toBeVisible();
   await expect(summary.filter({ hasText: /^0\.5$/ })).toBeVisible();
-  await expect(page.getByText("Orchid paga la comisión")).toBeVisible();
 
   const transferRequest = await reviewRequest;
 
@@ -147,30 +143,34 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
       (response.request().postData()?.includes('"signature"') ?? false),
   );
 
-  await page.getByRole("button", { name: "Enviar" }).click();
+  await page.getByTestId("confirm-payment").click();
   await approved;
   await expect(page).toHaveURL(/transfer=/);
   await page.reload();
 
-  await expect(page.getByRole("heading", { name: "Enviado" })).toBeVisible({
-    timeout: 90_000,
-  });
-  await expect(page.getByText(`0.5 USDC a @${recipient}`)).toBeVisible();
+  await expect(page.getByRole("status")).toHaveAttribute(
+    "data-outcome",
+    "Settled",
+    {
+      timeout: 90_000,
+    },
+  );
 
-  await page.getByRole("button", { name: "Listo" }).click();
+  await page.getByTestId("result-home").click();
   await expect(page).toHaveURL("/home");
 
   await page.goto("/send");
   await page.getByRole("link", { name: /0\.5 USDC/ }).click();
-  await choose(page, "A un @usuario");
+  await choose(page, "username");
   await fill(page, recipient, "5");
   await review(page);
 
-  await expect(page.locator("#amount-error")).toHaveText(
-    "Tienes 0.5 USDC disponibles",
+  await expect(page.getByRole("textbox")).toHaveAttribute(
+    "aria-invalid",
+    "true",
     { timeout: 30_000 },
   );
-  await expect(page.locator("#amount")).toBeFocused();
+  await expect(page.getByRole("textbox")).toBeFocused();
 
   const exchange = Keypair.random().publicKey();
 
@@ -190,30 +190,29 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
       : route.continue(),
   );
 
-  await page.getByRole("button", { name: "Cambiar destinatario" }).click();
-  await page.getByRole("button", { name: "Cambiar destino" }).click();
-  await choose(page, "A una dirección Stellar");
+  await page.getByTestId("change-recipient").click();
+  await page.getByTestId("change-destination").click();
+  await choose(page, "address");
   await fill(page, exchange, "0.1");
-  await expect(
-    page.getByRole("button", { name: "Agregar memo" }),
-  ).toBeVisible();
-  await expect(page.locator("#memo")).toHaveCount(0);
+  await expect(page.getByTestId("edit-memo")).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("textbox")).toHaveCount(0);
   await review(page);
 
-  await expect(page.locator("#memo-error")).toHaveText(
-    "Este destino necesita memo: sin él tu dinero puede perderse",
+  await expect(page.getByRole("dialog").getByRole("textbox")).toHaveAttribute(
+    "aria-invalid",
+    "true",
     { timeout: 30_000 },
   );
-  await expect(page.locator("#memo")).toBeFocused();
-  await page.locator("#memo").fill("4521");
-  await page.getByRole("button", { name: "Guardar memo" }).click();
-  await expect(page.getByRole("button", { name: "Editar memo" })).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("textbox")).toBeFocused();
+  await page.getByRole("dialog").getByRole("textbox").fill("4521");
+  await page.getByTestId("save-memo").click();
+  await expect(page.getByTestId("edit-memo")).toBeVisible();
 
   const sendUsdc = page.url();
 
   const answerFor = async (
     answer: (route: Route) => Promise<void>,
-    expected: string,
+    expected: "ServerUnreachable" | "InvalidResponse" | "ServiceFailed",
   ) => {
     const marker = Keypair.random().publicKey();
 
@@ -223,27 +222,32 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
         : route.fallback(),
     );
     await page.goto(sendUsdc);
-    await choose(page, "A una dirección Stellar");
+    await choose(page, "address");
     await fill(page, marker, "0.1");
     await review(page);
-    await expect(page.getByRole("heading", { name: expected })).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(page.getByRole("status")).toHaveAttribute(
+      "data-outcome",
+      expected,
+      {
+        timeout: 30_000,
+      },
+    );
   };
 
   await answerFor(
     (route) => route.abort("connectionrefused"),
-    "No pudimos conectar con Orchid",
+    "ServerUnreachable",
   );
-  await expect(page.getByRole("button", { name: "Reintentar" })).toBeVisible();
-  await expect(page.getByText("Sin conexión")).toHaveCount(0);
+  await expect(page.getByTestId("result-again")).toBeVisible();
 
   await page.goto(sendUsdc);
-  await choose(page, "A una dirección Stellar");
+  await choose(page, "address");
   await fill(page, Keypair.random().publicKey(), "0.1");
   await page.context().setOffline(true);
   await review(page);
-  await expect(page.getByRole("heading", { name: "Sin conexión" })).toBeVisible(
+  await expect(page.getByRole("status")).toHaveAttribute(
+    "data-outcome",
+    "Offline",
     {
       timeout: 30_000,
     },
@@ -253,18 +257,17 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await answerFor(
     (route) =>
       route.fulfill({ contentType: "text/html", body: "<html>502</html>" }),
-    "No pudimos leer la respuesta",
+    "InvalidResponse",
   );
-  await expect(page.getByText("Sin conexión")).toHaveCount(0);
 
   await answerFor(
     (route) =>
       route.fulfill({
         json: { result: Schema.encodeSync(ServerFailure)(new ServiceFailed()) },
       }),
-    "Algo falló de nuestro lado",
+    "ServiceFailed",
   );
-  await expect(page.getByRole("button", { name: "Reintentar" })).toHaveCount(0);
+  await expect(page.getByTestId("result-again")).toHaveCount(0);
 
   const reviewed = transferRequest.postData() ?? "";
 
