@@ -14,7 +14,7 @@ Orchid is a self-custodial dollar wallet for Latin America. Send dollars to a us
 
 ## Why Orchid
 
-- **Pay anyone.** A `@username`, a payment link, a Stellar address, an exchange, or a Yape account. Recipients choose how they receive.
+- **Pay anyone.** A `@username`, a payment link, an exchange, a Yape account, or an address on Stellar, Solana, Base and other networks. Recipients choose how they receive.
 - **Your money, your keys.** A passkey (Face ID or fingerprint) protects a standard recovery phrase that lives only on your device. Export it anytime and open the same wallet in other apps.
 - **Nothing to learn.** No gas, no XLM, no networks, no trustlines. Orchid sponsors every account and pays every network fee.
 - **Money that doesn't get lost.** Orchid checks every destination before you sign: exchanges that need a memo, accounts that can't receive yet, deposit addresses on the wrong network. Every payment has a status you can follow, in plain Spanish.
@@ -41,11 +41,11 @@ Sending and receiving are free; that is how Orchid spreads. Revenue comes from w
 
 ## Roadmap
 
-| Stage                       | Features                                                                                                                        |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| **Live on Stellar testnet** | Permanent usernames, sponsored accounts, passkey backup and restore, USDC payments engine with exchange memos, reserve recovery |
-| **Next**                    | Sending from the app, payment links, memo checks against the ledger, activity, accounts that open on first deposit              |
-| **Then**                    | Payouts to Yape and Plin, Ahorro, swaps, Solana with tokenized stocks and Bitcoin, USDT from Tron                               |
+| Stage                       | Features                                                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Live on Stellar testnet** | Permanent usernames, sponsored accounts, passkey backup and restore, USDC payments from the app with exchange memos, reserve recovery |
+| **Next**                    | Memo checks against the ledger, payment links, activity, accounts that open on first deposit, deposits from Solana and Tron           |
+| **Then**                    | Sending to Solana, Base and other networks, payouts to Yape and Plin, Ahorro, swaps, tokenized stocks and Bitcoin                     |
 
 ## Built with
 
