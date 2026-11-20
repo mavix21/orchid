@@ -262,17 +262,16 @@ const mismatches: Array<[string, TransferIntent, () => UnsignedEnvelope]> = [
   ],
 ];
 
-for (const [draft, intent, envelope] of mismatches)
-  it.effect(`refuses ${draft}`, () =>
-    Effect.gen(function* () {
-      const { approvals, client } = deviceWith(envelope);
+it.effect.each(mismatches)("refuses %s", ([, intent, envelope]) =>
+  Effect.gen(function* () {
+    const { approvals, client } = deviceWith(envelope);
 
-      expect(yield* Effect.promise(() => client.send(intent))).toEqual(
-        new DraftRejected(),
-      );
-      expect(approvals.filter(Option.isSome)).toHaveLength(0);
-    }),
-  );
+    expect(yield* Effect.promise(() => client.send(intent))).toEqual(
+      new DraftRejected(),
+    );
+    expect(approvals.filter(Option.isSome)).toHaveLength(0);
+  }),
+);
 
 it.effect(
   "asks once for a fresh draft when the draft expires within the approval margin",

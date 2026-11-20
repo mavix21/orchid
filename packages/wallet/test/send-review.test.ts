@@ -300,28 +300,27 @@ const unavailableAnswers: ReadonlyArray<WalletUnavailable> = [
   new InvalidResponse(),
 ];
 
-for (const failure of unavailableAnswers)
-  it.effect(
-    `keeps the signed order when confirming answers ${failure._tag}`,
-    () =>
-      Effect.gen(function* () {
-        const { client, store } = deviceAnswering(
-          () => draftOf(pedroPayment(), pedroProfile),
-          (call) => (call === 3 ? Option.some(failure) : Option.none()),
-        );
+it.effect.each(unavailableAnswers)(
+  "keeps the signed order when confirming answers $_tag",
+  (failure) =>
+    Effect.gen(function* () {
+      const { client, store } = deviceAnswering(
+        () => draftOf(pedroPayment(), pedroProfile),
+        (call) => (call === 3 ? Option.some(failure) : Option.none()),
+      );
 
-        const review = yield* reviewed(client, toPedro);
+      const review = yield* reviewed(client, toPedro);
 
-        expect(yield* Effect.promise(() => client.confirm(review))).toEqual(
-          failure,
-        );
+      expect(yield* Effect.promise(() => client.confirm(review))).toEqual(
+        failure,
+      );
 
-        const kept = Option.getOrThrow(yield* store.read().pipe(Effect.orDie));
+      const kept = Option.getOrThrow(yield* store.read().pipe(Effect.orDie));
 
-        expect(kept.transfer?.id).toBe(review.order.id);
-        expect(kept.approvedUntil).toBeDefined();
-      }),
-  );
+      expect(kept.transfer?.id).toBe(review.order.id);
+      expect(kept.approvedUntil).toBeDefined();
+    }),
+);
 
 const approvedReview = Effect.fn(function* (
   device: ReturnType<typeof deviceAnswering>,

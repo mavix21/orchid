@@ -107,6 +107,7 @@ function AssetChoices({ holding }: { holding: Holding }) {
               mediaVariant="muted"
               render={
                 <Link
+                  data-testid={`send-asset-${assetKey(balance.asset)}`}
                   to="/send/$asset"
                   params={{ asset: assetKey(balance.asset) }}
                 />

@@ -113,7 +113,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await fundWithUsdc(sender, "1");
 
   await page.goto("/send");
-  await page.getByRole("link", { name: /1 USDC/ }).click();
+  await page.getByTestId(`send-asset-USDC:${usdc.getIssuer()}`).click();
 
   await choose(page, "username");
   await fill(page, recipient, "0.5");
@@ -148,7 +148,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await expect(page).toHaveURL(/transfer=/);
   await page.reload();
 
-  await expect(page.getByRole("status")).toHaveAttribute(
+  await expect(page.getByTestId("send-outcome")).toHaveAttribute(
     "data-outcome",
     "Settled",
     {
@@ -160,7 +160,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await expect(page).toHaveURL("/home");
 
   await page.goto("/send");
-  await page.getByRole("link", { name: /0\.5 USDC/ }).click();
+  await page.getByTestId(`send-asset-USDC:${usdc.getIssuer()}`).click();
   await choose(page, "username");
   await fill(page, recipient, "5");
   await review(page);
@@ -225,7 +225,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
     await choose(page, "address");
     await fill(page, marker, "0.1");
     await review(page);
-    await expect(page.getByRole("status")).toHaveAttribute(
+    await expect(page.getByTestId("send-outcome")).toHaveAttribute(
       "data-outcome",
       expected,
       {
@@ -245,7 +245,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await fill(page, Keypair.random().publicKey(), "0.1");
   await page.context().setOffline(true);
   await review(page);
-  await expect(page.getByRole("status")).toHaveAttribute(
+  await expect(page.getByTestId("send-outcome")).toHaveAttribute(
     "data-outcome",
     "Offline",
     {
