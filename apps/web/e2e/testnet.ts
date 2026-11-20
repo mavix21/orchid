@@ -1,12 +1,14 @@
-import { Horizon } from "@stellar/stellar-sdk";
+import { Horizon, NotFoundError } from "@stellar/stellar-sdk";
+
+const testnetRequestTimeout = 20_000;
 
 export const horizon = new Horizon.Server(
   "https://horizon-testnet.stellar.org",
 );
 
-const friendbotAttempts = 3;
+horizon.httpClient.defaults.timeout = testnetRequestTimeout;
 
-const friendbotTimeout = 20_000;
+const friendbotAttempts = 3;
 
 const friendbotBackoff = 5_000;
 
@@ -15,25 +17,30 @@ const pause = (milliseconds: number) =>
 
 const requestFunding = (address: string) =>
   fetch(`https://friendbot.stellar.org/?addr=${address}`, {
-    signal: AbortSignal.timeout(friendbotTimeout),
+    signal: AbortSignal.timeout(testnetRequestTimeout),
   }).then(
     (response) => `HTTP ${response.status}`,
     () => "no response",
   );
 
-const accountExists = (address: string) =>
-  horizon.loadAccount(address).then(
-    () => true,
-    () => false,
-  );
+const visibleAccount = async (address: string) => {
+  try {
+    return await horizon.loadAccount(address);
+  } catch (error) {
+    if (error instanceof NotFoundError) return undefined;
+
+    throw new Error(`Horizon could not load ${address}`, { cause: error });
+  }
+};
 
 const fundWithin = async (
   address: string,
   attemptsLeft: number,
-): Promise<void> => {
+): Promise<Horizon.AccountResponse> => {
   const outcome = await requestFunding(address);
+  const account = await visibleAccount(address);
 
-  if (await accountExists(address)) return;
+  if (account !== undefined) return account;
 
   if (attemptsLeft === 1)
     throw new Error(`Friendbot did not fund ${address}: ${outcome}`);
