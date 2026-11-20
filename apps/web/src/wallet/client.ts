@@ -2,7 +2,7 @@ import {
   type KeyStore,
   browserKeyStore,
   browserPasskeys,
-  makeWalletClient,
+  makeWalletEffects,
 } from "@workspace/wallet";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -24,7 +24,7 @@ const deviceKeyStore: KeyStore = {
       .pipe(Effect.tap(() => Effect.sync(() => markWalletOnDevice(true)))),
 };
 
-export const walletClient = makeWalletClient(
+export const walletEffects = makeWalletEffects(
   port,
   deviceKeyStore,
   browserPasskeys,

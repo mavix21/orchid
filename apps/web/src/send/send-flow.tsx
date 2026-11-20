@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { useRouteContext } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import {
   Field,
@@ -8,23 +7,22 @@ import {
   FieldLabel,
 } from "@workspace/ui/components/field";
 import { Input } from "@workspace/ui/components/input";
-import {
-  type Amount,
-  type Asset,
-  type PaymentReview,
-  type Receipt,
-  type ReviewOutcome,
-  type ResumeOutcome,
-  type TransferId,
+import type {
+  Amount,
+  Asset,
+  PaymentReview,
+  ResumeOutcome,
+  ReviewOutcome,
+  TransferId,
   TransferIntent,
 } from "@workspace/wallet";
-import * as Data from "effect/Data";
+import * as Exit from "effect/Exit";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 
 import { ScreenActions } from "@/components/screen";
+import { walletEffects } from "@/wallet";
 
 import {
   FieldProblem,
@@ -34,155 +32,165 @@ import {
   sendsToAddress,
 } from "./intent";
 import { amountLabel } from "./money";
-import { SendScreen, sendResult } from "./outcomes";
+import { deviceFailure, sendResult } from "./outcomes";
 import { PaymentReviewCard } from "./payment-review";
 import { SendResultScreen } from "./send-result";
+import { type WalletRun, useWalletRun } from "./use-wallet-run";
 
-type Stage = Data.TaggedEnum<{
-  Entering: {};
-  Working: { readonly label: string };
-  Reviewing: { readonly review: PaymentReview };
-  Finished: { readonly screen: SendScreen };
-}>;
-
-const Stage = Data.taggedEnum<Stage>();
+type Answer = WalletRun<ReviewOutcome | ResumeOutcome>;
 
 const emptyForm: SendForm = { recipient: "", amount: "", memo: "" };
 
-const intentFromReview = (review: PaymentReview) =>
-  new TransferIntent({
-    to: review.order.to,
-    asset: review.order.asset,
-    amount: review.order.amount,
-    memo: review.order.memo,
-  });
+const settledValue = (answer: Answer) =>
+  answer.working
+    ? Option.none()
+    : answer.answered.pipe(
+        Option.filter(Exit.isSuccess),
+        Option.map((exit) => exit.value),
+      );
 
-export function SendFlow({
+const fieldProblemOf = (answer: Answer, asset: Asset) =>
+  Option.flatMap(settledValue(answer), (value) =>
+    Match.value(value).pipe(
+      Match.tag("PaymentReview", () => Option.none<FieldProblem>()),
+      Match.orElse((outcome) => {
+        const result = sendResult(outcome, asset);
+
+        return result instanceof FieldProblem
+          ? Option.some(result)
+          : Option.none();
+      }),
+    ),
+  );
+
+function Working({ label }: { label: string }) {
+  return (
+    <main
+      role="status"
+      className="flex flex-1 flex-col justify-end gap-2 px-5 pb-30"
+    >
+      <h1 className="font-display text-h1">{label}</h1>
+    </main>
+  );
+}
+
+function AnswerScreen({
+  answer,
+  asset,
+  working,
+  onConfirm,
+  onEdit,
+  onAgain,
+}: {
+  answer: Answer;
+  asset: Asset;
+  working: string;
+  onConfirm: (shown: PaymentReview) => void;
+  onEdit: () => void;
+  onAgain: () => void;
+}) {
+  if (answer.working || Option.isNone(answer.answered))
+    return <Working label={working} />;
+
+  return Exit.match(answer.answered.value, {
+    onFailure: () => (
+      <SendResultScreen screen={deviceFailure} onAgain={onAgain} />
+    ),
+    onSuccess: (value) =>
+      Match.value(value).pipe(
+        Match.tag("PaymentReview", (shown) => (
+          <>
+            <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
+              <h1 className="font-display text-h1">Revisa tu pago</h1>
+              <PaymentReviewCard review={shown} />
+            </main>
+            <ScreenActions>
+              <Button className="w-full" onClick={() => onConfirm(shown)}>
+                Enviar
+              </Button>
+              <Button className="w-full" variant="secondary" onClick={onEdit}>
+                Editar
+              </Button>
+            </ScreenActions>
+          </>
+        )),
+        Match.orElse((outcome) => {
+          const result = sendResult(outcome, asset);
+
+          return result instanceof FieldProblem ? (
+            <Working label={working} />
+          ) : (
+            <SendResultScreen screen={result} onAgain={onAgain} />
+          );
+        }),
+      ),
+  });
+}
+
+function TransferStatus({
+  id,
+  asset,
+  onStartOver,
+}: {
+  id: TransferId;
+  asset: Asset;
+  onStartOver: () => void;
+}) {
+  const lookup = useWalletRun(walletEffects.resume);
+
+  useEffect(() => lookup.start(id), [id]);
+
+  return (
+    <AnswerScreen
+      answer={lookup.state}
+      asset={asset}
+      working="Buscando tu pago…"
+      onConfirm={onStartOver}
+      onEdit={onStartOver}
+      onAgain={onStartOver}
+    />
+  );
+}
+
+function SendFormStep({
+  form,
+  problem,
   asset,
   available,
-  transfer,
-  onTransfer,
+  onEdit,
+  onIntent,
+  onProblem,
 }: {
+  form: SendForm;
+  problem: Option.Option<FieldProblem>;
   asset: Asset;
   available: Amount;
-  transfer: Option.Option<TransferId>;
-  onTransfer: (id: Option.Option<TransferId>) => void;
+  onEdit: (field: SendField, value: string) => void;
+  onIntent: (intent: TransferIntent) => void;
+  onProblem: (problem: FieldProblem) => void;
 }) {
-  const { walletClient } = useRouteContext({ from: "__root__" });
-
-  const [stage, setStage] = useState<Stage>(() =>
-    Option.isSome(transfer)
-      ? Stage.Working({ label: "Buscando tu pago…" })
-      : Stage.Entering(),
-  );
-
-  const [form, setForm] = useState<SendForm>(emptyForm);
-
-  const [problem, setProblem] = useState<Option.Option<FieldProblem>>(
-    Option.none(),
-  );
-
-  const again = useRef<() => Promise<void>>(async () => {
-    setStage(Stage.Entering());
-  });
-
   const fields = useRef<Partial<Record<SendField, HTMLInputElement | null>>>(
     {},
   );
-
-  const settle = (outcome: ReviewOutcome | ResumeOutcome | Receipt) =>
-    Match.value(outcome).pipe(
-      Match.tag("PaymentReview", (review) =>
-        setStage(Stage.Reviewing({ review })),
-      ),
-      Match.orElse((answered) => {
-        const result = sendResult(answered, asset);
-
-        if (result instanceof FieldProblem) {
-          setProblem(Option.some(result));
-          setStage(Stage.Entering());
-          onTransfer(Option.none());
-
-          return;
-        }
-
-        setStage(Stage.Finished({ screen: result }));
-      }),
-    );
-
-  const review = async (intent: TransferIntent) => {
-    again.current = () => review(intent);
-    setStage(Stage.Working({ label: "Preparando tu pago…" }));
-    settle(await walletClient.review(intent));
-  };
-
-  const confirm = async (shown: PaymentReview) => {
-    again.current = () => review(intentFromReview(shown));
-    onTransfer(Option.some(shown.order.id));
-    setStage(Stage.Working({ label: "Enviando…" }));
-    settle(await walletClient.confirm(shown));
-  };
-
-  const resume = async (id: TransferId) => {
-    again.current = () => resume(id);
-    setStage(Stage.Working({ label: "Buscando tu pago…" }));
-
-    const resumed = await walletClient.resume(id);
-
-    if (!Predicate.isTagged(resumed, "NoTransfer")) return settle(resumed);
-
-    const overview = await walletClient.overview();
-
-    settle(
-      Match.valueTags(overview, {
-        Holding: ({ latest }): ResumeOutcome | Receipt =>
-          Option.getOrElse(
-            Option.filter(latest, (receipt) => receipt.id === id),
-            () => resumed,
-          ),
-        NeedsReopening: () => resumed,
-        NotOpened: () => resumed,
-        InvalidAddress: () => resumed,
-        NoWallet: (answered) => answered,
-        UnsupportedDevice: (answered) => answered,
-        Offline: (failure) => failure,
-        LedgerUnreachable: (failure) => failure,
-        ServiceFailed: (failure) => failure,
-        InvalidResponse: (failure) => failure,
-      }),
-    );
-  };
-
-  useEffect(() => {
-    if (Option.isSome(transfer)) void resume(transfer.value);
-  }, []);
 
   useEffect(() => {
     if (Option.isSome(problem)) fields.current[problem.value.field]?.focus();
   }, [problem]);
 
-  const edit = (field: SendField, value: string) => {
-    setForm((current) => ({ ...current, [field]: value }));
-    setProblem(Option.none());
-  };
-
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     Result.match(intentOf(form, asset), {
-      onFailure: (refused) => setProblem(Option.some(refused)),
-      onSuccess: (intent) => void review(intent),
+      onFailure: onProblem,
+      onSuccess: onIntent,
     });
   };
 
-  const messageFor = (field: SendField) =>
-    problem.pipe(
+  const fieldInput = (field: SendField, label: string, hint: string) => {
+    const message = problem.pipe(
       Option.filter((found) => found.field === field),
       Option.map((found) => found.message),
     );
-
-  const fieldInput = (field: SendField, label: string, hint?: string) => {
-    const message = messageFor(field);
 
     return (
       <Field>
@@ -194,7 +202,7 @@ export function SendFlow({
             fields.current[field] = element;
           }}
           value={form[field]}
-          onChange={(event) => edit(field, event.target.value)}
+          onChange={(event) => onEdit(field, event.target.value)}
           inputMode={field === "amount" ? "decimal" : undefined}
           autoComplete="off"
           autoCapitalize="none"
@@ -204,9 +212,7 @@ export function SendFlow({
             Option.isSome(message) ? `${field}-error` : undefined
           }
         />
-        {hint === undefined ? null : (
-          <FieldDescription>{hint}</FieldDescription>
-        )}
+        <FieldDescription>{hint}</FieldDescription>
         {Option.isSome(message) ? (
           <FieldError id={`${field}-error`}>{message.value}</FieldError>
         ) : null}
@@ -219,71 +225,149 @@ export function SendFlow({
     (found) => found.field === "memo" && form.memo !== "",
   );
 
-  return Stage.$match(stage, {
-    Entering: () => (
-      <form className="flex flex-1 flex-col" noValidate onSubmit={submit}>
-        <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-          <h1 className="font-display text-h1">¿A quién le envías?</h1>
-          {fieldInput("recipient", "Para", "Un @usuario o una dirección G…")}
-          {fieldInput(
-            "amount",
-            "Monto",
-            `Disponible: ${amountLabel(available, asset)}`,
-          )}
-          {sendsToAddress(form.recipient)
-            ? fieldInput(
-                "memo",
-                "Memo",
-                "Solo si el destino lo pide, como un exchange",
-              )
-            : null}
-          {memoRefused ? (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => edit("memo", "")}
-            >
-              Quitar memo
-            </Button>
-          ) : null}
-        </main>
-        <ScreenActions>
-          <Button className="w-full" type="submit">
-            Revisar
-          </Button>
-        </ScreenActions>
-      </form>
-    ),
-    Working: ({ label }) => (
-      <main
-        role="status"
-        className="flex flex-1 flex-col justify-end gap-2 px-5 pb-30"
-      >
-        <h1 className="font-display text-h1">{label}</h1>
-      </main>
-    ),
-    Reviewing: ({ review: shown }) => (
-      <>
-        <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-          <h1 className="font-display text-h1">Revisa tu pago</h1>
-          <PaymentReviewCard review={shown} />
-        </main>
-        <ScreenActions>
-          <Button className="w-full" onClick={() => void confirm(shown)}>
-            Enviar
-          </Button>
+  return (
+    <form className="flex flex-1 flex-col" noValidate onSubmit={submit}>
+      <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
+        <h1 className="font-display text-h1">¿A quién le envías?</h1>
+        {fieldInput("recipient", "Para", "Un @usuario o una dirección G…")}
+        {fieldInput(
+          "amount",
+          "Monto",
+          `Disponible: ${amountLabel(available, asset)}`,
+        )}
+        {sendsToAddress(form.recipient)
+          ? fieldInput(
+              "memo",
+              "Memo",
+              "Solo si el destino lo pide, como un exchange",
+            )
+          : null}
+        {memoRefused ? (
           <Button
-            className="w-full"
+            type="button"
             variant="secondary"
-            onClick={() => setStage(Stage.Entering())}
+            onClick={() => onEdit("memo", "")}
           >
-            Editar
+            Quitar memo
           </Button>
-        </ScreenActions>
-      </>
-    ),
-    Finished: ({ screen }) => (
-      <SendResultScreen screen={screen} onAgain={() => void again.current()} />
-    ),
-  });
+        ) : null}
+      </main>
+      <ScreenActions>
+        <Button className="w-full" type="submit">
+          Revisar
+        </Button>
+      </ScreenActions>
+    </form>
+  );
+}
+
+export function SendFlow({
+  asset,
+  available,
+  transfer,
+  onTransfer,
+}: {
+  asset: Asset;
+  available: Amount;
+  transfer: Option.Option<TransferId>;
+  onTransfer: (id: Option.Option<TransferId>) => void;
+}) {
+  const review = useWalletRun(walletEffects.review);
+  const confirmation = useWalletRun(walletEffects.confirm);
+  const [editing, setEditing] = useState(Option.isNone(transfer));
+  const [form, setForm] = useState<SendForm>(emptyForm);
+
+  const [intent, setIntent] = useState<Option.Option<TransferIntent>>(
+    Option.none(),
+  );
+
+  const [problem, setProblem] = useState<Option.Option<FieldProblem>>(
+    Option.none(),
+  );
+
+  const startOver = () => {
+    review.reset();
+    confirmation.reset();
+    onTransfer(Option.none());
+    setEditing(true);
+  };
+
+  useEffect(() => {
+    const found = Option.orElse(fieldProblemOf(confirmation.state, asset), () =>
+      fieldProblemOf(review.state, asset),
+    );
+
+    if (Option.isNone(found)) return;
+
+    setProblem(found);
+    startOver();
+  }, [review.state, confirmation.state]);
+
+  const reviewIntent = (entered: TransferIntent) => {
+    setIntent(Option.some(entered));
+    setProblem(Option.none());
+    setEditing(false);
+    confirmation.reset();
+    review.start(entered);
+  };
+
+  const again = () =>
+    Option.match(intent, {
+      onNone: startOver,
+      onSome: reviewIntent,
+    });
+
+  if (editing)
+    return (
+      <SendFormStep
+        form={form}
+        problem={problem}
+        asset={asset}
+        available={available}
+        onEdit={(field, value) => {
+          setForm((current) => ({ ...current, [field]: value }));
+          setProblem(Option.none());
+        }}
+        onIntent={reviewIntent}
+        onProblem={(found) => setProblem(Option.some(found))}
+      />
+    );
+
+  if (confirmation.state.working || Option.isSome(confirmation.state.answered))
+    return (
+      <AnswerScreen
+        answer={confirmation.state}
+        asset={asset}
+        working="Enviando…"
+        onConfirm={startOver}
+        onEdit={startOver}
+        onAgain={again}
+      />
+    );
+
+  if (Option.isSome(transfer))
+    return (
+      <TransferStatus
+        id={transfer.value}
+        asset={asset}
+        onStartOver={startOver}
+      />
+    );
+
+  return (
+    <AnswerScreen
+      answer={review.state}
+      asset={asset}
+      working="Preparando tu pago…"
+      onConfirm={(shown) => {
+        onTransfer(Option.some(shown.order.id));
+        confirmation.start(shown);
+      }}
+      onEdit={() => {
+        review.reset();
+        setEditing(true);
+      }}
+      onAgain={again}
+    />
+  );
 }

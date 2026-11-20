@@ -46,15 +46,27 @@ export interface WalletClient {
   restore(): Promise<RestoreOutcome>;
   send(intent: TransferIntent): Promise<SendOutcome>;
   review(intent: TransferIntent): Promise<ReviewOutcome>;
-  confirm(review: PaymentReview): Promise<SendOutcome>;
+  confirm(review: PaymentReview): Promise<ResumeOutcome>;
   resume(id: TransferId): Promise<ResumeOutcome>;
 }
 
-export function makeWalletClient(
+export interface WalletEffects {
+  overview(): Effect.Effect<DeviceOverview>;
+  saved(): Effect.Effect<SavedOutcome>;
+  create(usernameText: string): Effect.Effect<CreateOutcome>;
+  backUp(): Effect.Effect<BackUpOutcome>;
+  restore(): Effect.Effect<RestoreOutcome>;
+  send(intent: TransferIntent): Effect.Effect<SendOutcome>;
+  review(intent: TransferIntent): Effect.Effect<ReviewOutcome>;
+  confirm(review: PaymentReview): Effect.Effect<ResumeOutcome>;
+  resume(id: TransferId): Effect.Effect<ResumeOutcome>;
+}
+
+export function makeWalletEffects(
   port: WalletPort,
   store: KeyStore,
   passkeys: Passkeys,
-) {
+): WalletEffects {
   const backups = Effect.promise(() => import("./backup")).pipe(
     Effect.map(({ deviceBackup }) => deviceBackup(port, passkeys, store)),
   );
@@ -150,7 +162,6 @@ export function makeWalletClient(
         PasskeyCancelled: (cancelled) => Effect.succeed(cancelled),
         PasskeyFailed: (failed) => Effect.succeed(failed),
       }),
-      Effect.runPromise,
     );
 
   const transfer = <A>(
@@ -164,16 +175,14 @@ export function makeWalletClient(
         ServiceFailed: (failure) => Effect.succeed(failure),
         InvalidResponse: (failure) => Effect.succeed(failure),
       }),
-      Effect.runPromise,
     );
 
-  const client: WalletClient = {
+  return {
     saved: () =>
       saved().pipe(
         Effect.catchTag("KeyStoreUnavailable", () =>
           Effect.succeed(new UnsupportedDevice()),
         ),
-        Effect.runPromise,
       ),
     overview: () =>
       overview().pipe(
@@ -184,7 +193,6 @@ export function makeWalletClient(
           ServiceFailed: (failure) => Effect.succeed(failure),
           InvalidResponse: (failure) => Effect.succeed(failure),
         }),
-        Effect.runPromise,
       ),
     create: (usernameText) => settle(create(usernameText)),
     backUp: () => settle(backUp()),
@@ -198,6 +206,24 @@ export function makeWalletClient(
     resume: (id) =>
       transfer(sending.pipe(Effect.flatMap(({ resume }) => resume(id)))),
   };
+}
 
-  return client;
+export function makeWalletClient(
+  port: WalletPort,
+  store: KeyStore,
+  passkeys: Passkeys,
+): WalletClient {
+  const effects = makeWalletEffects(port, store, passkeys);
+
+  return {
+    overview: () => Effect.runPromise(effects.overview()),
+    saved: () => Effect.runPromise(effects.saved()),
+    create: (usernameText) => Effect.runPromise(effects.create(usernameText)),
+    backUp: () => Effect.runPromise(effects.backUp()),
+    restore: () => Effect.runPromise(effects.restore()),
+    send: (intent) => Effect.runPromise(effects.send(intent)),
+    review: (intent) => Effect.runPromise(effects.review(intent)),
+    confirm: (shown) => Effect.runPromise(effects.confirm(shown)),
+    resume: (id) => Effect.runPromise(effects.resume(id)),
+  };
 }

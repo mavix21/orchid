@@ -32,6 +32,7 @@ import {
   NoTransfer,
   NoWallet,
   PaymentReview,
+  type ResumeOutcome,
   type SendOutcome,
   type TransferIntent,
   UnsupportedDevice,
@@ -372,7 +373,63 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
     return yield* prepared(intent, reviewing);
   });
 
-  const confirm = Effect.fn("Device.confirm")(function* (shown: PaymentReview) {
+  const observed = (wallet: DeviceWallet, id: TransferId) =>
+    wallet.transfer?.id === id && wallet.approvedUntil !== undefined
+      ? advance(
+          wallet,
+          wallet.transfer,
+          Option.none(),
+          pendingSteps,
+          false,
+          observing,
+        )
+      : Effect.succeed(new NoTransfer());
+
+  const recorded = (wallet: DeviceWallet, id: TransferId) =>
+    port
+      .overview(wallet.address)
+      .pipe(
+        Effect.map((overview) =>
+          Predicate.isTagged(overview, "Holding")
+            ? Option.filter(overview.latest, (receipt) => receipt.id === id)
+            : Option.none(),
+        ),
+      );
+
+  const resume = Effect.fn("Device.resume")(function* (
+    id: TransferId,
+  ): Effect.fn.Return<ResumeOutcome, WalletUnavailable | KeyStoreUnavailable> {
+    const stored = yield* store.read();
+
+    if (Option.isNone(stored)) return new NoWallet();
+
+    const answered = yield* Effect.suspend(() =>
+      store
+        .read()
+        .pipe(
+          Effect.flatMap((current) =>
+            Option.isSome(current)
+              ? observed(current.value, id)
+              : Effect.succeed(new NoWallet()),
+          ),
+        ),
+    ).pipe(
+      Effect.repeat({
+        until: (outcome) => !Predicate.isTagged(outcome, "Pending"),
+      }),
+    );
+
+    if (!Predicate.isTagged(answered, "NoTransfer")) return answered;
+
+    return Option.getOrElse(
+      yield* recorded(stored.value, id),
+      (): ResumeOutcome => answered,
+    );
+  });
+
+  const confirm = Effect.fn("Device.confirm")(function* (
+    shown: PaymentReview,
+  ): Effect.fn.Return<ResumeOutcome, WalletUnavailable | KeyStoreUnavailable> {
     const stored = yield* store.read();
 
     if (Option.isNone(stored)) return new NoWallet();
@@ -382,7 +439,7 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
     if (kept === undefined || orderJson(kept) !== orderJson(shown.order))
       return new DraftRejected();
 
-    return yield* advance(
+    const answered = yield* advance(
       stored.value,
       kept,
       Option.none(),
@@ -390,26 +447,10 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
       false,
       signing(Option.some(shown)),
     );
-  });
 
-  const resume = Effect.fn("Device.resume")(function* (id: TransferId) {
-    const stored = yield* store.read();
-
-    if (Option.isNone(stored)) return new NoWallet();
-
-    const kept = stored.value.transfer;
-
-    if (kept?.id !== id || stored.value.approvedUntil === undefined)
-      return new NoTransfer();
-
-    return yield* advance(
-      stored.value,
-      kept,
-      Option.none(),
-      pendingSteps,
-      false,
-      observing,
-    );
+    return Predicate.isTagged(answered, "Pending")
+      ? yield* resume(kept.id)
+      : answered;
   });
 
   return { send, review, confirm, resume };

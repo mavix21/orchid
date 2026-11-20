@@ -9,6 +9,7 @@ import {
   PaymentMemo,
   PositiveAmount,
   Recipient,
+  type Receipt,
   type TransferDraft,
   TransferOrder,
   type TransferStep,
@@ -172,4 +173,4 @@ export class NoTransfer extends Schema.TaggedClass<NoTransfer>()(
   {},
 ) {}
 
-export type ResumeOutcome = NoTransfer | SendOutcome;
+export type ResumeOutcome = NoTransfer | SendOutcome | Receipt;
