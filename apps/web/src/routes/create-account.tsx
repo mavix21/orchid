@@ -38,7 +38,7 @@ const refusal = (outcome: Exclude<CreateOutcome, { _tag: "Opened" }>) =>
     OpeningPending: () =>
       "Tu cuenta se está abriendo. Vuelve a intentarlo en un momento.",
     DraftRejected: () =>
-      "Recibimos una transacción inesperada y no la firmamos.",
+      "No pudimos terminar de crear tu cuenta y no se movió nada. Inténtalo de nuevo.",
     UnsupportedDevice: () =>
       "Este navegador no puede guardar tu llave de forma segura.",
     InvalidAddress: () => "No pudimos abrir tu cuenta.",
@@ -78,6 +78,7 @@ function ChooseUsername() {
   const [resuming, setResuming] = useState(false);
   const [problem, setProblem] = useState<string>();
   const [stopped, setStopped] = useState(false);
+  const [started, setStarted] = useState<Option.Option<string>>(Option.none());
 
   const busy = creating || resuming;
   const typedIssue = usernameIssue(username);
@@ -118,6 +119,7 @@ function ChooseUsername() {
       if (!current || !Predicate.isTagged(saved, "SavedWallet")) return;
 
       setUsername(saved.username);
+      setStarted(Option.some(saved.username));
 
       if (!saved.openingApproved) return;
 
@@ -149,9 +151,17 @@ function ChooseUsername() {
       <form className="flex flex-1 flex-col" noValidate onSubmit={submit}>
         <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
           <div className="flex flex-col gap-2">
-            <h1 className="font-display text-h1">Elige tu @usuario</h1>
+            <h1 className="font-display text-h1">
+              {Option.isSome(started)
+                ? "Termina de crear tu cuenta"
+                : "Elige tu @usuario"}
+            </h1>
             <p className="text-body text-muted-foreground">
-              Así te encuentran para enviarte plata.
+              {Option.match(started, {
+                onNone: () => "Así te encuentran para enviarte plata.",
+                onSome: (name) =>
+                  `Empezaste a crear @${name} en este dispositivo. Continúa para terminar.`,
+              })}
             </p>
           </div>
           <div className="flex justify-center">
