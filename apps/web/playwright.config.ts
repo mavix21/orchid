@@ -1,7 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { e2eDatabaseUrl } from "./e2e/database";
+
 export default defineConfig({
   testDir: "e2e",
+  globalSetup: "./e2e/database.ts",
   timeout: 120_000,
   workers: 1,
   use: {
@@ -13,5 +16,8 @@ export default defineConfig({
     url: "http://localhost:4173",
     timeout: 300_000,
     reuseExistingServer: false,
+    env: {
+      CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: e2eDatabaseUrl,
+    },
   },
 });
