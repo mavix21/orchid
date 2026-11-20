@@ -3,17 +3,18 @@ import {
   AddressRecipient,
   type Asset,
   PaymentMemo,
-  PhoneRecipient,
   type Recipient,
   TransferIntent,
   Username,
   UsernameRecipient,
   parseAmount,
 } from "@workspace/wallet";
+import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+
+export type Destination = "username" | "address";
 
 export type SendField = "recipient" | "amount" | "memo";
 
@@ -30,81 +31,90 @@ export type SendForm = {
   readonly memo: string;
 };
 
-const addressPattern = /^G[A-Z2-7]{55}$/;
-const phonePattern = /^\+?[0-9][0-9 ]{5,}$/;
+export const memoByteLimit = 28;
 
-export const sendsToAddress = (recipient: string) =>
-  addressPattern.test(recipient.trim().toUpperCase());
+export const memoBytes = (memo: string) =>
+  new TextEncoder().encode(memo.trim()).length;
 
-export function recipientOf(text: string): Option.Option<Recipient> {
-  const typed = text.trim();
-
-  if (sendsToAddress(typed))
-    return Schema.decodeOption(AccountAddress)(typed.toUpperCase()).pipe(
-      Option.map((value) => AddressRecipient.make({ value })),
-    );
-
-  if (phonePattern.test(typed))
-    return Option.some(
-      PhoneRecipient.make({ value: typed.replaceAll(" ", "") }),
-    );
-
-  return Schema.decodeOption(Username)(
-    typed.replace(/^@/, "").toLowerCase(),
-  ).pipe(Option.map((value) => UsernameRecipient.make({ value })));
-}
-
-export function memoOf(text: string): Option.Option<PaymentMemo> {
-  const typed = text.trim();
-
-  return Schema.decodeOption(PaymentMemo)({ type: "id", value: typed }).pipe(
-    Option.orElse(() =>
-      Schema.decodeOption(PaymentMemo)({ type: "text", value: typed }),
+const recipientOf = (
+  destination: Destination,
+  typed: string,
+): Result.Result<Recipient, FieldProblem> =>
+  Match.value(destination).pipe(
+    Match.when("username", () =>
+      Option.match(Schema.decodeOption(Username)(typed), {
+        onNone: () =>
+          Result.fail(
+            new FieldProblem(
+              "recipient",
+              "Un @usuario tiene de 3 a 20 letras minúsculas, números o guion bajo",
+            ),
+          ),
+        onSome: (value) => Result.succeed(UsernameRecipient.make({ value })),
+      }),
     ),
+    Match.when("address", () =>
+      Option.match(Schema.decodeOption(AccountAddress)(typed), {
+        onNone: () =>
+          Result.fail(
+            new FieldProblem(
+              "recipient",
+              "Una dirección Stellar empieza con G y tiene 56 caracteres",
+            ),
+          ),
+        onSome: (value) => Result.succeed(AddressRecipient.make({ value })),
+      }),
+    ),
+    Match.exhaustive,
   );
-}
+
+const memoOf = (typed: string): Result.Result<PaymentMemo, FieldProblem> => {
+  if (memoBytes(typed) > memoByteLimit)
+    return Result.fail(new FieldProblem("memo", "El memo es demasiado largo"));
+
+  return Option.match(
+    Schema.decodeOption(PaymentMemo)({ type: "id", value: typed }).pipe(
+      Option.orElse(() =>
+        Schema.decodeOption(PaymentMemo)({ type: "text", value: typed }),
+      ),
+    ),
+    {
+      onNone: () =>
+        Result.fail(new FieldProblem("memo", "Este memo no es válido")),
+      onSome: Result.succeed,
+    },
+  );
+};
 
 export function intentOf(
   form: SendForm,
+  destination: Destination,
   asset: Asset,
 ): Result.Result<TransferIntent, FieldProblem> {
-  const to = recipientOf(form.recipient);
+  const to = recipientOf(destination, form.recipient.trim());
 
-  if (Option.isNone(to))
-    return Result.fail(
-      new FieldProblem("recipient", "Escribe un @usuario o una dirección G…"),
-    );
+  if (Result.isFailure(to)) return Result.fail(to.failure);
 
   const amount = parseAmount(form.amount.trim().replace(",", "."));
 
   if (Option.isNone(amount))
     return Result.fail(new FieldProblem("amount", "Escribe un monto válido"));
 
-  const external = Predicate.isTagged(to.value, "Address");
+  const memo = form.memo.trim();
 
-  if (!external || form.memo.trim() === "")
+  if (destination === "username" || memo === "")
     return Result.succeed(
-      new TransferIntent({ to: to.value, asset, amount: amount.value }),
+      new TransferIntent({ to: to.success, asset, amount: amount.value }),
     );
 
-  const memo = memoOf(form.memo);
-
-  return Option.match(memo, {
-    onNone: () =>
-      Result.fail(
-        new FieldProblem(
-          "memo",
-          "El memo es un número o un texto de hasta 28 caracteres",
-        ),
-      ),
-    onSome: (value) =>
-      Result.succeed(
-        new TransferIntent({
-          to: to.value,
-          asset,
-          amount: amount.value,
-          memo: value,
-        }),
-      ),
-  });
+  return Result.map(
+    memoOf(memo),
+    (value) =>
+      new TransferIntent({
+        to: to.success,
+        asset,
+        amount: amount.value,
+        memo: value,
+      }),
+  );
 }

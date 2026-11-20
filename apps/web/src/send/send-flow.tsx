@@ -1,3 +1,4 @@
+import { PhoneIcon, UserRoundIcon, WalletIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -7,6 +8,11 @@ import {
   FieldLabel,
 } from "@workspace/ui/components/field";
 import { Input } from "@workspace/ui/components/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@workspace/ui/components/input-group";
 import type {
   Amount,
   Asset,
@@ -21,15 +27,18 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 
+import { OptionRow } from "@/components/option-row";
 import { ScreenActions } from "@/components/screen";
 import { walletEffects } from "@/wallet";
 
 import {
+  type Destination,
   FieldProblem,
   type SendField,
   type SendForm,
   intentOf,
-  sendsToAddress,
+  memoByteLimit,
+  memoBytes,
 } from "./intent";
 import { amountLabel } from "./money";
 import { deviceFailure, sendResult } from "./outcomes";
@@ -152,7 +161,40 @@ function TransferStatus({
   );
 }
 
+function DestinationChoice({
+  onChoose,
+}: {
+  onChoose: (destination: Destination) => void;
+}) {
+  return (
+    <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
+      <h1 className="font-display text-h1">¿A dónde lo envías?</h1>
+      <div className="flex flex-col gap-3">
+        <OptionRow
+          title="A un @usuario"
+          description="Alguien que tenga Orchid"
+          media={<UserRoundIcon />}
+          render={<button type="button" onClick={() => onChoose("username")} />}
+        />
+        <OptionRow
+          title="A una dirección Stellar"
+          description="Otra wallet o un exchange"
+          media={<WalletIcon />}
+          render={<button type="button" onClick={() => onChoose("address")} />}
+        />
+        <OptionRow
+          title="A un teléfono · Pronto"
+          description="Los envíos por teléfono llegan pronto"
+          media={<PhoneIcon />}
+          render={<button type="button" disabled />}
+        />
+      </div>
+    </main>
+  );
+}
+
 function SendFormStep({
+  destination,
   form,
   problem,
   asset,
@@ -160,7 +202,9 @@ function SendFormStep({
   onEdit,
   onIntent,
   onProblem,
+  onChangeDestination,
 }: {
+  destination: Destination;
   form: SendForm;
   problem: Option.Option<FieldProblem>;
   asset: Asset;
@@ -168,6 +212,7 @@ function SendFormStep({
   onEdit: (field: SendField, value: string) => void;
   onIntent: (intent: TransferIntent) => void;
   onProblem: (problem: FieldProblem) => void;
+  onChangeDestination: () => void;
 }) {
   const fields = useRef<Partial<Record<SendField, HTMLInputElement | null>>>(
     {},
@@ -180,38 +225,56 @@ function SendFormStep({
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    Result.match(intentOf(form, asset), {
+    Result.match(intentOf(form, destination, asset), {
       onFailure: onProblem,
       onSuccess: onIntent,
     });
   };
 
-  const fieldInput = (field: SendField, label: string, hint: string) => {
+  const fieldInput = (
+    field: SendField,
+    label: string,
+    hint: string,
+    prefix?: string,
+  ) => {
     const message = problem.pipe(
       Option.filter((found) => found.field === field),
       Option.map((found) => found.message),
     );
 
+    const control: React.ComponentProps<"input"> = {
+      id: field,
+      name: field,
+      ref: (element) => {
+        fields.current[field] = element;
+      },
+      value: form[field],
+      onChange: (event) =>
+        onEdit(
+          field,
+          prefix === undefined
+            ? event.target.value
+            : event.target.value.toLowerCase(),
+        ),
+      inputMode: field === "amount" ? "decimal" : undefined,
+      autoComplete: "off",
+      autoCapitalize: "none",
+      spellCheck: false,
+      "aria-invalid": Option.isSome(message) ? true : undefined,
+      "aria-describedby": Option.isSome(message) ? `${field}-error` : undefined,
+    };
+
     return (
       <Field>
         <FieldLabel htmlFor={field}>{label}</FieldLabel>
-        <Input
-          id={field}
-          name={field}
-          ref={(element) => {
-            fields.current[field] = element;
-          }}
-          value={form[field]}
-          onChange={(event) => onEdit(field, event.target.value)}
-          inputMode={field === "amount" ? "decimal" : undefined}
-          autoComplete="off"
-          autoCapitalize="none"
-          spellCheck={false}
-          aria-invalid={Option.isSome(message) ? true : undefined}
-          aria-describedby={
-            Option.isSome(message) ? `${field}-error` : undefined
-          }
-        />
+        {prefix === undefined ? (
+          <Input {...control} />
+        ) : (
+          <InputGroup>
+            <InputGroupAddon>{prefix}</InputGroupAddon>
+            <InputGroupInput {...control} />
+          </InputGroup>
+        )}
         <FieldDescription>{hint}</FieldDescription>
         {Option.isSome(message) ? (
           <FieldError id={`${field}-error`}>{message.value}</FieldError>
@@ -228,18 +291,28 @@ function SendFormStep({
   return (
     <form className="flex flex-1 flex-col" noValidate onSubmit={submit}>
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-        <h1 className="font-display text-h1">¿A quién le envías?</h1>
-        {fieldInput("recipient", "Para", "Un @usuario o una dirección G…")}
+        <h1 className="font-display text-h1">
+          {destination === "username"
+            ? "¿A qué @usuario le envías?"
+            : "¿A qué dirección le envías?"}
+        </h1>
+        {destination === "username"
+          ? fieldInput("recipient", "Usuario", "Alguien que tenga Orchid", "@")
+          : fieldInput(
+              "recipient",
+              "Dirección Stellar",
+              "Empieza con G y tiene 56 caracteres",
+            )}
         {fieldInput(
           "amount",
           "Monto",
           `Disponible: ${amountLabel(available, asset)}`,
         )}
-        {sendsToAddress(form.recipient)
+        {destination === "address"
           ? fieldInput(
               "memo",
               "Memo",
-              "Solo si el destino lo pide, como un exchange",
+              `Solo si el destino lo pide, como un exchange · ${memoBytes(form.memo)}/${memoByteLimit}`,
             )
           : null}
         {memoRefused ? (
@@ -255,6 +328,14 @@ function SendFormStep({
       <ScreenActions>
         <Button className="w-full" type="submit">
           Revisar
+        </Button>
+        <Button
+          className="w-full"
+          type="button"
+          variant="secondary"
+          onClick={onChangeDestination}
+        >
+          Cambiar destino
         </Button>
       </ScreenActions>
     </form>
@@ -276,6 +357,10 @@ export function SendFlow({
   const confirmation = useWalletRun(walletEffects.confirm);
   const [editing, setEditing] = useState(Option.isNone(transfer));
   const [form, setForm] = useState<SendForm>(emptyForm);
+
+  const [destination, setDestination] = useState<Option.Option<Destination>>(
+    Option.none(),
+  );
 
   const [intent, setIntent] = useState<Option.Option<TransferIntent>>(
     Option.none(),
@@ -317,9 +402,22 @@ export function SendFlow({
       onSome: reviewIntent,
     });
 
-  if (editing)
+  if (editing && Option.isNone(destination))
+    return (
+      <DestinationChoice
+        onChoose={(chosen) => {
+          setForm(emptyForm);
+          setProblem(Option.none());
+          setDestination(Option.some(chosen));
+        }}
+      />
+    );
+
+  if (editing && Option.isSome(destination))
     return (
       <SendFormStep
+        destination={destination.value}
+        onChangeDestination={() => setDestination(Option.none())}
         form={form}
         problem={problem}
         asset={asset}
