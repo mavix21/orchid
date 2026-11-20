@@ -450,6 +450,10 @@ it.effect("stops following a payment still Pending after it expired", () =>
       device.effects.resume(review.order.id),
     );
 
+    yield* TestClock.adjust("3 minutes");
+
+    expect(following.pollUnsafe()).toBeUndefined();
+
     yield* TestClock.adjust("10 minutes");
 
     expect((yield* Fiber.join(following))._tag).toBe("Pending");
