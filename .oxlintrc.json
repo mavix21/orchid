@@ -81,6 +81,64 @@
         "shadcn/no-restyle": "off",
         "shadcn/no-arbitrary-values": "off"
       }
+    },
+    {
+      "files": ["**/*.test.{ts,tsx,js,mjs}", "packages/**/*.spec.{ts,tsx,js}"],
+      "plugins": ["unicorn", "typescript", "oxc", "vitest"],
+      "rules": {
+        "vitest/no-conditional-in-test": "error",
+        "vitest/no-focused-tests": "error",
+        "vitest/no-disabled-tests": "error",
+        "vitest/no-restricted-matchers": [
+          "error",
+          {
+            "toMatchSnapshot": "Assert an observable outcome.",
+            "toMatchInlineSnapshot": "Assert an observable outcome.",
+            "toThrowErrorMatchingSnapshot": "Assert an observable outcome.",
+            "toThrowErrorMatchingInlineSnapshot": "Assert an observable outcome.",
+            "toBeTruthy": "Assert an observable outcome.",
+            "toBeFalsy": "Assert an observable outcome.",
+            "toHaveBeenCalled": "Assert an observable outcome.",
+            "toHaveBeenCalledAfter": "Assert an observable outcome.",
+            "toHaveBeenCalledBefore": "Assert an observable outcome.",
+            "toHaveBeenCalledExactlyOnceWith": "Assert an observable outcome.",
+            "toHaveBeenCalledOnce": "Assert an observable outcome.",
+            "toHaveBeenCalledTimes": "Assert an observable outcome.",
+            "toHaveBeenCalledWith": "Assert an observable outcome.",
+            "toHaveBeenLastCalledWith": "Assert an observable outcome.",
+            "toHaveBeenNthCalledWith": "Assert an observable outcome."
+          }
+        ],
+        "vitest/no-standalone-expect": "off",
+        "vitest/expect-expect": "off",
+        "orchid/no-test-in-loop": "error",
+        "orchid/no-error-message-assertion": "error"
+      }
+    },
+    {
+      "files": ["apps/web/e2e/**"],
+      "rules": {
+        "playwright/no-raw-locators": "error",
+        "playwright/prefer-native-locators": "error",
+        "playwright/no-force-option": "error",
+        "playwright/no-networkidle": "error",
+        "playwright/no-wait-for-timeout": "error",
+        "playwright/no-conditional-in-test": "error",
+        "playwright/prefer-web-first-assertions": "error",
+        "playwright/no-restricted-matchers": [
+          "error",
+          {
+            "toHaveText": "Assert an observable outcome.",
+            "toContainText": "Assert an observable outcome.",
+            "toMatchSnapshot": "Assert an observable outcome.",
+            "toHaveScreenshot": "Assert an observable outcome."
+          }
+        ],
+        "orchid/no-test-in-loop": "error",
+        "orchid/no-error-message-assertion": "error",
+        "orchid/no-copy-literal-in-e2e": "error"
+      },
+      "jsPlugins": ["eslint-plugin-playwright"]
     }
   ]
 }

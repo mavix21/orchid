@@ -123,9 +123,7 @@ it("payment envelopes preserve amount, destination, bounds and next sequence", (
   const transaction = TransactionBuilder.fromXDR(envelope, networkPassphrase);
   const payment = transaction.operations[0];
 
-  if (payment?.type !== "payment") throw new Error("Expected payment");
-
-  expect(payment.amount).toBe("5.5000001");
+  expect(payment).toMatchObject({ type: "payment", amount: "5.5000001" });
   expect(Option.getOrThrow(readEnvelope(envelope))).toEqual(
     new PaymentFacts({
       asset: baseAsset,

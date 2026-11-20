@@ -35,6 +35,7 @@ export function SendResultScreen({
     <>
       <main
         role="status"
+        data-testid="send-outcome"
         data-outcome={outcome}
         className="flex flex-1 flex-col justify-end gap-2 px-5"
       >

@@ -16,7 +16,8 @@
     "typecheck": "turbo typecheck",
     "prepare": "git config core.hooksPath .githooks && effect-tsgo patch --typescript --no-oxlint",
     "fmt": "oxfmt",
-    "fmt:check": "oxfmt --check"
+    "fmt:check": "oxfmt --check",
+    "test:lint": "node --experimental-strip-types --test tools/oxlint/test-rules.test.ts"
   },
   "dependencies": {
     "@neon/config": "^1.14.2",
@@ -26,6 +27,7 @@
     "@effect/tsgo": "0.69.0",
     "@oxlint/plugins": "1.93.0",
     "@shadcn/lint": "^0.2.5",
+    "eslint-plugin-playwright": "2.12.2",
     "oxc-parser": "0.148.0",
     "oxfmt": "^0.78.0",
     "oxlint": "1.93.0",

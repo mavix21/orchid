@@ -28,7 +28,7 @@ it("memo requirements match exact registered addresses and retain source evidenc
 });
 
 it("registry entries require testnet, checksum-valid addresses and a public HTTPS source", () => {
-  const valid = Keypair.random().publicKey();
+  const valid = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
   const entry = {
     network,
@@ -41,7 +41,7 @@ it("registry entries require testnet, checksum-valid addresses and a public HTTP
     Option.isSome(Schema.decodeUnknownOption(KnownExchangeMemo)(entry)),
   ).toBe(true);
 
-  const bad = `${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`;
+  const bad = `${valid.slice(0, -1)}A`;
 
   for (const invalid of [
     { ...entry, network: "mainnet" },

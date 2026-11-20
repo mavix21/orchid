@@ -200,7 +200,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             client.send(new TransferIntent({ ...toPedro, asset: euro })),
           );
 
-          expect(sent instanceof Settled && sent.claimable).toBeTruthy();
+          expect(sent instanceof Settled && sent.claimable !== undefined).toBe(
+            true,
+          );
         }),
     );
   },
