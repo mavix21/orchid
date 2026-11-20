@@ -1,18 +1,6 @@
 import { PhoneIcon, UserRoundIcon, WalletIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldLabel,
-} from "@workspace/ui/components/field";
-import { Input } from "@workspace/ui/components/input";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@workspace/ui/components/input-group";
 import type {
   Amount,
   Asset,
@@ -26,24 +14,16 @@ import * as Exit from "effect/Exit";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
-import * as Result from "effect/Result";
 
 import { OptionRow } from "@/components/option-row";
 import { ScreenActions } from "@/components/screen";
 import { walletEffects } from "@/wallet";
 
-import {
-  type Destination,
-  FieldProblem,
-  type SendField,
-  type SendForm,
-  intentOf,
-  memoByteLimit,
-  memoBytes,
-} from "./intent";
-import { amountLabel } from "./money";
+import { AmountStep } from "./amount-step";
+import { type Destination, FieldProblem, type SendForm } from "./intent";
 import { deviceFailure, sendResult } from "./outcomes";
 import { PaymentReviewCard } from "./payment-review";
+import { RecipientStep } from "./recipient-step";
 import { SendResultScreen } from "./send-result";
 import { type WalletRun, useWalletRun } from "./use-wallet-run";
 
@@ -198,167 +178,6 @@ function DestinationChoice({
   );
 }
 
-function SendFormStep({
-  destination,
-  form,
-  problem,
-  asset,
-  available,
-  onEdit,
-  onIntent,
-  onProblem,
-  onChangeDestination,
-}: {
-  destination: Destination;
-  form: SendForm;
-  problem: Option.Option<FieldProblem>;
-  asset: Asset;
-  available: Amount;
-  onEdit: (field: SendField, value: string) => void;
-  onIntent: (intent: TransferIntent) => void;
-  onProblem: (problem: FieldProblem) => void;
-  onChangeDestination: () => void;
-}) {
-  const fields = useRef<Partial<Record<SendField, HTMLInputElement | null>>>(
-    {},
-  );
-
-  useEffect(() => {
-    if (Option.isSome(problem)) fields.current[problem.value.field]?.focus();
-  }, [problem]);
-
-  const submit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    Result.match(intentOf(form, destination, asset), {
-      onFailure: onProblem,
-      onSuccess: onIntent,
-    });
-  };
-
-  const fieldInput = (
-    field: SendField,
-    label: string,
-    hint: string,
-    adornment: { prefix?: string; counter?: string } = {},
-  ) => {
-    const { prefix, counter } = adornment;
-
-    const message = problem.pipe(
-      Option.filter((found) => found.field === field),
-      Option.map((found) => found.message),
-    );
-
-    const control: React.ComponentProps<"input"> = {
-      id: field,
-      name: field,
-      ref: (element) => {
-        fields.current[field] = element;
-      },
-      value: form[field],
-      onChange: (event) =>
-        onEdit(
-          field,
-          prefix === undefined
-            ? event.target.value
-            : event.target.value.toLowerCase(),
-        ),
-      inputMode: field === "amount" ? "decimal" : undefined,
-      autoComplete: "off",
-      autoCapitalize: "none",
-      spellCheck: false,
-      "aria-invalid": Option.isSome(message) ? true : undefined,
-      "aria-describedby": Option.isSome(message) ? `${field}-error` : undefined,
-    };
-
-    return (
-      <Field>
-        <FieldLabel htmlFor={field}>{label}</FieldLabel>
-        {prefix === undefined && counter === undefined ? (
-          <Input {...control} />
-        ) : (
-          <InputGroup>
-            {prefix === undefined ? null : (
-              <InputGroupAddon>{prefix}</InputGroupAddon>
-            )}
-            <InputGroupInput {...control} />
-            {counter === undefined ? null : (
-              <InputGroupAddon align="inline-end">
-                <span className="text-label tabular-nums">{counter}</span>
-              </InputGroupAddon>
-            )}
-          </InputGroup>
-        )}
-        <FieldDescription>{hint}</FieldDescription>
-        {Option.isSome(message) ? (
-          <FieldError id={`${field}-error`}>{message.value}</FieldError>
-        ) : null}
-      </Field>
-    );
-  };
-
-  const memoRefused = Option.exists(
-    problem,
-    (found) => found.field === "memo" && form.memo !== "",
-  );
-
-  return (
-    <form className="flex flex-1 flex-col" noValidate onSubmit={submit}>
-      <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-        <h1 className="font-display text-h1">
-          {destination === "username"
-            ? "¿A qué @usuario le envías?"
-            : "¿A qué dirección le envías?"}
-        </h1>
-        {destination === "username"
-          ? fieldInput("recipient", "Usuario", "Alguien que tenga Orchid", {
-              prefix: "@",
-            })
-          : fieldInput(
-              "recipient",
-              "Dirección Stellar",
-              "Empieza con G y tiene 56 caracteres",
-            )}
-        {fieldInput(
-          "amount",
-          "Monto",
-          `Disponible: ${amountLabel(available, asset)}`,
-        )}
-        {destination === "address"
-          ? fieldInput(
-              "memo",
-              "Memo",
-              "Solo si el destino lo pide, como un exchange",
-              { counter: `${memoBytes(form.memo)}/${memoByteLimit}` },
-            )
-          : null}
-        {memoRefused ? (
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => onEdit("memo", "")}
-          >
-            Quitar memo
-          </Button>
-        ) : null}
-      </main>
-      <ScreenActions>
-        <Button className="w-full" type="submit">
-          Revisar
-        </Button>
-        <Button
-          className="w-full"
-          type="button"
-          variant="secondary"
-          onClick={onChangeDestination}
-        >
-          Cambiar destino
-        </Button>
-      </ScreenActions>
-    </form>
-  );
-}
-
 export function SendFlow({
   asset,
   available,
@@ -374,6 +193,7 @@ export function SendFlow({
   const confirmation = useWalletRun(walletEffects.confirm);
   const [editing, setEditing] = useState(Option.isNone(transfer));
   const [form, setForm] = useState<SendForm>(emptyForm);
+  const [entering, setEntering] = useState<"recipient" | "amount">("recipient");
 
   const [destination, setDestination] = useState<Option.Option<Destination>>(
     Option.none(),
@@ -402,6 +222,7 @@ export function SendFlow({
     if (Option.isNone(found)) return;
 
     setProblem(found);
+    setEntering(found.value.field === "recipient" ? "recipient" : "amount");
     startOver();
   }, [review.state, confirmation.state]);
 
@@ -430,26 +251,42 @@ export function SendFlow({
         onChoose={(chosen) => {
           setForm(emptyForm);
           setProblem(Option.none());
+          setEntering("recipient");
           setDestination(Option.some(chosen));
         }}
       />
     );
 
+  const edit = (field: keyof SendForm, value: string) => {
+    setForm((current) => ({ ...current, [field]: value }));
+    setProblem(Option.none());
+  };
+
+  if (editing && Option.isSome(destination) && entering === "recipient")
+    return (
+      <RecipientStep
+        destination={destination.value}
+        recipient={form.recipient}
+        problem={problem}
+        onEdit={(recipient) => edit("recipient", recipient)}
+        onContinue={() => setEntering("amount")}
+        onProblem={(found) => setProblem(Option.some(found))}
+        onChangeDestination={() => setDestination(Option.none())}
+      />
+    );
+
   if (editing && Option.isSome(destination))
     return (
-      <SendFormStep
+      <AmountStep
         destination={destination.value}
-        onChangeDestination={() => setDestination(Option.none())}
         form={form}
         problem={problem}
         asset={asset}
         available={available}
-        onEdit={(field, value) => {
-          setForm((current) => ({ ...current, [field]: value }));
-          setProblem(Option.none());
-        }}
+        onEdit={edit}
         onIntent={reviewIntent}
         onProblem={(found) => setProblem(Option.some(found))}
+        onChangeRecipient={() => setEntering("recipient")}
       />
     );
 

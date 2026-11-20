@@ -36,7 +36,7 @@ export const memoByteLimit = 28;
 export const memoBytes = (memo: string) =>
   new TextEncoder().encode(memo.trim()).length;
 
-const recipientOf = (
+export const recipientOf = (
   destination: Destination,
   typed: string,
 ): Result.Result<Recipient, FieldProblem> =>
