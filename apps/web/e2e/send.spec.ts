@@ -1,7 +1,6 @@
 import { type Page, type Route, expect, test } from "@playwright/test";
 import {
   Asset,
-  Horizon,
   Keypair,
   Networks,
   Operation,
@@ -22,8 +21,7 @@ import {
   submitButton,
   usernameInput,
 } from "./device";
-
-const horizon = new Horizon.Server("https://horizon-testnet.stellar.org");
+import { fundWithFriendbot, horizon } from "./testnet";
 
 const usdc = new Asset(
   "USDC",
@@ -56,11 +54,7 @@ const openWallet = async (page: Page, username: string) => {
 const fundWithUsdc = async (address: string, amount: string) => {
   const funder = Keypair.random();
 
-  const funded = await fetch(
-    `https://friendbot.stellar.org?addr=${funder.publicKey()}`,
-  );
-
-  expect(funded.ok).toBe(true);
+  await fundWithFriendbot(funder.publicKey());
 
   const source = await horizon.loadAccount(funder.publicKey());
 

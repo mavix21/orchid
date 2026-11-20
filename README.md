@@ -76,7 +76,7 @@ FEE_PAYER_SECRET=S...
 
 Fund each public key with Friendbot (`https://friendbot.stellar.org/?addr=G...`). `STELLAR_RPC_URL` and `PASSKEY_ORIGINS` (the comma-separated origins whose passkeys the server accepts) are set in `apps/web/wrangler.jsonc`. Testnet resets wipe both accounts; fund them again afterwards.
 
-`bun run --cwd apps/web test:e2e` builds the app, serves it with `vite preview`, and creates and restores real testnet wallets in Chromium with a virtual passkey (`bunx playwright install chromium` once). It needs Docker and `apps/web/.dev.vars`, and never touches the database above: it starts a throwaway `orchid-e2e-database` container on port 55434, applies the migrations, points the preview server at it, and removes it when the run ends. Restart the development database with `docker start orchid-postgres`.
+`bun run --cwd apps/web test:e2e` builds the app, serves it with `vite preview`, and creates and restores real testnet wallets in Chromium with a virtual passkey (`bunx playwright install chromium` once). It needs Docker. Without `apps/web/.dev.vars` it creates a fresh reserve sponsor and fee payer, funds them with Friendbot and hands them only to the preview server; an existing `.dev.vars` is used as is. It never touches the database above: it starts a throwaway `orchid-e2e-database` container on port 55434, applies the migrations, points the preview server at it, and removes it when the run ends. Restart the development database with `docker start orchid-postgres`.
 
 Wrangler config supplies `nodejs_compat` and the local Docker connection string. `bun run dev` uses Docker even when Neon credentials exist in the root `.env.local`. Override the local connection string if needed:
 
