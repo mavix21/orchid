@@ -1,9 +1,11 @@
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
+  AddressRecipient,
   Amount,
   LedgerUnreachable,
   PositiveAmount,
@@ -13,9 +15,13 @@ import {
   Username,
   UsernameRecipient,
 } from "../src/contract";
+import { Applied } from "../src/server/Chain.server";
+import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
+import { assertTagged } from "./tagged";
 import {
   addressOf,
+  approve,
   create,
   orderFor,
   send,
@@ -26,10 +32,10 @@ import {
 
 useDisposableDatabase();
 
-const fundedSender = Effect.fn(function* () {
+const fundedSender = Effect.fn(function* (username = "maria") {
   const key = Keypair.random();
 
-  yield* create(key, "maria");
+  yield* create(key, username);
   world.accounts.set(addressOf(key), {
     sequence: "1000",
     ledger: 100,
@@ -40,6 +46,27 @@ const fundedSender = Effect.fn(function* () {
   });
 
   return key;
+});
+
+const signedTransfer = Effect.fn(function* (username: string) {
+  const key = yield* fundedSender(username);
+
+  const order = orderFor(key, AddressRecipient.make({ value: addressOf(key) }));
+
+  const draft = yield* send(order);
+
+  assertTagged(draft, "TransferDraft");
+  world.failSubmit = true;
+  yield* send(order, approve(draft.request, key));
+  world.failSubmit = false;
+
+  const stored = Option.getOrThrow(
+    yield* Transfers.use((transfers) => transfers.find(order.id)),
+  );
+
+  assertTagged(stored, "Authorized");
+
+  return { order, hash: stored.sealed.hash };
 });
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
@@ -73,6 +100,30 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             JSON.stringify(Schema.encodeSync(ServerFailure)(failure)),
           ).not.toMatch(/order|cause|Error/);
         }),
+    );
+
+    it.effect("keeps sweeping other records after one record's read dies", () =>
+      Effect.gen(function* () {
+        const unreadable = yield* signedTransfer("maria");
+        const readable = yield* signedTransfer("lucia");
+
+        world.unreadable.add(unreadable.hash);
+        world.evidence.set(
+          readable.hash,
+          new Applied({ at: DateTime.nowUnsafe() }),
+        );
+
+        expect(
+          yield* Wallet.use((wallet) => wallet.sweep).pipe(Effect.flip),
+        ).toEqual(new ServiceFailed());
+        expect(
+          Option.getOrThrow(
+            yield* Transfers.use((transfers) =>
+              transfers.find(readable.order.id),
+            ),
+          )._tag,
+        ).toBe("Concluded");
+      }),
     );
 
     it.effect("answers LedgerUnreachable when Stellar does not answer", () =>
