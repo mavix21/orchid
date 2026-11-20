@@ -23,6 +23,7 @@ import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { UserAvatar } from "@/components/user-avatar";
 import { me } from "@/fixtures/account";
+import { unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/create-account")({
   component: ChooseUsername,
@@ -49,7 +50,10 @@ const refusal = (outcome: Exclude<CreateOutcome, { _tag: "Opened" }>) =>
     ChallengeRefused: () => "El respaldo tardó demasiado. Inténtalo de nuevo.",
     RegistrationRefused: () =>
       "No pudimos guardar el respaldo de tu cuenta. Inténtalo de nuevo.",
-    Offline: () => "Sin conexión. Inténtalo de nuevo.",
+    Offline: unavailableMessage,
+    LedgerUnreachable: unavailableMessage,
+    ServiceFailed: unavailableMessage,
+    InvalidResponse: unavailableMessage,
   });
 
 const issueMessage = (issue: UsernameIssue) =>

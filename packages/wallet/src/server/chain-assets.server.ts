@@ -62,9 +62,9 @@ export function assetChain(
     decode: (result: Awaited<ReturnType<typeof fetchEntries>>) => A,
   ) =>
     Effect.tryPromise({
-      try: async () => decode(await fetchEntries(rpcUrl, keys)),
+      try: () => fetchEntries(rpcUrl, keys),
       catch: (cause) => new ChainUnreachable({ cause }),
-    });
+    }).pipe(Effect.map(decode));
 
   const window = () => {
     const minTime = Math.floor(Date.now() / 1000);

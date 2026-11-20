@@ -380,32 +380,50 @@ export const Overview = Schema.Union([
 
 export type Overview = typeof Overview.Type;
 
-export class WalletUnavailable extends Schema.TaggedError<WalletUnavailable>()(
-  "WalletUnavailable",
-  { cause: Schema.Defect() },
+export class Offline extends Schema.TaggedError<Offline>()("Offline", {}) {}
+
+export class LedgerUnreachable extends Schema.TaggedError<LedgerUnreachable>()(
+  "LedgerUnreachable",
+  {},
 ) {}
 
-export interface WalletPort {
-  overview(address: AccountAddress): Effect.Effect<Overview, WalletUnavailable>;
+export class ServiceFailed extends Schema.TaggedError<ServiceFailed>()(
+  "ServiceFailed",
+  {},
+) {}
+
+export class InvalidResponse extends Schema.TaggedError<InvalidResponse>()(
+  "InvalidResponse",
+  {},
+) {}
+
+export const ServerFailure = Schema.Union([LedgerUnreachable, ServiceFailed]);
+
+export type ServerFailure = typeof ServerFailure.Type;
+
+export type WalletUnavailable =
+  | Offline
+  | LedgerUnreachable
+  | ServiceFailed
+  | InvalidResponse;
+
+export interface WalletPort<E = WalletUnavailable> {
+  overview(address: AccountAddress): Effect.Effect<Overview, E>;
   open(
     claim: WalletClaim,
     approval: Option.Option<Approval>,
-  ): Effect.Effect<OpenStep, WalletUnavailable>;
+  ): Effect.Effect<OpenStep, E>;
   transfer(
     order: TransferOrder,
     approval: Option.Option<Approval>,
-  ): Effect.Effect<TransferStep, WalletUnavailable>;
+  ): Effect.Effect<TransferStep, E>;
   manage(
     order: AssetOrder,
     approval: Option.Option<Approval>,
-  ): Effect.Effect<AssetStep, WalletUnavailable>;
+  ): Effect.Effect<AssetStep, E>;
   passkeyChallenge(
     purpose: ChallengePurpose,
-  ): Effect.Effect<PasskeyChallenge, WalletUnavailable>;
-  enroll(
-    enrollment: BackupEnrollment,
-  ): Effect.Effect<EnrollStep, WalletUnavailable>;
-  restore(
-    assertion: PasskeyAssertion,
-  ): Effect.Effect<RestoreStep, WalletUnavailable>;
+  ): Effect.Effect<PasskeyChallenge, E>;
+  enroll(enrollment: BackupEnrollment): Effect.Effect<EnrollStep, E>;
+  restore(assertion: PasskeyAssertion): Effect.Effect<RestoreStep, E>;
 }

@@ -214,15 +214,11 @@ export class Chain extends Context.Service<
           catch: (cause) => new ChainUnreachable({ cause }),
         });
 
-        return yield* Effect.try({
-          try: () =>
-            accountFromEntries(
-              response.entries ?? [],
-              response.latestLedger,
-              sponsorAddress,
-            ),
-          catch: (cause) => new ChainUnreachable({ cause }),
-        });
+        return accountFromEntries(
+          response.entries ?? [],
+          response.latestLedger,
+          sponsorAddress,
+        );
       });
 
       const source = Effect.fn("Chain.source")(function* (
@@ -231,9 +227,7 @@ export class Chain extends Context.Service<
         const state = yield* account(address);
 
         if (Option.isNone(state))
-          return yield* new ChainUnreachable({
-            cause: new Error("Account does not exist"),
-          });
+          return yield* Effect.die(new Error("Account does not exist"));
 
         return new Account(address, state.value.sequence);
       });

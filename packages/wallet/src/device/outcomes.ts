@@ -24,6 +24,7 @@ import {
   type OpeningPending,
   Username,
   type UsernameTaken,
+  type WalletUnavailable,
 } from "../contract";
 import { BackupState } from "./key-store";
 import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";
@@ -44,8 +45,6 @@ export class SavedWallet extends Schema.TaggedClass<SavedWallet>()(
 ) {}
 
 export type SavedOutcome = SavedWallet | NoWallet | UnsupportedDevice;
-
-export class Offline extends Schema.TaggedClass<Offline>()("Offline", {}) {}
 
 export class InvalidUsername extends Schema.TaggedClass<InvalidUsername>()(
   "InvalidUsername",
@@ -93,7 +92,7 @@ export type BackUpOutcome =
   | BackupUnsupported
   | EnrollmentRefusal
   | NoWallet
-  | Offline;
+  | WalletUnavailable;
 
 export type RestoreOutcome =
   | Restored
@@ -106,7 +105,7 @@ export type RestoreOutcome =
   | AssertionRefused
   | BackupMismatch
   | UnsupportedDevice
-  | Offline;
+  | WalletUnavailable;
 
 export type DeviceOverview =
   | Holding
@@ -115,7 +114,7 @@ export type DeviceOverview =
   | InvalidAddress
   | NoWallet
   | UnsupportedDevice
-  | Offline;
+  | WalletUnavailable;
 
 export type CreateOutcome =
   | InvalidAddress
@@ -128,7 +127,7 @@ export type CreateOutcome =
   | UnsupportedDevice
   | DraftRejected
   | EnrollmentRefusal
-  | Offline;
+  | WalletUnavailable;
 
 export class TransferIntent extends Schema.Class<TransferIntent>(
   "@workspace/wallet/TransferIntent",
@@ -150,7 +149,7 @@ export type SendOutcome =
   | DraftRejected
   | NoWallet
   | UnsupportedDevice
-  | Offline;
+  | WalletUnavailable;
 
 export class PaymentReview extends Schema.TaggedClass<PaymentReview>()(
   "PaymentReview",

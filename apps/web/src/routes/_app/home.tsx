@@ -6,6 +6,7 @@ import {
   type Holding,
   type SavedBackup,
   type SavedOutcome,
+  type WalletUnavailable,
   assetKey,
   baseAsset,
 } from "@workspace/wallet";
@@ -17,6 +18,7 @@ import { HomeSkeleton } from "@/components/home-skeleton";
 import { Screen } from "@/components/screen";
 import { recentActivity } from "@/fixtures/activity";
 import { shownOverview } from "@/wallet/shown-overview";
+import { unavailableMessage, unavailableNotice } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/_app/home")({
   ssr: false,
@@ -54,7 +56,10 @@ const backUpRefusal = (
     NoWallet: () => "Este navegador no puede leer tu llave de forma segura.",
     UnsupportedDevice: () =>
       "Este navegador no puede leer tu llave de forma segura.",
-    Offline: () => "Sin conexión. Inténtalo de nuevo.",
+    Offline: unavailableMessage,
+    LedgerUnreachable: unavailableMessage,
+    ServiceFailed: unavailableMessage,
+    InvalidResponse: unavailableMessage,
   });
 
 function HomeScreen() {
@@ -69,7 +74,10 @@ function HomeScreen() {
     UnsupportedDevice: () => (
       <Problem message="Este navegador no puede leer tu llave de forma segura." />
     ),
-    Offline: () => <Problem message="Sin conexión. Inténtalo de nuevo." />,
+    Offline: (failure) => <Unavailable failure={failure} />,
+    LedgerUnreachable: (failure) => <Unavailable failure={failure} />,
+    ServiceFailed: (failure) => <Unavailable failure={failure} />,
+    InvalidResponse: (failure) => <Unavailable failure={failure} />,
   });
 }
 
@@ -170,6 +178,21 @@ function Reopening({ username }: { username: string }) {
       busy={reopening}
       onAction={reopen}
     />
+  );
+}
+
+function Unavailable({ failure }: { failure: WalletUnavailable }) {
+  const notice = unavailableNotice(failure);
+
+  return notice.actionable ? (
+    <Problem message={notice.message} />
+  ) : (
+    <Screen>
+      <main className="flex flex-1 flex-col justify-end gap-2 px-5 pb-30">
+        <h1 className="font-display text-h1">No pudimos cargar tu cuenta</h1>
+        <p className="text-body text-muted-foreground">{notice.message}</p>
+      </main>
+    </Screen>
   );
 }
 

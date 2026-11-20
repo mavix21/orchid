@@ -35,6 +35,9 @@ const accepting = (recipient: ResolvedRecipient) =>
 
 const untouched = "Tu dinero no se movió";
 
+const maybeMoving =
+  "Si ya confirmaste, tu pago puede seguir en curso: no lo envíes de nuevo";
+
 export const sendResult = (
   outcome: ResumeOutcome | Receipt,
   asset: Asset,
@@ -156,6 +159,20 @@ export const sendResult = (
         "Sin conexión. Si ya confirmaste, revisaremos el pago al volver",
         "retry",
       ),
+    LedgerUnreachable: () =>
+      new SendScreen(
+        "La red Stellar no responde",
+        "Inténtalo de nuevo en unos minutos. Si ya confirmaste, revisaremos el pago al reintentar",
+        "retry",
+      ),
+    ServiceFailed: () =>
+      new SendScreen(
+        "Algo falló de nuestro lado",
+        `Ya quedó registrado. ${maybeMoving}`,
+        "home",
+      ),
+    InvalidResponse: () =>
+      new SendScreen("No pudimos leer la respuesta", maybeMoving, "home"),
     NoWallet: () =>
       new SendScreen(
         "No hay una cuenta aquí",

@@ -11,7 +11,7 @@ import {
   RecoveryDraft,
   SigningRequest,
   Username,
-  WalletUnavailable,
+  Offline,
   type WalletPort,
 } from "../src/contract";
 import {
@@ -127,9 +127,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ...wallet,
             open: (claim, approval) =>
               ++calls === 3
-                ? Effect.fail(
-                    new WalletUnavailable({ cause: new Error("Reloaded") }),
-                  )
+                ? Effect.fail(new Offline())
                 : wallet.open(claim, approval),
           };
 
@@ -177,9 +175,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ...wallet,
             open: (claim, approval) =>
               ++calls === 3
-                ? Effect.fail(
-                    new WalletUnavailable({ cause: new Error("Reloaded") }),
-                  )
+                ? Effect.fail(new Offline())
                 : wallet.open(claim, approval),
           };
 

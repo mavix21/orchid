@@ -133,11 +133,24 @@ export function SendFlow({
 
     const overview = await walletClient.overview();
 
-    const latest = Predicate.isTagged(overview, "Holding")
-      ? overview.latest.pipe(Option.filter((receipt) => receipt.id === id))
-      : Option.none();
-
-    settle(Option.getOrElse(latest, () => resumed));
+    settle(
+      Match.valueTags(overview, {
+        Holding: ({ latest }): ResumeOutcome | Receipt =>
+          Option.getOrElse(
+            Option.filter(latest, (receipt) => receipt.id === id),
+            () => resumed,
+          ),
+        NeedsReopening: () => resumed,
+        NotOpened: () => resumed,
+        InvalidAddress: () => resumed,
+        NoWallet: (answered) => answered,
+        UnsupportedDevice: (answered) => answered,
+        Offline: (failure) => failure,
+        LedgerUnreachable: (failure) => failure,
+        ServiceFailed: (failure) => failure,
+        InvalidResponse: (failure) => failure,
+      }),
+    );
   };
 
   useEffect(() => {

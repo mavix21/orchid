@@ -1,4 +1,4 @@
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, type Route, expect, test } from "@playwright/test";
 import {
   Asset,
   Horizon,
@@ -10,6 +10,8 @@ import {
 import {
   AccountAddress,
   ExternalMemoRequired,
+  ServerFailure,
+  ServiceFailed,
   TransferStep,
 } from "@workspace/wallet";
 import * as Schema from "effect/Schema";
@@ -179,4 +181,47 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
     { timeout: 30_000 },
   );
   await expect(page.locator("#memo")).toBeFocused();
+
+  const sendUsdc = page.url();
+
+  const answerFor = async (
+    answer: (route: Route) => Promise<void>,
+    expected: string,
+  ) => {
+    const marker = Keypair.random().publicKey();
+
+    await page.route(`**${serverFunction}**`, (route) =>
+      route.request().postData()?.includes(marker)
+        ? answer(route)
+        : route.fallback(),
+    );
+    await page.goto(sendUsdc);
+    await fill(page, marker, "0.1");
+    await review(page);
+    await expect(page.getByRole("heading", { name: expected })).toBeVisible({
+      timeout: 30_000,
+    });
+  };
+
+  await answerFor(
+    (route) => route.abort("internetdisconnected"),
+    "Sin conexión",
+  );
+  await expect(page.getByRole("button", { name: "Reintentar" })).toBeVisible();
+
+  await answerFor(
+    (route) =>
+      route.fulfill({ contentType: "text/html", body: "<html>502</html>" }),
+    "No pudimos leer la respuesta",
+  );
+  await expect(page.getByText("Sin conexión")).toHaveCount(0);
+
+  await answerFor(
+    (route) =>
+      route.fulfill({
+        json: { result: Schema.encodeSync(ServerFailure)(new ServiceFailed()) },
+      }),
+    "Algo falló de nuestro lado",
+  );
+  await expect(page.getByRole("button", { name: "Reintentar" })).toHaveCount(0);
 });
