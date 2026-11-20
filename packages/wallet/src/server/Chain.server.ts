@@ -47,6 +47,7 @@ import {
   type AccountState,
   accountFromEntries,
   fetchEntries,
+  rpcCall,
 } from "./ledger.server";
 
 export { ChainUnreachable } from "./chain-errors.server";
@@ -87,15 +88,61 @@ export class ApprovalInvalid extends Schema.TaggedError<ApprovalInvalid>()(
   {},
 ) {}
 
+const loopbackHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+const lookupWindow = {
+  latestLedger: Schema.Number,
+  latestLedgerCloseTime: Schema.NumberFromString,
+  oldestLedgerCloseTime: Schema.NumberFromString,
+};
+
+const RawTransactionLookup = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("SUCCESS"),
+    createdAt: Schema.NumberFromString,
+    ...lookupWindow,
+  }),
+  Schema.Struct({
+    status: Schema.Literal("FAILED"),
+    resultXdr: Schema.String,
+    ...lookupWindow,
+  }),
+  Schema.Struct({ status: Schema.Literal("NOT_FOUND"), ...lookupWindow }),
+]);
+
+type LookupWindow = {
+  readonly latestLedger: number;
+  readonly latestLedgerCloseTime: number;
+  readonly oldestLedgerCloseTime: number;
+};
+
+export type TransactionLookup =
+  | (LookupWindow & { readonly status: "SUCCESS"; readonly createdAt: number })
+  | (LookupWindow & {
+      readonly status: "FAILED";
+      readonly resultXdr: xdr.TransactionResult;
+    })
+  | (LookupWindow & { readonly status: "NOT_FOUND" });
+
+const transactionLookup = (
+  raw: typeof RawTransactionLookup.Type,
+): TransactionLookup =>
+  raw.status === "FAILED"
+    ? {
+        ...raw,
+        resultXdr: xdr.TransactionResult.fromXDR(raw.resultXdr, "base64"),
+      }
+    : raw;
+
 export function settlementFromResponse(
-  response: rpc.Api.GetTransactionResponse,
+  response: TransactionLookup,
   sealed: Sealed,
   sender: Option.Option<AccountState>,
 ): Settlement {
-  if (response.status === rpc.Api.GetTransactionStatus.SUCCESS)
+  if (response.status === "SUCCESS")
     return new Applied({ at: DateTime.makeUnsafe(response.createdAt * 1000) });
 
-  if (response.status === rpc.Api.GetTransactionStatus.FAILED) {
+  if (response.status === "FAILED") {
     const result = response.resultXdr.result;
 
     const code =
@@ -129,7 +176,7 @@ export function settlementFromResponse(
     return new Expired();
 
   if (
-    response.status === rpc.Api.GetTransactionStatus.NOT_FOUND &&
+    response.status === "NOT_FOUND" &&
     Option.isSome(sender) &&
     response.latestLedger >= sender.value.ledger &&
     BigInt(sender.value.sequence) >= BigInt(inner.sequence) &&
@@ -178,7 +225,10 @@ export class Chain extends Context.Service<
     Chain,
     Effect.gen(function* () {
       const settings = yield* WalletSettings;
-      const server = new rpc.Server(settings.rpcUrl);
+
+      const server = new rpc.Server(settings.rpcUrl, {
+        allowHttp: loopbackHosts.has(new URL(settings.rpcUrl).hostname),
+      });
 
       const sponsor = Keypair.fromSecret(
         Redacted.value(settings.reserveSponsorSecret),
@@ -388,21 +438,28 @@ export class Chain extends Context.Service<
         });
 
       const transaction = (hash: string) =>
-        Effect.tryPromise({
-          try: () => server.getTransaction(hash),
-          catch: (cause) => new ChainUnreachable({ cause }),
-        });
+        rpcCall(
+          settings.rpcUrl,
+          "getTransaction",
+          { hash },
+          RawTransactionLookup,
+        ).pipe(Effect.map(transactionLookup));
 
       const settlement = (sealed: Sealed) =>
         resolveSettlement(sealed, { transaction, account });
 
       const pastOpeningWindow = (sealed: Sealed) =>
-        Effect.tryPromise({
-          try: async () =>
-            Number((await server.getLatestLedger()).closeTime) * 1000 >
-            DateTime.toEpochMillis(sealed.expiresAt),
-          catch: (cause) => new ChainUnreachable({ cause }),
-        });
+        rpcCall(
+          settings.rpcUrl,
+          "getLatestLedger",
+          {},
+          Schema.Struct({ closeTime: Schema.NumberFromString }),
+        ).pipe(
+          Effect.map(
+            ({ closeTime }) =>
+              closeTime * 1000 > DateTime.toEpochMillis(sealed.expiresAt),
+          ),
+        );
 
       return Chain.of({
         ...assetChain(settings.rpcUrl, sponsorAddress, source),
@@ -426,9 +483,7 @@ export class Chain extends Context.Service<
 }
 
 export interface SettlementReader {
-  transaction(
-    hash: string,
-  ): Effect.Effect<rpc.Api.GetTransactionResponse, ChainUnreachable>;
+  transaction(hash: string): Effect.Effect<TransactionLookup, ChainUnreachable>;
   account(
     address: AccountAddress,
   ): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;

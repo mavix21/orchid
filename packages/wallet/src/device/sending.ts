@@ -59,6 +59,8 @@ const destination = (order: TransferOrder, draft: TransferDraft) =>
 
 const clockAllowance = 60;
 
+const followAfterExpiry = { minutes: 2 };
+
 const nowSeconds = Effect.map(DateTime.now, (now) =>
   Math.floor(DateTime.toEpochMillis(now) / 1000),
 );
@@ -396,6 +398,38 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
         ),
       );
 
+  const observedNow = (id: TransferId) =>
+    store
+      .read()
+      .pipe(
+        Effect.flatMap((current) =>
+          Option.isSome(current)
+            ? observed(current.value, id)
+            : Effect.succeed(new NoWallet()),
+        ),
+      );
+
+  const following = (
+    id: TransferId,
+  ): Effect.Effect<
+    SendOutcome | ApprovalOutstanding | NoTransfer,
+    WalletUnavailable | KeyStoreUnavailable
+  > =>
+    observedNow(id).pipe(
+      Effect.flatMap((answered) =>
+        Predicate.isTagged(answered, "Pending")
+          ? Effect.flatMap(DateTime.now, (now) =>
+              DateTime.isGreaterThan(
+                now,
+                DateTime.add(answered.expiresAt, followAfterExpiry),
+              )
+                ? Effect.succeed(answered)
+                : following(id),
+            )
+          : Effect.succeed(answered),
+      ),
+    );
+
   const resume = Effect.fn("Device.resume")(function* (
     id: TransferId,
   ): Effect.fn.Return<ResumeOutcome, WalletUnavailable | KeyStoreUnavailable> {
@@ -403,21 +437,7 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
 
     if (Option.isNone(stored)) return new NoWallet();
 
-    const answered = yield* Effect.suspend(() =>
-      store
-        .read()
-        .pipe(
-          Effect.flatMap((current) =>
-            Option.isSome(current)
-              ? observed(current.value, id)
-              : Effect.succeed(new NoWallet()),
-          ),
-        ),
-    ).pipe(
-      Effect.repeat({
-        until: (outcome) => !Predicate.isTagged(outcome, "Pending"),
-      }),
-    );
+    const answered = yield* following(id);
 
     if (!Predicate.isTagged(answered, "NoTransfer")) return answered;
 

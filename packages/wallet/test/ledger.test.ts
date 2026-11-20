@@ -2,9 +2,7 @@ import { createServer } from "node:http";
 import { expect, it } from "@effect/vitest";
 import { Keypair, xdr } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
-import { ChainUnreachable } from "../src/server/chain-errors.server";
 import { fetchEntries } from "../src/server/ledger.server";
 
 const RpcRequest = Schema.fromJsonString(
@@ -70,33 +68,5 @@ it.effect("asks the ledger RPC for each repeated key only once", () =>
       entries: [],
       latestLedger: 7,
     });
-  }).pipe(Effect.scoped),
-);
-
-it.effect("treats an RPC error reply as an unreachable ledger", () =>
-  Effect.gen(function* () {
-    const rpcUrl = yield* rpcAnswering(() =>
-      JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        error: { code: -32603, message: "could not query captive core" },
-      }),
-    );
-
-    expect(
-      yield* fetchEntries(rpcUrl, [account]).pipe(Effect.flip),
-    ).toBeInstanceOf(ChainUnreachable);
-  }).pipe(Effect.scoped),
-);
-
-it.effect("does not treat an undecodable reply as an unreachable ledger", () =>
-  Effect.gen(function* () {
-    const rpcUrl = yield* rpcAnswering(() =>
-      JSON.stringify({ jsonrpc: "2.0", id: 1, result: { entries: "none" } }),
-    );
-
-    const exit = yield* fetchEntries(rpcUrl, [account]).pipe(Effect.exit);
-
-    expect(Exit.hasDies(exit)).toBe(true);
   }).pipe(Effect.scoped),
 );

@@ -415,10 +415,14 @@ export function SendFlow({
   };
 
   const again = () =>
-    Option.match(intent, {
-      onNone: startOver,
-      onSome: reviewIntent,
-    });
+    Option.exists(settledValue(confirmation.state), (value) =>
+      Predicate.isTagged(value, "Pending"),
+    )
+      ? confirmation.reset()
+      : Option.match(intent, {
+          onNone: startOver,
+          onSome: reviewIntent,
+        });
 
   if (editing && Option.isNone(destination))
     return (
