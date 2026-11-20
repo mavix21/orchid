@@ -11,4 +11,7 @@ export const walletClient: WalletClient = {
   backUp: () => loadClient().then((client) => client.backUp()),
   restore: () => loadClient().then((client) => client.restore()),
   send: (intent) => loadClient().then((client) => client.send(intent)),
+  review: (intent) => loadClient().then((client) => client.review(intent)),
+  confirm: (review) => loadClient().then((client) => client.confirm(review)),
+  resume: (id) => loadClient().then((client) => client.resume(id)),
 };

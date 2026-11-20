@@ -1,58 +1,84 @@
+import { ChevronLeftIcon } from "lucide-react";
 import {
-  ArrowLeftRightIcon,
-  ChevronLeftIcon,
-  UserRoundIcon,
-  WalletIcon,
-} from "lucide-react";
-import { Link, createFileRoute, notFound } from "@tanstack/react-router";
+  Link,
+  createFileRoute,
+  notFound,
+  useNavigate,
+} from "@tanstack/react-router";
+import { TransferId, assetKey } from "@workspace/wallet";
+import * as Match from "effect/Match";
+import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 
-import { OptionRow } from "@/components/option-row";
 import { Screen } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
-import { findAsset } from "@/fixtures/assets";
+import { assetCode } from "@/send/money";
+import { SendFlow } from "@/send/send-flow";
+import { SendUnavailable } from "@/send/send-unavailable";
+import { shownOverview } from "@/wallet/shown-overview";
+
+const TransferSearch = Schema.Struct({ transfer: Schema.optional(TransferId) });
 
 export const Route = createFileRoute("/send/$asset")({
-  loader: ({ params }) => {
-    const asset = findAsset(params.asset);
+  ssr: false,
+  validateSearch: Schema.toStandardSchemaV1(TransferSearch),
+  loader: async ({ context, params }) => {
+    const overview = shownOverview(await context.walletClient.overview());
 
-    if (!asset) throw notFound();
+    if (!Predicate.isTagged(overview, "Holding"))
+      return { overview, balance: undefined };
 
-    return asset;
+    const balance = overview.balances.find(
+      (held) => assetKey(held.asset) === params.asset,
+    );
+
+    if (!balance) throw notFound();
+
+    return { overview, balance };
   },
-  component: ChooseDestination,
+  component: SendAsset,
 });
 
-function ChooseDestination() {
-  const asset = Route.useLoaderData();
+function SendAsset() {
+  const { overview, balance } = Route.useLoaderData();
+  const { transfer } = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
 
   return (
     <Screen>
       <TopNav
-        title={`Enviar ${asset.code}`}
+        title={balance ? `Enviar ${assetCode(balance.asset)}` : "Enviar"}
         label="Atrás"
         icon={<ChevronLeftIcon absoluteStrokeWidth />}
         link={<Link to="/send" />}
       />
-      <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-        <h1 className="font-display text-h1">¿A dónde lo envías?</h1>
-        <div className="flex flex-col gap-3">
-          <OptionRow
-            title="A un @usuario"
-            description="Alguien que tenga Orchid"
-            media={<UserRoundIcon />}
-          />
-          <OptionRow
-            title="A una wallet crypto"
-            description="Una dirección de la red Stellar"
-            media={<WalletIcon />}
-          />
-          <OptionRow
-            title="A un exchange"
-            description="Binance o Lemon"
-            media={<ArrowLeftRightIcon />}
-          />
-        </div>
-      </main>
+      {Match.valueTags(overview, {
+        Holding: () =>
+          balance ? (
+            <SendFlow
+              asset={balance.asset}
+              available={balance.amount}
+              transfer={Option.fromNullishOr(transfer)}
+              onTransfer={(id) =>
+                void navigate({
+                  search: { transfer: Option.getOrUndefined(id) },
+                  replace: true,
+                })
+              }
+            />
+          ) : null,
+        NeedsReopening: (unavailable) => (
+          <SendUnavailable overview={unavailable} />
+        ),
+        InvalidAddress: (unavailable) => (
+          <SendUnavailable overview={unavailable} />
+        ),
+        UnsupportedDevice: (unavailable) => (
+          <SendUnavailable overview={unavailable} />
+        ),
+        Offline: (unavailable) => <SendUnavailable overview={unavailable} />,
+      })}
     </Screen>
   );
 }

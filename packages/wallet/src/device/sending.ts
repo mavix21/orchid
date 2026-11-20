@@ -17,7 +17,8 @@ import {
   type WalletUnavailable,
   assetKey,
 } from "../contract";
-import { readEnvelope } from "../stellar/envelopes";
+import type { ClaimableFacts } from "../stellar/asset-envelopes";
+import { type PaymentFacts, readEnvelope } from "../stellar/envelopes";
 import { approvalMargin, paymentLifetime } from "../stellar/network";
 import {
   DeviceWallet,
@@ -28,7 +29,9 @@ import {
 import {
   ApprovalOutstanding,
   DraftRejected,
+  NoTransfer,
   NoWallet,
+  PaymentReview,
   type SendOutcome,
   type TransferIntent,
   UnsupportedDevice,
@@ -99,6 +102,24 @@ const orderedFacts = (
   return matches ? Option.some(drafted) : Option.none();
 };
 
+type DraftHandler<D> = (
+  wallet: DeviceWallet,
+  order: TransferOrder,
+  draft: TransferDraft,
+  remaining: number,
+  refreshed: boolean,
+) => Effect.Effect<D, WalletUnavailable | KeyStoreUnavailable>;
+
+const reviewed =
+  (review: Option.Option<PaymentReview>) =>
+  (facts: PaymentFacts | ClaimableFacts) =>
+    Option.match(review, {
+      onNone: () => true,
+      onSome: (shown) =>
+        facts.to === shown.to &&
+        Predicate.isTagged(facts, "ClaimableFacts") === shown.claimable,
+    });
+
 export function sendTransfer(port: WalletPort, store: KeyStore) {
   const forget = (order: TransferOrder) =>
     Effect.gen(function* () {
@@ -114,13 +135,14 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
         );
     });
 
-  const advance = (
+  const advance = <D>(
     wallet: DeviceWallet,
     order: TransferOrder,
     approval: Option.Option<Approval>,
     remaining: number,
     refreshed: boolean,
-  ): Effect.Effect<SendOutcome, WalletUnavailable | KeyStoreUnavailable> =>
+    onDraft: DraftHandler<D>,
+  ): Effect.Effect<D | SendOutcome, WalletUnavailable | KeyStoreUnavailable> =>
     port
       .transfer(order, approval)
       .pipe(
@@ -132,72 +154,36 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
             Option.isSome(approval),
             remaining - 1,
             refreshed,
+            onDraft,
           ),
         ),
       );
 
-  const respond = (
+  const respond = <D>(
     wallet: DeviceWallet,
     order: TransferOrder,
     step: TransferStep,
     submitted: boolean,
     remaining: number,
     refreshed: boolean,
-  ) =>
+    onDraft: DraftHandler<D>,
+  ): Effect.Effect<D | SendOutcome, WalletUnavailable | KeyStoreUnavailable> =>
     Match.valueTags(step, {
       TransferDraft: (draft) =>
-        Effect.gen(function* () {
-          const facts = orderedFacts(wallet, order, draft);
-          const now = yield* nowSeconds;
-
-          if (
-            remaining === 0 ||
-            Option.isNone(facts) ||
-            approvalOutstanding(wallet, now) ||
-            facts.value.maxTime > now + paymentLifetime + clockAllowance
-          )
-            return new DraftRejected();
-
-          const deadline = Math.min(
-            facts.value.maxTime * 1000,
-            DateTime.toEpochMillis(draft.request.expiresAt),
-          );
-
-          const withinMargin = Effect.map(
-            DateTime.now,
-            (current) =>
-              deadline - DateTime.toEpochMillis(current) >=
-              approvalMargin * 1000,
-          );
-
-          if (!(yield* withinMargin))
-            return refreshed
-              ? new DraftRejected()
-              : yield* advance(wallet, order, Option.none(), remaining, true);
-
-          const approved = yield* remember(
-            store,
-            new DeviceWallet({ ...wallet, approvedUntil: facts.value.maxTime }),
-          );
-
-          if (Option.isNone(approved)) return new UnsupportedDevice();
-
-          if (!(yield* withinMargin)) return new DraftRejected();
-
-          return yield* advance(
-            approved.value,
-            order,
-            Option.some(approve(draft.request, signingKey(wallet.phrase))),
-            remaining,
-            refreshed,
-          );
-        }),
+        onDraft(wallet, order, draft, remaining, refreshed),
       Pending: (pending) =>
         remaining === 0
           ? Effect.succeed(pending)
           : (submitted ? Effect.void : Effect.sleep(pendingPause)).pipe(
               Effect.andThen(
-                advance(wallet, order, Option.none(), remaining, refreshed),
+                advance(
+                  wallet,
+                  order,
+                  Option.none(),
+                  remaining,
+                  refreshed,
+                  onDraft,
+                ),
               ),
             ),
       Settled: (settled) => forget(order).pipe(Effect.as(settled)),
@@ -215,61 +201,216 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
       AssetBusy: Effect.succeed,
     });
 
-  return Effect.fn("Device.send")(function* (intent: TransferIntent) {
+  const signing =
+    (review: Option.Option<PaymentReview>): DraftHandler<SendOutcome> =>
+    (wallet, order, draft, remaining, refreshed) =>
+      Effect.gen(function* () {
+        const facts = orderedFacts(wallet, order, draft).pipe(
+          Option.filter(reviewed(review)),
+        );
+
+        const now = yield* nowSeconds;
+
+        if (
+          remaining === 0 ||
+          Option.isNone(facts) ||
+          approvalOutstanding(wallet, now) ||
+          facts.value.maxTime > now + paymentLifetime + clockAllowance
+        )
+          return new DraftRejected();
+
+        const deadline = Math.min(
+          facts.value.maxTime * 1000,
+          DateTime.toEpochMillis(draft.request.expiresAt),
+        );
+
+        const withinMargin = Effect.map(
+          DateTime.now,
+          (current) =>
+            deadline - DateTime.toEpochMillis(current) >= approvalMargin * 1000,
+        );
+
+        if (!(yield* withinMargin))
+          return refreshed
+            ? new DraftRejected()
+            : yield* advance(
+                wallet,
+                order,
+                Option.none(),
+                remaining,
+                true,
+                signing(review),
+              );
+
+        const approved = yield* remember(
+          store,
+          new DeviceWallet({ ...wallet, approvedUntil: facts.value.maxTime }),
+        );
+
+        if (Option.isNone(approved)) return new UnsupportedDevice();
+
+        if (!(yield* withinMargin)) return new DraftRejected();
+
+        return yield* advance(
+          approved.value,
+          order,
+          Option.some(approve(draft.request, signingKey(wallet.phrase))),
+          remaining,
+          refreshed,
+          signing(review),
+        );
+      });
+
+  const reviewing: DraftHandler<PaymentReview | DraftRejected> = (
+    wallet,
+    order,
+    draft,
+  ) =>
+    Effect.succeed(
+      Option.match(orderedFacts(wallet, order, draft), {
+        onNone: () => new DraftRejected(),
+        onSome: (facts) =>
+          new PaymentReview({
+            order,
+            to: facts.to,
+            username: Predicate.isTagged(order.to, "Username")
+              ? order.to.value
+              : undefined,
+            asset: facts.asset,
+            amount: facts.amount,
+            memo: Predicate.isTagged(facts, "PaymentFacts")
+              ? facts.memo
+              : undefined,
+            claimable: Predicate.isTagged(facts, "ClaimableFacts"),
+            memoRequired: draft.memoRequired,
+          }),
+      }),
+    );
+
+  const observing: DraftHandler<ApprovalOutstanding | NoTransfer> = (
+    wallet,
+    order,
+  ) =>
+    Effect.map(nowSeconds, (now) =>
+      approvalOutstanding(wallet, now)
+        ? new ApprovalOutstanding({ order })
+        : new NoTransfer(),
+    );
+
+  const prepared = <D>(
+    intent: TransferIntent,
+    onDraft: DraftHandler<D>,
+  ): Effect.Effect<D | SendOutcome, WalletUnavailable | KeyStoreUnavailable> =>
+    Effect.gen(function* () {
+      const stored = yield* store.read();
+
+      if (Option.isNone(stored)) return new NoWallet();
+
+      const wallet = stored.value;
+      const kept = wallet.transfer;
+
+      const replayed =
+        kept !== undefined &&
+        orderJson(kept) ===
+          orderJson(
+            new TransferOrder({ ...intent, id: kept.id, from: wallet.address }),
+          );
+
+      if (
+        !replayed &&
+        kept !== undefined &&
+        wallet.approvedUntil !== undefined
+      ) {
+        const signed = yield* port.transfer(kept, Option.none());
+        const now = yield* nowSeconds;
+
+        const resolved =
+          Predicate.isTagged(signed, "Settled") ||
+          Predicate.isTagged(signed, "Failed") ||
+          (!Predicate.isTagged(signed, "Pending") &&
+            !approvalOutstanding(wallet, now));
+
+        if (!resolved) return new ApprovalOutstanding({ order: kept });
+      }
+
+      const order = replayed
+        ? kept
+        : new TransferOrder({
+            ...intent,
+            id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
+            from: wallet.address,
+          });
+
+      const ready = replayed
+        ? Option.some(wallet)
+        : yield* remember(
+            store,
+            new DeviceWallet({
+              ...wallet,
+              transfer: order,
+              approvedUntil: undefined,
+            }),
+          );
+
+      if (Option.isNone(ready)) return new UnsupportedDevice();
+
+      return yield* advance(
+        ready.value,
+        order,
+        Option.none(),
+        pendingSteps,
+        false,
+        onDraft,
+      );
+    });
+
+  const send = Effect.fn("Device.send")(function* (intent: TransferIntent) {
+    return yield* prepared(intent, signing(Option.none()));
+  });
+
+  const review = Effect.fn("Device.review")(function* (intent: TransferIntent) {
+    return yield* prepared(intent, reviewing);
+  });
+
+  const confirm = Effect.fn("Device.confirm")(function* (shown: PaymentReview) {
     const stored = yield* store.read();
 
     if (Option.isNone(stored)) return new NoWallet();
 
-    const wallet = stored.value;
-    const kept = wallet.transfer;
+    const kept = stored.value.transfer;
 
-    const replayed =
-      kept !== undefined &&
-      orderJson(kept) ===
-        orderJson(
-          new TransferOrder({ ...intent, id: kept.id, from: wallet.address }),
-        );
-
-    if (!replayed && kept !== undefined && wallet.approvedUntil !== undefined) {
-      const signed = yield* port.transfer(kept, Option.none());
-      const now = yield* nowSeconds;
-
-      const resolved =
-        Predicate.isTagged(signed, "Settled") ||
-        Predicate.isTagged(signed, "Failed") ||
-        (!Predicate.isTagged(signed, "Pending") &&
-          !approvalOutstanding(wallet, now));
-
-      if (!resolved) return new ApprovalOutstanding({ order: kept });
-    }
-
-    const order = replayed
-      ? kept
-      : new TransferOrder({
-          ...intent,
-          id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
-          from: wallet.address,
-        });
-
-    const ready = replayed
-      ? Option.some(wallet)
-      : yield* remember(
-          store,
-          new DeviceWallet({
-            ...wallet,
-            transfer: order,
-            approvedUntil: undefined,
-          }),
-        );
-
-    if (Option.isNone(ready)) return new UnsupportedDevice();
+    if (kept === undefined || orderJson(kept) !== orderJson(shown.order))
+      return new DraftRejected();
 
     return yield* advance(
-      ready.value,
-      order,
+      stored.value,
+      kept,
       Option.none(),
       pendingSteps,
       false,
+      signing(Option.some(shown)),
     );
   });
+
+  const resume = Effect.fn("Device.resume")(function* (id: TransferId) {
+    const stored = yield* store.read();
+
+    if (Option.isNone(stored)) return new NoWallet();
+
+    const kept = stored.value.transfer;
+
+    if (kept?.id !== id || stored.value.approvedUntil === undefined)
+      return new NoTransfer();
+
+    return yield* advance(
+      stored.value,
+      kept,
+      Option.none(),
+      pendingSteps,
+      false,
+      observing,
+    );
+  });
+
+  return { send, review, confirm, resume };
 }

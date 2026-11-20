@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import {
   type BackUpOutcome,
-  type DeviceOverview,
   type Holding,
   type SavedBackup,
   type SavedOutcome,
@@ -17,6 +16,7 @@ import { BalanceHeader } from "@/components/balance-header";
 import { HomeSkeleton } from "@/components/home-skeleton";
 import { Screen } from "@/components/screen";
 import { recentActivity } from "@/fixtures/activity";
+import { shownOverview } from "@/wallet/shown-overview";
 
 export const Route = createFileRoute("/_app/home")({
   ssr: false,
@@ -32,16 +32,6 @@ export const Route = createFileRoute("/_app/home")({
   },
   component: HomeScreen,
 });
-
-const shownOverview = Match.type<DeviceOverview>().pipe(
-  Match.tag("NoWallet", () => {
-    throw redirect({ to: "/", replace: true });
-  }),
-  Match.tag("NotOpened", () => {
-    throw redirect({ to: "/create-account", replace: true });
-  }),
-  Match.orElse((overview) => overview),
-);
 
 const savedBackup = (saved: SavedOutcome): SavedBackup =>
   Match.valueTags(saved, {
