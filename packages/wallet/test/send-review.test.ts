@@ -2,9 +2,11 @@ import { expect, it } from "@effect/vitest";
 import { Account, Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 import {
   AddressRecipient,
   type Approval,
@@ -19,15 +21,23 @@ import {
   type UnsignedEnvelope,
   Username,
   UsernameRecipient,
+  Holding,
   InvalidResponse,
   LedgerUnreachable,
   Offline,
+  Pending,
   ServiceFailed,
+  Settled,
   type WalletPort,
   type WalletUnavailable,
   baseAsset,
 } from "../src/contract";
-import { TransferIntent, makeWalletClient } from "../src/device/client";
+import {
+  type PaymentReview,
+  TransferIntent,
+  makeWalletClient,
+  makeWalletEffects,
+} from "../src/device/client";
 import { DeviceWallet, type KeyStore } from "../src/device/key-store";
 import { generateSecretPhrase } from "../src/device/secret-phrase";
 import { signingKey } from "../src/device/signing";
@@ -113,6 +123,7 @@ const deviceAnswering = (
   answer: (approval: Option.Option<Approval>, call: number) => TransferStep,
   unavailable: (call: number) => Option.Option<WalletUnavailable> = () =>
     Option.none(),
+  overview: WalletPort["overview"] = () => Effect.die("Not used by send"),
 ) => {
   const approvals: Array<Option.Option<Approval>> = [];
   const orderIds: Array<string> = [];
@@ -138,7 +149,7 @@ const deviceAnswering = (
   const unused = () => Effect.die("Not used by send");
 
   const port: WalletPort = {
-    overview: unused,
+    overview,
     open: unused,
     manage: unused,
     passkeyChallenge: unused,
@@ -156,13 +167,11 @@ const deviceAnswering = (
       }),
   };
 
-  const client = makeWalletClient(
-    port,
-    store,
-    new SoftwareAuthenticator("http://localhost:3000").passkeys,
-  );
+  const authenticator = new SoftwareAuthenticator("http://localhost:3000");
+  const client = makeWalletClient(port, store, authenticator.passkeys);
+  const effects = makeWalletEffects(port, store, authenticator.passkeys);
 
-  return { approvals, orderIds, client, store };
+  return { approvals, orderIds, client, effects, store };
 };
 
 const reviewed = (
@@ -233,10 +242,13 @@ it.effect("refuses a payment reviewed that turns into a claimable", () =>
 
 it.effect("resumes an approved order without signing again", () =>
   Effect.gen(function* () {
-    const { approvals, client, store } = deviceAnswering((approval, call) =>
-      Option.isSome(approval) || call > 1
-        ? new NotOpened()
-        : draftOf(pedroPayment(), pedroProfile),
+    const { approvals, client, store } = deviceAnswering(
+      (approval, call) =>
+        Option.isSome(approval) || call > 1
+          ? new NotOpened()
+          : draftOf(pedroPayment(), pedroProfile),
+      () => Option.none(),
+      () => Effect.succeed(new NotOpened()),
     );
 
     const review = yield* reviewed(client, toPedro);
@@ -310,3 +322,109 @@ for (const failure of unavailableAnswers)
         expect(kept.approvedUntil).toBeDefined();
       }),
   );
+
+const approvedReview = Effect.fn(function* (
+  device: ReturnType<typeof deviceAnswering>,
+) {
+  const review = yield* reviewed(device.client, toPedro);
+
+  const wallet = Option.getOrThrow(
+    yield* device.store.read().pipe(Effect.orDie),
+  );
+
+  yield* device.store
+    .write(new DeviceWallet({ ...wallet, approvedUntil: now() + 120 }))
+    .pipe(Effect.orDie);
+
+  return review;
+});
+
+const receiptFields = (review: PaymentReview) => ({
+  id: review.order.id,
+  to: review.order.to,
+  recipient: pedroProfile,
+  asset: review.order.asset,
+  amount: review.order.amount,
+});
+
+it.effect("follows an approved order past many Pending answers", () =>
+  Effect.gen(function* () {
+    let shown: Option.Option<PaymentReview> = Option.none();
+
+    const device = deviceAnswering((_, call) =>
+      call === 1 || Option.isNone(shown)
+        ? draftOf(pedroPayment(), pedroProfile)
+        : call < 16
+          ? new Pending({
+              ...receiptFields(shown.value),
+              expiresAt: DateTime.makeUnsafe((now() + 120) * 1000),
+            })
+          : new NotOpened(),
+    );
+
+    const review = yield* approvedReview(device);
+
+    shown = Option.some(review);
+
+    const following = yield* Effect.forkChild(
+      device.effects.resume(review.order.id),
+    );
+
+    yield* TestClock.adjust("2 minutes");
+
+    expect(yield* Fiber.join(following)).toEqual(new NotOpened());
+    expect(device.approvals.filter(Option.isSome)).toHaveLength(0);
+  }),
+);
+
+it.effect(
+  "answers the recorded receipt after the device forgot the order",
+  () =>
+    Effect.gen(function* () {
+      let settled: Option.Option<Settled> = Option.none();
+
+      const device = deviceAnswering(
+        () => draftOf(pedroPayment(), pedroProfile),
+        () => Option.none(),
+        () =>
+          Effect.succeed(
+            new Holding({
+              profile: pedroProfile,
+              reserveSponsor: Option.some(sponsor),
+              balances: [],
+              claimable: [],
+              latest: settled,
+            }),
+          ),
+      );
+
+      const review = yield* reviewed(device.client, toPedro);
+
+      settled = Option.some(
+        new Settled({
+          ...receiptFields(review),
+          settledAt: DateTime.makeUnsafe(Date.now()),
+        }),
+      );
+
+      expect(
+        yield* Effect.promise(() => device.client.resume(review.order.id)),
+      ).toEqual(Option.getOrThrow(settled));
+    }),
+);
+
+it.effect("answers a failed receipt lookup as that failure", () =>
+  Effect.gen(function* () {
+    const device = deviceAnswering(
+      () => draftOf(pedroPayment(), pedroProfile),
+      () => Option.none(),
+      () => Effect.fail(new Offline()),
+    );
+
+    const review = yield* reviewed(device.client, toPedro);
+
+    expect(
+      yield* Effect.promise(() => device.client.resume(review.order.id)),
+    ).toEqual(new Offline());
+  }),
+);

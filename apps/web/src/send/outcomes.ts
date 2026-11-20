@@ -38,6 +38,12 @@ const untouched = "Tu dinero no se movió";
 const maybeMoving =
   "Si ya confirmaste, tu pago puede seguir en curso: no lo envíes de nuevo";
 
+export const deviceFailure = new SendScreen(
+  "Algo falló en este dispositivo",
+  "Si ya confirmaste, tu pago puede seguir en curso: no lo envíes de nuevo",
+  "home",
+);
+
 export const sendResult = (
   outcome: ResumeOutcome | Receipt,
   asset: Asset,
