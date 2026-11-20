@@ -37,12 +37,19 @@ export function runWallet<A>(
   return Effect.runPromise(concealed(program));
 }
 
-export function answerWallet<A, I>(
+export function answerWallet<C, D, A, I>(
+  call: Schema.Codec<C, D>,
+  data: D,
   step: Schema.Codec<A, I>,
-  program: Effect.Effect<A, ServerFailure, Wallet>,
+  program: (decoded: C) => Effect.Effect<A, ServerFailure, Wallet>,
 ): Promise<I | typeof ServerFailure.Encoded> {
   return Effect.runPromise(
-    concealed(program.pipe(Effect.flatMap(Schema.encodeEffect(step)))).pipe(
+    concealed(
+      Schema.decodeEffect(call)(data).pipe(
+        Effect.flatMap(program),
+        Effect.flatMap(Schema.encodeEffect(step)),
+      ),
+    ).pipe(
       Effect.catch((failure) =>
         Effect.succeed(Schema.encodeSync(ServerFailure)(failure)),
       ),

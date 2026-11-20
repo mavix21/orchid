@@ -8,7 +8,7 @@ import * as Match from "effect/Match";
 import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { useHomeForSavedWallet } from "@/wallet/use-home-for-saved-wallet";
-import { unavailableMessage } from "@/wallet/unavailable";
+import { retryable, unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/restore")({
   component: RestoreAccount,
@@ -31,6 +31,7 @@ const refusal = (
     UnsupportedDevice: () =>
       "Este navegador no puede guardar tu llave de forma segura.",
     Offline: unavailableMessage,
+    ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
     ServiceFailed: unavailableMessage,
     InvalidResponse: unavailableMessage,
@@ -41,6 +42,7 @@ function RestoreAccount() {
   const { walletClient } = Route.useRouteContext();
   const [restoring, setRestoring] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const [stopped, setStopped] = useState(false);
 
   useHomeForSavedWallet();
 
@@ -56,6 +58,7 @@ function RestoreAccount() {
       ),
       Match.orElse((refused) => {
         setProblem(refusal(refused));
+        setStopped(!retryable(refused));
         setRestoring(false);
       }),
     );
@@ -82,7 +85,11 @@ function RestoreAccount() {
         ) : null}
       </main>
       <ScreenActions>
-        <Button className="w-full" disabled={restoring} onClick={restore}>
+        <Button
+          className="w-full"
+          disabled={restoring || stopped}
+          onClick={restore}
+        >
           {restoring ? "Restaurando…" : "Restaurar con passkey"}
         </Button>
       </ScreenActions>

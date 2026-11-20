@@ -23,6 +23,7 @@ const TransferSearch = Schema.Struct({ transfer: Schema.optional(TransferId) });
 export const Route = createFileRoute("/send/$asset")({
   ssr: false,
   validateSearch: Schema.toStandardSchemaV1(TransferSearch),
+  shouldReload: false,
   loader: async ({ context, params }) => {
     const overview = shownOverview(await context.walletClient.overview());
 
@@ -60,12 +61,13 @@ function SendAsset() {
               asset={balance.asset}
               available={balance.amount}
               transfer={Option.fromNullishOr(transfer)}
-              onTransfer={(id) =>
-                void navigate({
-                  search: { transfer: Option.getOrUndefined(id) },
-                  replace: true,
-                })
-              }
+              onTransfer={(id) => {
+                if (Option.getOrUndefined(id) !== transfer)
+                  void navigate({
+                    search: { transfer: Option.getOrUndefined(id) },
+                    replace: true,
+                  });
+              }}
             />
           ) : null,
         NeedsReopening: (unavailable) => (
@@ -78,6 +80,9 @@ function SendAsset() {
           <SendUnavailable overview={unavailable} />
         ),
         Offline: (unavailable) => <SendUnavailable overview={unavailable} />,
+        ServerUnreachable: (unavailable) => (
+          <SendUnavailable overview={unavailable} />
+        ),
         LedgerUnreachable: (unavailable) => (
           <SendUnavailable overview={unavailable} />
         ),

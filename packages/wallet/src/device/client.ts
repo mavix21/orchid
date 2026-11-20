@@ -33,10 +33,13 @@ import {
   UnsupportedDevice,
 } from "./outcomes";
 import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
+import { loadFromServer } from "./reaching";
 
 export * from "./outcomes";
 
 export * from "./passkeys";
+
+export { loadFromServer, unreachedServer } from "./reaching";
 
 export interface WalletClient {
   overview(): Promise<DeviceOverview>;
@@ -67,11 +70,11 @@ export function makeWalletEffects(
   store: KeyStore,
   passkeys: Passkeys,
 ): WalletEffects {
-  const backups = Effect.promise(() => import("./backup")).pipe(
+  const backups = loadFromServer(() => import("./backup")).pipe(
     Effect.map(({ deviceBackup }) => deviceBackup(port, passkeys, store)),
   );
 
-  const sending = Effect.promise(() => import("./sending")).pipe(
+  const sending = loadFromServer(() => import("./sending")).pipe(
     Effect.map(({ sendTransfer }) => sendTransfer(port, store)),
   );
 
@@ -80,7 +83,7 @@ export function makeWalletEffects(
 
     if (Option.isNone(username)) return new InvalidUsername();
 
-    const { openWallet } = yield* Effect.promise(() => import("./opening"));
+    const { openWallet } = yield* loadFromServer(() => import("./opening"));
 
     return yield* openWallet(port, store, passkeys)(username.value);
   });
@@ -156,6 +159,7 @@ export function makeWalletEffects(
       Effect.catchTags({
         KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
         Offline: (failure) => Effect.succeed(failure),
+        ServerUnreachable: (failure) => Effect.succeed(failure),
         LedgerUnreachable: (failure) => Effect.succeed(failure),
         ServiceFailed: (failure) => Effect.succeed(failure),
         InvalidResponse: (failure) => Effect.succeed(failure),
@@ -171,6 +175,7 @@ export function makeWalletEffects(
       Effect.catchTags({
         KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
         Offline: (failure) => Effect.succeed(failure),
+        ServerUnreachable: (failure) => Effect.succeed(failure),
         LedgerUnreachable: (failure) => Effect.succeed(failure),
         ServiceFailed: (failure) => Effect.succeed(failure),
         InvalidResponse: (failure) => Effect.succeed(failure),
@@ -189,6 +194,7 @@ export function makeWalletEffects(
         Effect.catchTags({
           KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
           Offline: (failure) => Effect.succeed(failure),
+          ServerUnreachable: (failure) => Effect.succeed(failure),
           LedgerUnreachable: (failure) => Effect.succeed(failure),
           ServiceFailed: (failure) => Effect.succeed(failure),
           InvalidResponse: (failure) => Effect.succeed(failure),

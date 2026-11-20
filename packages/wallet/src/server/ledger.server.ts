@@ -1,7 +1,9 @@
 import { StrKey, xdr } from "@stellar/stellar-sdk";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AccountAddress, Amount } from "../contract";
+import { ChainUnreachable } from "./chain-errors.server";
 
 export const LedgerEntry = Schema.Struct({
   xdr: Schema.String,
@@ -10,13 +12,18 @@ export const LedgerEntry = Schema.Struct({
 
 export type LedgerEntry = typeof LedgerEntry.Type;
 
-export const LedgerResponse = Schema.fromJsonString(
-  Schema.Struct({
-    result: Schema.Struct({
-      entries: Schema.optional(Schema.Array(LedgerEntry)),
-      latestLedger: Schema.Number,
+const LedgerResult = Schema.Struct({
+  entries: Schema.optional(Schema.Array(LedgerEntry)),
+  latestLedger: Schema.Number,
+});
+
+const LedgerReply = Schema.fromJsonString(
+  Schema.Union([
+    Schema.Struct({ result: LedgerResult }),
+    Schema.Struct({
+      error: Schema.Struct({ code: Schema.Number, message: Schema.String }),
     }),
-  }),
+  ]),
 );
 
 export interface AccountState {
@@ -28,27 +35,40 @@ export interface AccountState {
   readonly sponsored: boolean;
 }
 
-export async function fetchEntries(
+export const fetchEntries = (
   rpcUrl: string,
   keys: ReadonlyArray<xdr.LedgerKey>,
-): Promise<typeof LedgerResponse.Type.result> {
-  const response = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "getLedgerEntries",
-      params: {
-        keys: [...new Set(keys.map((key) => key.toXdr("base64")))],
-      },
-    }),
-  });
+): Effect.Effect<typeof LedgerResult.Type, ChainUnreachable> =>
+  Effect.tryPromise({
+    try: async () => {
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getLedgerEntries",
+          params: {
+            keys: [...new Set(keys.map((key) => key.toXdr("base64")))],
+          },
+        }),
+      });
 
-  if (!response.ok) throw new Error("Ledger RPC request failed");
+      if (!response.ok) throw new Error("Ledger RPC request failed");
 
-  return Schema.decodeSync(LedgerResponse)(await response.text()).result;
-}
+      return response.text();
+    },
+    catch: (cause) => new ChainUnreachable({ cause }),
+  }).pipe(
+    Effect.map(Schema.decodeSync(LedgerReply)),
+    Effect.flatMap((reply) =>
+      "result" in reply
+        ? Effect.succeed(reply.result)
+        : Effect.fail(
+            new ChainUnreachable({ cause: new Error(reply.error.message) }),
+          ),
+    ),
+  );
 
 export function sponsorOf(entry: LedgerEntry): Option.Option<AccountAddress> {
   if (!entry.extXdr) return Option.none();
