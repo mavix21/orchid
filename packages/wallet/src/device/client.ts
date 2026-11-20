@@ -4,6 +4,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   BackupStored,
+  type TransferId,
   Username,
   type WalletPort,
   type WalletUnavailable,
@@ -22,7 +23,10 @@ import {
   InvalidUsername,
   NoWallet,
   Offline,
+  type PaymentReview,
   type RestoreOutcome,
+  type ResumeOutcome,
+  type ReviewOutcome,
   type SavedOutcome,
   SavedWallet,
   type SendOutcome,
@@ -42,6 +46,9 @@ export interface WalletClient {
   backUp(): Promise<BackUpOutcome>;
   restore(): Promise<RestoreOutcome>;
   send(intent: TransferIntent): Promise<SendOutcome>;
+  review(intent: TransferIntent): Promise<ReviewOutcome>;
+  confirm(review: PaymentReview): Promise<SendOutcome>;
+  resume(id: TransferId): Promise<ResumeOutcome>;
 }
 
 export function makeWalletClient(
@@ -114,9 +121,6 @@ export function makeWalletClient(
     return overview;
   });
 
-  const send = (intent: TransferIntent) =>
-    sending.pipe(Effect.flatMap((sendIntent) => sendIntent(intent)));
-
   const saved = Effect.fn("Device.saved")(function* () {
     const stored = yield* store.read();
 
@@ -147,6 +151,17 @@ export function makeWalletClient(
       Effect.runPromise,
     );
 
+  const transfer = <A>(
+    program: Effect.Effect<A, KeyStoreUnavailable | WalletUnavailable>,
+  ) =>
+    program.pipe(
+      Effect.catchTags({
+        KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
+        WalletUnavailable: () => Effect.succeed(new Offline()),
+      }),
+      Effect.runPromise,
+    );
+
   const client: WalletClient = {
     saved: () =>
       saved().pipe(
@@ -167,13 +182,13 @@ export function makeWalletClient(
     backUp: () => settle(backUp()),
     restore: () => settle(restore()),
     send: (intent) =>
-      send(intent).pipe(
-        Effect.catchTags({
-          KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
-          WalletUnavailable: () => Effect.succeed(new Offline()),
-        }),
-        Effect.runPromise,
-      ),
+      transfer(sending.pipe(Effect.flatMap(({ send }) => send(intent)))),
+    review: (intent) =>
+      transfer(sending.pipe(Effect.flatMap(({ review }) => review(intent)))),
+    confirm: (shown) =>
+      transfer(sending.pipe(Effect.flatMap(({ confirm }) => confirm(shown)))),
+    resume: (id) =>
+      transfer(sending.pipe(Effect.flatMap(({ resume }) => resume(id)))),
   };
 
   return client;

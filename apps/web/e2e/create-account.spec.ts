@@ -1,27 +1,14 @@
 import { type Page, expect, test } from "@playwright/test";
 
+import {
+  addAuthenticator,
+  freshUsername,
+  submitButton,
+  topNavLink,
+  usernameInput,
+} from "./device";
+
 const openingChunk = /\/assets\/opening-[\w-]+\.js$/;
-
-const addAuthenticator = async (
-  page: Page,
-  hasPrf: boolean,
-  isUserVerified = true,
-) => {
-  const session = await page.context().newCDPSession(page);
-
-  await session.send("WebAuthn.enable");
-  await session.send("WebAuthn.addVirtualAuthenticator", {
-    options: {
-      protocol: "ctap2",
-      transport: "internal",
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified,
-      hasPrf,
-      automaticPresenceSimulation: true,
-    },
-  });
-};
 
 const forgetDevice = (page: Page) =>
   page.evaluate(
@@ -33,15 +20,6 @@ const forgetDevice = (page: Page) =>
         request.addEventListener("error", () => reject(request.error));
       }),
   );
-
-const freshUsername = () =>
-  `e2e_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
-
-const usernameInput = (page: Page) => page.locator('input[name="username"]');
-
-const submitButton = (page: Page) => page.locator('button[type="submit"]');
-
-const topNavLink = (page: Page) => page.locator("header a");
 
 test("redirects on the server by whether the device holds a wallet", async ({
   request,

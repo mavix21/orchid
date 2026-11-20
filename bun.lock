@@ -41,6 +41,7 @@
       "devDependencies": {
         "@cloudflare/vite-plugin": "^1.69.1",
         "@playwright/test": "1.65.1",
+        "@stellar/stellar-sdk": "17.4.0",
         "@tanstack/devtools-vite": "latest",
         "@tanstack/router-cli": "^1.168.0",
         "@types/node": "^22",

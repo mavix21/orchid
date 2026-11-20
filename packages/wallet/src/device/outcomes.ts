@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import {
+  AccountAddress,
   Asset,
   type AddressBound,
   type AssertionRefused,
@@ -150,3 +151,26 @@ export type SendOutcome =
   | NoWallet
   | UnsupportedDevice
   | Offline;
+
+export class PaymentReview extends Schema.TaggedClass<PaymentReview>()(
+  "PaymentReview",
+  {
+    order: TransferOrder,
+    to: AccountAddress,
+    username: Schema.optional(Username),
+    asset: Asset,
+    amount: PositiveAmount,
+    memo: Schema.optional(PaymentMemo),
+    claimable: Schema.Boolean,
+    memoRequired: Schema.Boolean,
+  },
+) {}
+
+export type ReviewOutcome = PaymentReview | SendOutcome;
+
+export class NoTransfer extends Schema.TaggedClass<NoTransfer>()(
+  "NoTransfer",
+  {},
+) {}
+
+export type ResumeOutcome = NoTransfer | SendOutcome;

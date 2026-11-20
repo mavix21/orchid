@@ -1,14 +1,17 @@
 import { CoinsIcon } from "lucide-react";
+import type { Asset } from "@workspace/wallet";
+import * as Match from "effect/Match";
 
-import type { AssetId } from "@/fixtures/assets";
-
-const tokenIcons: Record<AssetId, () => React.ReactNode> = {
-  usdc: () => (
+function UsdcIcon() {
+  return (
     <span className="flex size-6 items-center justify-center rounded-full bg-token-usdc text-label-lg leading-none text-token-usdc-foreground">
       $
     </span>
-  ),
-  xlm: () => (
+  );
+}
+
+function LumenIcon() {
+  return (
     <span className="flex size-6 rounded-full bg-inverse text-inverse-foreground">
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
@@ -24,10 +27,12 @@ const tokenIcons: Record<AssetId, () => React.ReactNode> = {
         />
       </svg>
     </span>
-  ),
-  eurc: () => <CoinsIcon />,
-};
+  );
+}
 
-export function TokenIcon({ asset }: { asset: AssetId }) {
-  return tokenIcons[asset]();
+export function TokenIcon({ asset }: { asset: Asset }) {
+  return Match.valueTags(asset, {
+    Native: () => <LumenIcon />,
+    Issued: ({ code }) => (code === "USDC" ? <UsdcIcon /> : <CoinsIcon />),
+  });
 }
