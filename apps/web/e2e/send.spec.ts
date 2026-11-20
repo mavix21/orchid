@@ -85,6 +85,9 @@ const fundWithUsdc = async (address: string, amount: string) => {
   await horizon.submitTransaction(payment);
 };
 
+const choose = (page: Page, destination: string) =>
+  page.getByRole("button", { name: destination }).click();
+
 const fill = async (page: Page, recipient: string, amount: string) => {
   await page.locator("#recipient").fill(recipient);
   await page.locator("#amount").fill(amount);
@@ -111,7 +114,11 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
 
   await page.goto("/send");
   await page.getByRole("link", { name: /1 USDC/ }).click();
-  await fill(page, `@${recipient}`, "0.5");
+  await expect(
+    page.getByRole("button", { name: /A un teléfono · Pronto/ }),
+  ).toBeDisabled();
+  await choose(page, "A un @usuario");
+  await fill(page, recipient, "0.5");
   await review(page);
 
   const summary = page.getByRole("definition");
@@ -145,7 +152,8 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
 
   await page.goto("/send");
   await page.getByRole("link", { name: /0\.5 USDC/ }).click();
-  await fill(page, `@${recipient}`, "5");
+  await choose(page, "A un @usuario");
+  await fill(page, recipient, "5");
   await review(page);
 
   await expect(page.locator("#amount-error")).toHaveText(
@@ -172,6 +180,8 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
       : route.continue(),
   );
 
+  await page.getByRole("button", { name: "Cambiar destino" }).click();
+  await choose(page, "A una dirección Stellar");
   await fill(page, exchange, "0.1");
   await expect(page.locator("#memo")).toBeVisible();
   await review(page);
@@ -196,6 +206,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
         : route.fallback(),
     );
     await page.goto(sendUsdc);
+    await choose(page, "A una dirección Stellar");
     await fill(page, marker, "0.1");
     await review(page);
     await expect(page.getByRole("heading", { name: expected })).toBeVisible({
