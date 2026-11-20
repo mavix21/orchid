@@ -101,6 +101,7 @@ export const world = {
   exchangeMemos: new Array<KnownExchangeMemo>(),
   failSubmit: false,
   ledgerDown: false,
+  unreadable: new Set<string>(),
   holdings: new Map<AccountAddress, Holdings>(),
   claimables: new Map<string, ClaimableEntry>(),
 };
@@ -301,7 +302,9 @@ export const fakeChain = Layer.effect(
           }
         }),
       settlement: (sealed) =>
-        Effect.succeed(world.evidence.get(sealed.hash) ?? new Undecided()),
+        world.unreadable.has(sealed.hash)
+          ? Effect.die(new Error("Malformed RPC reply"))
+          : Effect.succeed(world.evidence.get(sealed.hash) ?? new Undecided()),
     });
   }),
 ).pipe(Layer.provide(realChain));
@@ -437,6 +440,7 @@ export function useDisposableDatabase() {
     world.exchangeMemos.length = 0;
     world.failSubmit = false;
     world.ledgerDown = false;
+    world.unreadable.clear();
     await Effect.runPromise(
       Effect.gen(function* () {
         const db = yield* makeDatabase();

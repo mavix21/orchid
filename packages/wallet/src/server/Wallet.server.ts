@@ -3,11 +3,11 @@ import { deliveryFlow } from "./wallet-delivery.server";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
@@ -494,11 +494,11 @@ export class Wallet extends Context.Service<
             ...inFlight.map((entry) => reconcile(entry).pipe(Effect.asVoid)),
             ...wallets.map(recoverWallet),
           ],
-          (program) => program.pipe(Effect.result),
+          (program) => program.pipe(Effect.exit),
         );
 
         for (const result of results) {
-          if (Result.isFailure(result))
+          if (Exit.isFailure(result))
             return yield* Effect.die(
               new Error("One or more sweep records could not be reconciled"),
             );
