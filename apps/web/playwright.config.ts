@@ -7,13 +7,15 @@ export default defineConfig({
   globalSetup: "./e2e/database.ts",
   timeout: 120_000,
   workers: 1,
+  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: "http://localhost:4173",
     actionTimeout: 30_000,
+    trace: "retain-on-failure",
     ...devices["Pixel 7"],
   },
   webServer: {
-    command: "bun run build && bun run preview --port 4173 --strictPort",
+    command: "bun e2e/preview-server.ts",
     url: "http://localhost:4173",
     timeout: 300_000,
     reuseExistingServer: false,
