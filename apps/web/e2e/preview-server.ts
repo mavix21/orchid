@@ -13,10 +13,8 @@ const fundedTestnetSecrets = async () => {
   const reserveSponsor = Keypair.random();
   const feePayer = Keypair.random();
 
-  await Promise.all([
-    fundWithFriendbot(reserveSponsor.publicKey()),
-    fundWithFriendbot(feePayer.publicKey()),
-  ]);
+  await fundWithFriendbot(reserveSponsor.publicKey());
+  await fundWithFriendbot(feePayer.publicKey());
 
   return {
     RESERVE_SPONSOR_SECRET: reserveSponsor.secret(),
@@ -24,14 +22,26 @@ const fundedTestnetSecrets = async () => {
   };
 };
 
-const serve = (env: NodeJS.ProcessEnv) => {
-  const server = spawn(
-    "bun run build && bun run preview --port 4173 --strictPort",
-    { shell: true, stdio: "inherit", env },
-  );
+const previewSecrets = async () =>
+  existsSync(developerSecrets) ? {} : fundedTestnetSecrets();
 
-  server.on("exit", (code) => process.exit(code ?? 1));
-};
+const runScript = (script: string[], env: NodeJS.ProcessEnv) =>
+  new Promise<number>((resolve, reject) => {
+    spawn(process.execPath, ["run", ...script], { stdio: "inherit", env })
+      .on("error", reject)
+      .on("exit", (code) => resolve(code ?? 1));
+  });
 
-if (existsSync(developerSecrets)) serve(process.env);
-else serve({ ...process.env, ...(await fundedTestnetSecrets()) });
+const [secrets, buildExitCode] = await Promise.all([
+  previewSecrets(),
+  runScript(["build"], process.env),
+]);
+
+if (buildExitCode !== 0) process.exit(buildExitCode);
+
+process.exit(
+  await runScript(["preview", "--port", "4173", "--strictPort"], {
+    ...process.env,
+    ...secrets,
+  }),
+);
