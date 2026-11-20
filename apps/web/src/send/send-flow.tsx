@@ -191,7 +191,7 @@ function DestinationChoice({
           title="A un teléfono"
           description="Los envíos por teléfono llegan pronto"
           media={<PhoneIcon />}
-          render={<button type="button" disabled />}
+          disabled
         />
       </div>
     </main>
