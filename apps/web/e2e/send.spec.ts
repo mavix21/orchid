@@ -115,7 +115,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await page.goto("/send");
   await page.getByRole("link", { name: /1 USDC/ }).click();
   await expect(
-    page.getByRole("button", { name: /A un teléfono · Pronto/ }),
+    page.getByRole("button", { name: /A un teléfono/ }),
   ).toBeDisabled();
   await choose(page, "A un @usuario");
   await fill(page, recipient, "0.5");

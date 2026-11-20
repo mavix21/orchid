@@ -188,7 +188,7 @@ function DestinationChoice({
           render={<button type="button" onClick={() => onChoose("address")} />}
         />
         <OptionRow
-          title="A un teléfono · Pronto"
+          title="A un teléfono"
           description="Los envíos por teléfono llegan pronto"
           media={<PhoneIcon />}
           render={<button type="button" disabled />}
@@ -240,8 +240,10 @@ function SendFormStep({
     field: SendField,
     label: string,
     hint: string,
-    prefix?: string,
+    adornment: { prefix?: string; counter?: string } = {},
   ) => {
+    const { prefix, counter } = adornment;
+
     const message = problem.pipe(
       Option.filter((found) => found.field === field),
       Option.map((found) => found.message),
@@ -272,12 +274,19 @@ function SendFormStep({
     return (
       <Field>
         <FieldLabel htmlFor={field}>{label}</FieldLabel>
-        {prefix === undefined ? (
+        {prefix === undefined && counter === undefined ? (
           <Input {...control} />
         ) : (
           <InputGroup>
-            <InputGroupAddon>{prefix}</InputGroupAddon>
+            {prefix === undefined ? null : (
+              <InputGroupAddon>{prefix}</InputGroupAddon>
+            )}
             <InputGroupInput {...control} />
+            {counter === undefined ? null : (
+              <InputGroupAddon align="inline-end">
+                <span className="text-label tabular-nums">{counter}</span>
+              </InputGroupAddon>
+            )}
           </InputGroup>
         )}
         <FieldDescription>{hint}</FieldDescription>
@@ -302,7 +311,9 @@ function SendFormStep({
             : "¿A qué dirección le envías?"}
         </h1>
         {destination === "username"
-          ? fieldInput("recipient", "Usuario", "Alguien que tenga Orchid", "@")
+          ? fieldInput("recipient", "Usuario", "Alguien que tenga Orchid", {
+              prefix: "@",
+            })
           : fieldInput(
               "recipient",
               "Dirección Stellar",
@@ -317,7 +328,8 @@ function SendFormStep({
           ? fieldInput(
               "memo",
               "Memo",
-              `Solo si el destino lo pide, como un exchange · ${memoBytes(form.memo)}/${memoByteLimit}`,
+              "Solo si el destino lo pide, como un exchange",
+              { counter: `${memoBytes(form.memo)}/${memoByteLimit}` },
             )
           : null}
         {memoRefused ? (
