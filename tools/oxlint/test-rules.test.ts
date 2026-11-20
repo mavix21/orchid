@@ -4,6 +4,7 @@ import { RuleTester } from "oxlint/plugins-dev";
 import {
   noCopyLiteralInE2e,
   noErrorMessageAssertion,
+  noFilteredEffectTest,
   noTestInLoop,
 } from "./test-rules.ts";
 
@@ -54,6 +55,20 @@ tester.run("no-error-message-assertion", noErrorMessageAssertion, {
     {
       code: "expect(error.message).toBe(detail)",
       errors: [{ messageId: "message" }],
+    },
+  ],
+});
+
+tester.run("no-filtered-effect-test", noFilteredEffectTest, {
+  valid: ['it.effect("replays", check)'],
+  invalid: [
+    {
+      code: 'it.effect.only("replays", check)',
+      errors: [{ messageId: "filtered" }],
+    },
+    {
+      code: 'it.live.skip("replays", check)',
+      errors: [{ messageId: "filtered" }],
     },
   ],
 });
