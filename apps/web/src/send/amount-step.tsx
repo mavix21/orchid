@@ -126,7 +126,7 @@ export function AmountStep({
                 aria-describedby={
                   Option.isSome(amountProblem) ? "amount-error" : undefined
                 }
-                className="max-w-full min-w-0 field-sizing-content bg-transparent text-right font-display text-display tracking-normal outline-none placeholder:text-muted-foreground"
+                className="max-w-full min-w-0 field-sizing-content bg-transparent text-right font-display text-display tracking-normal caret-muted-foreground outline-none placeholder:text-muted-foreground"
               />
               <label
                 htmlFor="amount"
