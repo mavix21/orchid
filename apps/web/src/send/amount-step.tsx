@@ -122,17 +122,17 @@ export function AmountStep({
                 autoFocus
                 placeholder="0"
                 size={Math.max(form.amount.length, 1)}
-                aria-label={`Monto en ${assetCode(asset)}`}
                 aria-invalid={Option.isSome(amountProblem) ? true : undefined}
                 aria-describedby={
                   Option.isSome(amountProblem) ? "amount-error" : undefined
                 }
-                className="max-w-full min-w-0 field-sizing-content bg-transparent text-right font-display text-display outline-none placeholder:text-muted-foreground"
+                className="max-w-full min-w-0 field-sizing-content bg-transparent text-right font-display text-display tracking-normal outline-none placeholder:text-muted-foreground"
               />
               <label
                 htmlFor="amount"
                 className="font-display text-h1 text-muted-foreground"
               >
+                <span className="sr-only">Monto en </span>
                 {assetCode(asset)}
               </label>
             </div>
