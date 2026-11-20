@@ -148,6 +148,11 @@ test("stops creation with a retry when the passkey prompt is cancelled", async (
   page,
 }) => {
   await addAuthenticator(page, true, false);
+  await page.route("**/_serverFn/**", (route) =>
+    route.request().postData()?.includes('"enrollment"')
+      ? route.fulfill({ json: { result: "A".repeat(43) } })
+      : route.continue(),
+  );
 
   await page.goto("/create-account");
   await usernameInput(page).fill(freshUsername());

@@ -70,6 +70,7 @@ const issueMessage = (issue: UsernameIssue) =>
   });
 
 function ChooseUsername() {
+  const [hydrated, setHydrated] = useState(false);
   const navigate = useNavigate();
   const { walletClient } = Route.useRouteContext();
   const [username, setUsername] = useState("");
@@ -114,6 +115,8 @@ function ChooseUsername() {
 
   useEffect(() => {
     let current = true;
+
+    setHydrated(true);
 
     void walletClient.saved().then((saved) => {
       if (!current || !Predicate.isTagged(saved, "SavedWallet")) return;
@@ -180,7 +183,7 @@ function ChooseUsername() {
                   setProblem(undefined);
                 }}
                 onBlur={() => setTouched(username.length > 0)}
-                disabled={busy}
+                disabled={!hydrated || busy}
                 aria-invalid={message ? true : undefined}
                 aria-describedby={message ? "username-error" : undefined}
                 autoComplete="username"
