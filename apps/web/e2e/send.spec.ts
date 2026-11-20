@@ -190,11 +190,13 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
       : route.continue(),
   );
 
-  await page.getByRole("button", { name: /Usuario de Orchid/ }).click();
+  await page.getByRole("button", { name: "Cambiar destinatario" }).click();
   await page.getByRole("button", { name: "Cambiar destino" }).click();
   await choose(page, "A una dirección Stellar");
   await fill(page, exchange, "0.1");
-  await expect(page.getByRole("button", { name: "Memo" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Agregar memo" }),
+  ).toBeVisible();
   await expect(page.locator("#memo")).toHaveCount(0);
   await review(page);
 
@@ -205,9 +207,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await expect(page.locator("#memo")).toBeFocused();
   await page.locator("#memo").fill("4521");
   await page.getByRole("button", { name: "Guardar memo" }).click();
-  await expect(
-    page.getByRole("button", { name: "Memo agregado" }),
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Editar memo" })).toBeVisible();
 
   const sendUsdc = page.url();
 
