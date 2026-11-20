@@ -9,7 +9,7 @@ const method = (node: ESTree.Node) =>
 
 function testRegistration(node: ESTree.Node): boolean {
   if (node.type === "Identifier")
-    return node.name === "it" || node.name === "test";
+    return ["it", "test", "suite", "describe"].includes(node.name);
 
   return (
     node.type === "MemberExpression" &&
@@ -60,7 +60,8 @@ export const noTestInLoop = defineRule({
 });
 
 const staticText = (node?: ESTree.Node) =>
-  (node?.type === "Literal" && /^['"\x2f]/u.test(node.raw ?? "")) ||
+  (node?.type === "Literal" &&
+    ["'", '"', "/"].includes(node.raw?.charAt(0) ?? "")) ||
   (node?.type === "TemplateLiteral" && node.expressions.length === 0);
 
 export const noCopyLiteralInE2e = defineRule({
@@ -140,6 +141,28 @@ export const noErrorMessageAssertion = defineRule({
             value.value === "message")
         )
           context.report({ node, messageId: "message" });
+      },
+    };
+  },
+});
+
+export const noFilteredEffectTest = defineRule({
+  meta: {
+    type: "problem",
+    schema: [],
+    messages: { filtered: "Run every Effect test case." },
+  },
+  createOnce(context) {
+    return {
+      MemberExpression(node) {
+        if (!["only", "skip", "skipIf", "runIf"].includes(method(node) ?? ""))
+          return;
+
+        if (
+          ["effect", "live"].includes(method(node.object) ?? "") &&
+          testRegistration(node.object)
+        )
+          context.report({ node, messageId: "filtered" });
       },
     };
   },
