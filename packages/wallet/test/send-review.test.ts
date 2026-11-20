@@ -428,3 +428,31 @@ it.effect("answers a failed receipt lookup as that failure", () =>
     ).toEqual(new Offline());
   }),
 );
+
+it.effect("stops following a payment still Pending after it expired", () =>
+  Effect.gen(function* () {
+    let shown: Option.Option<PaymentReview> = Option.none();
+
+    const device = deviceAnswering((_, call) =>
+      call === 1 || Option.isNone(shown)
+        ? draftOf(pedroPayment(), pedroProfile)
+        : new Pending({
+            ...receiptFields(shown.value),
+            expiresAt: DateTime.makeUnsafe(120_000),
+          }),
+    );
+
+    const review = yield* approvedReview(device);
+
+    shown = Option.some(review);
+
+    const following = yield* Effect.forkChild(
+      device.effects.resume(review.order.id),
+    );
+
+    yield* TestClock.adjust("10 minutes");
+
+    expect((yield* Fiber.join(following))._tag).toBe("Pending");
+    expect(device.approvals.filter(Option.isSome)).toHaveLength(0);
+  }),
+);

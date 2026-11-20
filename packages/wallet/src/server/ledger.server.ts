@@ -17,15 +17,6 @@ const LedgerResult = Schema.Struct({
   latestLedger: Schema.Number,
 });
 
-const LedgerReply = Schema.fromJsonString(
-  Schema.Union([
-    Schema.Struct({ result: LedgerResult }),
-    Schema.Struct({
-      error: Schema.Struct({ code: Schema.Number, message: Schema.String }),
-    }),
-  ]),
-);
-
 export interface AccountState {
   readonly sequence: string;
   readonly nativeBalance: bigint;
@@ -35,32 +26,41 @@ export interface AccountState {
   readonly sponsored: boolean;
 }
 
-export const fetchEntries = (
+export type RpcParams = Readonly<
+  Record<string, string | ReadonlyArray<string>>
+>;
+
+const rpcReply = <A, I>(result: Schema.Codec<A, I>) =>
+  Schema.fromJsonString(
+    Schema.Union([
+      Schema.Struct({ result }),
+      Schema.Struct({
+        error: Schema.Struct({ code: Schema.Number, message: Schema.String }),
+      }),
+    ]),
+  );
+
+export const rpcCall = <A, I>(
   rpcUrl: string,
-  keys: ReadonlyArray<xdr.LedgerKey>,
-): Effect.Effect<typeof LedgerResult.Type, ChainUnreachable> =>
+  method: string,
+  params: RpcParams,
+  result: Schema.Codec<A, I>,
+): Effect.Effect<A, ChainUnreachable> =>
   Effect.tryPromise({
     try: async () => {
       const response = await fetch(rpcUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getLedgerEntries",
-          params: {
-            keys: [...new Set(keys.map((key) => key.toXdr("base64")))],
-          },
-        }),
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
       });
 
-      if (!response.ok) throw new Error("Ledger RPC request failed");
+      if (!response.ok) throw new Error(`Stellar RPC ${method} failed`);
 
       return response.text();
     },
     catch: (cause) => new ChainUnreachable({ cause }),
   }).pipe(
-    Effect.map(Schema.decodeSync(LedgerReply)),
+    Effect.map(Schema.decodeSync(rpcReply(result))),
     Effect.flatMap((reply) =>
       "result" in reply
         ? Effect.succeed(reply.result)
@@ -68,6 +68,17 @@ export const fetchEntries = (
             new ChainUnreachable({ cause: new Error(reply.error.message) }),
           ),
     ),
+  );
+
+export const fetchEntries = (
+  rpcUrl: string,
+  keys: ReadonlyArray<xdr.LedgerKey>,
+) =>
+  rpcCall(
+    rpcUrl,
+    "getLedgerEntries",
+    { keys: [...new Set(keys.map((key) => key.toXdr("base64")))] },
+    LedgerResult,
   );
 
 export function sponsorOf(entry: LedgerEntry): Option.Option<AccountAddress> {
