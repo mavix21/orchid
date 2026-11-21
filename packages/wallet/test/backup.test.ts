@@ -5,6 +5,7 @@ import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 import {
   AssertionRefused,
   BackupFound,
@@ -97,25 +98,30 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "creation stores an encrypted backup before the username is claimed",
       () =>
         Effect.gen(function* () {
+          const db = yield* Database;
           const wallet = yield* Wallet;
           const authenticator = new SoftwareAuthenticator(passkeyOrigin);
-          const calls: Array<string> = [];
+          let backupBeforeFirstOpen: boolean | undefined;
 
-          const recording: WalletPort = {
+          const observing: WalletPort = {
             ...wallet,
-            enroll: (enrollment) => {
-              calls.push("enroll");
+            open: (claim, approval) =>
+              Effect.gen(function* () {
+                if (backupBeforeFirstOpen === undefined) {
+                  const existing = yield* db
+                    .select()
+                    .from(backups)
+                    .where(eq(backups.address, claim.address))
+                    .pipe(Effect.orDie);
 
-              return wallet.enroll(enrollment);
-            },
-            open: (claim, approval) => {
-              calls.push("open");
+                  backupBeforeFirstOpen = existing.length === 1;
+                }
 
-              return wallet.open(claim, approval);
-            },
+                return yield* wallet.open(claim, approval);
+              }),
           };
 
-          const { store, client } = device(recording, authenticator);
+          const { store, client } = device(observing, authenticator);
 
           expect(
             yield* Effect.promise(() => client.create("maria")),
@@ -124,8 +130,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const saved = yield* savedWallet(store);
           const rows = yield* tableRows;
 
-          expect(calls[0]).toBe("enroll");
-          expect(calls.slice(1).every((call) => call === "open")).toBe(true);
+          expect(backupBeforeFirstOpen).toBe(true);
           expect(saved.backup).toBe("stored");
           expect(rows.backups).toHaveLength(1);
           expect(rows.backups[0]?.address).toBe(saved.address);
@@ -363,23 +368,29 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "consume rejects a challenge that expires while waiting on DELETE",
       () =>
         Effect.gen(function* () {
-          const challenge = yield* Backups.use((service) =>
-            service.issue("restore"),
-          );
+          const now = yield* Clock.currentTimeMillis;
 
-          const { result: consumed } = yield* runAcrossLockWait({
-            locktype: "transactionid",
-            advance: "5 minutes",
-            acquire: (tx) =>
-              tx
-                .select()
-                .from(passkeyChallenges)
-                .where(eq(passkeyChallenges.challenge, challenge))
-                .for("update"),
-            run: Backups.use((service) =>
-              service.consume(challenge, "restore"),
-            ),
-          });
+          const { result: consumed } = yield* Effect.gen(function* () {
+            yield* TestClock.setTime(now);
+
+            const challenge = yield* Backups.use((service) =>
+              service.issue("restore"),
+            );
+
+            return yield* runAcrossLockWait({
+              locktype: "transactionid",
+              advance: "5 minutes",
+              acquire: (tx) =>
+                tx
+                  .select()
+                  .from(passkeyChallenges)
+                  .where(eq(passkeyChallenges.challenge, challenge))
+                  .for("update"),
+              run: Backups.use((service) =>
+                service.consume(challenge, "restore"),
+              ),
+            });
+          }).pipe(Effect.provide(TestClock.layer()));
 
           expect(consumed).toBe(false);
         }),

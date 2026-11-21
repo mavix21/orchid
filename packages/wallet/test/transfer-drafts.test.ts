@@ -13,7 +13,6 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import {
   AddressRecipient,
@@ -21,6 +20,7 @@ import {
   Failed,
   Pending,
   PositiveAmount,
+  ServiceFailed,
   Settled,
   TransferOrder,
   Amount,
@@ -114,9 +114,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const refused = yield* Wallet.use((wallet) =>
             wallet.transfer(changed, Option.none()),
-          ).pipe(Effect.result, Effect.provide(walletLayer));
+          ).pipe(Effect.flip, Effect.provide(walletLayer));
 
-          expect(Result.isFailure(refused)).toBe(true);
+          expect(refused).toEqual(new ServiceFailed());
           expect(
             Option.getOrThrow(
               yield* Transfers.use((service) => service.find(order.id)),

@@ -145,30 +145,47 @@ it.effect.each([
     }),
 );
 
-it("registry entries require testnet, checksum-valid addresses and a public HTTPS source", () => {
-  const valid = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+const validRegistryEntry = {
+  network,
+  address: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+  exchange: "Synthetic exchange fixture",
+  source: "https://example.com/fixtures/stellar-testnet-memo-required",
+};
 
-  const entry = {
-    network,
-    address: valid,
-    exchange: "Synthetic exchange fixture",
-    source: "https://example.com/fixtures/stellar-testnet-memo-required",
-  };
-
+it("registry accepts a testnet entry with a valid address and HTTPS source", () => {
   expect(
-    Option.isSome(Schema.decodeUnknownOption(KnownExchangeMemo)(entry)),
+    Option.isSome(
+      Schema.decodeUnknownOption(KnownExchangeMemo)(validRegistryEntry),
+    ),
   ).toBe(true);
+});
 
-  const bad = `${valid.slice(0, -1)}A`;
-
-  for (const invalid of [
-    { ...entry, network: "mainnet" },
-    { ...entry, address: bad },
-    { ...entry, source: "" },
-    { ...entry, source: "file:///not-public" },
-    { ...entry, exchange: "" },
-  ])
-    expect(
-      Option.isNone(Schema.decodeUnknownOption(KnownExchangeMemo)(invalid)),
-    ).toBe(true);
+it.each([
+  {
+    name: "non-testnet network",
+    invalid: { ...validRegistryEntry, network: "mainnet" },
+  },
+  {
+    name: "bad address checksum",
+    invalid: {
+      ...validRegistryEntry,
+      address: `${validRegistryEntry.address.slice(0, -1)}A`,
+    },
+  },
+  {
+    name: "empty source",
+    invalid: { ...validRegistryEntry, source: "" },
+  },
+  {
+    name: "non-HTTPS source",
+    invalid: { ...validRegistryEntry, source: "file:///not-public" },
+  },
+  {
+    name: "empty exchange",
+    invalid: { ...validRegistryEntry, exchange: "" },
+  },
+])("registry rejects $name", ({ invalid }) => {
+  expect(
+    Option.isNone(Schema.decodeUnknownOption(KnownExchangeMemo)(invalid)),
+  ).toBe(true);
 });

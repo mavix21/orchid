@@ -15,7 +15,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
-import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import {
@@ -30,6 +29,7 @@ import {
 } from "../src/contract";
 import {
   Applied,
+  ApprovalInvalid,
   Chain,
   Expired,
   Rejected,
@@ -84,18 +84,19 @@ const seal = (envelope: UnsignedEnvelope, expires: number) =>
     ),
   ).pipe(Effect.provide(layer));
 
-it("money parsing preserves all seven decimals and int64 limits", () => {
-  for (const value of [
-    "0",
-    "-1",
-    "1e2",
-    "1.00000001",
-    "922337203686",
-    "",
-    " 1",
-  ])
-    expect(Option.isNone(parseAmount(value))).toBe(true);
+it.each([
+  { name: "zero", value: "0" },
+  { name: "negative", value: "-1" },
+  { name: "scientific notation", value: "1e2" },
+  { name: "more than seven decimals", value: "1.00000001" },
+  { name: "above int64 max", value: "922337203686" },
+  { name: "empty string", value: "" },
+  { name: "leading space", value: " 1" },
+])("money parsing rejects $name", ({ value }) => {
+  expect(Option.isNone(parseAmount(value))).toBe(true);
+});
 
+it("money parsing preserves all seven decimals and int64 limits", () => {
   expect(Option.getOrThrow(parseAmount("5.5000001")).toString()).toBe(
     "55000001",
   );
@@ -139,27 +140,28 @@ it("payment envelopes preserve amount, destination, bounds and next sequence", (
   );
 });
 
-it("opening supports exactly the creation and trustline-repair sandwiches", () => {
-  for (const createAccount of [true, false]) {
-    const envelope = draftOpening({
-      source: new Account(reserveSponsor, "123"),
+it.each([
+  { name: "creation", createAccount: true },
+  { name: "trustline repair", createAccount: false },
+])("opening supports the $name sandwich", ({ createAccount }) => {
+  const envelope = draftOpening({
+    source: new Account(reserveSponsor, "123"),
+    address,
+    createAccount,
+    minTime: 100,
+    maxTime: 220,
+  });
+
+  expect(Option.getOrThrow(readEnvelope(envelope))).toEqual(
+    new OpeningFacts({
       address,
+      reserveSponsor,
       createAccount,
+      sequence: "124",
       minTime: 100,
       maxTime: 220,
-    });
-
-    expect(Option.getOrThrow(readEnvelope(envelope))).toEqual(
-      new OpeningFacts({
-        address,
-        reserveSponsor,
-        createAccount,
-        sequence: "124",
-        minTime: 100,
-        maxTime: 220,
-      }),
-    );
-  }
+    }),
+  );
 });
 
 it("recovery contains bounded next-sequence trustline removal and merge", () => {
@@ -193,55 +195,64 @@ it("recovery contains bounded next-sequence trustline removal and merge", () => 
   ).toBe(true);
 });
 
-it("reader rejects unsupported memos, extra operations, operation source and unbounded envelopes", () => {
-  const payment = Operation.payment({
-    destination: to,
-    asset: usdc,
-    amount: "1",
+const samplePayment = Operation.payment({
+  destination: to,
+  asset: usdc,
+  amount: "1",
+});
+
+const tx = (options: { fee?: string; memo?: Memo } = {}) =>
+  new TransactionBuilder(new Account(address, "123"), {
+    fee: options.fee ?? baseFee,
+    networkPassphrase,
+    memo: options.memo,
   });
 
-  const builders = [
-    new TransactionBuilder(new Account(address, "123"), {
-      fee: baseFee,
-      networkPassphrase,
-      memo: Memo.hash(new Uint8Array(32)),
-    }).addOperation(payment),
-    new TransactionBuilder(new Account(address, "123"), {
-      fee: baseFee,
-      networkPassphrase,
-    })
-      .addOperation(payment)
-      .addOperation(payment),
-    new TransactionBuilder(new Account(address, "123"), {
-      fee: baseFee,
-      networkPassphrase,
-    }).addOperation(
-      Operation.payment({
-        source: to,
-        destination: to,
-        asset: usdc,
-        amount: "1",
-      }),
-    ),
-    new TransactionBuilder(new Account(address, "123"), {
-      fee: "200",
-      networkPassphrase,
-    }).addOperation(payment),
-  ];
-
-  for (const builder of builders)
-    expect(
-      Option.isNone(
-        readEnvelope(
-          Schema.decodeSync(UnsignedEnvelope)(
-            builder.setTimebounds(100, 220).build().toXDR(),
-          ),
-        ),
-      ),
-    ).toBe(true);
-
+it.each([
+  {
+    name: "unsupported memo",
+    xdr: tx({ memo: Memo.hash(new Uint8Array(32)) })
+      .addOperation(samplePayment)
+      .setTimebounds(100, 220)
+      .build()
+      .toXDR(),
+  },
+  {
+    name: "extra operations",
+    xdr: tx()
+      .addOperation(samplePayment)
+      .addOperation(samplePayment)
+      .setTimebounds(100, 220)
+      .build()
+      .toXDR(),
+  },
+  {
+    name: "operation source",
+    xdr: tx()
+      .addOperation(
+        Operation.payment({
+          source: to,
+          destination: to,
+          asset: usdc,
+          amount: "1",
+        }),
+      )
+      .setTimebounds(100, 220)
+      .build()
+      .toXDR(),
+  },
+  {
+    name: "non-base fee",
+    xdr: tx({ fee: "200" })
+      .addOperation(samplePayment)
+      .setTimebounds(100, 220)
+      .build()
+      .toXDR(),
+  },
+  { name: "invalid XDR", xdr: "not xdr" },
+])("reader rejects $name", ({ xdr: raw }) => {
   expect(
-    Option.isNone(readEnvelope(Schema.decodeSync(UnsignedEnvelope)("not xdr"))),
+    Option.isNone(readEnvelope(Schema.decodeSync(UnsignedEnvelope)(raw))),
   ).toBe(true);
 });
 
@@ -285,9 +296,9 @@ it.live(
           new Approval({ signature: new Uint8Array(64) }),
           address,
         ),
-      ).pipe(Effect.result, Effect.provide(layer));
+      ).pipe(Effect.flip, Effect.provide(layer));
 
-      expect(Result.isFailure(invalid)).toBe(true);
+      expect(invalid).toBeInstanceOf(ApprovalInvalid);
     }),
 );
 
@@ -629,68 +640,72 @@ it("recovery sponsorship requires matching account and trustline sponsors, not s
   ).toBe(false);
 });
 
-it.live(
-  "text and id memos validate at the boundary and survive reading and sealing",
-  () =>
-    Effect.gen(function* () {
-      const now = Math.floor(Date.now() / 1000);
+it.live.each([
+  { name: "UTF-8 text", memo: { type: "text", value: "exchange dépôt 🪷" } },
+  { name: "BOM text", memo: { type: "text", value: "\uFEFFdeposit" } },
+  {
+    name: "max uint64 id",
+    memo: { type: "id", value: "18446744073709551615" },
+  },
+  { name: "zero id", memo: { type: "id", value: "0" } },
+])("valid $name memo survives reading and sealing", ({ memo }) =>
+  Effect.gen(function* () {
+    const now = Math.floor(Date.now() / 1000);
+    const checked = Schema.decodeUnknownSync(PaymentMemo)(memo);
 
-      for (const memo of [
-        { type: "text", value: "exchange dépôt 🪷" },
-        { type: "text", value: "\uFEFFdeposit" },
-        { type: "id", value: "18446744073709551615" },
-        { type: "id", value: "0" },
-      ]) {
-        const checked = Schema.decodeUnknownSync(PaymentMemo)(memo);
+    const envelope = draftPayment({
+      asset: baseAsset,
+      source: new Account(address, "123"),
+      to,
+      amount: Schema.decodeSync(PositiveAmount)("1"),
+      minTime: now,
+      maxTime: now + 120,
+      memo: checked,
+    });
 
-        const envelope = draftPayment({
-          asset: baseAsset,
-          source: new Account(address, "123"),
-          to,
-          amount: Schema.decodeSync(PositiveAmount)("1"),
-          minTime: now,
-          maxTime: now + 120,
-          memo: checked,
-        });
+    const facts = Option.getOrThrow(readEnvelope(envelope));
 
-        const facts = Option.getOrThrow(readEnvelope(envelope));
+    assertTagged(facts, "PaymentFacts");
+    expect(facts.memo).toEqual(checked);
 
-        assertTagged(facts, "PaymentFacts");
+    const sealed = yield* seal(envelope, now + 120);
 
-        expect(facts.memo).toEqual(checked);
+    const outer = TransactionBuilder.fromXDR(
+      sealed.envelope,
+      networkPassphrase,
+    );
 
-        const sealed = yield* seal(envelope, now + 120);
+    if (!(outer instanceof FeeBumpTransaction))
+      throw new Error("Expected fee bump");
 
-        const outer = TransactionBuilder.fromXDR(
-          sealed.envelope,
-          networkPassphrase,
-        );
-
-        if (!(outer instanceof FeeBumpTransaction))
-          throw new Error("Expected fee bump");
-
-        expect(outer.innerTransaction.memo.toXdrObject().toXDR("base64")).toBe(
-          (checked.type === "text"
-            ? Memo.text(checked.value)
-            : Memo.id(checked.value)
-          )
-            .toXdrObject()
-            .toXDR("base64"),
-        );
-      }
-
-      for (const memo of [
-        { type: "text", value: "" },
-        { type: "text", value: "é".repeat(15) },
-        { type: "text", value: "\uD800" },
-        { type: "id", value: "18446744073709551616" },
-        { type: "id", value: "-1" },
-        { type: "id", value: "01" },
-        { type: "id", value: "1e3" },
-        { type: "hash", value: "abc" },
-      ])
-        expect(
-          Option.isNone(Schema.decodeUnknownOption(PaymentMemo)(memo)),
-        ).toBe(true);
-    }),
+    expect(outer.innerTransaction.memo.toXdrObject().toXDR("base64")).toBe(
+      (checked.type === "text"
+        ? Memo.text(checked.value)
+        : Memo.id(checked.value)
+      )
+        .toXdrObject()
+        .toXDR("base64"),
+    );
+  }),
 );
+
+it.each([
+  { name: "empty text", memo: { type: "text", value: "" } },
+  {
+    name: "over 28 UTF-8 bytes",
+    memo: { type: "text", value: "é".repeat(15) },
+  },
+  { name: "unpaired surrogate", memo: { type: "text", value: "\uD800" } },
+  {
+    name: "uint64 overflow",
+    memo: { type: "id", value: "18446744073709551616" },
+  },
+  { name: "negative id", memo: { type: "id", value: "-1" } },
+  { name: "leading-zero id", memo: { type: "id", value: "01" } },
+  { name: "scientific id", memo: { type: "id", value: "1e3" } },
+  { name: "hash memo", memo: { type: "hash", value: "abc" } },
+])("PaymentMemo schema rejects $name", ({ memo }) => {
+  expect(Option.isNone(Schema.decodeUnknownOption(PaymentMemo)(memo))).toBe(
+    true,
+  );
+});

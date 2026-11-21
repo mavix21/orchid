@@ -357,16 +357,22 @@ it.effect("submit dies on an unrecognized sendTransaction status", () =>
   }),
 );
 
-it.effect.each([
+const timeoutCases: ReadonlyArray<{
+  readonly name: string;
+  readonly operation: "account" | "submit";
+  readonly rpcTimeout?: Duration.Input;
+  readonly beforeMs: number;
+  readonly http: Layer.Layer<HttpClient.HttpClient>;
+}> = [
   {
     name: "response headers stall past the default 10s RPC timeout",
-    rpcTimeout: undefined,
+    operation: "account",
     beforeMs: 9_999,
     http: httpClientAnswering(() => Effect.never),
   },
   {
     name: "response body stalls past the default 10s RPC timeout",
-    rpcTimeout: undefined,
+    operation: "account",
     beforeMs: 9_999,
     http: httpClientAnswering(() =>
       Effect.succeed(
@@ -377,27 +383,36 @@ it.effect.each([
     ),
   },
   {
-    name: "response stalls past a custom 3s RPC timeout",
+    name: "sendTransaction stalls past a custom 3s RPC timeout",
+    operation: "submit",
     rpcTimeout: Duration.seconds(3),
     beforeMs: 2_999,
     http: httpClientAnswering(() => Effect.never),
   },
-])("fails with ChainUnreachable when $name", ({ rpcTimeout, beforeMs, http }) =>
-  Effect.gen(function* () {
-    const attempt = yield* Chain.use((chain) => chain.account(address)).pipe(
-      Effect.provide(chainFor(testRpcUrl, http, rpcTimeout)),
-      Effect.flip,
-      Effect.forkChild,
-    );
+];
 
-    yield* TestClock.adjust(Duration.millis(beforeMs));
+it.effect.each(timeoutCases)(
+  "fails with ChainUnreachable when $name",
+  ({ operation, rpcTimeout, beforeMs, http }) =>
+    Effect.gen(function* () {
+      const sealed = operation === "submit" ? yield* sealedPayment : undefined;
 
-    expect(attempt.pollUnsafe()).toBeUndefined();
+      const attempt = yield* Chain.use((chain) =>
+        sealed ? chain.submit(sealed) : chain.account(address),
+      ).pipe(
+        Effect.provide(chainFor(testRpcUrl, http, rpcTimeout)),
+        Effect.flip,
+        Effect.forkChild,
+      );
 
-    yield* TestClock.adjust(Duration.millis(1));
+      yield* TestClock.adjust(Duration.millis(beforeMs));
 
-    expect(yield* Fiber.join(attempt)).toBeInstanceOf(ChainUnreachable);
-  }),
+      expect(attempt.pollUnsafe()).toBeUndefined();
+
+      yield* TestClock.adjust(Duration.millis(1));
+
+      expect(yield* Fiber.join(attempt)).toBeInstanceOf(ChainUnreachable);
+    }),
 );
 
 it.effect(
@@ -499,21 +514,28 @@ it.effect(
     }),
 );
 
-it.effect.each([
+const invalidChainSettings: ReadonlyArray<{
+  readonly name: string;
+  readonly rpcUrl: string;
+  readonly rpcTimeout?: Duration.Input;
+}> = [
   {
     name: "remote plain HTTP URL",
     rpcUrl: "http://127.0.0.1.example.test",
-    rpcTimeout: undefined,
   },
   {
     name: "non-HTTP loopback URL",
     rpcUrl: "ftp://localhost:8000",
-    rpcTimeout: undefined,
   },
   {
     name: "infinite rpcTimeout",
     rpcUrl: testRpcUrl,
     rpcTimeout: Duration.infinity,
+  },
+  {
+    name: "NaN rpcTimeout",
+    rpcUrl: testRpcUrl,
+    rpcTimeout: Number.NaN,
   },
   {
     name: "zero rpcTimeout",
@@ -525,23 +547,27 @@ it.effect.each([
     rpcUrl: testRpcUrl,
     rpcTimeout: Duration.millis(-1),
   },
-])("Chain rejects $name at construction", ({ rpcUrl, rpcTimeout }) =>
-  Effect.gen(function* () {
-    const exit = yield* Chain.use((chain) =>
-      Effect.succeed(chain.validAddress(address)),
-    ).pipe(
-      Effect.provide(
-        chainFor(
-          rpcUrl,
-          rpcAnswering(() => ""),
-          rpcTimeout,
-        ),
-      ),
-      Effect.exit,
-    );
+];
 
-    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
-  }),
+it.effect.each(invalidChainSettings)(
+  "Chain rejects $name at construction",
+  ({ rpcUrl, rpcTimeout }) =>
+    Effect.gen(function* () {
+      const exit = yield* Chain.use((chain) =>
+        Effect.succeed(chain.validAddress(address)),
+      ).pipe(
+        Effect.provide(
+          chainFor(
+            rpcUrl,
+            rpcAnswering(() => ""),
+            rpcTimeout,
+          ),
+        ),
+        Effect.exit,
+      );
+
+      expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+    }),
 );
 
 it.effect.each([

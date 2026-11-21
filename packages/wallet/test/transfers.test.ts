@@ -8,13 +8,13 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import {
   AddressRecipient,
   Pending,
   Profile,
   SenderBusy,
+  ServiceFailed,
   Settled,
   Amount,
 } from "../src/contract";
@@ -242,11 +242,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           Layer.provide(dbLayer),
         );
 
-        const result = yield* Wallet.use((wallet) =>
+        const failure = yield* Wallet.use((wallet) =>
           wallet.transfer(order, approve(draft.request, key)),
-        ).pipe(Effect.result, Effect.provide(Layer.fresh(brokenWallet)));
+        ).pipe(Effect.flip, Effect.provide(Layer.fresh(brokenWallet)));
 
-        expect(Result.isFailure(result)).toBe(true);
+        expect(failure).toEqual(new ServiceFailed());
         expect(world.submitted).toHaveLength(initial);
         expect(
           Option.getOrThrow(

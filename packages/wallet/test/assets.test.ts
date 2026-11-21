@@ -403,6 +403,18 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           yield* db.insert(transfers).values([...settledTransfers]);
 
+          const transientBalance = Schema.decodeSync(BalanceId)(
+            `0000000000${"a".repeat(62)}`,
+          );
+
+          world.claimables.set(transientBalance, {
+            balance: transientBalance,
+            asset,
+            amount: Schema.decodeSync(PositiveAmount)("10000000"),
+            sponsored: true,
+            claimants: [new Claimant(owner, Claimant.predicateUnconditional())],
+          });
+
           const claimableStarted = yield* Latch.make();
           const releaseInitialClaimable = yield* Latch.make();
           const initialClaimableDone = yield* Latch.make();
@@ -450,7 +462,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                   balances.length > 1
                     ? trackRead(
                         releaseInitialClaimable,
-                        actual.claimable(balances),
+                        actual.claimable(
+                          balances.filter((id) => id !== transientBalance),
+                        ),
                         claimableStarted.open,
                         initialClaimableDone.open,
                       )
@@ -511,8 +525,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             yield* AssetOrders.use((service) => service.tracked(owner)),
           ).toEqual([]);
           expect(
-            yield* Transfers.use((service) => service.openBalances(owner)),
-          ).toEqual([]);
+            (yield* Transfers.use((service) =>
+              service.openBalances(owner),
+            )).map((item) => item.balance),
+          ).toEqual([transientBalance]);
           expect(overview.balances).toHaveLength(1);
           expect(overview.claimable).toEqual([]);
         }),

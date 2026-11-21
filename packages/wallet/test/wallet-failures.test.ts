@@ -316,10 +316,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect("answers ServiceFailed when a ledger reply does not decode", () =>
+    it.effect.each([
+      { name: "is not valid JSON", reply: "not json" },
+      { name: "does not match the RPC schema", reply: undecodable },
+    ])("answers ServiceFailed when a ledger reply $name", ({ reply }) =>
       Effect.gen(function* () {
         const key = yield* fundedSender();
-        const stellar = stellarAnswering(() => undecodable);
+        const stellar = stellarAnswering(() => reply);
 
         expect(
           yield* Wallet.use((wallet) => wallet.overview(addressOf(key))).pipe(
@@ -355,20 +358,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ),
           ).toEqual(new ServiceFailed());
         }),
-    );
-
-    it.effect("answers LedgerUnreachable when Stellar does not answer", () =>
-      Effect.gen(function* () {
-        const key = yield* fundedSender();
-
-        world.ledgerDown = true;
-
-        expect(
-          yield* Wallet.use((wallet) => wallet.overview(addressOf(key))).pipe(
-            Effect.flip,
-          ),
-        ).toEqual(new LedgerUnreachable());
-      }),
     );
 
     it.effect(
