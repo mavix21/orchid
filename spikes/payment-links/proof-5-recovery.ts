@@ -31,7 +31,7 @@ const publicNetwork = "Public Global Stellar Network ; September 2015";
 
 const world = await openWorld(0);
 const orchidSponsor = world.sponsor.publicKey();
-const sender = await openZeroSender(world, "100");
+const sender = await openZeroSender(world, "200");
 const independentPayer = Keypair.random();
 
 await create(world.bank, [[independentPayer, "20"]]);
