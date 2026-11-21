@@ -72,7 +72,7 @@ const settings = `RESERVE_SPONSOR_SECRET=${sponsor.secret()}\nFEE_PAYER_SECRET=$
 
 writeFileSync(
   file,
-  `${settings}VERIFY_USER_SECRET=${Keypair.random().secret()}\nVERIFY_ACTIVITY_SECRET=${Keypair.random().secret()}\nVERIFY_RECIPIENT_SECRET=${Keypair.random().secret()}\nVERIFY_EXCHANGE_SECRET=${exchange.secret()}\n`,
+  `${settings}VERIFY_USER_SECRET=${Keypair.random().secret()}\nVERIFY_ACTIVITY_SECRET=${Keypair.random().secret()}\nVERIFY_RECIPIENT_SECRET=${Keypair.random().secret()}\nVERIFY_EXCHANGE_ADDRESS=${exchange.publicKey()}\n`,
   { mode: 0o600, flag: "wx" },
 );
 

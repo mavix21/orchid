@@ -25,7 +25,7 @@ export const knownExchangeMemos: ReadonlyArray<KnownExchangeMemo> = [];
 
 export const memoRequiredDataName = "config.memo_required";
 
-export const sep29Source = "https://stellar.org/protocol/sep-29";
+const sep29Source = "https://stellar.org/protocol/sep-29";
 
 const memoRequiredValue = new xdr.DataValue(new TextEncoder().encode("1"));
 
@@ -47,12 +47,11 @@ export const memoRequirementFor = Effect.fn("Chain.memoRequiredFor")(function* (
 
   if (Option.isSome(known)) return known;
 
+  const accountId = Keypair.fromPublicKey(address).xdrAccountId();
+
   const response = yield* fetchEntries(rpcUrl, [
     xdr.LedgerKey.data(
-      new xdr.LedgerKeyData({
-        accountId: Keypair.fromPublicKey(address).xdrAccountId(),
-        dataName: memoRequiredDataName,
-      }),
+      new xdr.LedgerKeyData({ accountId, dataName: memoRequiredDataName }),
     ),
   ]);
 
@@ -60,7 +59,10 @@ export const memoRequirementFor = Effect.fn("Chain.memoRequiredFor")(function* (
     const data = xdr.LedgerEntryData.fromXdr(entry.xdr, "base64");
 
     return (
-      data.type === "data" && data.value.dataValue.equals(memoRequiredValue)
+      data.type === "data" &&
+      data.value.accountId.equals(accountId) &&
+      data.value.dataName.toString() === memoRequiredDataName &&
+      data.value.dataValue.equals(memoRequiredValue)
     );
   });
 

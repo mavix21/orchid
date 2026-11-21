@@ -53,7 +53,7 @@ import {
 } from "../src/stellar/envelopes";
 import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 
-const secret = (name: string) => {
+const setting = (name: string) => {
   const value = process.env[name];
 
   if (!value)
@@ -62,11 +62,16 @@ const secret = (name: string) => {
   return value;
 };
 
-const sponsor = Keypair.fromSecret(secret("RESERVE_SPONSOR_SECRET"));
-const feePayer = Keypair.fromSecret(secret("FEE_PAYER_SECRET"));
-const user = Keypair.fromSecret(secret("VERIFY_USER_SECRET"));
-const activityUser = Keypair.fromSecret(secret("VERIFY_ACTIVITY_SECRET"));
-const outsider = Keypair.fromSecret(secret("VERIFY_RECIPIENT_SECRET"));
+const sponsor = Keypair.fromSecret(setting("RESERVE_SPONSOR_SECRET"));
+const feePayer = Keypair.fromSecret(setting("FEE_PAYER_SECRET"));
+const user = Keypair.fromSecret(setting("VERIFY_USER_SECRET"));
+const activityUser = Keypair.fromSecret(setting("VERIFY_ACTIVITY_SECRET"));
+const outsider = Keypair.fromSecret(setting("VERIFY_RECIPIENT_SECRET"));
+
+const exchange = Schema.decodeSync(AccountAddress)(
+  setting("VERIFY_EXCHANGE_ADDRESS"),
+);
+
 const server = new rpc.Server("https://soroban-testnet.stellar.org");
 const horizon = new Horizon.Server("https://horizon-testnet.stellar.org");
 
@@ -542,10 +547,6 @@ assert.equal(
 assert.equal((await walletRow(second.claim.address)).status, "active");
 
 console.log("Sweep skipped recovery after the device advanced its sequence.");
-
-const exchange = addressOf(
-  Keypair.fromSecret(secret("VERIFY_EXCHANGE_SECRET")),
-);
 
 const toExchange = (memo?: PaymentMemo) =>
   new TransferOrder({
