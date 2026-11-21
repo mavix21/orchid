@@ -41,6 +41,7 @@ import {
 } from "../contract";
 import { readEnvelope } from "../stellar/envelopes";
 import { Chain, ChainUnreachable, Sealed } from "./Chain.server";
+import type { KnownExchangeMemo } from "./exchange-memos.server";
 import { Directory, StoreFailure, type WalletRow } from "./Directory.server";
 import {
   Authorized,
@@ -108,41 +109,52 @@ export class Wallet extends Context.Service<
         });
       });
 
+      const memoRequirement = Effect.fn("Wallet.memoRequirement")(function* (
+        recipient: ResolvedRecipient,
+      ) {
+        return recipient instanceof ExternalRecipient
+          ? yield* chain.memoRequiredFor(recipient.address)
+          : Option.none<KnownExchangeMemo>();
+      });
+
       const memoRefusal = (
         order: TransferOrder,
         recipient: ResolvedRecipient,
+        requirement: Option.Option<KnownExchangeMemo>,
       ): Option.Option<ExternalMemoRequired | MemoNotAllowed> => {
         if (!(recipient instanceof ExternalRecipient))
           return order.memo ? Option.some(new MemoNotAllowed()) : Option.none();
 
-        const known = chain.memoRequiredFor(recipient.address);
-
-        return Option.isSome(known) && !order.memo
+        return Option.isSome(requirement) && !order.memo
           ? Option.some(
               new ExternalMemoRequired({
                 address: recipient.address,
-                exchange: known.value.exchange,
-                source: known.value.source,
+                exchange: requirement.value.exchange,
+                source: requirement.value.source,
               }),
             )
           : Option.none();
       };
 
-      const proposedStep = (
+      const proposedStep = Effect.fn("Wallet.proposedStep")(function* (
         proposed: Proposed,
-      ): TransferDraft | ExternalMemoRequired | MemoNotAllowed => {
-        const refusal = memoRefusal(proposed.order, proposed.recipient);
+      ) {
+        const requirement = yield* memoRequirement(proposed.recipient);
+
+        const refusal = memoRefusal(
+          proposed.order,
+          proposed.recipient,
+          requirement,
+        );
 
         if (Option.isSome(refusal)) return refusal.value;
 
         return new TransferDraft({
           request: proposed.request,
           recipient: proposed.recipient,
-          memoRequired:
-            proposed.recipient instanceof ExternalRecipient &&
-            Option.isSome(chain.memoRequiredFor(proposed.recipient.address)),
+          memoRequired: Option.isSome(requirement),
         });
-      };
+      });
 
       const resumed = Effect.fn("Wallet.resumed")(function* (
         transfer: Transfer,
@@ -150,7 +162,7 @@ export class Wallet extends Context.Service<
         return yield* Match.valueTags(transfer, {
           Concluded: (concluded) => Effect.succeed(concluded.receipt),
           Authorized: reconcile,
-          Proposed: (proposed) => Effect.succeed(proposedStep(proposed)),
+          Proposed: proposedStep,
         });
       });
 
@@ -223,7 +235,11 @@ export class Wallet extends Context.Service<
           if (!Predicate.isTagged(stored, "Proposed"))
             return yield* resumed(stored);
 
-          const refusal = memoRefusal(order, stored.recipient);
+          const refusal = memoRefusal(
+            order,
+            stored.recipient,
+            yield* memoRequirement(stored.recipient),
+          );
 
           if (Option.isSome(refusal)) return refusal.value;
 
@@ -231,13 +247,13 @@ export class Wallet extends Context.Service<
             return yield* resumed(yield* refreshDraft(stored));
 
           if (live(stored.request)) {
-            if (Option.isNone(approval)) return proposedStep(stored);
+            if (Option.isNone(approval)) return yield* proposedStep(stored);
 
             const sealed = yield* chain
               .seal(stored.request, approval.value, stored.order.from)
               .pipe(Effect.option);
 
-            if (Option.isNone(sealed)) return proposedStep(stored);
+            if (Option.isNone(sealed)) return yield* proposedStep(stored);
 
             if (!(yield* currentDraft(stored)))
               return yield* resumed(yield* refreshDraft(stored));
@@ -262,15 +278,18 @@ export class Wallet extends Context.Service<
                   new ClaimableLimitReached({ limit: maxOpenClaimables }),
                 ),
               SlotOccupied: () =>
-                assets
-                  .inFlightFor(order.from)
-                  .pipe(
-                    Effect.map((busy) =>
+                assets.inFlightFor(order.from).pipe(
+                  Effect.flatMap(
+                    (busy): Effect.Effect<TransferStep, ChainUnreachable> =>
                       Option.isSome(busy)
-                        ? new AssetBusy({ inFlight: assetPending(busy.value) })
+                        ? Effect.succeed(
+                            new AssetBusy({
+                              inFlight: assetPending(busy.value),
+                            }),
+                          )
                         : proposedStep(stored),
-                    ),
                   ),
+                ),
               Proposed: resumed,
               Authorized: resumed,
               Concluded: resumed,
@@ -325,7 +344,11 @@ export class Wallet extends Context.Service<
 
         if (Predicate.isTagged(recipient, "UnknownRecipient")) return recipient;
 
-        const refusal = memoRefusal(order, recipient);
+        const refusal = memoRefusal(
+          order,
+          recipient,
+          yield* memoRequirement(recipient),
+        );
 
         if (Option.isSome(refusal)) return refusal.value;
 
