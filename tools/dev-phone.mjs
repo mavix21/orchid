@@ -4,10 +4,10 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 
 const devPort = 3000;
@@ -220,11 +220,35 @@ const waitUntilReady = async (isAlive) => {
   return false;
 };
 
-const start = async () => {
-  if (!existsSync(new URL("apps/web/.dev.vars", pathToFileURL(repoRoot))))
+const ensureDevVars = () => {
+  const local = join(repoRoot, "apps/web/.dev.vars");
+
+  if (existsSync(local)) return;
+
+  const mainCheckout = spawnSync("git", ["worktree", "list", "--porcelain"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  })
+    .stdout.split("\n")
+    .find((line) => line.startsWith("worktree "))
+    ?.slice("worktree ".length);
+
+  const shared = mainCheckout && join(mainCheckout, "apps/web/.dev.vars");
+
+  if (!shared || shared === local || !existsSync(shared))
     fail(
-      "apps/web/.dev.vars is missing in this checkout, so the wallet has no sponsor keys. Copy it from your main checkout (see Run it locally in README.md).",
+      "apps/web/.dev.vars is missing, so the wallet has no sponsor keys. Create it as described in Run it locally in README.md.",
     );
+
+  rmSync(local, { force: true });
+  symlinkSync(shared, local);
+  process.stdout.write(
+    "dev:phone linked apps/web/.dev.vars to the main checkout.\n",
+  );
+};
+
+const start = async () => {
+  ensureDevVars();
 
   const host = readTailnetHost();
   assertNotPublic();
