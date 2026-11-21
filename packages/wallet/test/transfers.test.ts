@@ -1,11 +1,11 @@
 import { expect, layer } from "@effect/vitest";
+import { Database } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import { Profile, ServiceFailed } from "../src/contract";
 import { Chain } from "../src/server/Chain.server";
-import { StoreFailure } from "../src/server/Directory.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { assertTagged } from "./tagged";
 import {
@@ -22,7 +22,6 @@ import {
   sweep,
   useDisposableDatabase,
   walletTestLayer,
-  walletWithTransfers,
   world,
 } from "./wallet-harness";
 
@@ -107,16 +106,15 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             { concurrency: "unbounded" },
           );
 
-          expect(results.every(Predicate.isTagged("Pending"))).toBe(true);
+          expect(results.map((r) => r._tag)).toEqual(["Pending", "Pending"]);
           const inFlight = yield* Transfers.use((t) => t.inFlight);
 
           expect(inFlight).toHaveLength(1);
           const storedEnvelope = inFlight[0]?.sealed.envelope;
           const submitted = world.submitted.slice(before);
 
-          expect(submitted.length).toBeGreaterThan(0);
-          expect(submitted.every((s) => s.envelope === storedEnvelope)).toBe(
-            true,
+          expect(new Set(submitted.map((s) => s.envelope))).toEqual(
+            new Set([storedEnvelope]),
           );
         }),
     );
@@ -128,19 +126,41 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         const draft = yield* draftTransfer(order);
         const initial = world.submitted.length;
 
-        const brokenWallet = walletWithTransfers(() => ({
-          authorize: () =>
-            Effect.fail(
-              new StoreFailure({ cause: new Error("Database unavailable") }),
-            ),
-        }));
+        const db = yield* Database;
 
-        expect(
-          yield* send(order, approve(draft.request, key)).pipe(
-            Effect.flip,
-            Effect.provide(brokenWallet),
+        yield* db.execute(sql`
+          create or replace function fail_transfer_update() returns trigger as $$
+          begin
+            raise exception 'Database unavailable';
+          end;
+          $$ language plpgsql
+        `);
+
+        yield* db.execute(sql`
+          create trigger fail_transfer_update
+          before update on transfers
+          for each row execute function fail_transfer_update()
+        `);
+
+        const failure = yield* send(order, approve(draft.request, key)).pipe(
+          Effect.flip,
+          Effect.ensuring(
+            db
+              .execute(
+                sql`drop trigger if exists fail_transfer_update on transfers`,
+              )
+              .pipe(
+                Effect.andThen(
+                  db.execute(
+                    sql`drop function if exists fail_transfer_update()`,
+                  ),
+                ),
+                Effect.orDie,
+              ),
           ),
-        ).toEqual(new ServiceFailed());
+        );
+
+        expect(failure).toEqual(new ServiceFailed());
         expect(world.submitted).toHaveLength(initial);
         expect(Option.getOrThrow(yield* findTransfer(order.id))._tag).toBe(
           "Proposed",
