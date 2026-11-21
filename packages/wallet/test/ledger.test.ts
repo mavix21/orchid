@@ -7,8 +7,10 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientError from "effect/http/HttpClientError";
 import * as TestClock from "effect/testing/TestClock";
 import {
@@ -20,7 +22,7 @@ import {
 } from "../src/contract";
 import { Chain, SubmissionRejected } from "../src/server/Chain.server";
 import { ChainUnreachable } from "../src/server/chain-errors.server";
-import { fetchEntries } from "../src/server/ledger.server";
+import { stellarRpc } from "../src/server/ledger.server";
 import {
   WalletSettings,
   defaultRpcTimeout,
@@ -53,27 +55,54 @@ const SendTransactionRequest = Schema.fromJsonString(
   }),
 );
 
-const chainSubmitting = (reply: (transaction: string) => string) =>
+const chainFor = (
+  rpcUrl: string,
+  http: Layer.Layer<HttpClient.HttpClient>,
+  rpcTimeout?: Duration.Input,
+) =>
   Chain.layer.pipe(
     Layer.provide(
-      Layer.succeed(WalletSettings, {
-        rpcUrl: testRpcUrl,
-        reserveSponsorSecret: Redacted.make(sponsor.secret()),
-        feePayerSecret: Redacted.make(feePayer.secret()),
-        passkeyOrigins: [],
-      }),
+      Layer.succeed(
+        WalletSettings,
+        rpcTimeout === undefined
+          ? {
+              rpcUrl,
+              reserveSponsorSecret: Redacted.make(sponsor.secret()),
+              feePayerSecret: Redacted.make(feePayer.secret()),
+              passkeyOrigins: [],
+            }
+          : {
+              rpcUrl,
+              rpcTimeout,
+              reserveSponsorSecret: Redacted.make(sponsor.secret()),
+              feePayerSecret: Redacted.make(feePayer.secret()),
+              passkeyOrigins: [],
+            },
+      ),
     ),
-    Layer.provide(
-      httpClientAnswering((request) =>
-        Effect.succeed(
-          new Response(
-            reply(
-              Schema.decodeSync(SendTransactionRequest)(
-                requestBodyText(request),
-              ).params.transaction,
-            ),
-            { headers: { "Content-Type": "application/json" } },
+    Layer.provide(http),
+  );
+
+const fetchEntries = (
+  rpcUrl: string,
+  keys: ReadonlyArray<xdr.LedgerKey>,
+  timeout: Duration.Duration = defaultRpcTimeout,
+) =>
+  Effect.flatMap(HttpClient.HttpClient, (client) =>
+    stellarRpc(client, rpcUrl, timeout).entries(keys),
+  );
+
+const chainSubmitting = (reply: (transaction: string) => string) =>
+  chainFor(
+    testRpcUrl,
+    httpClientAnswering((request) =>
+      Effect.succeed(
+        new Response(
+          reply(
+            Schema.decodeSync(SendTransactionRequest)(requestBodyText(request))
+              .params.transaction,
           ),
+          { headers: { "Content-Type": "application/json" } },
         ),
       ),
     ),
@@ -373,27 +402,17 @@ it.effect(
       const sealed = yield* sealedPayment;
       const submitted: Array<string> = [];
 
-      const chainLayer = Chain.layer.pipe(
-        Layer.provide(
-          Layer.succeed(WalletSettings, {
-            rpcUrl: testRpcUrl,
-            rpcTimeout: "3 seconds",
-            reserveSponsorSecret: Redacted.make(sponsor.secret()),
-            feePayerSecret: Redacted.make(feePayer.secret()),
-            passkeyOrigins: [],
-          }),
-        ),
-        Layer.provide(
-          httpClientAnswering((request) => {
-            submitted.push(
-              Schema.decodeSync(SendTransactionRequest)(
-                requestBodyText(request),
-              ).params.transaction,
-            );
+      const chainLayer = chainFor(
+        testRpcUrl,
+        httpClientAnswering((request) => {
+          submitted.push(
+            Schema.decodeSync(SendTransactionRequest)(requestBodyText(request))
+              .params.transaction,
+          );
 
-            return Effect.never;
-          }),
-        ),
+          return Effect.never;
+        }),
+        "3 seconds",
       );
 
       const attempt = yield* Chain.use((chain) => chain.submit(sealed)).pipe(
@@ -411,4 +430,77 @@ it.effect(
       expect(yield* Fiber.join(attempt)).toBeInstanceOf(ChainUnreachable);
       expect(submitted).toEqual([sealed.envelope]);
     }),
+);
+
+it.effect.each([
+  { name: "remote plain HTTP", rpcUrl: "http://soroban-testnet.stellar.org" },
+  {
+    name: "non-loopback host prefixed with loopback",
+    rpcUrl: "http://127.0.0.1.example.test",
+  },
+  { name: "non-HTTP scheme on loopback", rpcUrl: "ftp://localhost:8000" },
+])("Chain rejects $name RPC URL at construction", ({ rpcUrl }) =>
+  Effect.gen(function* () {
+    const exit = yield* Chain.use((chain) =>
+      Effect.succeed(chain.validAddress(address)),
+    ).pipe(
+      Effect.provide(
+        chainFor(
+          rpcUrl,
+          rpcAnswering(() => ""),
+        ),
+      ),
+      Effect.exit,
+    );
+
+    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+  }),
+);
+
+it.effect.each([
+  { name: "HTTPS", rpcUrl: "https://soroban-testnet.stellar.org" },
+  { name: "localhost HTTP", rpcUrl: "http://localhost:8000" },
+  { name: "IPv4 loopback HTTP", rpcUrl: "http://127.0.0.1:8000" },
+  { name: "IPv6 loopback HTTP", rpcUrl: "http://[::1]:8000" },
+])("Chain accepts $name RPC URL", ({ rpcUrl }) =>
+  Effect.gen(function* () {
+    const http = rpcAnswering(() =>
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { entries: [], latestLedger: 7 },
+      }),
+    );
+
+    expect(
+      yield* Chain.use((chain) => chain.account(address)).pipe(
+        Effect.provide(chainFor(rpcUrl, http)),
+      ),
+    ).toEqual(Option.none());
+  }),
+);
+
+it.effect.each([
+  { name: "infinite Duration", rpcTimeout: Duration.infinity },
+  { name: "numeric Infinity", rpcTimeout: Number.POSITIVE_INFINITY },
+  { name: "zero Duration", rpcTimeout: Duration.zero },
+  { name: "negative Duration", rpcTimeout: Duration.millis(-1) },
+  { name: "NaN", rpcTimeout: Number.NaN },
+])("Chain rejects $name rpcTimeout at construction", ({ rpcTimeout }) =>
+  Effect.gen(function* () {
+    const exit = yield* Chain.use((chain) =>
+      Effect.succeed(chain.validAddress(address)),
+    ).pipe(
+      Effect.provide(
+        chainFor(
+          testRpcUrl,
+          rpcAnswering(() => ""),
+          rpcTimeout,
+        ),
+      ),
+      Effect.exit,
+    );
+
+    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+  }),
 );
