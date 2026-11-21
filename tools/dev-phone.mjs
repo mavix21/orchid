@@ -17,6 +17,8 @@ const repoRoot = new URL("../", import.meta.url).pathname;
 const pidFile = join(tmpdir(), "orchid-dev-phone.pid");
 const readyTimeoutMs = 120_000;
 const shutDownGraceMs = 10_000;
+const postgresName = "orchid-postgres";
+const postgresReadyTimeoutMs = 30_000;
 const setupHint = 'One-time setup: see "Test from your phone" in README.md.';
 
 const fail = (message) => {
@@ -247,8 +249,70 @@ const ensureDevVars = () => {
   );
 };
 
+const docker = (...args) => {
+  const result = spawnSync("docker", args, { encoding: "utf8" });
+
+  if (result.error?.code === "ENOENT")
+    fail("the docker CLI is not installed. See Run it locally in README.md.");
+
+  return result;
+};
+
+const ensurePostgres = async () => {
+  const state = docker(
+    "inspect",
+    "--format",
+    "{{.State.Running}}",
+    postgresName,
+  );
+
+  if (state.status !== 0) {
+    if (/no such object/i.test(state.stderr))
+      fail(
+        `the ${postgresName} container does not exist. Create it with the docker run step in Run it locally in README.md.`,
+      );
+
+    fail(`docker is not available. Start Docker Desktop.\n${state.stderr}`);
+  }
+
+  if (state.stdout.trim() !== "true") {
+    const started = docker("start", postgresName);
+
+    if (started.status !== 0)
+      fail(`could not start ${postgresName}.\n${started.stderr}`);
+
+    process.stdout.write(`dev:phone started the ${postgresName} container.\n`);
+  }
+
+  const deadline = Date.now() + postgresReadyTimeoutMs;
+
+  while (Date.now() < deadline) {
+    const ready = docker(
+      "exec",
+      postgresName,
+      "pg_isready",
+      "-q",
+      "-U",
+      "orchid",
+      "-d",
+      "orchid",
+    );
+
+    if (ready.status === 0) {
+      process.stdout.write(`${postgresName} accepts connections.\n`);
+
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  fail(`${postgresName} did not accept connections in time.`);
+};
+
 const start = async () => {
   ensureDevVars();
+  await ensurePostgres();
 
   const host = readTailnetHost();
   assertNotPublic();
