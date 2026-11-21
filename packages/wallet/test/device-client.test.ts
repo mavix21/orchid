@@ -3,6 +3,7 @@ import { Account, Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
@@ -93,6 +94,7 @@ it("derives the Stellar account of a SEP-5 secret phrase", () => {
 
 const pollingPort = (
   answer: (call: number, claim: Parameters<WalletPort["open"]>[0]) => OpenStep,
+  started: Latch.Latch,
 ): WalletPort => {
   const unused = () => Effect.die("Not used by opening");
   let calls = 0;
@@ -104,7 +106,10 @@ const pollingPort = (
     passkeyChallenge: unused,
     enroll: unused,
     restore: unused,
-    open: (claim) => Effect.sync(() => answer(++calls, claim)),
+    open: (claim) =>
+      started.open.pipe(
+        Effect.andThen(Effect.sync(() => answer(++calls, claim))),
+      ),
   };
 };
 
@@ -139,16 +144,18 @@ it.effect(
   () =>
     Effect.gen(function* () {
       let calls = 0;
+      const started = yield* Latch.make();
 
       const port = pollingPort((call) => {
         calls = call;
 
         return new OpeningPending();
-      });
+      }, started);
 
       const effects = makeWalletEffects(port, seededStore(), passkeys);
       const attempt = yield* Effect.forkChild(effects.create("maria"));
 
+      yield* started.await;
       yield* TestClock.adjust("20 seconds");
 
       expect(attempt.pollUnsafe()).toBeUndefined();
@@ -164,27 +171,32 @@ it.effect(
   "polls OpeningPending until RecoveryDraft arrives and finishes opening",
   () =>
     Effect.gen(function* () {
-      const port = pollingPort((call, claim) =>
-        call < 3
-          ? new OpeningPending()
-          : call === 3
-            ? new RecoveryDraft({
-                request: new SigningRequest({
-                  envelope: draftRecovery({
-                    source: new Account(claim.address, "100"),
-                    reserveSponsor,
-                    minTime: 1,
-                    maxTime: 4_000_000_000,
+      const started = yield* Latch.make();
+
+      const port = pollingPort(
+        (call, claim) =>
+          call < 3
+            ? new OpeningPending()
+            : call === 3
+              ? new RecoveryDraft({
+                  request: new SigningRequest({
+                    envelope: draftRecovery({
+                      source: new Account(claim.address, "100"),
+                      reserveSponsor,
+                      minTime: 1,
+                      maxTime: 4_000_000_000,
+                    }),
+                    expiresAt: DateTime.makeUnsafe(4_000_000_000_000),
                   }),
-                  expiresAt: DateTime.makeUnsafe(4_000_000_000_000),
-                }),
-              })
-            : new Opened({ profile: new Profile(claim) }),
+                })
+              : new Opened({ profile: new Profile(claim) }),
+        started,
       );
 
       const effects = makeWalletEffects(port, seededStore(), passkeys);
       const attempt = yield* Effect.forkChild(effects.create("maria"));
 
+      yield* started.await;
       yield* TestClock.adjust("4 seconds");
 
       expect(yield* Fiber.join(attempt)).toBeInstanceOf(Opened);

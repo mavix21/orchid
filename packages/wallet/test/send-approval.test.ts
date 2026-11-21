@@ -4,6 +4,7 @@ import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Latch from "effect/Latch";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -389,15 +390,18 @@ it.effect("releases an expired signed order the server never authorized", () =>
 
 it.effect("rechecks the approval margin after recording the approval", () =>
   Effect.gen(function* () {
+    const writing = yield* Latch.make();
+
     const { approvals, effects } = deviceWith(
       (at) => payment(sender, 21, at),
       21,
       undefined,
-      Effect.sleep("1500 millis"),
+      writing.open.pipe(Effect.andThen(Effect.sleep("1500 millis"))),
     );
 
     const sending = yield* Effect.forkChild(effects.send(toExchange));
 
+    yield* writing.await;
     yield* TestClock.adjust("1500 millis");
     yield* TestClock.adjust("1500 millis");
 
