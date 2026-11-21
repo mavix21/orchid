@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 
 const devPort = 3000;
@@ -220,6 +221,11 @@ const waitUntilReady = async (isAlive) => {
 };
 
 const start = async () => {
+  if (!existsSync(new URL("apps/web/.dev.vars", pathToFileURL(repoRoot))))
+    fail(
+      "apps/web/.dev.vars is missing in this checkout, so the wallet has no sponsor keys. Copy it from your main checkout (see Run it locally in README.md).",
+    );
+
   const host = readTailnetHost();
   assertNotPublic();
 
