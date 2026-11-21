@@ -25,7 +25,7 @@
     "@workspace/db": "workspace:*",
     "@workspace/ui": "workspace:*",
     "@workspace/wallet": "workspace:*",
-    "effect": "4.1.4",
+    "effect": "4.1.5",
     "lucide-react": "^1.73.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

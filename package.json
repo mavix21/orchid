@@ -24,7 +24,7 @@
     "@neon/env": "^2.1.5"
   },
   "devDependencies": {
-    "@effect/tsgo": "0.69.0",
+    "@effect/tsgo": "0.73.2",
     "@oxlint/plugins": "1.93.0",
     "@shadcn/lint": "^0.2.5",
     "eslint-plugin-playwright": "2.12.2",
