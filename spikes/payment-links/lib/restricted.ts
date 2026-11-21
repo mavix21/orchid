@@ -99,3 +99,12 @@ export const clawbackBalance = async (
       [restricted.issuer],
     ),
   );
+
+export const clearIssuerClawback = async (restricted: Restricted) =>
+  run(
+    await build(
+      restricted.issuer.publicKey(),
+      [Operation.setOptions({ clearFlags: AuthClawbackEnabledFlag })],
+      [restricted.issuer],
+    ),
+  );

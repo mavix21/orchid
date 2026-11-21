@@ -54,6 +54,26 @@ const placeholder = (sender: string) =>
     claimants: [new Claimant(sender)],
   });
 
+export const classifyBalance = async (balanceId: string) => {
+  const response = await rpcServer.getLedgerEntries(keyOf(balanceId));
+
+  const entry = response.entries[0];
+
+  if (entry === undefined || entry.val.type !== "claimableBalance")
+    return "absent";
+
+  const claimants = entry.val.value.claimants;
+
+  const unconditional = claimants.every(
+    (claimant) =>
+      claimant.value.predicate.type === "claimPredicateUnconditional",
+  );
+
+  return claimants.length === 2 && unconditional
+    ? "link"
+    : `not a link: ${claimants.length} claimants, ${unconditional ? "all" : "not all"} unconditional`;
+};
+
 export const candidateBalanceId = (sender: string, sequence: bigint) => {
   const draft = new TransactionBuilder(
     new Account(sender, (sequence - 1n).toString()),

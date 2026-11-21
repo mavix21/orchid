@@ -4,7 +4,9 @@ import { passphrase } from "./lib/network";
 import {
   candidateBalanceId,
   exportReceipt,
+  classifyBalance,
   listForSender,
+  type Listed,
   parseReceipt,
   readByReceipt,
   reclaimAlone,
@@ -12,7 +14,14 @@ import {
 } from "./lib/recovery";
 import { emit } from "./lib/report";
 import { openZeroSender } from "./lib/scenario";
-import { accountFacts, execute, lineFacts, sequenceOf } from "./lib/steps";
+import {
+  accountFacts,
+  balanceExists,
+  execute,
+  fateOf,
+  lineFacts,
+  sequenceOf,
+} from "./lib/steps";
 import { lineOf } from "./lib/state";
 import { build, bump, create, openWorld, trust } from "./lib/world";
 
@@ -28,6 +37,20 @@ const independentPayer = Keypair.random();
 await create(world.bank, [[independentPayer, "20"]]);
 
 await accountFacts(proof, "zero-XLM sender", sender.publicKey());
+
+const onlyLinks = async (listed: ReadonlyArray<Listed>) => {
+  const checked = await Promise.all(
+    listed.flatMap((item) =>
+      item.claimants === 2 && item.sponsor === orchidSponsor
+        ? [classifyBalance(item.id).then((kind) => ({ item, kind }))]
+        : [],
+    ),
+  );
+
+  return checked.flatMap((entry) =>
+    entry.kind === "link" ? [entry.item] : [],
+  );
+};
 
 const publish = async (label: string) => {
   const link = Keypair.random();
@@ -68,6 +91,31 @@ await execute(
   ),
 );
 
+const transferRecipient = Keypair.random();
+
+const transfer = await createLinkBalance(
+  world,
+  transferRecipient.publicKey(),
+  amount,
+  new Claimant(
+    sender.publicKey(),
+    Claimant.predicateNot(Claimant.predicateBeforeRelativeTime("5")),
+  ),
+  world.usdc,
+  sender,
+);
+
+await execute(
+  proof,
+  "username-transfer-shaped balance: same sponsor, two claimants, delayed sender predicate (5 seconds stands in for the 7 day delay)",
+  transfer.transaction,
+  { balanceId: transfer.balanceId },
+);
+
+emit(proof, "live classification of the transfer-shaped balance", undefined, {
+  classification: await classifyBalance(transfer.balanceId),
+});
+
 const receiptText = exportReceipt({
   network: passphrase,
   balanceId: exported.balanceId,
@@ -95,38 +143,31 @@ emit(proof, "exact-key RPC read from the exported receipt text", undefined, {
 
 const discovery = await listForSender(sender.publicKey(), 2);
 
-const verified = await Promise.all(
-  discovery.listed
-    .filter((item) => item.claimants === 2 && item.sponsor === orchidSponsor)
-    .map(async (item) => ({
-      item,
-      live: await readByReceipt({
-        network: passphrase,
-        balanceId: item.id,
-      }),
-    })),
+const candidates = discovery.listed.filter(
+  (item) => item.claimants === 2 && item.sponsor === orchidSponsor,
 );
+
+const links = await onlyLinks(discovery.listed);
 
 emit(proof, "paginated Horizon claimant query, no Orchid database", undefined, {
   pages: discovery.pages,
   balances: discovery.listed.length,
-  withTwoClaimantsAndOrchidSponsor: verified.length,
-  unrelated: discovery.listed.length - verified.length,
+  withTwoClaimantsAndOrchidSponsor: candidates.length,
+  decodedAsLinks: links.length,
+  transferExcluded: !links.some((item) => item.id === transfer.balanceId),
   discoveredBothLinks:
-    verified.some((entry) => entry.item.id === exported.balanceId) &&
-    verified.some((entry) => entry.item.id === lost.balanceId),
+    links.some((item) => item.id === exported.balanceId) &&
+    links.some((item) => item.id === lost.balanceId),
 });
 
-const discoveredLost = verified.find(
-  (entry) => entry.item.id !== receipt.balanceId,
-);
+const discoveredLost = links.find((item) => item.id !== receipt.balanceId);
 
 if (discoveredLost === undefined) throw new Error("Nothing was discovered");
 
 emit(
   proof,
   "reclaim of a discovered balance: sender key, independent fee payer",
-  await reclaimAlone(sender, discoveredLost.item.id, independentPayer),
+  await reclaimAlone(sender, discoveredLost.id, independentPayer),
 );
 
 emit(
@@ -257,9 +298,7 @@ emit(proof, "sequence scan from the reopened account lower bound", undefined, {
 
 const relisted = await listForSender(sender.publicKey(), 2);
 
-const rediscovered = relisted.listed.filter(
-  (item) => item.claimants === 2 && item.sponsor === orchidSponsor,
-);
+const rediscovered = await onlyLinks(relisted.listed);
 
 emit(
   proof,
@@ -269,6 +308,9 @@ emit(
     pages: relisted.pages,
     balances: relisted.listed.length,
     rediscovered: rediscovered.length,
+    transferExcluded: !rediscovered.some(
+      (item) => item.id === transfer.balanceId,
+    ),
     allScanLinksRediscovered: [first, second, third].every((link) =>
       rediscovered.some((item) => item.id === link.balanceId),
     ),
@@ -281,6 +323,16 @@ for (const item of rediscovered)
     "reclaim after reopening, discovered ID",
     await reclaimAlone(sender, item.id, independentPayer),
   );
+
+emit(
+  proof,
+  "the username-transfer-shaped balance stays outstanding",
+  undefined,
+  {
+    balanceStillClaimable: await balanceExists(transfer.balanceId),
+    balanceFate: await fateOf(transfer.balanceId),
+  },
+);
 
 await lineFacts(
   proof,

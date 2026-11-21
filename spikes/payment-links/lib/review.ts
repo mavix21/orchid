@@ -127,3 +127,33 @@ export const reviewDestination = async (
 
   return reasons.length === 0 ? "accepted" : `refused: ${reasons.join(", ")}`;
 };
+
+export const reviewLinkAsset = async (sender: string, asset: Asset) => {
+  const issuerAddress = asset.getIssuer();
+
+  if (asset.isNative() || issuerAddress === undefined) return "accepted";
+
+  const issuer = await account(issuerAddress);
+  const holder = await account(sender);
+
+  const line = holder?.balances.find(
+    (balance) =>
+      balance.asset_type !== "native" &&
+      balance.asset_type !== "liquidity_pool_shares" &&
+      balance.asset_code === asset.getCode() &&
+      balance.asset_issuer === asset.getIssuer(),
+  );
+
+  const clawback =
+    line !== undefined &&
+    line.asset_type !== "native" &&
+    line.asset_type !== "liquidity_pool_shares" &&
+    line.is_clawback_enabled;
+
+  const reasons = [
+    issuer?.flags.auth_required ? "issuer sets AUTH_REQUIRED" : "",
+    clawback ? "sender trustline allows clawback" : "",
+  ].filter((reason) => reason !== "");
+
+  return reasons.length === 0 ? "accepted" : `refused: ${reasons.join(", ")}`;
+};

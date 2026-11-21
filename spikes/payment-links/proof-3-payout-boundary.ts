@@ -6,11 +6,13 @@ import {
   mergeLink,
 } from "./lib/design-a";
 import { emit } from "./lib/report";
-import { linkVerdict } from "./lib/review";
+import { linkVerdict, reviewLinkAsset } from "./lib/review";
 import { openLink, receiveFor } from "./lib/scenario";
+import { account } from "./lib/state";
 import {
   authorizeHolder,
   clawbackBalance,
+  clearIssuerClawback,
   openRestricted,
 } from "./lib/restricted";
 import {
@@ -453,6 +455,14 @@ emit(
   },
 );
 
+const rstrWallet = Keypair.random();
+
+await create(world.bank, [[rstrWallet, "5"]]);
+
+await trust(rstrWallet, revocable.asset);
+
+await authorizeHolder(revocable, rstrWallet.publicKey(), true);
+
 const clawedOpen = await openLink(
   proof,
   "issuer clawback",
@@ -479,7 +489,7 @@ await execute(
     world,
     channelZero,
     clawedOpen.link,
-    receiveFor(clawedOpen, wallet.publicKey()),
+    receiveFor(clawedOpen, rstrWallet.publicKey()),
   ),
 );
 
@@ -488,6 +498,52 @@ await execute(
   "issuer clawback: sender reclaim afterwards",
   await reclaim(world, clawedOpen.balanceId),
 );
+
+emit(proof, "issuer flag cleared: review before clearing", undefined, {
+  verdict: await reviewLinkAsset(world.rosa.publicKey(), revocable.asset),
+});
+
+emit(
+  proof,
+  "issuer flag cleared: the issuer clears AUTH_CLAWBACK_ENABLED",
+  await clearIssuerClawback(revocable),
+);
+
+emit(proof, "issuer flag cleared: flags now", undefined, {
+  issuerClawbackFlag:
+    (await account(revocable.issuer.publicKey()))?.flags
+      .auth_clawback_enabled ?? false,
+});
+
+await lineFacts(
+  proof,
+  "issuer flag cleared: sender line",
+  world.rosa.publicKey(),
+  revocable.asset,
+);
+
+emit(proof, "issuer flag cleared: review after clearing", undefined, {
+  verdict: await reviewLinkAsset(world.rosa.publicKey(), revocable.asset),
+});
+
+const lateOpen = await openLink(
+  proof,
+  "issuer flag cleared",
+  world,
+  "10",
+  revocable.asset,
+);
+
+emit(
+  proof,
+  "issuer flag cleared: clawback of the new balance still succeeds",
+  await clawbackBalance(revocable, lateOpen.balanceId),
+);
+
+emit(proof, "issuer flag cleared: ledger evidence", undefined, {
+  balanceExists: await balanceExists(lateOpen.balanceId),
+  ledgerEvidence: await fateOf(lateOpen.balanceId),
+});
 
 const required = await openRestricted(world, "auth-required");
 
