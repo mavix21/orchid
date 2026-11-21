@@ -22,6 +22,10 @@ const deviceKeyStore: KeyStore = {
     browserKeyStore
       .write(wallet)
       .pipe(Effect.tap(() => Effect.sync(() => markWalletOnDevice(true)))),
+  clearLink: (expected) =>
+    browserKeyStore.clearLink
+      ? browserKeyStore.clearLink(expected)
+      : Effect.void,
 };
 
 export const walletEffects = makeWalletEffects(

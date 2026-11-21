@@ -6,6 +6,8 @@ import {
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
@@ -27,7 +29,7 @@ import {
   baseAsset,
 } from "../src/contract";
 import { TransferIntent, makeWalletEffects } from "../src/device/client";
-import { type KeyStore } from "../src/device/key-store";
+import { DeviceWallet, type KeyStore } from "../src/device/key-store";
 import { signingKey } from "../src/device/signing";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
@@ -495,6 +497,142 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(open.links.map((item) => item.balance)).toEqual([
             inflightBalance,
           ]);
+        }),
+    );
+
+    it.effect(
+      "stale recovery cleanup for link A does not erase a newer approved link B",
+      () =>
+        Effect.gen(function* () {
+          const store = memoryKeyStore();
+          const { wallet, sender } = yield* openSender(store, "raceowner");
+          const linkA = addressOf(Keypair.random());
+          const linkB = addressOf(Keypair.random());
+
+          const balanceA = Schema.decodeSync(BalanceId)(
+            `00000000${"a".repeat(64)}`,
+          );
+
+          const balanceB = Schema.decodeSync(BalanceId)(
+            `00000000${"b".repeat(64)}`,
+          );
+
+          const orderA = new TransferOrder({
+            ...orderFor(
+              Keypair.random(),
+              PaymentLinkRecipient.make({ value: linkA }),
+            ),
+            from: sender.address,
+          });
+
+          const orderB = new TransferOrder({
+            ...orderFor(
+              Keypair.random(),
+              PaymentLinkRecipient.make({ value: linkB }),
+            ),
+            from: sender.address,
+          });
+
+          const receiptA = new PaymentLinkReceipt({
+            network: "testnet",
+            address: linkA,
+            asset: baseAsset,
+            amount: linkAmount,
+            balance: balanceA,
+            attempts: [balanceA],
+          });
+
+          const receiptB = new PaymentLinkReceipt({
+            network: "testnet",
+            address: linkB,
+            asset: baseAsset,
+            amount: linkAmount,
+            balance: balanceB,
+            attempts: [balanceB],
+          });
+
+          world.claimables.set(balanceA, {
+            balance: balanceA,
+            asset: baseAsset,
+            amount: linkAmount,
+            sponsored: true,
+            claimants: [
+              new Claimant(linkA, Claimant.predicateUnconditional()),
+              new Claimant(sender.address, Claimant.predicateUnconditional()),
+            ],
+          });
+          world.claimables.set(balanceB, {
+            balance: balanceB,
+            asset: baseAsset,
+            amount: linkAmount,
+            sponsored: true,
+            claimants: [
+              new Claimant(linkB, Claimant.predicateUnconditional()),
+              new Claimant(sender.address, Claimant.predicateUnconditional()),
+            ],
+          });
+
+          yield* store
+            .write(
+              new DeviceWallet({
+                ...sender,
+                transfer: orderA,
+                approvedUntil: Math.floor(Date.now() / 1000) + 120,
+                linkReceipt: receiptA,
+              }),
+            )
+            .pipe(Effect.orDie);
+
+          const started = yield* Latch.make();
+          const release = yield* Latch.make();
+
+          const heldPort: WalletPort = {
+            ...wallet,
+            resolvePaymentLink: (addr, receipt) =>
+              started.open.pipe(
+                Effect.andThen(release.await),
+                Effect.andThen(wallet.resolvePaymentLink(addr, receipt)),
+              ),
+          };
+
+          const resolvingA = yield* Effect.forkChild(
+            makeWalletEffects(heldPort, store, passkeys).resolvePaymentLink(),
+          );
+
+          yield* started.await;
+
+          yield* store
+            .write(
+              new DeviceWallet({
+                ...sender,
+                transfer: orderB,
+                approvedUntil: Math.floor(Date.now() / 1000) + 180,
+                linkReceipt: receiptB,
+              }),
+            )
+            .pipe(Effect.orDie);
+
+          yield* release.open;
+
+          const resolvedA = yield* Fiber.join(resolvingA);
+
+          assertTagged(resolvedA, "ResolvedPaymentLink");
+          expect(resolvedA.balance).toBe(balanceA);
+
+          const storedAfterA = yield* savedWallet(store);
+
+          expect(storedAfterA.transfer?.id).toBe(orderB.id);
+          expect(storedAfterA.linkReceipt?.balance).toBe(balanceB);
+
+          const resolvedB = yield* makeWalletEffects(
+            wallet,
+            store,
+            passkeys,
+          ).resolvePaymentLink();
+
+          assertTagged(resolvedB, "ResolvedPaymentLink");
+          expect(resolvedB.balance).toBe(balanceB);
+          expect(resolvedB.address).toBe(linkB);
         }),
     );
   },

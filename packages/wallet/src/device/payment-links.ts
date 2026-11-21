@@ -22,9 +22,9 @@ import {
 import { readEnvelope } from "../stellar/envelopes";
 import { approvalMargin, network, paymentLifetime } from "../stellar/network";
 import {
-  DeviceWallet,
   type KeyStore,
   type KeyStoreUnavailable,
+  clearStoredLink,
 } from "./key-store";
 import {
   ApprovalOutstanding,
@@ -105,16 +105,6 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
     },
   );
 
-  const clearStoredLink = (wallet: DeviceWallet) =>
-    store.write(
-      new DeviceWallet({
-        ...wallet,
-        transfer: undefined,
-        approvedUntil: undefined,
-        linkReceipt: undefined,
-      }),
-    );
-
   const resolvePaymentLink = Effect.fn("Device.resolvePaymentLink")(
     function* (): Effect.fn.Return<
       ResolvePaymentLinkOutcome,
@@ -128,6 +118,13 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
       const receipt = wallet.linkReceipt;
 
       if (receipt === undefined) return new PaymentLinkNotFound();
+
+      const clearTarget = {
+        address: wallet.address,
+        transferId: wallet.transfer?.id,
+        approvedUntil: wallet.approvedUntil,
+        receipt,
+      };
 
       let concluded = false;
       let pendingStatus: Pending | undefined;
@@ -149,7 +146,7 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
       const resolved = yield* port.resolvePaymentLink(wallet.address, receipt);
 
       if (Predicate.isTagged(resolved, "ResolvedPaymentLink")) {
-        yield* clearStoredLink(wallet);
+        yield* clearStoredLink(store, clearTarget);
 
         return resolved;
       }
@@ -167,7 +164,7 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
         )
           return new ApprovalOutstanding({ order: wallet.transfer });
 
-        yield* clearStoredLink(wallet);
+        yield* clearStoredLink(store, clearTarget);
       }
 
       return resolved;

@@ -12,6 +12,8 @@ import {
   DeviceWallet,
   type KeyStore,
   KeyStoreUnavailable,
+  type LinkClearTarget,
+  sameLinkState,
 } from "./key-store";
 import { SecretPhrase } from "./secret-phrase";
 
@@ -152,6 +154,50 @@ async function writeWallet(wallet: DeviceWallet): Promise<void> {
   );
 }
 
+async function clearSealedLink(expected: LinkClearTarget): Promise<void> {
+  const database = await openDatabase();
+
+  try {
+    const transaction = database.transaction(entries, "readwrite");
+    const objectStore = transaction.objectStore(entries);
+
+    await new Promise<void>((resolve, reject) => {
+      const request = objectStore.get(walletEntry);
+
+      request.addEventListener("error", () => reject(request.error));
+      request.addEventListener("success", () => {
+        try {
+          const sealed = Schema.decodeUnknownSync(
+            Schema.UndefinedOr(SealedWallet),
+          )(request.result);
+
+          if (sealed !== undefined && sameLinkState(sealed, expected))
+            objectStore.put(
+              Schema.encodeSync(SealedWallet)({
+                address: sealed.address,
+                username: sealed.username,
+                reserveSponsor: sealed.reserveSponsor,
+                backup: sealed.backup,
+                iv: sealed.iv,
+                phrase: sealed.phrase,
+              }),
+              walletEntry,
+            );
+        } catch (error) {
+          transaction.abort();
+          reject(error);
+        }
+      });
+
+      transaction.addEventListener("complete", () => resolve());
+      transaction.addEventListener("error", () => reject(transaction.error));
+      transaction.addEventListener("abort", () => reject(transaction.error));
+    });
+  } finally {
+    database.close();
+  }
+}
+
 export const browserKeyStore: KeyStore = {
   read: () =>
     Effect.tryPromise({
@@ -161,6 +207,11 @@ export const browserKeyStore: KeyStore = {
   write: (wallet) =>
     Effect.tryPromise({
       try: () => writeWallet(wallet),
+      catch: (cause) => new KeyStoreUnavailable({ cause }),
+    }),
+  clearLink: (expected) =>
+    Effect.tryPromise({
+      try: () => clearSealedLink(expected),
       catch: (cause) => new KeyStoreUnavailable({ cause }),
     }),
 };
