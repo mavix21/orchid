@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   PaymentLinkReceipt,
+  type TransferId,
   TransferOrder,
   Username,
 } from "../contract";
@@ -29,14 +30,55 @@ export class KeyStoreUnavailable extends Schema.TaggedError<KeyStoreUnavailable>
   { cause: Schema.Defect() },
 ) {}
 
+export interface LinkClearTarget {
+  readonly address: AccountAddress;
+  readonly transferId: TransferId | undefined;
+  readonly approvedUntil: number | undefined;
+  readonly receipt: PaymentLinkReceipt;
+}
+
 export interface KeyStore {
   read(): Effect.Effect<Option.Option<DeviceWallet>, KeyStoreUnavailable>;
   write(wallet: DeviceWallet): Effect.Effect<void, KeyStoreUnavailable>;
+  clearLink?(
+    expected: LinkClearTarget,
+  ): Effect.Effect<void, KeyStoreUnavailable>;
 }
 
-const receiptJson = Schema.encodeSync(
+export const receiptJson = Schema.encodeSync(
   Schema.fromJsonString(Schema.NullOr(PaymentLinkReceipt)),
 );
+
+export const sameLinkState = (
+  wallet: Pick<
+    DeviceWallet,
+    "address" | "transfer" | "approvedUntil" | "linkReceipt"
+  >,
+  expected: LinkClearTarget,
+) =>
+  wallet.address === expected.address &&
+  wallet.transfer?.id === expected.transferId &&
+  wallet.approvedUntil === expected.approvedUntil &&
+  receiptJson(wallet.linkReceipt ?? null) === receiptJson(expected.receipt);
+
+export const clearStoredLink = Effect.fn("Device.clearStoredLink")(function* (
+  store: KeyStore,
+  expected: LinkClearTarget,
+) {
+  if (store.clearLink) return yield* store.clearLink(expected);
+
+  const current = yield* store.read();
+
+  if (Option.isSome(current) && sameLinkState(current.value, expected))
+    yield* store.write(
+      new DeviceWallet({
+        ...current.value,
+        transfer: undefined,
+        approvedUntil: undefined,
+        linkReceipt: undefined,
+      }),
+    );
+});
 
 export const remember = Effect.fn("Device.remember")(function* (
   store: KeyStore,
