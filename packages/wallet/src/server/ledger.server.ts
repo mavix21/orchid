@@ -47,8 +47,9 @@ export const rpcCall = <A, I>(
   result: Schema.Codec<A, I>,
 ): Effect.Effect<A, ChainUnreachable> =>
   Effect.tryPromise({
-    try: async () => {
+    try: async (signal) => {
       const response = await fetch(rpcUrl, {
+        signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),

@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 
 const RpcRequest = Schema.fromJsonString(
   Schema.Struct({
+    method: Schema.Literal("getLedgerEntries"),
     params: Schema.Struct({ keys: Schema.Array(Schema.String) }),
   }),
 );
