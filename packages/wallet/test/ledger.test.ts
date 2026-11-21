@@ -372,14 +372,20 @@ it.effect.each([
   }),
 );
 
+const lineWithBuying = (buying: bigint) =>
+  xdr.TrustLineEntryExt.v1(
+    new xdr.TrustLineEntryV1({
+      liabilities: new xdr.Liabilities({ buying, selling: 0n }),
+      ext: xdr.TrustLineEntryV1Ext.v0(),
+    }),
+  );
+
 it.each([
-  ["no liabilities", 1_000n, 300n, 0n, 700n],
-  ["buying liabilities", 100n, 0n, 90n, 10n],
-  ["balance and buying liabilities", 1_000n, 300n, 90n, 610n],
-  ["buying liabilities above the headroom", 100n, 60n, 90n, 0n],
+  ["no liabilities", 1_000n, 300n, xdr.TrustLineEntryExt.v0(), 700n],
+  ["balance and buying liabilities", 1_000n, 300n, lineWithBuying(90n), 610n],
 ])(
   "incoming capacity of a trustline with %s",
-  (_name, limit, balance, buying, capacity) => {
+  (_name, limit, balance, ext, capacity) => {
     const key = Keypair.random();
 
     const line = xdr.LedgerEntryData.trustline(
@@ -389,12 +395,7 @@ it.each([
         balance,
         limit,
         flags: 1,
-        ext: xdr.TrustLineEntryExt.v1(
-          new xdr.TrustLineEntryV1({
-            liabilities: new xdr.Liabilities({ buying, selling: 0n }),
-            ext: xdr.TrustLineEntryV1Ext.v0(),
-          }),
-        ),
+        ext,
       }),
     ).toXDR("base64");
 

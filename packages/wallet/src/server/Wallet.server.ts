@@ -158,14 +158,18 @@ export class Wallet extends Context.Service<
           : yield* signedStep(transfer);
       });
 
-      const refreshDraft = Effect.fn("Wallet.refreshDraft")(function* (
+      const redrafted = Effect.fn("Wallet.redrafted")(function* (
         stored: Proposed,
+        requirement: Option.Option<KnownExchangeMemo>,
       ) {
         const request = yield* delivery(stored.order, stored.recipient);
 
-        if (!(request instanceof SigningRequest)) return stored;
-
-        return yield* transfers.redraft(stored, request);
+        return request instanceof SigningRequest
+          ? yield* resumed(
+              yield* transfers.redraft(stored, request),
+              requirement,
+            )
+          : request;
       });
 
       const currentDraft = Effect.fn("Wallet.currentDraft")(function* (
@@ -233,7 +237,7 @@ export class Wallet extends Context.Service<
           if (Option.isSome(refusal)) return refusal.value;
 
           if (!(yield* currentDraft(stored)))
-            return yield* resumed(yield* refreshDraft(stored), requirement);
+            return yield* redrafted(stored, requirement);
 
           if (yield* live(stored.request)) {
             if (Option.isNone(approval))
@@ -246,7 +250,7 @@ export class Wallet extends Context.Service<
             if (Option.isNone(sealed)) return proposedStep(stored, requirement);
 
             if (!(yield* currentDraft(stored)))
-              return yield* resumed(yield* refreshDraft(stored), requirement);
+              return yield* redrafted(stored, requirement);
 
             const authorized = yield* transfers.authorize(stored, sealed.value);
 
@@ -257,12 +261,9 @@ export class Wallet extends Context.Service<
 
                   return Predicate.isTagged(receipt, "Pending")
                     ? new SenderBusy({ inFlight: receipt })
-                    : yield* resumed(
-                        (yield* currentDraft(stored))
-                          ? stored
-                          : yield* refreshDraft(stored),
-                        requirement,
-                      );
+                    : (yield* currentDraft(stored))
+                      ? yield* resumed(stored, requirement)
+                      : yield* redrafted(stored, requirement);
                 }),
               ClaimablesFull: () =>
                 Effect.succeed(

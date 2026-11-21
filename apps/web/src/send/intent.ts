@@ -37,7 +37,7 @@ export type SendForm = {
 export const memoByteLimit = 28;
 
 export const memoBytes = (memo: string) =>
-  new TextEncoder().encode(memo).length;
+  new TextEncoder().encode(memo.trim()).length;
 
 const otherNetworkNames: Record<Exclude<AddressNetwork, "stellar">, string> = {
   evm: "una red EVM (como Base o Ethereum)",
@@ -108,9 +108,11 @@ export function intentOf(
   if (Option.isNone(amount))
     return Result.fail(new FieldProblem("amount", "Escribe un monto válido"));
 
+  const memo = form.memo.trim();
+
   if (
     destination === "username" ||
-    form.memo === "" ||
+    memo === "" ||
     Schema.is(MuxedAddress)(to.success.value)
   )
     return Result.succeed(
@@ -118,7 +120,7 @@ export function intentOf(
     );
 
   return Result.map(
-    memoOf(form.memo),
+    memoOf(memo),
     (value) =>
       new TransferIntent({
         to: to.success,
