@@ -37,7 +37,7 @@ The ledger is the truth for balances and for whether a payment happened. Postgre
 - **Usernames.** `[a-z0-9_]`, 3-20 characters, lowercase and permanent, bound when the signed opening is stored. Names containing `orchid` and reserved words cannot be bound.
 - **Registration.** Open, with no invite or quota.
 - **Schema location.** Tables and migrations live in `packages/wallet`; `packages/db` is the driver.
-- **External memos.** Required only for addresses in the known-exchange registry; other external sends accept an optional text or ID memo. Orchid sends carry none.
+- **External memos.** Required for addresses in the known-exchange registry and for accounts that publish the SEP-29 `config.memo_required` data entry as `1`; other external sends accept an optional text or ID memo. Orchid sends carry none.
 - **Unauthenticated reads.** `overview` takes an address without authentication on testnet.
 - **Testnet reset.** Tables survive a reset; missing wallets are marked recovered and reopen under the same username, and transfers are scoped to the new epoch.
 - **Sponsorship roles.** Reserve sponsor and fee payer are separate key roles in configuration, so mainnet can split them without code changes.

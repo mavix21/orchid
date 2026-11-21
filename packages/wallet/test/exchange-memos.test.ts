@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AccountAddress } from "../src/contract";
+import { ChainUnreachable } from "../src/server/chain-errors.server";
 import {
   KnownExchangeMemo,
   memoRequirementFor,
@@ -71,6 +72,24 @@ it.effect(
       expect(
         Option.isNone(yield* memoRequirementFor(rpcUrl, other, [entry])),
       ).toBe(true);
+    }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "an unreachable ledger fails the memo check instead of skipping it",
+  () =>
+    Effect.gen(function* () {
+      const rpcUrl = yield* rpcAnswering(() =>
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: -32603, message: "could not query captive core" },
+        }),
+      );
+
+      expect(
+        yield* Effect.flip(memoRequirementFor(rpcUrl, randomAddress(), [])),
+      ).toBeInstanceOf(ChainUnreachable);
     }).pipe(Effect.scoped),
 );
 
