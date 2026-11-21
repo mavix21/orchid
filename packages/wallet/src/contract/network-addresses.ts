@@ -108,10 +108,16 @@ const recognisers: ReadonlyArray<
   ],
 ];
 
+const longestAddressLength = 90;
+
 export const recogniseAddress = (
   address: string,
 ): Option.Option<AddressNetwork> =>
-  Option.map(
-    Option.fromUndefinedOr(recognisers.find(([, matches]) => matches(address))),
-    ([network]) => network,
-  );
+  address.length > longestAddressLength
+    ? Option.none()
+    : Option.map(
+        Option.fromUndefinedOr(
+          recognisers.find(([, matches]) => matches(address)),
+        ),
+        ([network]) => network,
+      );
