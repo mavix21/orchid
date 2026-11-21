@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./server": "./src/server/index.server.ts"
+    "./server": "./src/server/index.server.ts",
+    "./testnet": "./scripts/testnet-funding.ts",
+    "./migrate": "./scripts/migrate.server.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
