@@ -314,67 +314,57 @@ it.effect(
     }),
 );
 
+const constructChain = (overrides: {
+  readonly rpcUrl?: string;
+  readonly rpcTimeout?: Duration.Duration;
+}) =>
+  Effect.void.pipe(
+    Effect.provide(
+      chainWithHttp(
+        rpcAnswering(() => ""),
+        overrides,
+      ),
+    ),
+    Effect.exit,
+  );
+
 it.effect.each([
   {
     name: "remote plain HTTP URL",
     rpcUrl: "http://127.0.0.1.example.test",
     rpcTimeout: undefined,
-    accepted: false,
   },
   {
     name: "non-HTTP loopback URL",
     rpcUrl: "ftp://localhost:8000",
     rpcTimeout: undefined,
-    accepted: false,
   },
   {
     name: "unbounded rpcTimeout",
     rpcUrl: testRpcUrl,
     rpcTimeout: Duration.infinity,
-    accepted: false,
   },
   {
     name: "nonpositive rpcTimeout",
     rpcUrl: testRpcUrl,
     rpcTimeout: Duration.zero,
-    accepted: false,
   },
-  {
-    name: "localhost HTTP URL",
-    rpcUrl: "http://localhost:8000",
-    rpcTimeout: undefined,
-    accepted: true,
-  },
-  {
-    name: "IPv4 loopback HTTP URL",
-    rpcUrl: "http://127.0.0.1:8000",
-    rpcTimeout: undefined,
-    accepted: true,
-  },
-  {
-    name: "IPv6 loopback HTTP URL",
-    rpcUrl: "http://[::1]:8000",
-    rpcTimeout: undefined,
-    accepted: true,
-  },
-])(
-  "Chain construction for $name accepted: $accepted",
-  ({ rpcUrl, rpcTimeout, accepted }) =>
-    Effect.gen(function* () {
-      const exit = yield* Effect.void.pipe(
-        Effect.provide(
-          chainWithHttp(
-            rpcAnswering(() => ""),
-            { rpcUrl, rpcTimeout },
-          ),
-        ),
-        Effect.exit,
-      );
+])("Chain rejects $name at construction", ({ rpcUrl, rpcTimeout }) =>
+  Effect.gen(function* () {
+    const exit = yield* constructChain({ rpcUrl, rpcTimeout });
 
-      expect(
-        accepted
-          ? Exit.isSuccess(exit)
-          : Exit.isFailure(exit) && Cause.hasDies(exit.cause),
-      ).toBe(true);
-    }),
+    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+  }),
+);
+
+it.effect.each([
+  "http://localhost:8000",
+  "http://127.0.0.1:8000",
+  "http://[::1]:8000",
+])("Chain accepts loopback RPC URL %s at construction", (rpcUrl) =>
+  Effect.gen(function* () {
+    const exit = yield* constructChain({ rpcUrl });
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+  }),
 );
