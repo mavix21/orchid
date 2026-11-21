@@ -8,10 +8,7 @@ export const e2eDatabaseUrl = `postgres://orchid:orchid-local@127.0.0.1:${e2eDat
 const container = "orchid-e2e-database";
 
 const migrations = fileURLToPath(
-  new URL(
-    "../../../packages/wallet/scripts/migrate.server.ts",
-    import.meta.url,
-  ),
+  import.meta.resolve("@workspace/wallet/migrate"),
 );
 
 const run = (command: string, args: ReadonlyArray<string>, env = {}) =>

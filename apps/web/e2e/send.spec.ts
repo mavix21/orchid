@@ -15,10 +15,7 @@ import {
   submitButton,
   usernameInput,
 } from "./device";
-import {
-  fundWithUsdc,
-  usdc,
-} from "../../../packages/wallet/scripts/testnet-funding";
+import { fundWithUsdc, usdc } from "@workspace/wallet/testnet";
 
 const serverFunction = "/_serverFn/";
 

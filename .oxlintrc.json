@@ -72,7 +72,18 @@
         "allow": ["layout"]
       }
     ],
-    "orchid/no-comments": "error"
+    "orchid/no-comments": "error",
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["**/packages/**", "**/apps/**"],
+            "message": "Import another package by its name and exports, never by a relative path."
+          }
+        ]
+      }
+    ]
   },
   "overrides": [
     {
