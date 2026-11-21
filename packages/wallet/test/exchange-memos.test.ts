@@ -10,7 +10,7 @@ import {
   memoRequirementFor,
 } from "../src/server/exchange-memos.server";
 import { network } from "../src/stellar/network";
-import { rpcAnswering } from "./rpc-answering";
+import { rpcAnswering, testRpcUrl } from "./rpc-answering";
 
 const ledgerPublishing = (
   address: AccountAddress,
@@ -63,7 +63,7 @@ it.effect(
         source: "https://example.com/fixtures/stellar-testnet-memo-required",
       });
 
-      const rpcUrl = yield* rpcAnswering(() =>
+      const http = rpcAnswering(() =>
         JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
@@ -71,15 +71,19 @@ it.effect(
         }),
       );
 
-      expect(yield* memoRequirementFor(rpcUrl, address, [entry])).toEqual(
-        Option.some(entry),
-      );
+      expect(
+        yield* memoRequirementFor(testRpcUrl, address, [entry]).pipe(
+          Effect.provide(http),
+        ),
+      ).toEqual(Option.some(entry));
       expect(
         yield* Effect.flip(
-          memoRequirementFor(rpcUrl, randomAddress(), [entry]),
+          memoRequirementFor(testRpcUrl, randomAddress(), [entry]).pipe(
+            Effect.provide(http),
+          ),
         ),
       ).toBeInstanceOf(ChainUnreachable);
-    }).pipe(Effect.scoped),
+    }),
 );
 
 const published = (text: string) => Option.some(new TextEncoder().encode(text));
@@ -107,9 +111,13 @@ it.effect.each([
   ({ memoRequired, required }) =>
     Effect.gen(function* () {
       const address = randomAddress();
-      const rpcUrl = yield* ledgerPublishing(address, memoRequired);
+      const http = ledgerPublishing(address, memoRequired);
 
-      expect(yield* memoRequirementFor(rpcUrl, address, [])).toEqual(
+      expect(
+        yield* memoRequirementFor(testRpcUrl, address, []).pipe(
+          Effect.provide(http),
+        ),
+      ).toEqual(
         required
           ? Option.some(
               new KnownExchangeMemo({
@@ -121,7 +129,7 @@ it.effect.each([
             )
           : Option.none(),
       );
-    }).pipe(Effect.scoped),
+    }),
 );
 
 it("registry entries require testnet, checksum-valid addresses and a public HTTPS source", () => {

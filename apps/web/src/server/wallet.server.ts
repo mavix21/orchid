@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 
 const requestWalletLayer = Layer.suspend(() =>
   Wallet.layer.pipe(
@@ -22,6 +23,7 @@ const requestWalletLayer = Layer.suspend(() =>
       }),
     ),
     Layer.provide(databaseLayer(env.HYPERDRIVE)),
+    Layer.provide(FetchHttpClient.layer),
   ),
 );
 

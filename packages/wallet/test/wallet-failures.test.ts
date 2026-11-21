@@ -1,4 +1,3 @@
-import { createServer } from "node:http";
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
@@ -23,6 +22,11 @@ import { Applied, Chain } from "../src/server/Chain.server";
 import { WalletSettings } from "../src/server/settings.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
+import {
+  httpClientAnswering,
+  requestBodyText,
+  testRpcUrl,
+} from "./rpc-answering";
 import { assertTagged } from "./tagged";
 import {
   addressOf,
@@ -83,45 +87,26 @@ const RpcMethod = Schema.fromJsonString(
 );
 
 const stellarAnswering = (reply: (method: string) => string) =>
-  Effect.acquireRelease(
-    Effect.promise(() => {
-      const server = createServer((request, response) => {
-        let body = "";
-
-        request.on("data", (chunk) => {
-          body += String(chunk);
-        });
-
-        request.on("end", () => {
-          response.setHeader("Content-Type", "application/json");
-          response.end(reply(Schema.decodeSync(RpcMethod)(body).method));
-        });
-      });
-
-      return new Promise<typeof server>((resolve) =>
-        server.listen(0, () => resolve(server)),
-      );
-    }),
-    (server) =>
-      Effect.promise(
-        () => new Promise((resolve) => server.close(() => resolve(true))),
-      ),
-  ).pipe(
-    Effect.map((server) =>
-      Layer.fresh(Wallet.serviceLayer).pipe(
-        Layer.provide(stores),
-        Layer.provide(Layer.fresh(Chain.layer)),
-        Layer.provide(
-          Layer.succeed(WalletSettings, {
-            rpcUrl: `http://127.0.0.1:${
-              Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Number }))(
-                server.address(),
-              ).port
-            }`,
-            reserveSponsorSecret: Redacted.make(sponsor.secret()),
-            feePayerSecret: Redacted.make(feePayer.secret()),
-            passkeyOrigins: [passkeyOrigin],
-          }),
+  Layer.fresh(Wallet.serviceLayer).pipe(
+    Layer.provide(stores),
+    Layer.provide(Layer.fresh(Chain.layer)),
+    Layer.provide(
+      Layer.succeed(WalletSettings, {
+        rpcUrl: testRpcUrl,
+        reserveSponsorSecret: Redacted.make(sponsor.secret()),
+        feePayerSecret: Redacted.make(feePayer.secret()),
+        passkeyOrigins: [passkeyOrigin],
+      }),
+    ),
+    Layer.provide(
+      httpClientAnswering((request) =>
+        Effect.succeed(
+          new Response(
+            reply(
+              Schema.decodeSync(RpcMethod)(requestBodyText(request)).method,
+            ),
+            { headers: { "Content-Type": "application/json" } },
+          ),
         ),
       ),
     ),
@@ -256,7 +241,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           const key = yield* fundedSender();
-          const stellar = yield* stellarAnswering(() => rpcError);
+          const stellar = stellarAnswering(() => rpcError);
 
           expect(
             yield* Wallet.use((wallet) => wallet.overview(addressOf(key))).pipe(
@@ -264,13 +249,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               Effect.flip,
             ),
           ).toEqual(new LedgerUnreachable());
-        }).pipe(Effect.scoped),
+        }),
     );
 
     it.effect("answers ServiceFailed when a ledger reply does not decode", () =>
       Effect.gen(function* () {
         const key = yield* fundedSender();
-        const stellar = yield* stellarAnswering(() => undecodable);
+        const stellar = stellarAnswering(() => undecodable);
 
         expect(
           yield* Wallet.use((wallet) => wallet.overview(addressOf(key))).pipe(
@@ -278,18 +263,18 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             Effect.flip,
           ),
         ).toEqual(new ServiceFailed());
-      }).pipe(Effect.scoped),
+      }),
     );
 
     it.effect("keeps a transfer Pending on Stellar's real lookup replies", () =>
       Effect.gen(function* () {
         const signed = yield* signedTransfer("maria");
-        const stellar = yield* stellarAnswering(testnetReply);
+        const stellar = stellarAnswering(testnetReply);
 
         expect(
           (yield* send(signed.order).pipe(Effect.provide(stellar)))._tag,
         ).toBe("Pending");
-      }).pipe(Effect.scoped),
+      }),
     );
 
     it.effect(
@@ -297,7 +282,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           const signed = yield* signedTransfer("maria");
-          const stellar = yield* stellarAnswering(() => undecodable);
+          const stellar = stellarAnswering(() => undecodable);
 
           expect(
             yield* send(signed.order).pipe(
@@ -305,7 +290,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               Effect.flip,
             ),
           ).toEqual(new ServiceFailed());
-        }).pipe(Effect.scoped),
+        }),
     );
 
     it.effect("answers LedgerUnreachable when Stellar does not answer", () =>

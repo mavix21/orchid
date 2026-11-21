@@ -17,6 +17,7 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import {
   AccountAddress,
   Approval,
@@ -68,6 +69,7 @@ const layer = Chain.layer.pipe(
       passkeyOrigins: [],
     }),
   ),
+  Layer.provide(FetchHttpClient.layer),
 );
 
 const seal = (envelope: UnsignedEnvelope, expires: number) =>
