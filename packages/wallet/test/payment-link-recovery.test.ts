@@ -336,6 +336,31 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           assertTagged(resolved, "ResolvedPaymentLink");
           expect(resolved.balance).toBe(receipt.balance);
           expect(resolved.address).toBe(linkAddr);
+
+          const cancelSettlingPort: WalletPort = {
+            ...wallet,
+            manage: (order, approval) =>
+              wallet.manage(order, approval).pipe(
+                Effect.tap(() =>
+                  Effect.sync(() => {
+                    const sealed = world.submitted.at(-1);
+
+                    if (Option.isSome(approval) && sealed) {
+                      settleHash(sealed.hash);
+                      world.claimables.delete(resolved.balance);
+                    }
+                  }),
+                ),
+              ),
+          };
+
+          const cancelled = yield* makeWalletEffects(
+            cancelSettlingPort,
+            store,
+            passkeys,
+          ).cancelPaymentLink(resolved);
+
+          assertTagged(cancelled, "AssetSettled");
         }),
     );
 

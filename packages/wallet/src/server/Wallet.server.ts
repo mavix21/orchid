@@ -110,9 +110,19 @@ export class Wallet extends Context.Service<
               .conclude(authorized.order.id, evidence)
               .pipe(Effect.map((done) => done.receipt)),
           Undecided: () =>
-            chain
-              .submit(authorized.sealed)
-              .pipe(Effect.ignore, Effect.as(pending(authorized))),
+            Effect.gen(function* () {
+              const liveEvidence = yield* links.reconcileLiveLink(authorized);
+
+              if (Option.isSome(liveEvidence))
+                return (yield* transfers.conclude(
+                  authorized.order.id,
+                  liveEvidence.value,
+                )).receipt;
+
+              yield* chain.submit(authorized.sealed).pipe(Effect.ignore);
+
+              return pending(authorized);
+            }),
         });
       });
 

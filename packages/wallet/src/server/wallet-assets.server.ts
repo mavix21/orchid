@@ -118,13 +118,10 @@ export const assetFlow = Effect.gen(function* () {
     const action = order.action;
 
     if (Predicate.isTagged(action, "ClaimBalance")) {
-      const first = yield* chain.claimable([action.balance]);
-
-      const entry = first[0] ?? (yield* chain.claimable([action.balance]))[0];
+      const entries = yield* chain.claimable([action.balance]);
+      const entry = entries[0];
 
       if (!entry) {
-        yield* transfers.closeBalance(action.balance);
-
         const reclaimed = yield* orders.settledClaim(
           order.wallet,
           action.balance,
