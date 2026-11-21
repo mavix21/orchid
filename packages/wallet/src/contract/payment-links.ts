@@ -18,6 +18,9 @@ export class PaymentLinkReceipt extends Schema.Class<PaymentLinkReceipt>(
   "@workspace/wallet/PaymentLinkReceipt",
 )({
   network: Schema.String,
+  address: AccountAddress,
+  asset: Asset,
+  amount: PositiveAmount,
   balance: BalanceId,
   attempts: Schema.Array(BalanceId),
 }) {}

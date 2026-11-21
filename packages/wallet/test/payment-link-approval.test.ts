@@ -6,16 +6,21 @@ import {
   Operation,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
   type Approval,
+  AssetCode,
+  AssetDraft,
   BalanceId,
+  IssuedAsset,
   LinkRecipient,
   NativeAsset,
   PositiveAmount,
+  SigningRequest,
   type TransferOrder,
   UnsignedEnvelope,
   baseAsset,
@@ -26,6 +31,7 @@ import {
   makeWalletEffects,
 } from "../src/device/client";
 import { selectRecoverablePaymentLinks } from "../src/server/ledger-assets.server";
+import { draftClaim } from "../src/stellar/asset-envelopes";
 import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 import {
   addressOf,
@@ -285,3 +291,55 @@ it("recovery selects only sponsored balances with two unconditional claimants", 
     },
   ]);
 });
+
+const substitutedIssuer = IssuedAsset.make({
+  code: Schema.decodeSync(AssetCode)("USDC"),
+  issuer: actors.stranger,
+});
+
+const cancelBalance = Schema.decodeSync(BalanceId)(`00000000${"e".repeat(64)}`);
+
+it.live.each([
+  ["substituted issuer on issued link", baseAsset, substitutedIssuer],
+  ["trustline repair on native link", NativeAsset.make({}), baseAsset],
+] as const)(
+  "cancel approval rejects %s unsigned",
+  ([, targetAsset, openedAsset]) =>
+    Effect.gen(function* () {
+      const approvals: Array<Option.Option<Approval>> = [];
+      const store = memoryKeyStore(Option.some(actors.wallet));
+
+      const port = unusedPort({
+        manage: (_order, approval) =>
+          Effect.sync(() => {
+            approvals.push(approval);
+
+            const at = nowSeconds();
+
+            const envelope = draftClaim({
+              source: new Account(actors.sender, "100"),
+              balance: cancelBalance,
+              opens: { asset: openedAsset, reserveSponsor: actors.sponsor },
+              minTime: at,
+              maxTime: at + 120,
+            });
+
+            return new AssetDraft({
+              request: new SigningRequest({
+                envelope,
+                expiresAt: DateTime.makeUnsafe((at + 120) * 1000),
+              }),
+            });
+          }),
+      });
+
+      const outcome = yield* makeWalletEffects(
+        port,
+        store,
+        passkeys,
+      ).cancelPaymentLink({ balance: cancelBalance, asset: targetAsset });
+
+      expect(outcome).toEqual(new DraftRejected());
+      expect(approvals.filter(Option.isSome)).toHaveLength(0);
+    }),
+);

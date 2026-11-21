@@ -29,8 +29,8 @@ export const walletEffects: WalletEffects = {
     withWallet((wallet) => wallet.createPaymentLink(intent)),
   paymentLinks: () => withWallet((wallet) => wallet.paymentLinks()),
   resolvePaymentLink: () => withWallet((wallet) => wallet.resolvePaymentLink()),
-  cancelPaymentLink: (balance) =>
-    withWallet((wallet) => wallet.cancelPaymentLink(balance)),
+  cancelPaymentLink: (target) =>
+    withWallet((wallet) => wallet.cancelPaymentLink(target)),
 };
 
 export const walletClient: WalletClient = {
@@ -49,6 +49,6 @@ export const walletClient: WalletClient = {
   paymentLinks: () => Effect.runPromise(walletEffects.paymentLinks()),
   resolvePaymentLink: () =>
     Effect.runPromise(walletEffects.resolvePaymentLink()),
-  cancelPaymentLink: (balance) =>
-    Effect.runPromise(walletEffects.cancelPaymentLink(balance)),
+  cancelPaymentLink: (target) =>
+    Effect.runPromise(walletEffects.cancelPaymentLink(target)),
 };

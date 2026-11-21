@@ -4,7 +4,6 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   BackupStored,
-  type BalanceId,
   type TransferId,
   Username,
   type WalletPort,
@@ -26,6 +25,7 @@ import {
   InvalidUsername,
   NoWallet,
   type PaymentLinkIntent,
+  type PaymentLinkTarget,
   type PaymentLinksOutcome,
   type PaymentReview,
   type ResolvePaymentLinkOutcome,
@@ -62,7 +62,9 @@ export interface WalletClient {
   ): Promise<CreatePaymentLinkOutcome>;
   paymentLinks(): Promise<PaymentLinksOutcome>;
   resolvePaymentLink(): Promise<ResolvePaymentLinkOutcome>;
-  cancelPaymentLink(balance: BalanceId): Promise<CancelPaymentLinkOutcome>;
+  cancelPaymentLink(
+    target: PaymentLinkTarget,
+  ): Promise<CancelPaymentLinkOutcome>;
 }
 
 export interface WalletEffects {
@@ -81,7 +83,7 @@ export interface WalletEffects {
   paymentLinks(): Effect.Effect<PaymentLinksOutcome>;
   resolvePaymentLink(): Effect.Effect<ResolvePaymentLinkOutcome>;
   cancelPaymentLink(
-    balance: BalanceId,
+    target: PaymentLinkTarget,
   ): Effect.Effect<CancelPaymentLinkOutcome>;
 }
 
@@ -251,10 +253,10 @@ export function makeWalletEffects(
           Effect.flatMap(({ resolvePaymentLink }) => resolvePaymentLink()),
         ),
       ),
-    cancelPaymentLink: (balance) =>
+    cancelPaymentLink: (target) =>
       transfer(
         links.pipe(
-          Effect.flatMap(({ cancelPaymentLink }) => cancelPaymentLink(balance)),
+          Effect.flatMap(({ cancelPaymentLink }) => cancelPaymentLink(target)),
         ),
       ),
   };
@@ -281,7 +283,7 @@ export function makeWalletClient(
       Effect.runPromise(effects.createPaymentLink(intent)),
     paymentLinks: () => Effect.runPromise(effects.paymentLinks()),
     resolvePaymentLink: () => Effect.runPromise(effects.resolvePaymentLink()),
-    cancelPaymentLink: (balance) =>
-      Effect.runPromise(effects.cancelPaymentLink(balance)),
+    cancelPaymentLink: (target) =>
+      Effect.runPromise(effects.cancelPaymentLink(target)),
   };
 }

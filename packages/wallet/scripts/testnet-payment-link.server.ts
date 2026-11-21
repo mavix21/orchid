@@ -190,7 +190,7 @@ assert.deepEqual(
   [created.balance],
 );
 
-const cancelled = await client.cancelPaymentLink(created.balance);
+const cancelled = await client.cancelPaymentLink(created);
 
 assert.ok(
   cancelled instanceof AssetSettled,
@@ -209,7 +209,7 @@ const afterCancelEntries = await run(
 
 assert.equal(afterCancelEntries.length, 0);
 
-const cancelAgain = await client.cancelPaymentLink(created.balance);
+const cancelAgain = await client.cancelPaymentLink(created);
 
 assert.ok(
   cancelAgain instanceof BalanceGone && cancelAgain.status === "reclaimed",
@@ -265,9 +265,7 @@ assert.ok(
 
 const restartCreateTxHash = await latestTxHash(wallet.address);
 
-const restartCancelled = await restartedClient.cancelPaymentLink(
-  resolved.balance,
-);
+const restartCancelled = await restartedClient.cancelPaymentLink(resolved);
 
 assert.ok(
   restartCancelled instanceof AssetSettled,
