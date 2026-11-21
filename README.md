@@ -93,7 +93,7 @@ To develop against Neon, `bunx neon checkout dev` selects the database branch an
 
 ### Test from your phone
 
-`bun run dev:phone` starts the dev stack and serves it over HTTPS to your own Tailscale devices only, at `https://<machine>.<tailnet>.ts.net:8443`. It uses Tailscale Serve, never Funnel, so nothing is reachable from the public internet, and the hostname is stable, so passkeys created on the phone keep working. The Postgres container above must be running. It prints the URL on its own line once the app responds; Ctrl+C or `bun run dev:phone:stop` stops the stack and removes the serve entry. Running it again while it is up only reprints the URL.
+`bun run dev:phone` starts the dev stack and serves it over HTTPS to your own Tailscale devices only, at `https://<machine>.<tailnet>.ts.net:8443`. It uses Tailscale Serve, never Funnel, so nothing is reachable from the public internet (use a personal tailnet: other members your access policy allows can reach it too), and the hostname is stable, so passkeys created on the phone keep working. The Postgres container above must be running. It prints the URL on its own line once the app responds; Ctrl+C or `bun run dev:phone:stop` stops the stack and removes the serve entry. Running it again while it is up only reprints the URL.
 
 The ts.net origin is accepted for passkeys only in this mode (it is derived from `tailscale status --json`); `PASSKEY_ORIGINS` in `apps/web/wrangler.jsonc` is unchanged.
 

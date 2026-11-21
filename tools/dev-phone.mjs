@@ -63,30 +63,68 @@ const readServeStatus = () => {
 
 const servedHostPort = (host) => `${host}:${servePort}`;
 
-const readServedTarget = (host) =>
-  readServeStatus().Web?.[servedHostPort(host)]?.Handlers?.["/"]?.Proxy;
+const readRootHandler = (host) =>
+  readServeStatus().Web?.[servedHostPort(host)]?.Handlers?.["/"];
 
-const isFunnelOpen = (host) =>
-  readServeStatus().AllowFunnel?.[servedHostPort(host)] === true;
+const isFunnelExposingDevServer = (host) => {
+  const status = readServeStatus();
+
+  return Object.entries(status.AllowFunnel ?? {}).some(
+    ([hostPort, open]) =>
+      open &&
+      (hostPort === servedHostPort(host) ||
+        Object.values(status.Web?.[hostPort]?.Handlers ?? {}).some(
+          (handler) => handler.Proxy === devTarget,
+        )),
+  );
+};
 
 const turnServeOff = (host) => {
-  if (readServedTarget(host) !== devTarget) return;
+  if (readRootHandler(host)?.Proxy !== devTarget) return;
 
-  tailscale("serve", `--https=${servePort}`, "off");
+  tailscale("serve", `--https=${servePort}`, "--set-path=/", "off");
 };
 
 const publicUrl = (host) => `https://${host}:${servePort}`;
 
-const readRunningPid = () => {
+const processCommand = (pid) =>
+  spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+    encoding: "utf8",
+  }).stdout;
+
+const isProcessNamed = (pid, name) =>
+  Number.isInteger(pid) && processCommand(pid).includes(name);
+
+const readState = () => {
   try {
-    const pid = Number(readFileSync(pidFile, "utf8"));
-
-    process.kill(pid, 0);
-
-    return pid;
+    return JSON.parse(readFileSync(pidFile, "utf8"));
   } catch {
     return undefined;
   }
+};
+
+const readRunningLauncher = () => {
+  const state = readState();
+
+  return state && isProcessNamed(state.launcher, "dev-phone.mjs")
+    ? state.launcher
+    : undefined;
+};
+
+const reapStale = () => {
+  const state = readState();
+
+  if (!state) return;
+
+  if (isProcessNamed(state.dev, "run dev")) {
+    try {
+      process.kill(-state.dev, "SIGTERM");
+    } catch {
+      process.kill(state.dev, "SIGTERM");
+    }
+  }
+
+  rmSync(pidFile, { force: true });
 };
 
 const isPortBusy = () =>
@@ -94,14 +132,21 @@ const isPortBusy = () =>
     encoding: "utf8",
   }).stdout.trim() !== "";
 
-const serveOnTailnet = (host) => {
-  if (isFunnelOpen(host)) turnServeOff(host);
-
-  const target = readServedTarget(host);
-
-  if (target !== undefined && target !== devTarget)
+const assertNotPublic = (host) => {
+  if (isFunnelExposingDevServer(host))
     fail(
-      `port ${servePort} on this machine already serves ${target}. Free it with \`tailscale serve --https=${servePort} off\` and retry.`,
+      `Tailscale Funnel exposes the dev server publicly. Turn it off with \`tailscale funnel --https=${servePort} off\` (or the port it uses) and retry.`,
+    );
+};
+
+const serveOnTailnet = (host) => {
+  assertNotPublic(host);
+
+  const root = readRootHandler(host);
+
+  if (root !== undefined && root.Proxy !== devTarget)
+    fail(
+      `port ${servePort} on this machine already serves something else at /. Free it with \`tailscale serve --https=${servePort} off\` and retry.`,
     );
 
   const result = tailscale(
@@ -109,13 +154,14 @@ const serveOnTailnet = (host) => {
     "--bg",
     "--yes",
     `--https=${servePort}`,
+    "--set-path=/",
     devTarget,
   );
 
   if (result.status !== 0)
     fail(`tailscale serve failed.\n${result.stderr}${result.stdout}`);
 
-  if (isFunnelOpen(host)) {
+  if (isFunnelExposingDevServer(host)) {
     turnServeOff(host);
     fail("Tailscale Funnel is enabled for this port; refusing to continue.");
   }
@@ -140,20 +186,35 @@ const waitUntilReady = async (isAlive) => {
 
 const start = async () => {
   const host = readTailnetHost();
-  const runningPid = readRunningPid();
+  const runningLauncher = readRunningLauncher();
 
-  if (runningPid !== undefined) {
+  if (runningLauncher !== undefined) {
     serveOnTailnet(host);
-    process.stdout.write(`dev:phone is already running (pid ${runningPid}).\n`);
+    process.stdout.write(
+      `dev:phone is already running (pid ${runningLauncher}).\n`,
+    );
     process.stdout.write(`${publicUrl(host)}\n`);
 
     return;
   }
 
-  if (isPortBusy())
+  reapStale();
+  assertNotPublic(host);
+
+  try {
+    writeFileSync(pidFile, JSON.stringify({ launcher: process.pid }), {
+      flag: "wx",
+    });
+  } catch {
+    fail("another dev:phone is starting. Retry in a moment.");
+  }
+
+  if (isPortBusy()) {
+    rmSync(pidFile, { force: true });
     fail(
       `port ${devPort} is in use. Stop the process using it (a plain \`bun run dev\` included) and retry.`,
     );
+  }
 
   const origin = publicUrl(host);
 
@@ -167,7 +228,10 @@ const start = async () => {
   let devExited = false;
   let stopping = false;
 
-  writeFileSync(pidFile, String(process.pid));
+  writeFileSync(
+    pidFile,
+    JSON.stringify({ launcher: process.pid, dev: dev.pid }),
+  );
 
   const signalDev = (signal) => {
     if (devExited) return;
@@ -213,17 +277,17 @@ const start = async () => {
 };
 
 const stop = () => {
-  const runningPid = readRunningPid();
+  const runningLauncher = readRunningLauncher();
 
-  if (runningPid !== undefined) {
-    process.kill(runningPid, "SIGTERM");
+  if (runningLauncher !== undefined) {
+    process.kill(runningLauncher, "SIGTERM");
     process.stdout.write("dev:phone is stopping.\n");
 
     return;
   }
 
+  reapStale();
   turnServeOff(readTailnetHost());
-  rmSync(pidFile, { force: true });
   process.stdout.write("dev:phone is not running.\n");
 };
 
