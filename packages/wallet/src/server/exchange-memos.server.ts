@@ -1,10 +1,12 @@
 import { Keypair, StrKey, xdr } from "@stellar/stellar-sdk";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AccountAddress } from "../contract";
 import { network } from "../stellar/network";
 import { fetchEntries } from "./ledger.server";
+import { defaultRpcTimeout } from "./settings.server";
 
 export class KnownExchangeMemo extends Schema.Class<KnownExchangeMemo>(
   "KnownExchangeMemo",
@@ -42,6 +44,7 @@ export const memoRequirementFor = Effect.fn("Chain.memoRequiredFor")(function* (
   rpcUrl: string,
   address: AccountAddress,
   entries: ReadonlyArray<KnownExchangeMemo> = knownExchangeMemos,
+  timeout: Duration.Input = defaultRpcTimeout,
 ) {
   const known = exchangeMemoFor(address, entries);
 
@@ -49,11 +52,15 @@ export const memoRequirementFor = Effect.fn("Chain.memoRequiredFor")(function* (
 
   const accountId = Keypair.fromPublicKey(address).xdrAccountId();
 
-  const response = yield* fetchEntries(rpcUrl, [
-    xdr.LedgerKey.data(
-      new xdr.LedgerKeyData({ accountId, dataName: memoRequiredDataName }),
-    ),
-  ]);
+  const response = yield* fetchEntries(
+    rpcUrl,
+    [
+      xdr.LedgerKey.data(
+        new xdr.LedgerKeyData({ accountId, dataName: memoRequiredDataName }),
+      ),
+    ],
+    timeout,
+  );
 
   const published = (response.entries ?? []).some((entry) => {
     const data = xdr.LedgerEntryData.fromXdr(entry.xdr, "base64");

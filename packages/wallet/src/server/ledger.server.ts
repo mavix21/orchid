@@ -1,4 +1,6 @@
 import { StrKey, xdr } from "@stellar/stellar-sdk";
+import * as Cause from "effect/Cause";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -7,6 +9,7 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { AccountAddress, Amount } from "../contract";
 import { ChainUnreachable } from "./chain-errors.server";
+import { defaultRpcTimeout } from "./settings.server";
 
 export const LedgerEntry = Schema.Struct({
   xdr: Schema.String,
@@ -48,8 +51,11 @@ export const rpcCall = <A, I>(
   method: string,
   params: RpcParams,
   result: Schema.Codec<A, I>,
-): Effect.Effect<A, ChainUnreachable, HttpClient.HttpClient> =>
-  Effect.gen(function* () {
+  timeout: Duration.Input = defaultRpcTimeout,
+): Effect.Effect<A, ChainUnreachable, HttpClient.HttpClient> => {
+  const deadline = Duration.fromInputUnsafe(timeout);
+
+  return Effect.gen(function* () {
     const client = yield* HttpClient.HttpClient;
 
     const request = yield* HttpClientRequest.post(rpcUrl).pipe(
@@ -71,17 +77,32 @@ export const rpcCall = <A, I>(
       : yield* new ChainUnreachable({
           cause: new Error(reply.error.message),
         });
-  });
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: deadline,
+      orElse: () =>
+        Effect.fail(
+          new ChainUnreachable({
+            cause: new Cause.TimeoutError(
+              `Stellar RPC ${method} timed out after ${Duration.format(deadline)}`,
+            ),
+          }),
+        ),
+    }),
+  );
+};
 
 export const fetchEntries = (
   rpcUrl: string,
   keys: ReadonlyArray<xdr.LedgerKey>,
+  timeout: Duration.Input = defaultRpcTimeout,
 ) =>
   rpcCall(
     rpcUrl,
     "getLedgerEntries",
     { keys: [...new Set(keys.map((key) => key.toXdr("base64")))] },
     LedgerResult,
+    timeout,
   );
 
 export function sponsorOf(entry: LedgerEntry): Option.Option<AccountAddress> {

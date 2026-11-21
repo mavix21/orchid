@@ -2,11 +2,16 @@ import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Latch from "effect/Latch";
 import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import type * as HttpClientError from "effect/http/HttpClientError";
+import type * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as TestClock from "effect/testing/TestClock";
 import {
   AddressRecipient,
   Amount,
@@ -19,7 +24,10 @@ import {
   UsernameRecipient,
 } from "../src/contract";
 import { Applied, Chain } from "../src/server/Chain.server";
-import { WalletSettings } from "../src/server/settings.server";
+import {
+  WalletSettings,
+  defaultRpcTimeout,
+} from "../src/server/settings.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import {
@@ -35,7 +43,6 @@ import {
   feePayer,
   passkeyOrigin,
   sponsor,
-  stores,
   orderFor,
   send,
   useDisposableDatabase,
@@ -79,16 +86,31 @@ const signedTransfer = Effect.fn(function* (username: string) {
 
   assertTagged(stored, "Authorized");
 
-  return { order, hash: stored.sealed.hash };
+  return {
+    order,
+    hash: stored.sealed.hash,
+    envelope: stored.sealed.envelope,
+  };
 });
 
 const RpcMethod = Schema.fromJsonString(
   Schema.Struct({ method: Schema.String }),
 );
 
-const stellarAnswering = (reply: (method: string) => string) =>
+const SendTransactionRequest = Schema.fromJsonString(
+  Schema.Struct({
+    method: Schema.Literal("sendTransaction"),
+    params: Schema.Struct({ transaction: Schema.String }),
+  }),
+);
+
+const stellarHandling = (
+  reply: (
+    method: string,
+    request: HttpClientRequest.HttpClientRequest,
+  ) => Effect.Effect<Response, HttpClientError.HttpClientError>,
+) =>
   Layer.fresh(Wallet.serviceLayer).pipe(
-    Layer.provide(stores),
     Layer.provide(Layer.fresh(Chain.layer)),
     Layer.provide(
       Layer.succeed(WalletSettings, {
@@ -100,15 +122,20 @@ const stellarAnswering = (reply: (method: string) => string) =>
     ),
     Layer.provide(
       httpClientAnswering((request) =>
-        Effect.succeed(
-          new Response(
-            reply(
-              Schema.decodeSync(RpcMethod)(requestBodyText(request)).method,
-            ),
-            { headers: { "Content-Type": "application/json" } },
-          ),
+        reply(
+          Schema.decodeSync(RpcMethod)(requestBodyText(request)).method,
+          request,
         ),
       ),
+    ),
+  );
+
+const stellarAnswering = (reply: (method: string) => string) =>
+  stellarHandling((method) =>
+    Effect.succeed(
+      new Response(reply(method), {
+        headers: { "Content-Type": "application/json" },
+      }),
     ),
   );
 
@@ -305,6 +332,96 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           ),
         ).toEqual(new LedgerUnreachable());
       }),
+    );
+
+    it.effect(
+      "answers LedgerUnreachable and persists nothing when an unsigned read times out",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedSender();
+
+          const order = orderFor(
+            key,
+            AddressRecipient.make({ value: addressOf(Keypair.random()) }),
+          );
+
+          const started = yield* Latch.make();
+
+          const stellar = stellarHandling(() =>
+            started.open.pipe(Effect.andThen(Effect.never)),
+          );
+
+          const failure = yield* Effect.gen(function* () {
+            const attempt = yield* send(order).pipe(
+              Effect.provide(stellar),
+              Effect.flip,
+              Effect.forkChild,
+            );
+
+            yield* started.await;
+            yield* TestClock.adjust(defaultRpcTimeout);
+
+            return yield* Fiber.join(attempt);
+          }).pipe(Effect.provide(TestClock.layer()));
+
+          expect(failure).toEqual(new LedgerUnreachable());
+          expect(
+            yield* Transfers.use((transfers) => transfers.find(order.id)),
+          ).toEqual(Option.none());
+        }),
+    );
+
+    it.effect(
+      "keeps an authorized transfer Pending without concluding or resubmitting when sendTransaction times out",
+      () =>
+        Effect.gen(function* () {
+          const signed = yield* signedTransfer("maria");
+          const started = yield* Latch.make();
+          const submitted: Array<string> = [];
+
+          const stellar = stellarHandling((method, request) =>
+            Match.value(method).pipe(
+              Match.when("sendTransaction", () => {
+                submitted.push(
+                  Schema.decodeSync(SendTransactionRequest)(
+                    requestBodyText(request),
+                  ).params.transaction,
+                );
+
+                return started.open.pipe(Effect.andThen(Effect.never));
+              }),
+              Match.orElse(() =>
+                Effect.succeed(
+                  new Response(testnetReply(method), {
+                    headers: { "Content-Type": "application/json" },
+                  }),
+                ),
+              ),
+            ),
+          );
+
+          const step = yield* Effect.gen(function* () {
+            const attempt = yield* send(signed.order).pipe(
+              Effect.provide(stellar),
+              Effect.forkChild,
+            );
+
+            yield* started.await;
+            yield* TestClock.adjust(defaultRpcTimeout);
+
+            return yield* Fiber.join(attempt);
+          }).pipe(Effect.provide(TestClock.layer()));
+
+          expect(step._tag).toBe("Pending");
+          expect(submitted).toEqual([signed.envelope]);
+          expect(
+            Option.getOrThrow(
+              yield* Transfers.use((transfers) =>
+                transfers.find(signed.order.id),
+              ),
+            )._tag,
+          ).toBe("Authorized");
+        }),
     );
   },
 );

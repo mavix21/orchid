@@ -2,12 +2,15 @@ import { expect, it } from "@effect/vitest";
 import { Account, Keypair, xdr } from "@stellar/stellar-sdk";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as HttpClientError from "effect/http/HttpClientError";
+import * as TestClock from "effect/testing/TestClock";
 import {
   AccountAddress,
   Approval,
@@ -18,7 +21,10 @@ import {
 import { Chain, SubmissionRejected } from "../src/server/Chain.server";
 import { ChainUnreachable } from "../src/server/chain-errors.server";
 import { fetchEntries } from "../src/server/ledger.server";
-import { WalletSettings } from "../src/server/settings.server";
+import {
+  WalletSettings,
+  defaultRpcTimeout,
+} from "../src/server/settings.server";
 import { draftPayment, signingPayload } from "../src/stellar/envelopes";
 import {
   httpClientAnswering,
@@ -321,4 +327,88 @@ it.live("submit dies on an unrecognized sendTransaction status", () =>
 
     expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
   }),
+);
+
+it.effect.each([
+  {
+    name: "response headers",
+    http: httpClientAnswering(() => Effect.never),
+  },
+  {
+    name: "response body",
+    http: httpClientAnswering(() =>
+      Effect.succeed(
+        new Response(new ReadableStream({ start() {} }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    ),
+  },
+])(
+  "fails with ChainUnreachable when $name stall past the RPC timeout",
+  ({ http }) =>
+    Effect.gen(function* () {
+      const attempt = yield* fetchEntries(testRpcUrl, [account]).pipe(
+        Effect.provide(http),
+        Effect.flip,
+        Effect.forkChild,
+      );
+
+      yield* TestClock.adjust(
+        Duration.subtract(defaultRpcTimeout, Duration.millis(1)),
+      );
+
+      expect(attempt.pollUnsafe()).toBeUndefined();
+
+      yield* TestClock.adjust(Duration.millis(1));
+
+      expect(yield* Fiber.join(attempt)).toBeInstanceOf(ChainUnreachable);
+    }),
+);
+
+it.effect(
+  "submit fails with ChainUnreachable and does not resubmit when sendTransaction times out",
+  () =>
+    Effect.gen(function* () {
+      const sealed = yield* sealedPayment;
+      const submitted: Array<string> = [];
+
+      const chainLayer = Chain.layer.pipe(
+        Layer.provide(
+          Layer.succeed(WalletSettings, {
+            rpcUrl: testRpcUrl,
+            rpcTimeout: "3 seconds",
+            reserveSponsorSecret: Redacted.make(sponsor.secret()),
+            feePayerSecret: Redacted.make(feePayer.secret()),
+            passkeyOrigins: [],
+          }),
+        ),
+        Layer.provide(
+          httpClientAnswering((request) => {
+            submitted.push(
+              Schema.decodeSync(SendTransactionRequest)(
+                requestBodyText(request),
+              ).params.transaction,
+            );
+
+            return Effect.never;
+          }),
+        ),
+      );
+
+      const attempt = yield* Chain.use((chain) => chain.submit(sealed)).pipe(
+        Effect.provide(chainLayer),
+        Effect.flip,
+        Effect.forkChild,
+      );
+
+      yield* TestClock.adjust("2 seconds");
+
+      expect(attempt.pollUnsafe()).toBeUndefined();
+
+      yield* TestClock.adjust("1 second");
+
+      expect(yield* Fiber.join(attempt)).toBeInstanceOf(ChainUnreachable);
+      expect(submitted).toEqual([sealed.envelope]);
+    }),
 );

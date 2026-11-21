@@ -56,9 +56,10 @@ export type { AccountState } from "./ledger.server";
 
 import {
   type KnownExchangeMemo,
+  knownExchangeMemos,
   memoRequirementFor,
 } from "./exchange-memos.server";
-import { WalletSettings } from "./settings.server";
+import { WalletSettings, defaultRpcTimeout } from "./settings.server";
 
 export class Sealed extends Schema.Class<Sealed>("Sealed")({
   envelope: Schema.String,
@@ -247,6 +248,7 @@ export class Chain extends Context.Service<
     Chain,
     Effect.gen(function* () {
       const settings = yield* WalletSettings;
+      const rpcTimeout = settings.rpcTimeout ?? defaultRpcTimeout;
 
       const provideHttp = Effect.provideService(
         HttpClient.HttpClient,
@@ -282,9 +284,11 @@ export class Chain extends Context.Service<
           ),
         ];
 
-        const response = yield* fetchEntries(settings.rpcUrl, keys).pipe(
-          provideHttp,
-        );
+        const response = yield* fetchEntries(
+          settings.rpcUrl,
+          keys,
+          rpcTimeout,
+        ).pipe(provideHttp);
 
         return accountFromEntries(
           response.entries ?? [],
@@ -458,6 +462,7 @@ export class Chain extends Context.Service<
           "sendTransaction",
           { transaction: sealed.envelope },
           RawSendTransaction,
+          rpcTimeout,
         ).pipe(
           provideHttp,
           Effect.flatMap((reply) =>
@@ -498,6 +503,7 @@ export class Chain extends Context.Service<
           "getTransaction",
           { hash },
           RawTransactionLookup,
+          rpcTimeout,
         ).pipe(provideHttp, Effect.map(transactionLookup));
 
       const settlement = (sealed: Sealed) =>
@@ -509,6 +515,7 @@ export class Chain extends Context.Service<
           "getLatestLedger",
           {},
           Schema.Struct({ closeTime: Schema.NumberFromString }),
+          rpcTimeout,
         ).pipe(
           provideHttp,
           Effect.map(
@@ -517,13 +524,23 @@ export class Chain extends Context.Service<
           ),
         );
 
-      const assets = yield* assetChain(settings.rpcUrl, sponsorAddress, source);
+      const assets = yield* assetChain(
+        settings.rpcUrl,
+        sponsorAddress,
+        source,
+        rpcTimeout,
+      );
 
       return Chain.of({
         ...assets,
         validAddress: StrKey.isValidEd25519PublicKey,
         memoRequiredFor: (address) =>
-          memoRequirementFor(settings.rpcUrl, address).pipe(provideHttp),
+          memoRequirementFor(
+            settings.rpcUrl,
+            address,
+            knownExchangeMemos,
+            rpcTimeout,
+          ).pipe(provideHttp),
         pastOpeningWindow,
         account,
         balance: (address) =>

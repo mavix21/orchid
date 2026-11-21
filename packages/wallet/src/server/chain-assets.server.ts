@@ -1,5 +1,6 @@
 import type { Account } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
 import * as HttpClient from "effect/http/HttpClient";
@@ -28,6 +29,7 @@ import {
   lineKey,
 } from "./ledger-assets.server";
 import { fetchEntries } from "./ledger.server";
+import { defaultRpcTimeout } from "./settings.server";
 
 export interface AssetChain {
   holdings(
@@ -57,13 +59,14 @@ export const assetChain = (
   rpcUrl: string,
   reserveSponsor: AccountAddress,
   source: (address: AccountAddress) => Effect.Effect<Account, ChainUnreachable>,
+  timeout: Duration.Input = defaultRpcTimeout,
 ): Effect.Effect<AssetChain, never, HttpClient.HttpClient> =>
   Effect.map(HttpClient.HttpClient, (httpClient) => {
     const read = <A>(
       keys: Parameters<typeof fetchEntries>[1],
       decode: (result: Effect.Success<ReturnType<typeof fetchEntries>>) => A,
     ) =>
-      fetchEntries(rpcUrl, keys).pipe(
+      fetchEntries(rpcUrl, keys, timeout).pipe(
         Effect.provideService(HttpClient.HttpClient, httpClient),
         Effect.map(decode),
       );
