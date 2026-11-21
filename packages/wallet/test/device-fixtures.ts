@@ -6,8 +6,10 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   type Asset,
+  type BalanceId,
   type DestinationAddress,
   type ExternalRecipient,
+  type LinkRecipient,
   MuxedAddress,
   type PaymentMemo,
   PositiveAmount,
@@ -22,7 +24,10 @@ import {
 import { DeviceWallet, type KeyStore } from "../src/device/key-store";
 import { SecretPhrase } from "../src/device/secret-phrase";
 import { signingKey } from "../src/device/signing";
-import { draftClaimable } from "../src/stellar/asset-envelopes";
+import {
+  draftClaimable,
+  draftPaymentLink,
+} from "../src/stellar/asset-envelopes";
 import { draftPayment } from "../src/stellar/envelopes";
 
 export const addressOf = (key: Keypair) =>
@@ -64,6 +69,8 @@ export const unusedPort = (overrides: Partial<WalletPort> = {}): WalletPort => {
     open: unused,
     transfer: unused,
     manage: unused,
+    paymentLinks: unused,
+    resolvePaymentLink: unused,
     passkeyChallenge: unused,
     enroll: unused,
     restore: unused,
@@ -144,14 +151,40 @@ export const sendActors = () => {
         maxTime: at + 120,
       });
     },
+    paymentLink: (opts: {
+      readonly source?: AccountAddress;
+      readonly to: AccountAddress;
+      readonly asset?: Asset;
+      readonly amount: PositiveAmount;
+      readonly reserveSponsor?: AccountAddress;
+      readonly sequence?: string;
+      readonly lifetime?: number;
+      readonly at?: number;
+    }) => {
+      const at = opts.at ?? nowSeconds();
+
+      return draftPaymentLink({
+        source: new Account(
+          opts.source ?? wallet.address,
+          opts.sequence ?? "100",
+        ),
+        reserveSponsor: opts.reserveSponsor ?? sponsor,
+        to: opts.to,
+        asset: opts.asset ?? baseAsset,
+        amount: opts.amount,
+        minTime: at,
+        maxTime: at + (opts.lifetime ?? 120),
+      });
+    },
   };
 };
 
 export const transferDraftOf = (
   envelope: UnsignedEnvelope,
-  recipient: Profile | ExternalRecipient,
+  recipient: Profile | LinkRecipient | ExternalRecipient,
   lifetime = 120,
   at = nowSeconds(),
+  claimable?: BalanceId,
 ) =>
   new TransferDraft({
     request: new SigningRequest({
@@ -160,4 +193,5 @@ export const transferDraftOf = (
     }),
     recipient,
     memoRequired: false,
+    claimable,
   });

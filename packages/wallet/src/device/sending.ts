@@ -7,6 +7,8 @@ import * as Schema from "effect/Schema";
 import {
   type DestinationAddress,
   type Approval,
+  LinkRecipient,
+  PaymentLinkReceipt,
   type PaymentMemo,
   Profile,
   type TransferDraft,
@@ -16,9 +18,12 @@ import {
   type WalletUnavailable,
   assetKey,
 } from "../contract";
-import type { ClaimableFacts } from "../stellar/asset-envelopes";
+import type {
+  ClaimableFacts,
+  PaymentLinkFacts,
+} from "../stellar/asset-envelopes";
 import { type PaymentFacts, readEnvelope } from "../stellar/envelopes";
-import { approvalMargin, paymentLifetime } from "../stellar/network";
+import { approvalMargin, network, paymentLifetime } from "../stellar/network";
 import {
   DeviceWallet,
   type KeyStore,
@@ -53,6 +58,11 @@ const destination = (order: TransferOrder, draft: TransferDraft) =>
       draft.recipient instanceof Profile && draft.recipient.username === value
         ? Option.some<DestinationAddress>(draft.recipient.address)
         : Option.none<DestinationAddress>(),
+    PaymentLink: ({ value }) =>
+      draft.recipient instanceof LinkRecipient &&
+      draft.recipient.address === value
+        ? Option.some<DestinationAddress>(value)
+        : Option.none<DestinationAddress>(),
     Phone: () => Option.none<DestinationAddress>(),
   });
 
@@ -67,6 +77,23 @@ const nowSeconds = Effect.map(DateTime.now, (now) =>
 const approvalOutstanding = (wallet: DeviceWallet, now: number) =>
   wallet.approvedUntil !== undefined &&
   wallet.approvedUntil + clockAllowance >= now;
+
+const nextLinkReceipt = (
+  current: PaymentLinkReceipt | undefined,
+  facts: PaymentLinkFacts,
+) => {
+  const prior = current && current.network === network ? current.attempts : [];
+
+  const attempts = prior.includes(facts.balance)
+    ? prior
+    : [...prior, facts.balance];
+
+  return new PaymentLinkReceipt({
+    network,
+    balance: facts.balance,
+    attempts,
+  });
+};
 
 const orderedFacts = (
   wallet: DeviceWallet,
@@ -83,7 +110,8 @@ const orderedFacts = (
   if (
     !(
       Predicate.isTagged(drafted, "PaymentFacts") ||
-      Predicate.isTagged(drafted, "ClaimableFacts")
+      Predicate.isTagged(drafted, "ClaimableFacts") ||
+      Predicate.isTagged(drafted, "PaymentLinkFacts")
     )
   )
     return Option.none();
@@ -94,12 +122,26 @@ const orderedFacts = (
     assetKey(drafted.asset) === assetKey(order.asset) &&
     drafted.amount === order.amount;
 
-  const matches = Predicate.isTagged(drafted, "PaymentFacts")
-    ? moves && sameMemo(drafted.memo, order.memo)
-    : moves &&
+  const matches = Predicate.isTagged(drafted, "PaymentLinkFacts")
+    ? moves &&
+      Predicate.isTagged(order.to, "PaymentLink") &&
       order.memo === undefined &&
-      draft.recipient instanceof Profile &&
-      drafted.reserveSponsor === wallet.reserveSponsor;
+      draft.recipient instanceof LinkRecipient &&
+      draft.recipient.address === drafted.to &&
+      wallet.reserveSponsor !== undefined &&
+      drafted.reserveSponsor === wallet.reserveSponsor &&
+      (draft.claimable === undefined || draft.claimable === drafted.balance)
+    : Predicate.isTagged(order.to, "PaymentLink")
+      ? false
+      : Predicate.isTagged(drafted, "PaymentFacts")
+        ? moves && sameMemo(drafted.memo, order.memo)
+        : moves &&
+          order.memo === undefined &&
+          draft.recipient instanceof Profile &&
+          wallet.reserveSponsor !== undefined &&
+          drafted.reserveSponsor === wallet.reserveSponsor &&
+          (draft.claimable === undefined ||
+            draft.claimable === drafted.balance);
 
   return matches ? Option.some(drafted) : Option.none();
 };
@@ -130,12 +172,13 @@ type DraftHandler<D> = (
 
 const reviewed =
   (review: Option.Option<PaymentReview>) =>
-  (facts: PaymentFacts | ClaimableFacts) =>
+  (facts: PaymentFacts | ClaimableFacts | PaymentLinkFacts) =>
     Option.match(review, {
       onNone: () => true,
       onSome: (shown) =>
         facts.to === shown.to &&
-        Predicate.isTagged(facts, "ClaimableFacts") === shown.claimable,
+        (Predicate.isTagged(facts, "ClaimableFacts") ||
+          Predicate.isTagged(facts, "PaymentLinkFacts")) === shown.claimable,
     });
 
 export function sendTransfer(port: WalletPort, store: KeyStore) {
@@ -149,6 +192,7 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
             ...stored.value,
             transfer: undefined,
             approvedUntil: undefined,
+            linkReceipt: undefined,
           }),
         );
     });
@@ -235,6 +279,8 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
             Effect.succeed({ done: Option.some(outcome), pause: false }),
           ClaimableLimitReached: (outcome) =>
             Effect.succeed({ done: Option.some(outcome), pause: false }),
+          AssetUnsupported: (outcome) =>
+            Effect.succeed({ done: Option.some(outcome), pause: false }),
           AssetBusy: (outcome) =>
             Effect.succeed({ done: Option.some(outcome), pause: false }),
         });
@@ -279,21 +325,39 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
             deadline - DateTime.toEpochMillis(current) >= approvalMargin * 1000,
         );
 
-        if (!(yield* withinMargin))
-          return refreshed
-            ? { done: Option.some(new DraftRejected()) }
-            : {
-                done: Option.none(),
-                next: {
-                  wallet,
-                  approval: Option.none(),
-                  refreshed: true,
-                },
-              };
+        const nextWallet = Predicate.isTagged(facts.value, "PaymentLinkFacts")
+          ? new DeviceWallet({
+              ...wallet,
+              linkReceipt: nextLinkReceipt(wallet.linkReceipt, facts.value),
+            })
+          : wallet;
+
+        if (!(yield* withinMargin)) {
+          if (refreshed) return { done: Option.some(new DraftRejected()) };
+
+          const kept = Predicate.isTagged(facts.value, "PaymentLinkFacts")
+            ? yield* remember(store, nextWallet)
+            : Option.some(wallet);
+
+          if (Option.isNone(kept))
+            return { done: Option.some(new UnsupportedDevice()) };
+
+          return {
+            done: Option.none(),
+            next: {
+              wallet: kept.value,
+              approval: Option.none(),
+              refreshed: true,
+            },
+          };
+        }
 
         const approved = yield* remember(
           store,
-          new DeviceWallet({ ...wallet, approvedUntil: facts.value.maxTime }),
+          new DeviceWallet({
+            ...nextWallet,
+            approvedUntil: facts.value.maxTime,
+          }),
         );
 
         if (Option.isNone(approved))
@@ -319,27 +383,45 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
     order,
     draft,
   ) =>
-    Effect.succeed({
-      done: Option.some(
-        Option.match(orderedFacts(wallet, order, draft), {
-          onNone: () => new DraftRejected(),
-          onSome: (facts) =>
-            new PaymentReview({
-              order,
-              to: facts.to,
-              username: Predicate.isTagged(order.to, "Username")
-                ? order.to.value
-                : undefined,
-              asset: facts.asset,
-              amount: facts.amount,
-              memo: Predicate.isTagged(facts, "PaymentFacts")
-                ? facts.memo
-                : undefined,
-              claimable: Predicate.isTagged(facts, "ClaimableFacts"),
-              memoRequired: draft.memoRequired,
-            }),
-        }),
-      ),
+    Effect.gen(function* () {
+      const facts = orderedFacts(wallet, order, draft);
+
+      if (Option.isNone(facts))
+        return { done: Option.some(new DraftRejected()) };
+
+      if (Predicate.isTagged(facts.value, "PaymentLinkFacts")) {
+        const kept = yield* remember(
+          store,
+          new DeviceWallet({
+            ...wallet,
+            linkReceipt: nextLinkReceipt(wallet.linkReceipt, facts.value),
+          }),
+        );
+
+        if (Option.isNone(kept))
+          return { done: Option.some(new UnsupportedDevice()) };
+      }
+
+      return {
+        done: Option.some(
+          new PaymentReview({
+            order,
+            to: facts.value.to,
+            username: Predicate.isTagged(order.to, "Username")
+              ? order.to.value
+              : undefined,
+            asset: facts.value.asset,
+            amount: facts.value.amount,
+            memo: Predicate.isTagged(facts.value, "PaymentFacts")
+              ? facts.value.memo
+              : undefined,
+            claimable:
+              Predicate.isTagged(facts.value, "ClaimableFacts") ||
+              Predicate.isTagged(facts.value, "PaymentLinkFacts"),
+            memoRequired: draft.memoRequired,
+          }),
+        ),
+      };
     });
 
   const observing: DraftHandler<ApprovalOutstanding | NoTransfer> = (
@@ -406,6 +488,7 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
               ...wallet,
               transfer: order,
               approvedUntil: undefined,
+              linkReceipt: undefined,
             }),
           );
 

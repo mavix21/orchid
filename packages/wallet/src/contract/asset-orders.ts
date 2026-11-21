@@ -97,6 +97,7 @@ export class AssetUnsupported extends Schema.TaggedClass<AssetUnsupported>()(
       "self_issued",
       "base_asset",
       "authorization_required",
+      "clawback_enabled",
     ]),
   },
 ) {}
@@ -106,7 +107,18 @@ export class NotClaimable extends Schema.TaggedClass<NotClaimable>()(
   { claimableAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString) },
 ) {}
 
+export const BalanceGoneStatus = Schema.Literals([
+  "reclaimed",
+  "claimed",
+  "clawed_back",
+  "unresolved",
+]);
+
+export type BalanceGoneStatus = typeof BalanceGoneStatus.Type;
+
 export class BalanceGone extends Schema.TaggedClass<BalanceGone>()(
   "BalanceGone",
-  {},
+  {
+    status: BalanceGoneStatus,
+  },
 ) {}

@@ -1,7 +1,12 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { AccountAddress, TransferOrder, Username } from "../contract";
+import {
+  AccountAddress,
+  PaymentLinkReceipt,
+  TransferOrder,
+  Username,
+} from "../contract";
 import {
   BackupState,
   DeviceWallet,
@@ -22,6 +27,7 @@ const SealedWallet = Schema.Struct({
   backup: Schema.optional(BackupState),
   transfer: Schema.optional(TransferOrder),
   approvedUntil: Schema.optional(Schema.Number),
+  linkReceipt: Schema.optional(PaymentLinkReceipt),
   iv: Schema.Uint8ArrayFromBase64,
   phrase: Schema.Uint8ArrayFromBase64,
 });
@@ -115,6 +121,7 @@ async function readWallet(): Promise<Option.Option<DeviceWallet>> {
       backup: sealed.backup,
       transfer: sealed.transfer,
       approvedUntil: sealed.approvedUntil,
+      linkReceipt: sealed.linkReceipt,
       phrase: Schema.decodeSync(SecretPhrase)(new TextDecoder().decode(phrase)),
     }),
   );
@@ -138,6 +145,7 @@ async function writeWallet(wallet: DeviceWallet): Promise<void> {
       backup: wallet.backup,
       transfer: wallet.transfer,
       approvedUntil: wallet.approvedUntil,
+      linkReceipt: wallet.linkReceipt,
       iv,
       phrase: new Uint8Array(phrase),
     }),

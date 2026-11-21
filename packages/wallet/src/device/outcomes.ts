@@ -1,16 +1,26 @@
 import * as Schema from "effect/Schema";
 import {
+  AccountAddress,
+  type AssetDraft,
+  type AssetStep,
   Asset,
+  BalanceId,
   DestinationAddress,
+  LinkSecret,
   type AddressBound,
   type AssertionRefused,
   type BackupStored,
   type ChallengeRefused,
   PaymentMemo,
+  type PaymentLinksStep,
   PositiveAmount,
   Recipient,
   type Receipt,
+  type ResolveReceiptStep,
+  type Pending,
+  type Settled,
   type TransferDraft,
+  TransferId,
   TransferOrder,
   type TransferStep,
   type NoBackup,
@@ -178,3 +188,50 @@ export class NoTransfer extends Schema.TaggedClass<NoTransfer>()(
 ) {}
 
 export type ResumeOutcome = NoTransfer | SendOutcome | Receipt;
+
+export class PaymentLinkIntent extends Schema.Class<PaymentLinkIntent>(
+  "@workspace/wallet/PaymentLinkIntent",
+)({
+  asset: Asset,
+  amount: PositiveAmount,
+}) {}
+
+export class PaymentLinkCreated extends Schema.TaggedClass<PaymentLinkCreated>()(
+  "PaymentLinkCreated",
+  {
+    id: TransferId,
+    address: AccountAddress,
+    secret: LinkSecret,
+    balance: BalanceId,
+    asset: Asset,
+    amount: PositiveAmount,
+    network: Schema.String,
+    path: Schema.String,
+    settledAt: Schema.DateTimeUtcFromString,
+  },
+) {}
+
+export type CreatePaymentLinkOutcome =
+  | PaymentLinkCreated
+  | Exclude<SendOutcome, Settled>;
+
+export type PaymentLinksOutcome =
+  | PaymentLinksStep
+  | NoWallet
+  | UnsupportedDevice
+  | WalletUnavailable;
+
+export type ResolvePaymentLinkOutcome =
+  | ResolveReceiptStep
+  | Pending
+  | ApprovalOutstanding
+  | NoWallet
+  | UnsupportedDevice
+  | WalletUnavailable;
+
+export type CancelPaymentLinkOutcome =
+  | Exclude<AssetStep, AssetDraft>
+  | DraftRejected
+  | NoWallet
+  | UnsupportedDevice
+  | WalletUnavailable;

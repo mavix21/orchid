@@ -1,7 +1,12 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { AccountAddress, TransferOrder, Username } from "../contract";
+import {
+  AccountAddress,
+  PaymentLinkReceipt,
+  TransferOrder,
+  Username,
+} from "../contract";
 import { SecretPhrase } from "./secret-phrase";
 
 export const BackupState = Schema.Literals(["stored", "deviceOnly"]);
@@ -16,6 +21,7 @@ export class DeviceWallet extends Schema.Class<DeviceWallet>(
   backup: Schema.optional(BackupState),
   transfer: Schema.optional(TransferOrder),
   approvedUntil: Schema.optional(Schema.Number),
+  linkReceipt: Schema.optional(PaymentLinkReceipt),
 }) {}
 
 export class KeyStoreUnavailable extends Schema.TaggedError<KeyStoreUnavailable>()(
@@ -27,6 +33,10 @@ export interface KeyStore {
   read(): Effect.Effect<Option.Option<DeviceWallet>, KeyStoreUnavailable>;
   write(wallet: DeviceWallet): Effect.Effect<void, KeyStoreUnavailable>;
 }
+
+const receiptJson = Schema.encodeSync(
+  Schema.fromJsonString(Schema.NullOr(PaymentLinkReceipt)),
+);
 
 export const remember = Effect.fn("Device.remember")(function* (
   store: KeyStore,
@@ -43,7 +53,9 @@ export const remember = Effect.fn("Device.remember")(function* (
     stored.value.reserveSponsor === wallet.reserveSponsor &&
     stored.value.backup === wallet.backup &&
     stored.value.transfer?.id === wallet.transfer?.id &&
-    stored.value.approvedUntil === wallet.approvedUntil
+    stored.value.approvedUntil === wallet.approvedUntil &&
+    receiptJson(stored.value.linkReceipt ?? null) ===
+      receiptJson(wallet.linkReceipt ?? null)
     ? Option.some(stored.value)
     : Option.none();
 });

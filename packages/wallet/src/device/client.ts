@@ -4,6 +4,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   BackupStored,
+  type BalanceId,
   type TransferId,
   Username,
   type WalletPort,
@@ -18,11 +19,16 @@ import {
 import {
   type BackUpOutcome,
   BackupUnsupported,
+  type CancelPaymentLinkOutcome,
   type CreateOutcome,
+  type CreatePaymentLinkOutcome,
   type DeviceOverview,
   InvalidUsername,
   NoWallet,
+  type PaymentLinkIntent,
+  type PaymentLinksOutcome,
   type PaymentReview,
+  type ResolvePaymentLinkOutcome,
   type RestoreOutcome,
   type ResumeOutcome,
   type ReviewOutcome,
@@ -51,6 +57,12 @@ export interface WalletClient {
   review(intent: TransferIntent): Promise<ReviewOutcome>;
   confirm(review: PaymentReview): Promise<ResumeOutcome>;
   resume(id: TransferId): Promise<ResumeOutcome>;
+  createPaymentLink(
+    intent: PaymentLinkIntent,
+  ): Promise<CreatePaymentLinkOutcome>;
+  paymentLinks(): Promise<PaymentLinksOutcome>;
+  resolvePaymentLink(): Promise<ResolvePaymentLinkOutcome>;
+  cancelPaymentLink(balance: BalanceId): Promise<CancelPaymentLinkOutcome>;
 }
 
 export interface WalletEffects {
@@ -63,6 +75,14 @@ export interface WalletEffects {
   review(intent: TransferIntent): Effect.Effect<ReviewOutcome>;
   confirm(review: PaymentReview): Effect.Effect<ResumeOutcome>;
   resume(id: TransferId): Effect.Effect<ResumeOutcome>;
+  createPaymentLink(
+    intent: PaymentLinkIntent,
+  ): Effect.Effect<CreatePaymentLinkOutcome>;
+  paymentLinks(): Effect.Effect<PaymentLinksOutcome>;
+  resolvePaymentLink(): Effect.Effect<ResolvePaymentLinkOutcome>;
+  cancelPaymentLink(
+    balance: BalanceId,
+  ): Effect.Effect<CancelPaymentLinkOutcome>;
 }
 
 export function makeWalletEffects(
@@ -76,6 +96,10 @@ export function makeWalletEffects(
 
   const sending = loadFromServer(() => import("./sending")).pipe(
     Effect.map(({ sendTransfer }) => sendTransfer(port, store)),
+  );
+
+  const links = loadFromServer(() => import("./payment-links")).pipe(
+    Effect.map(({ devicePaymentLinks }) => devicePaymentLinks(port, store)),
   );
 
   const create = Effect.fn("Device.create")(function* (usernameText: string) {
@@ -211,6 +235,28 @@ export function makeWalletEffects(
       transfer(sending.pipe(Effect.flatMap(({ confirm }) => confirm(shown)))),
     resume: (id) =>
       transfer(sending.pipe(Effect.flatMap(({ resume }) => resume(id)))),
+    createPaymentLink: (intent) =>
+      transfer(
+        links.pipe(
+          Effect.flatMap(({ createPaymentLink }) => createPaymentLink(intent)),
+        ),
+      ),
+    paymentLinks: () =>
+      transfer(
+        links.pipe(Effect.flatMap(({ paymentLinks }) => paymentLinks())),
+      ),
+    resolvePaymentLink: () =>
+      transfer(
+        links.pipe(
+          Effect.flatMap(({ resolvePaymentLink }) => resolvePaymentLink()),
+        ),
+      ),
+    cancelPaymentLink: (balance) =>
+      transfer(
+        links.pipe(
+          Effect.flatMap(({ cancelPaymentLink }) => cancelPaymentLink(balance)),
+        ),
+      ),
   };
 }
 
@@ -231,5 +277,11 @@ export function makeWalletClient(
     review: (intent) => Effect.runPromise(effects.review(intent)),
     confirm: (shown) => Effect.runPromise(effects.confirm(shown)),
     resume: (id) => Effect.runPromise(effects.resume(id)),
+    createPaymentLink: (intent) =>
+      Effect.runPromise(effects.createPaymentLink(intent)),
+    paymentLinks: () => Effect.runPromise(effects.paymentLinks()),
+    resolvePaymentLink: () => Effect.runPromise(effects.resolvePaymentLink()),
+    cancelPaymentLink: (balance) =>
+      Effect.runPromise(effects.cancelPaymentLink(balance)),
   };
 }

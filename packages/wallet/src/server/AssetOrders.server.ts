@@ -17,6 +17,7 @@ import {
   AssetOrderId,
   AssetPending,
   AssetSettled,
+  type BalanceId,
   IssuedAsset,
   SigningRequest,
 } from "../contract";
@@ -183,6 +184,11 @@ export class AssetOrders extends Context.Service<
       wallet: AccountAddress,
       asset: IssuedAsset,
     ): Effect.Effect<void, StoreFailure>;
+
+    settledClaim(
+      wallet: AccountAddress,
+      balance: BalanceId,
+    ): Effect.Effect<boolean, StoreFailure>;
   }
 >()("@workspace/wallet/server/AssetOrders") {
   static readonly layer = Layer.effect(
@@ -271,6 +277,9 @@ export class AssetOrders extends Context.Service<
           wallet: order.wallet,
           order: Schema.encodeSync(AssetOrderJson)(order),
           opens: opensOf(request),
+          balanceId: Predicate.isTagged(order.action, "ClaimBalance")
+            ? order.action.balance
+            : null,
           network,
           testnetEpoch: epochAt(now),
           envelope: request.envelope,
@@ -612,6 +621,26 @@ export class AssetOrders extends Context.Service<
             Clock.currentTimeMillis.pipe(
               Effect.flatMap((now) => untrack(db, wallet, asset, now)),
               Effect.asVoid,
+            ),
+          ),
+        settledClaim: (wallet, balance) =>
+          wrap(
+            Clock.currentTimeMillis.pipe(
+              Effect.flatMap((now) =>
+                db
+                  .select({ id: assetOrders.id })
+                  .from(assetOrders)
+                  .where(
+                    and(
+                      scopeAt(now),
+                      eq(assetOrders.wallet, wallet),
+                      eq(assetOrders.status, "settled"),
+                      eq(assetOrders.balanceId, balance),
+                    ),
+                  )
+                  .limit(1),
+              ),
+              Effect.map((rows) => rows.length > 0),
             ),
           ),
       });

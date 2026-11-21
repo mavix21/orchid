@@ -441,6 +441,10 @@ export class Chain extends Context.Service<
                   TrustlineRemovalFacts: (f) => f.address === holder,
                   ClaimableFacts: (f) =>
                     f.from === holder && f.reserveSponsor === sponsorAddress,
+                  PaymentLinkFacts: (f) =>
+                    f.from === holder &&
+                    f.to !== holder &&
+                    f.reserveSponsor === sponsorAddress,
                   ClaimFacts: (f) =>
                     f.address === holder &&
                     (!f.reserveSponsor || f.reserveSponsor === sponsorAddress),
@@ -453,6 +457,7 @@ export class Chain extends Context.Service<
                   TrustlineFacts: () => true,
                   TrustlineRemovalFacts: () => false,
                   ClaimableFacts: () => true,
+                  PaymentLinkFacts: () => true,
                   ClaimFacts: (f) => f.reserveSponsor !== undefined,
                 });
 

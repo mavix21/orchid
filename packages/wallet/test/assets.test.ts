@@ -86,6 +86,7 @@ const euroLine = (bal: string) => ({
   spendable: amount(bal),
   capacity: amount("9223372036854775807"),
   authorized: true,
+  clawbackEnabled: false,
   sponsored: true,
 });
 

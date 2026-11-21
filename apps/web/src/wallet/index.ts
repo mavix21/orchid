@@ -25,6 +25,12 @@ export const walletEffects: WalletEffects = {
   review: (intent) => withWallet((wallet) => wallet.review(intent)),
   confirm: (shown) => withWallet((wallet) => wallet.confirm(shown)),
   resume: (id) => withWallet((wallet) => wallet.resume(id)),
+  createPaymentLink: (intent) =>
+    withWallet((wallet) => wallet.createPaymentLink(intent)),
+  paymentLinks: () => withWallet((wallet) => wallet.paymentLinks()),
+  resolvePaymentLink: () => withWallet((wallet) => wallet.resolvePaymentLink()),
+  cancelPaymentLink: (balance) =>
+    withWallet((wallet) => wallet.cancelPaymentLink(balance)),
 };
 
 export const walletClient: WalletClient = {
@@ -38,4 +44,11 @@ export const walletClient: WalletClient = {
   review: (intent) => Effect.runPromise(walletEffects.review(intent)),
   confirm: (shown) => Effect.runPromise(walletEffects.confirm(shown)),
   resume: (id) => Effect.runPromise(walletEffects.resume(id)),
+  createPaymentLink: (intent) =>
+    Effect.runPromise(walletEffects.createPaymentLink(intent)),
+  paymentLinks: () => Effect.runPromise(walletEffects.paymentLinks()),
+  resolvePaymentLink: () =>
+    Effect.runPromise(walletEffects.resolvePaymentLink()),
+  cancelPaymentLink: (balance) =>
+    Effect.runPromise(walletEffects.cancelPaymentLink(balance)),
 };

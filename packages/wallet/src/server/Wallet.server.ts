@@ -1,11 +1,10 @@
 import { portfolioFlow } from "./wallet-portfolio.server";
-import { deliveryFlow } from "./wallet-delivery.server";
-import * as Clock from "effect/Clock";
+import {
+  deliveryFlow,
+  paymentLinkAssetRefusal,
+} from "./wallet-delivery.server";
 import * as Context from "effect/Context";
-import * as DateTime from "effect/DateTime";
-import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
@@ -23,6 +22,7 @@ import {
   ExternalRecipient,
   Holding,
   InvalidAddress,
+  LinkRecipient,
   MemoNotAllowed,
   ExternalMemoRequired,
   InsufficientBalance,
@@ -38,15 +38,14 @@ import {
   TransferStep,
   UnknownRecipient,
   type WalletPort,
-  type BalanceId,
   type ServerFailure,
 } from "../contract";
 import { baseAccountOf, isMuxed } from "../stellar/destination";
 import { readEnvelope } from "../stellar/envelopes";
-import { Chain, ChainUnreachable, Sealed } from "./Chain.server";
+import { Chain, ChainUnreachable } from "./Chain.server";
 import type { KnownExchangeMemo } from "./exchange-memos.server";
 import { memoRefusal } from "./memo-refusal.server";
-import { Directory, StoreFailure, type WalletRow } from "./Directory.server";
+import { Directory, StoreFailure } from "./Directory.server";
 import {
   Authorized,
   type Concluded,
@@ -58,13 +57,13 @@ import {
 } from "./Transfers.server";
 import { AssetOrders, assetPending } from "./AssetOrders.server";
 import { assetFlow } from "./wallet-assets.server";
-import { claimableQuota } from "../stellar/network";
 import { openingFlow } from "./wallet-opening.server";
 import { Backups } from "./Backups.server";
 import { concealFailure } from "./failures.server";
-import { rpcReadConcurrency } from "./settings.server";
 import { backupFlow } from "./wallet-backup.server";
+import { paymentLinksFlow } from "./wallet-payment-links.server";
 import { confirmedReads, live } from "./wallet-reads.server";
+import { sweepFlow } from "./wallet-sweep.server";
 
 export class Wallet extends Context.Service<
   Wallet,
@@ -81,12 +80,14 @@ export class Wallet extends Context.Service<
       const assets = yield* AssetOrders;
       const assetActions = yield* assetFlow;
       const delivery = yield* deliveryFlow;
+      const checkLinkAsset = yield* paymentLinkAssetRefusal;
+      const links = yield* paymentLinksFlow;
       const portfolio = yield* portfolioFlow;
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.catchCause(concealFailure));
 
-      const { readAccount, readBalance } = yield* confirmedReads;
+      const { readBalance } = yield* confirmedReads;
       const open = yield* openingFlow;
       const backup = yield* backupFlow;
 
@@ -140,6 +141,7 @@ export class Wallet extends Context.Service<
           request: proposed.request,
           recipient: proposed.recipient,
           memoRequired: Option.isSome(requirement),
+          claimable: proposed.claimable,
         });
       };
 
@@ -182,7 +184,8 @@ export class Wallet extends Context.Service<
           Option.isSome(state) &&
           Option.isSome(facts) &&
           (Predicate.isTagged(facts.value, "PaymentFacts") ||
-            Predicate.isTagged(facts.value, "ClaimableFacts")) &&
+            Predicate.isTagged(facts.value, "ClaimableFacts") ||
+            Predicate.isTagged(facts.value, "PaymentLinkFacts")) &&
           BigInt(state.value.sequence) + 1n === BigInt(facts.value.sequence)
         );
       });
@@ -199,6 +202,10 @@ export class Wallet extends Context.Service<
             chain.validAddress(value)
               ? Option.none<DestinationAddress>()
               : Option.some(value),
+          PaymentLink: ({ value }) =>
+            chain.validAddress(value) && value !== order.from
+              ? Option.none<DestinationAddress>()
+              : Option.some(value),
           Username: () => Option.none<DestinationAddress>(),
           Phone: () => Option.none<DestinationAddress>(),
         });
@@ -211,6 +218,7 @@ export class Wallet extends Context.Service<
             Phone: () => true,
             Username: () => false,
             Address: () => false,
+            PaymentLink: () => false,
           })
         )
           return new PhoneNotSupported();
@@ -235,6 +243,12 @@ export class Wallet extends Context.Service<
           const refusal = memoRefusal(order, stored.recipient, requirement);
 
           if (Option.isSome(refusal)) return refusal.value;
+
+          if (stored.recipient instanceof LinkRecipient) {
+            const linkRefusal = yield* checkLinkAsset(stored.order);
+
+            if (Option.isSome(linkRefusal)) return linkRefusal.value;
+          }
 
           if (!(yield* currentDraft(stored)))
             return yield* redrafted(stored, requirement);
@@ -265,10 +279,8 @@ export class Wallet extends Context.Service<
                       ? yield* resumed(stored, requirement)
                       : yield* redrafted(stored, requirement);
                 }),
-              ClaimablesFull: () =>
-                Effect.succeed(
-                  new ClaimableLimitReached({ limit: claimableQuota.username }),
-                ),
+              ClaimablesFull: ({ limit }) =>
+                Effect.succeed(new ClaimableLimitReached({ limit })),
               SlotOccupied: () =>
                 assets
                   .inFlightFor(order.from)
@@ -331,6 +343,10 @@ export class Wallet extends Context.Service<
                             ),
                     ),
                   ),
+          PaymentLink: ({ value }) =>
+            Effect.succeed<ResolvedRecipient>(
+              new LinkRecipient({ kind: "paymentLink", address: value }),
+            ),
           Phone: () =>
             Effect.die("Phone was rejected before recipient resolution"),
         });
@@ -350,27 +366,31 @@ export class Wallet extends Context.Service<
           }),
         );
 
-        const balance = Option.map(state, (holding) =>
-          Match.valueTags(order.asset, {
-            Native: () => holding.native,
-            Issued: (asset) =>
-              holding.lines.find(
-                (line) =>
-                  assetKey(line.asset) === assetKey(asset) && line.authorized,
-              )?.spendable ?? Schema.decodeSync(Amount)("0"),
-          }),
-        );
-
-        if (Option.isNone(balance)) {
+        if (Option.isNone(state)) {
           yield* directory.recover(sender.value);
 
           return new NotOpened();
         }
 
-        if (balance.value < order.amount)
-          return new InsufficientBalance({ available: balance.value });
+        if (recipient instanceof LinkRecipient) {
+          const linkRefusal = yield* checkLinkAsset(order, state.value);
 
-        const request = yield* delivery(order, recipient);
+          if (Option.isSome(linkRefusal)) return linkRefusal.value;
+        }
+
+        const balance = Match.valueTags(order.asset, {
+          Native: () => state.value.native,
+          Issued: (asset) =>
+            state.value.lines.find(
+              (line) =>
+                assetKey(line.asset) === assetKey(asset) && line.authorized,
+            )?.spendable ?? Schema.decodeSync(Amount)("0"),
+        });
+
+        if (balance < order.amount)
+          return new InsufficientBalance({ available: balance });
+
+        const request = yield* delivery(order, recipient, state.value);
 
         if (!(request instanceof SigningRequest)) return request;
 
@@ -424,133 +444,11 @@ export class Wallet extends Context.Service<
         });
       });
 
-      const recoverWallet = Effect.fn("Wallet.recoverWallet")(function* (
-        row: WalletRow,
-      ) {
-        const address = Schema.decodeSync(AccountAddress)(row.address);
-        const current = yield* readAccount(address);
-
-        if (Option.isNone(current) || Option.isNone(current.value.balance)) {
-          yield* directory.recover(row);
-
-          return;
-        }
-
-        if (
-          !row.recoveryEnvelope ||
-          !row.recoveryHash ||
-          !row.recoveryMaxTime ||
-          !row.recoveryMinTime
-        )
-          return;
-
-        const sealed = new Sealed({
-          envelope: row.recoveryEnvelope,
-          hash: row.recoveryHash,
-          expiresAt: DateTime.makeUnsafe(row.recoveryMaxTime),
-        });
-
-        const evidence = yield* chain.settlement(sealed);
-
-        const merged = Match.valueTags(evidence, {
-          Applied: () => true,
-          Rejected: () => false,
-          Expired: () => false,
-          Undecided: () => false,
-        });
-
-        if (merged) {
-          yield* directory.recover(row);
-
-          return;
-        }
-
-        const undecided = Match.valueTags(evidence, {
-          Undecided: () => true,
-          Applied: () => false,
-          Rejected: () => false,
-          Expired: () => false,
-        });
-
-        const now = yield* Clock.currentTimeMillis;
-
-        if (
-          undecided &&
-          row.recoveryMinTime.getTime() <= now &&
-          row.recoveryMaxTime.getTime() > now &&
-          current.value.sponsored &&
-          current.value.balance.value === 0n &&
-          current.value.nativeBalance === 0n &&
-          BigInt(current.value.sequence) + 1n ===
-            BigInt(row.recoverySequence ?? "0")
-        )
-          yield* chain.submit(sealed).pipe(Effect.ignore);
-      });
-
-      const closeGoneBalance = (id: BalanceId) =>
-        chain
-          .claimable([id])
-          .pipe(
-            Effect.flatMap((confirmed) =>
-              confirmed.length === 0 ? transfers.closeBalance(id) : Effect.void,
-            ),
-          );
-
-      const goneBalanceIds = Effect.gen(function* () {
-        const balanceIds = yield* transfers.balancesToCheck;
-        const entries = yield* chain.claimable(balanceIds);
-
-        return balanceIds.filter(
-          (id) => !entries.some((entry) => entry.balance === id),
-        );
-      });
-
-      const sweep = Effect.gen(function* () {
-        const balanceExits = yield* goneBalanceIds.pipe(
-          Effect.flatMap((ids) =>
-            Effect.forEach(
-              ids,
-              (id) => closeGoneBalance(id).pipe(Effect.exit),
-              { concurrency: rpcReadConcurrency },
-            ),
-          ),
-          Effect.exit,
-        );
-
-        const inFlight = yield* transfers.inFlight;
-        const wallets = yield* directory.recoverable;
-        const assetOrders = yield* assets.inFlight;
-
-        const records = yield* Effect.forEach(
-          [
-            ...assetOrders.map((entry) =>
-              assetActions.reconcile(entry).pipe(Effect.asVoid),
-            ),
-            ...inFlight.map((entry) => reconcile(entry).pipe(Effect.asVoid)),
-            ...wallets.map(recoverWallet),
-          ],
-          (program) => program.pipe(Effect.exit),
-        );
-
-        const failed = [
-          ...(Exit.isFailure(balanceExits)
-            ? [balanceExits.cause]
-            : balanceExits.value.flatMap((exit) =>
-                Exit.isFailure(exit) ? [exit.cause] : [],
-              )),
-          ...records.flatMap((exit) =>
-            Exit.isFailure(exit) ? [exit.cause] : [],
-          ),
-        ];
-
-        yield* Effect.forEach(failed, (cause) =>
-          Effect.logError("Sweep record failed", Cause.pretty(cause)),
-        );
-
-        if (failed.length > 0)
-          return yield* Effect.die(
-            new Error(`${failed.length} sweep records could not be reconciled`),
-          );
+      const sweep = yield* sweepFlow({
+        reconcileTransfer: (entry) => reconcile(entry).pipe(Effect.asVoid),
+        reconcileAsset: (entry) =>
+          assetActions.reconcile(entry).pipe(Effect.asVoid),
+        closeGoneBalance: links.closeGoneBalance,
       });
 
       return Wallet.of({
@@ -558,6 +456,9 @@ export class Wallet extends Context.Service<
         open: (claim, approval) => wrap(open(claim, approval)),
         transfer: (order, approval) => wrap(transfer(order, approval)),
         overview: (address) => wrap(overview(address)),
+        paymentLinks: (address) => wrap(links.paymentLinks(address)),
+        resolvePaymentLink: (sender, receipt) =>
+          wrap(links.resolvePaymentLink(sender, receipt)),
         passkeyChallenge: (purpose) => wrap(backup.passkeyChallenge(purpose)),
         enroll: (enrollment) => wrap(backup.enroll(enrollment)),
         restore: (assertion) => wrap(backup.restore(assertion)),

@@ -12,6 +12,9 @@ import {
   RestoreStep,
   OpenStep,
   Overview,
+  PaymentLinkReceipt,
+  PaymentLinksStep,
+  ResolveReceiptStep,
   TransferOrder,
   TransferStep,
   InvalidResponse,
@@ -43,6 +46,13 @@ const TransferCall = Schema.Struct({
 const ManageCall = Schema.Struct({
   order: AssetOrder,
   approval: Schema.OptionFromNullOr(Approval),
+});
+
+const PaymentLinksCall = Schema.Struct({ address: AccountAddress });
+
+const ResolvePaymentLinkCall = Schema.Struct({
+  sender: AccountAddress,
+  receipt: PaymentLinkReceipt,
 });
 
 const ChallengeCall = Schema.Struct({ purpose: ChallengePurpose });
@@ -85,6 +95,24 @@ const manageFn = createServerFn({ method: "POST" })
   .handler(({ data }) =>
     answerWallet(ManageCall, data, AssetStep, (decoded) =>
       Wallet.use((wallet) => wallet.manage(decoded.order, decoded.approval)),
+    ),
+  );
+
+const paymentLinksFn = createServerFn({ method: "POST" })
+  .validator(accepted<typeof PaymentLinksCall.Encoded>())
+  .handler(({ data }) =>
+    answerWallet(PaymentLinksCall, data, PaymentLinksStep, (decoded) =>
+      Wallet.use((wallet) => wallet.paymentLinks(decoded.address)),
+    ),
+  );
+
+const resolvePaymentLinkFn = createServerFn({ method: "POST" })
+  .validator(accepted<typeof ResolvePaymentLinkCall.Encoded>())
+  .handler(({ data }) =>
+    answerWallet(ResolvePaymentLinkCall, data, ResolveReceiptStep, (decoded) =>
+      Wallet.use((wallet) =>
+        wallet.resolvePaymentLink(decoded.sender, decoded.receipt),
+      ),
     ),
   );
 
@@ -159,6 +187,15 @@ export const port: WalletPort = {
     reach(RestoreStep, RestoreCall, { assertion }, restoreFn),
   manage: (order, approval) =>
     reach(AssetStep, ManageCall, { order, approval }, manageFn),
+  paymentLinks: (address) =>
+    reach(PaymentLinksStep, PaymentLinksCall, { address }, paymentLinksFn),
+  resolvePaymentLink: (sender, receipt) =>
+    reach(
+      ResolveReceiptStep,
+      ResolvePaymentLinkCall,
+      { sender, receipt },
+      resolvePaymentLinkFn,
+    ),
   overview: (address) => reach(Overview, OverviewCall, { address }, overviewFn),
   open: (claim, approval) =>
     reach(OpenStep, OpenCall, { claim, approval }, openFn),

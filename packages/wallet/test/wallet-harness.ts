@@ -60,7 +60,10 @@ import type {
 import { WalletSettings } from "../src/server/settings.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
-import { draftClaimable } from "../src/stellar/asset-envelopes";
+import {
+  draftClaimable,
+  draftPaymentLink,
+} from "../src/stellar/asset-envelopes";
 import { draftPlan } from "../src/stellar/asset-plans";
 import {
   draftOpening,
@@ -125,6 +128,7 @@ export const world = {
   claimablesDown: false,
   holdings: new Map<AccountAddress, Holdings>(),
   claimables: new Map<string, ClaimableEntry>(),
+  issuers: new Map<AccountAddress, { readonly authRequired: boolean }>(),
 };
 
 export const amount = (value: string) => Schema.decodeSync(Amount)(value);
@@ -219,6 +223,7 @@ export const fakeChain = Layer.effect(
                               spendable: s.balance.value,
                               capacity: amount("9223372036854775807"),
                               authorized: true,
+                              clawbackEnabled: false,
                               sponsored: true,
                             },
                           ]
@@ -238,7 +243,12 @@ export const fakeChain = Layer.effect(
                 return e ? [e] : [];
               }),
             ),
-      issuer: () => Effect.succeed(Option.some({ authRequired: false })),
+      issuer: (asset) =>
+        Effect.succeed(
+          Option.some(
+            world.issuers.get(asset.issuer) ?? { authRequired: false },
+          ),
+        ),
       draftAsset: (addr, plan) =>
         draftWith((w) =>
           draftPlan(plan, { source: sourceOf(addr), reserveSponsor, ...w }),
@@ -246,6 +256,17 @@ export const fakeChain = Layer.effect(
       draftClaimable: (from, to, a, val) =>
         draftWith((w) =>
           draftClaimable({
+            source: sourceOf(from),
+            reserveSponsor,
+            to,
+            asset: a,
+            amount: val,
+            ...w,
+          }),
+        ),
+      draftPaymentLink: (from, to, a, val) =>
+        draftWith((w) =>
+          draftPaymentLink({
             source: sourceOf(from),
             reserveSponsor,
             to,
@@ -556,6 +577,7 @@ export function useDisposableDatabase() {
     world.accounts.clear();
     world.holdings.clear();
     world.claimables.clear();
+    world.issuers.clear();
     world.evidence.clear();
     world.submitted.length = 0;
     world.exchangeMemos.length = 0;

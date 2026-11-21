@@ -1,0 +1,287 @@
+import { expect, it } from "@effect/vitest";
+import {
+  Account,
+  Claimant,
+  Keypair,
+  Operation,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import {
+  type AccountAddress,
+  type Approval,
+  BalanceId,
+  LinkRecipient,
+  NativeAsset,
+  PositiveAmount,
+  type TransferOrder,
+  UnsignedEnvelope,
+  baseAsset,
+} from "../src/contract";
+import {
+  DraftRejected,
+  PaymentLinkIntent,
+  makeWalletEffects,
+} from "../src/device/client";
+import { selectRecoverablePaymentLinks } from "../src/server/ledger-assets.server";
+import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
+import {
+  addressOf,
+  memoryKeyStore,
+  nowSeconds,
+  sendActors,
+  transferDraftOf,
+  unusedPort,
+} from "./device-fixtures";
+import { SoftwareAuthenticator } from "./software-authenticator";
+import { assertTagged } from "./tagged";
+
+const actors = sendActors();
+const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");
+const otherAmount = Schema.decodeSync(PositiveAmount)("20000000");
+const passkeys = new SoftwareAuthenticator("http://localhost:3000").passkeys;
+
+const buildTamperedExtraOp = (
+  linkAddress: AccountAddress,
+  at: number,
+): UnsignedEnvelope =>
+  Schema.decodeSync(UnsignedEnvelope)(
+    new TransactionBuilder(new Account(actors.sender, "100"), {
+      fee: baseFee,
+      networkPassphrase,
+    })
+      .addOperation(
+        Operation.beginSponsoringFutureReserves({
+          source: actors.sponsor,
+          sponsoredId: actors.sender,
+        }),
+      )
+      .addOperation(
+        Operation.createClaimableBalance({
+          asset: usdc,
+          amount: "1",
+          claimants: [
+            new Claimant(linkAddress, Claimant.predicateUnconditional()),
+            new Claimant(actors.sender, Claimant.predicateUnconditional()),
+          ],
+        }),
+      )
+      .addOperation(Operation.endSponsoringFutureReserves({}))
+      .addOperation(
+        Operation.payment({
+          destination: actors.stranger,
+          asset: usdc,
+          amount: "1",
+        }),
+      )
+      .setTimebounds(at, at + 120)
+      .build()
+      .toXDR(),
+  );
+
+const linkTarget = (order: TransferOrder) => {
+  assertTagged(order.to, "PaymentLink");
+
+  return order.to.value;
+};
+
+const tamperedDrafts: ReadonlyArray<
+  readonly [
+    string,
+    (
+      order: TransferOrder,
+      at: number,
+    ) => {
+      readonly envelope: UnsignedEnvelope;
+      readonly claimable?: BalanceId;
+    },
+  ]
+> = [
+  [
+    "different link public key",
+    (_order, at) => ({
+      envelope: actors.paymentLink({
+        to: actors.stranger,
+        amount: linkAmount,
+        at,
+      }),
+    }),
+  ],
+  [
+    "different sender",
+    (order, at) => ({
+      envelope: actors.paymentLink({
+        source: actors.stranger,
+        to: linkTarget(order),
+        amount: linkAmount,
+        at,
+      }),
+    }),
+  ],
+  [
+    "different asset",
+    (order, at) => ({
+      envelope: actors.paymentLink({
+        to: linkTarget(order),
+        asset: NativeAsset.make({}),
+        amount: linkAmount,
+        at,
+      }),
+    }),
+  ],
+  [
+    "different amount",
+    (order, at) => ({
+      envelope: actors.paymentLink({
+        to: linkTarget(order),
+        amount: otherAmount,
+        at,
+      }),
+    }),
+  ],
+  [
+    "different sponsor",
+    (order, at) => ({
+      envelope: actors.paymentLink({
+        to: linkTarget(order),
+        amount: linkAmount,
+        reserveSponsor: actors.stranger,
+        at,
+      }),
+    }),
+  ],
+  [
+    "username claimable with delayed sender predicate",
+    (order) => ({
+      envelope: actors.claimable({
+        to: linkTarget(order),
+        amount: linkAmount,
+      }),
+    }),
+  ],
+  [
+    "mismatched draft balance ID",
+    (order, at) => ({
+      envelope: actors.paymentLink({
+        to: linkTarget(order),
+        amount: linkAmount,
+        at,
+      }),
+      claimable: Schema.decodeSync(BalanceId)(`00000000${"f".repeat(64)}`),
+    }),
+  ],
+  [
+    "extra operation in envelope",
+    (order, at) => ({
+      envelope: buildTamperedExtraOp(linkTarget(order), at),
+    }),
+  ],
+];
+
+it.live.each(tamperedDrafts)(
+  "exact-draft approval rejects payment link with %s unsigned",
+  ([, build]) =>
+    Effect.gen(function* () {
+      const approvals: Array<Option.Option<Approval>> = [];
+      const store = memoryKeyStore(Option.some(actors.wallet));
+
+      const port = unusedPort({
+        transfer: (order, approval) =>
+          Effect.sync(() => {
+            approvals.push(approval);
+
+            const at = nowSeconds();
+            const built = build(order, at);
+
+            return transferDraftOf(
+              built.envelope,
+              new LinkRecipient({
+                kind: "paymentLink",
+                address: linkTarget(order),
+              }),
+              120,
+              at,
+              built.claimable,
+            );
+          }),
+      });
+
+      const outcome = yield* makeWalletEffects(
+        port,
+        store,
+        passkeys,
+      ).createPaymentLink(
+        new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
+      );
+
+      expect(outcome).toEqual(new DraftRejected());
+      expect(approvals.filter(Option.isSome)).toHaveLength(0);
+    }),
+);
+
+it("recovery selects only sponsored balances with two unconditional claimants", () => {
+  const sender = addressOf(Keypair.random());
+  const linkKey = addressOf(Keypair.random());
+  const recipient = addressOf(Keypair.random());
+  const stranger = addressOf(Keypair.random());
+
+  const linkBalance = Schema.decodeSync(BalanceId)(`00000000${"1".repeat(64)}`);
+
+  const usernameBalance = Schema.decodeSync(BalanceId)(
+    `00000000${"2".repeat(64)}`,
+  );
+
+  const strangerBalance = Schema.decodeSync(BalanceId)(
+    `00000000${"3".repeat(64)}`,
+  );
+
+  const selected = selectRecoverablePaymentLinks(
+    [
+      {
+        balance: linkBalance,
+        asset: baseAsset,
+        amount: linkAmount,
+        sponsored: true,
+        claimants: [
+          new Claimant(linkKey, Claimant.predicateUnconditional()),
+          new Claimant(sender, Claimant.predicateUnconditional()),
+        ],
+      },
+      {
+        balance: usernameBalance,
+        asset: baseAsset,
+        amount: linkAmount,
+        sponsored: true,
+        claimants: [
+          new Claimant(recipient, Claimant.predicateUnconditional()),
+          new Claimant(
+            sender,
+            Claimant.predicateNot(Claimant.predicateBeforeAbsoluteTime("9999")),
+          ),
+        ],
+      },
+      {
+        balance: strangerBalance,
+        asset: baseAsset,
+        amount: linkAmount,
+        sponsored: false,
+        claimants: [
+          new Claimant(stranger, Claimant.predicateUnconditional()),
+          new Claimant(sender, Claimant.predicateUnconditional()),
+        ],
+      },
+    ],
+    sender,
+  );
+
+  expect(selected).toEqual([
+    {
+      balance: linkBalance,
+      address: linkKey,
+      asset: baseAsset,
+      amount: linkAmount,
+    },
+  ]);
+});
