@@ -7,7 +7,6 @@ import {
   AccountAddress,
   type Approval,
   OpeningPending,
-  type OpenStep,
   type Username,
   WalletClaim,
   type WalletPort,
@@ -27,8 +26,13 @@ import {
 } from "./outcomes";
 import type { Passkeys } from "./passkeys";
 import { generateSecretPhrase } from "./secret-phrase";
-import { pendingPause, pendingSteps } from "./polling";
+import { pollSchedule } from "./polling";
 import { approve, liveFacts, signingKey } from "./signing";
+
+interface OpeningTurn {
+  readonly done: Option.Option<CreateOutcome>;
+  readonly pause: boolean;
+}
 
 export function openWallet(
   port: WalletPort,
@@ -56,109 +60,122 @@ export function openWallet(
     });
   });
 
-  const advance = (
-    wallet: DeviceWallet,
-    approval: Option.Option<Approval>,
-    remaining: number,
-  ): Effect.Effect<CreateOutcome, WalletUnavailable | KeyStoreUnavailable> =>
-    remaining === 0
-      ? Effect.succeed(new OpeningPending())
-      : port
-          .open(
-            new WalletClaim({
-              username: wallet.username,
-              address: wallet.address,
-            }),
-            approval,
-          )
-          .pipe(
-            Effect.flatMap((step) =>
-              respond(wallet, step, Option.isSome(approval), remaining - 1),
-            ),
-          );
+  const advance = Effect.fn("Device.advanceOpening")(function* (
+    initial: DeviceWallet,
+  ): Effect.fn.Return<CreateOutcome, WalletUnavailable | KeyStoreUnavailable> {
+    let wallet = initial;
+    let approval: Option.Option<Approval> = Option.none();
 
-  const respond = (
-    wallet: DeviceWallet,
-    step: OpenStep,
-    submitted: boolean,
-    remaining: number,
-  ) =>
-    Match.valueTags(step, {
-      OpeningDraft: ({ request }) =>
-        Effect.gen(function* () {
-          const facts = yield* liveFacts(request);
+    const step: Effect.Effect<
+      OpeningTurn,
+      WalletUnavailable | KeyStoreUnavailable
+    > = Effect.gen(function* () {
+      const submitted = Option.isSome(approval);
 
-          if (
-            Option.isNone(facts) ||
-            !Predicate.isTagged(facts.value, "OpeningFacts") ||
-            facts.value.address !== wallet.address
-          )
-            return new DraftRejected();
-
-          const sponsored = yield* remember(
-            store,
-            new DeviceWallet({
-              ...wallet,
-              reserveSponsor: facts.value.reserveSponsor,
-            }),
-          );
-
-          if (Option.isNone(sponsored)) return new UnsupportedDevice();
-
-          return yield* advance(
-            sponsored.value,
-            Option.some(approve(request, signingKey(wallet.phrase))),
-            remaining,
-          );
+      const response = yield* port.open(
+        new WalletClaim({
+          username: wallet.username,
+          address: wallet.address,
         }),
-      RecoveryDraft: ({ request }) =>
-        Effect.gen(function* () {
-          const facts = yield* liveFacts(request);
+        approval,
+      );
 
-          if (
-            Option.isNone(facts) ||
-            !Predicate.isTagged(facts.value, "RecoveryFacts") ||
-            facts.value.address !== wallet.address ||
-            facts.value.reserveSponsor !== wallet.reserveSponsor
-          )
-            return new DraftRejected();
+      approval = Option.none();
 
-          return yield* advance(
-            wallet,
-            Option.some(approve(request, signingKey(wallet.phrase))),
-            remaining,
-          );
-        }),
-      OpeningPending: () =>
-        submitted
-          ? advance(wallet, Option.none(), remaining)
-          : Effect.sleep(pendingPause).pipe(
-              Effect.andThen(advance(wallet, Option.none(), remaining)),
-            ),
-      AddressBound: (bound) =>
-        bound.profile.address === wallet.address &&
-        bound.profile.username !== wallet.username
-          ? remember(
+      return yield* Match.valueTags(response, {
+        OpeningDraft: ({ request }) =>
+          Effect.gen(function* () {
+            const facts = yield* liveFacts(request);
+
+            if (
+              Option.isNone(facts) ||
+              !Predicate.isTagged(facts.value, "OpeningFacts") ||
+              facts.value.address !== wallet.address
+            )
+              return { done: Option.some(new DraftRejected()), pause: false };
+
+            const sponsored = yield* remember(
               store,
               new DeviceWallet({
                 ...wallet,
-                username: bound.profile.username,
+                reserveSponsor: facts.value.reserveSponsor,
               }),
-            ).pipe(
-              Effect.flatMap(
-                Option.match({
-                  onNone: () => Effect.succeed(new UnsupportedDevice()),
-                  onSome: (adopted) =>
-                    advance(adopted, Option.none(), remaining),
-                }),
-              ),
+            );
+
+            if (Option.isNone(sponsored))
+              return {
+                done: Option.some(new UnsupportedDevice()),
+                pause: false,
+              };
+
+            wallet = sponsored.value;
+            approval = Option.some(approve(request, signingKey(wallet.phrase)));
+
+            return { done: Option.none(), pause: false };
+          }),
+        RecoveryDraft: ({ request }) =>
+          Effect.gen(function* () {
+            const facts = yield* liveFacts(request);
+
+            if (
+              Option.isNone(facts) ||
+              !Predicate.isTagged(facts.value, "RecoveryFacts") ||
+              facts.value.address !== wallet.address ||
+              facts.value.reserveSponsor !== wallet.reserveSponsor
             )
-          : Effect.succeed(bound),
-      Opened: Effect.succeed,
-      UsernameTaken: Effect.succeed,
-      InvalidAddress: Effect.succeed,
-      NotSponsored: Effect.succeed,
+              return { done: Option.some(new DraftRejected()), pause: false };
+
+            approval = Option.some(approve(request, signingKey(wallet.phrase)));
+
+            return { done: Option.none(), pause: false };
+          }),
+        OpeningPending: () =>
+          Effect.succeed({ done: Option.none(), pause: !submitted }),
+        AddressBound: (bound) =>
+          bound.profile.address === wallet.address &&
+          bound.profile.username !== wallet.username
+            ? remember(
+                store,
+                new DeviceWallet({
+                  ...wallet,
+                  username: bound.profile.username,
+                }),
+              ).pipe(
+                Effect.map(
+                  Option.match({
+                    onNone: (): OpeningTurn => ({
+                      done: Option.some(new UnsupportedDevice()),
+                      pause: false,
+                    }),
+                    onSome: (adopted): OpeningTurn => {
+                      wallet = adopted;
+
+                      return { done: Option.none(), pause: false };
+                    },
+                  }),
+                ),
+              )
+            : Effect.succeed({ done: Option.some(bound), pause: false }),
+        Opened: (outcome) =>
+          Effect.succeed({ done: Option.some(outcome), pause: false }),
+        UsernameTaken: (outcome) =>
+          Effect.succeed({ done: Option.some(outcome), pause: false }),
+        InvalidAddress: (outcome) =>
+          Effect.succeed({ done: Option.some(outcome), pause: false }),
+        NotSponsored: (outcome) =>
+          Effect.succeed({ done: Option.some(outcome), pause: false }),
+      });
     });
+
+    const last = yield* Effect.repeat(step, {
+      schedule: pollSchedule<OpeningTurn>(
+        (turn) => Option.isNone(turn.done),
+        (turn) => turn.pause,
+      ),
+    });
+
+    return Option.getOrElse(last.done, () => new OpeningPending());
+  });
 
   return Effect.fn("Device.open")(function* (username: Username) {
     const wallet = yield* remember(store, yield* deviceWallet(username));
@@ -173,6 +190,6 @@ export function openWallet(
 
     if (!(enrolled instanceof DeviceWallet)) return enrolled;
 
-    return yield* advance(enrolled, Option.none(), pendingSteps);
+    return yield* advance(enrolled);
   });
 }

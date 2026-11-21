@@ -1,5 +1,6 @@
 import { portfolioFlow } from "./wallet-portfolio.server";
 import { deliveryFlow } from "./wallet-delivery.server";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Cause from "effect/Cause";
@@ -58,6 +59,7 @@ import { maxOpenClaimables } from "../stellar/network";
 import { openingFlow } from "./wallet-opening.server";
 import { Backups } from "./Backups.server";
 import { concealFailure } from "./failures.server";
+import { rpcReadConcurrency } from "./settings.server";
 import { backupFlow } from "./wallet-backup.server";
 import { confirmedReads, live } from "./wallet-reads.server";
 
@@ -248,7 +250,7 @@ export class Wallet extends Context.Service<
           if (!(yield* currentDraft(stored)))
             return yield* resumed(yield* refreshDraft(stored), requirement);
 
-          if (live(stored.request)) {
+          if (yield* live(stored.request)) {
             if (Option.isNone(approval))
               return proposedStep(stored, requirement);
 
@@ -480,10 +482,12 @@ export class Wallet extends Context.Service<
           Expired: () => false,
         });
 
+        const now = yield* Clock.currentTimeMillis;
+
         if (
           undecided &&
-          row.recoveryMinTime.getTime() <= Date.now() &&
-          row.recoveryMaxTime.getTime() > Date.now() &&
+          row.recoveryMinTime.getTime() <= now &&
+          row.recoveryMaxTime.getTime() > now &&
           current.value.sponsored &&
           current.value.balance.value === 0n &&
           current.value.nativeBalance === 0n &&
@@ -502,24 +506,33 @@ export class Wallet extends Context.Service<
             ),
           );
 
-      const goneBalanceChecks = Effect.gen(function* () {
+      const goneBalanceIds = Effect.gen(function* () {
         const balanceIds = yield* transfers.balancesToCheck;
         const entries = yield* chain.claimable(balanceIds);
 
-        return balanceIds
-          .filter((id) => !entries.some((entry) => entry.balance === id))
-          .map(closeGoneBalance);
+        return balanceIds.filter(
+          (id) => !entries.some((entry) => entry.balance === id),
+        );
       });
 
       const sweep = Effect.gen(function* () {
-        const balanceChecks = yield* goneBalanceChecks.pipe(Effect.exit);
+        const balanceExits = yield* goneBalanceIds.pipe(
+          Effect.flatMap((ids) =>
+            Effect.forEach(
+              ids,
+              (id) => closeGoneBalance(id).pipe(Effect.exit),
+              { concurrency: rpcReadConcurrency },
+            ),
+          ),
+          Effect.exit,
+        );
+
         const inFlight = yield* transfers.inFlight;
         const wallets = yield* directory.recoverable;
         const assetOrders = yield* assets.inFlight;
 
         const records = yield* Effect.forEach(
           [
-            ...(Exit.isSuccess(balanceChecks) ? balanceChecks.value : []),
             ...assetOrders.map((entry) =>
               assetActions.reconcile(entry).pipe(Effect.asVoid),
             ),
@@ -530,7 +543,11 @@ export class Wallet extends Context.Service<
         );
 
         const failed = [
-          ...(Exit.isFailure(balanceChecks) ? [balanceChecks.cause] : []),
+          ...(Exit.isFailure(balanceExits)
+            ? [balanceExits.cause]
+            : balanceExits.value.flatMap((exit) =>
+                Exit.isFailure(exit) ? [exit.cause] : [],
+              )),
           ...records.flatMap((exit) =>
             Exit.isFailure(exit) ? [exit.cause] : [],
           ),

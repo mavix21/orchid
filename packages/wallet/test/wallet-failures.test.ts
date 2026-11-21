@@ -1,5 +1,6 @@
 import { expect, layer } from "@effect/vitest";
 import { Keypair, xdr } from "@stellar/stellar-sdk";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -25,10 +26,7 @@ import {
 } from "../src/contract";
 import { Applied, Chain } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
-import {
-  WalletSettings,
-  defaultRpcTimeout,
-} from "../src/server/settings.server";
+import { WalletSettings } from "../src/server/settings.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import {
@@ -120,6 +118,28 @@ const GetTransactionRequest = Schema.fromJsonString(
     params: Schema.Struct({ hash: Schema.String }),
   }),
 );
+
+const timeOutRpc = <A, E, R>(
+  started: Latch.Latch,
+  run: Effect.Effect<A, E, R>,
+) =>
+  Clock.currentTimeMillis.pipe(
+    Effect.flatMap((now) =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(now);
+
+        const attempt = yield* Effect.forkChild(run);
+
+        yield* started.await;
+        yield* TestClock.adjust("10 seconds");
+
+        return yield* Fiber.join(attempt);
+      }).pipe(Effect.provide(TestClock.layer())),
+    ),
+  );
+
+const jsonResponse = (body: string) =>
+  new Response(body, { headers: { "Content-Type": "application/json" } });
 
 const stellarHandling = (
   reply: (
@@ -296,10 +316,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect("answers ServiceFailed when a ledger reply does not decode", () =>
+    it.effect.each([
+      { name: "is not valid JSON", reply: "not json" },
+      { name: "does not match the RPC schema", reply: undecodable },
+    ])("answers ServiceFailed when a ledger reply $name", ({ reply }) =>
       Effect.gen(function* () {
         const key = yield* fundedSender();
-        const stellar = stellarAnswering(() => undecodable);
+        const stellar = stellarAnswering(() => reply);
 
         expect(
           yield* Wallet.use((wallet) => wallet.overview(addressOf(key))).pipe(
@@ -337,20 +360,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect("answers LedgerUnreachable when Stellar does not answer", () =>
-      Effect.gen(function* () {
-        const key = yield* fundedSender();
-
-        world.ledgerDown = true;
-
-        expect(
-          yield* Wallet.use((wallet) => wallet.overview(addressOf(key))).pipe(
-            Effect.flip,
-          ),
-        ).toEqual(new LedgerUnreachable());
-      }),
-    );
-
     it.effect(
       "answers LedgerUnreachable and persists nothing when an unsigned read times out",
       () =>
@@ -368,18 +377,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             started.open.pipe(Effect.andThen(Effect.never)),
           );
 
-          const failure = yield* Effect.gen(function* () {
-            const attempt = yield* send(order).pipe(
-              Effect.provide(stellar),
-              Effect.flip,
-              Effect.forkChild,
-            );
-
-            yield* started.await;
-            yield* TestClock.adjust(defaultRpcTimeout);
-
-            return yield* Fiber.join(attempt);
-          }).pipe(Effect.provide(TestClock.layer()));
+          const failure = yield* timeOutRpc(
+            started,
+            send(order).pipe(Effect.provide(stellar), Effect.flip),
+          );
 
           expect(failure).toEqual(new LedgerUnreachable());
           expect(
@@ -395,42 +396,24 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const claim = claimFor(Keypair.random(), "maria");
 
           const sponsorKey = xdr.LedgerKey.account(
-            new xdr.LedgerKeyAccount({
-              accountId: sponsor.xdrPublicKey(),
-            }),
+            new xdr.LedgerKeyAccount({ accountId: sponsor.xdrPublicKey() }),
           ).toXdr("base64");
 
           const started = yield* Latch.make();
 
-          const stellar = stellarHandling((method, request) => {
-            if (method === "getLedgerEntries") {
-              const { keys } = Schema.decodeSync(GetLedgerEntriesRequest)(
-                requestBodyText(request),
-              ).params;
+          const stellar = stellarHandling((method, request) =>
+            method === "getLedgerEntries" &&
+            Schema.decodeSync(GetLedgerEntriesRequest)(
+              requestBodyText(request),
+            ).params.keys.includes(sponsorKey)
+              ? started.open.pipe(Effect.andThen(Effect.never))
+              : Effect.succeed(jsonResponse(testnetReply(method))),
+          );
 
-              if (keys.includes(sponsorKey))
-                return started.open.pipe(Effect.andThen(Effect.never));
-            }
-
-            return Effect.succeed(
-              new Response(testnetReply(method), {
-                headers: { "Content-Type": "application/json" },
-              }),
-            );
-          });
-
-          const failure = yield* Effect.gen(function* () {
-            const attempt = yield* opening(claim).pipe(
-              Effect.provide(stellar),
-              Effect.flip,
-              Effect.forkChild,
-            );
-
-            yield* started.await;
-            yield* TestClock.adjust(defaultRpcTimeout);
-
-            return yield* Fiber.join(attempt);
-          }).pipe(Effect.provide(TestClock.layer()));
+          const failure = yield* timeOutRpc(
+            started,
+            opening(claim).pipe(Effect.provide(stellar), Effect.flip),
+          );
 
           expect(failure).toEqual(new LedgerUnreachable());
           expect(
@@ -461,14 +444,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
                 return started.open.pipe(Effect.andThen(Effect.never));
               }),
-              Match.when("getTransaction", () => {
-                const { hash } = Schema.decodeSync(GetTransactionRequest)(
-                  requestBodyText(request),
-                ).params;
-
-                return Effect.succeed(
-                  new Response(
-                    settled && hash === signed.hash
+              Match.when("getTransaction", () =>
+                Effect.succeed(
+                  jsonResponse(
+                    settled &&
+                      Schema.decodeSync(GetTransactionRequest)(
+                        requestBodyText(request),
+                      ).params.hash === signed.hash
                       ? JSON.stringify({
                           jsonrpc: "2.0",
                           id: 1,
@@ -481,31 +463,19 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                           },
                         })
                       : testnetReply(method),
-                    { headers: { "Content-Type": "application/json" } },
                   ),
-                );
-              }),
-              Match.orElse(() =>
-                Effect.succeed(
-                  new Response(testnetReply(method), {
-                    headers: { "Content-Type": "application/json" },
-                  }),
                 ),
+              ),
+              Match.orElse(() =>
+                Effect.succeed(jsonResponse(testnetReply(method))),
               ),
             ),
           );
 
-          const step = yield* Effect.gen(function* () {
-            const attempt = yield* send(signed.order).pipe(
-              Effect.provide(stellar),
-              Effect.forkChild,
-            );
-
-            yield* started.await;
-            yield* TestClock.adjust(defaultRpcTimeout);
-
-            return yield* Fiber.join(attempt);
-          }).pipe(Effect.provide(TestClock.layer()));
+          const step = yield* timeOutRpc(
+            started,
+            send(signed.order).pipe(Effect.provide(stellar)),
+          );
 
           expect(step._tag).toBe("Pending");
           expect(submitted).toEqual([signed.envelope]);

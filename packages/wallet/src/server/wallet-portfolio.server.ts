@@ -2,18 +2,21 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
+import * as Semaphore from "effect/Semaphore";
 import {
   type AccountAddress,
+  type BalanceId,
   Amount,
   Balance,
   ClaimableBalance,
   NativeAsset,
   assetKey,
+  baseAsset,
 } from "../contract";
-import { baseAsset } from "../contract";
 import { AssetOrders } from "./AssetOrders.server";
 import { Chain } from "./Chain.server";
 import { opensAt } from "./ledger-assets.server";
+import { rpcReadConcurrency } from "./settings.server";
 import { Transfers } from "./Transfers.server";
 
 export const portfolioFlow = Effect.gen(function* () {
@@ -21,80 +24,137 @@ export const portfolioFlow = Effect.gen(function* () {
   const assets = yield* AssetOrders;
   const transfers = yield* Transfers;
 
-  return Effect.fn("Wallet.portfolio")(function* (address: AccountAddress) {
-    const tracked = yield* assets.tracked(address);
-    const state = yield* chain.holdings(address, [baseAsset, ...tracked]);
-    const balances: Balance[] = [];
+  const loadHoldings = (
+    address: AccountAddress,
+    permits: Semaphore.Semaphore,
+  ) =>
+    Effect.gen(function* () {
+      const tracked = yield* assets.tracked(address);
 
-    if (Option.isSome(state)) {
-      for (const line of state.value.lines)
-        balances.push(new Balance({ asset: line.asset, amount: line.balance }));
+      const state = yield* permits.withPermit(
+        chain.holdings(address, [baseAsset, ...tracked]),
+      );
 
-      if (state.value.account.nativeBalance > 0n)
-        balances.push(
-          new Balance({
-            asset: NativeAsset.make({}),
-            amount: Schema.decodeSync(Amount)(
-              state.value.account.nativeBalance.toString(),
+      const balances: Balance[] = [];
+
+      if (Option.isSome(state)) {
+        for (const line of state.value.lines)
+          balances.push(
+            new Balance({ asset: line.asset, amount: line.balance }),
+          );
+
+        if (state.value.account.nativeBalance > 0n)
+          balances.push(
+            new Balance({
+              asset: NativeAsset.make({}),
+              amount: Schema.decodeSync(Amount)(
+                state.value.account.nativeBalance.toString(),
+              ),
+            }),
+          );
+
+        const missing = tracked.filter(
+          (asset) =>
+            !state.value.lines.some(
+              (line) => assetKey(line.asset) === assetKey(asset),
             ),
-          }),
         );
 
-      for (const asset of tracked) {
-        if (
-          !state.value.lines.some(
-            (line) => assetKey(line.asset) === assetKey(asset),
-          )
-        ) {
-          const confirmed = yield* chain.holdings(address, [asset]);
+        yield* Effect.forEach(
+          missing,
+          (asset) =>
+            permits
+              .withPermit(chain.holdings(address, [asset]))
+              .pipe(
+                Effect.flatMap((confirmed) =>
+                  Option.isSome(confirmed) && confirmed.value.lines.length === 0
+                    ? assets.forget(address, asset)
+                    : Effect.void,
+                ),
+              ),
+          { concurrency: rpcReadConcurrency, discard: true },
+        );
+      }
 
-          if (Option.isSome(confirmed) && confirmed.value.lines.length === 0)
-            yield* assets.forget(address, asset);
+      return {
+        reserveSponsor: Option.flatMap(
+          state,
+          (holdings) => holdings.reserveSponsor,
+        ),
+        balances,
+      };
+    });
+
+  const loadClaimables = (
+    address: AccountAddress,
+    permits: Semaphore.Semaphore,
+  ) =>
+    Effect.gen(function* () {
+      const pending = yield* transfers.openBalances(address);
+
+      const entries = yield* permits.withPermit(
+        chain.claimable(pending.map((item) => item.balance)),
+      );
+
+      const claimable: ClaimableBalance[] = [];
+      const missing: BalanceId[] = [];
+
+      for (const item of pending) {
+        const entry = entries.find(
+          (candidate) => candidate.balance === item.balance,
+        );
+
+        if (!entry) {
+          missing.push(item.balance);
+          continue;
         }
+
+        const claimant = entry.claimants.find(
+          (candidate) => candidate.destination === address,
+        );
+
+        claimable.push(
+          new ClaimableBalance({
+            ...item,
+            asset: entry.asset,
+            amount: entry.amount,
+            claimableAt: claimant
+              ? Option.map(opensAt(claimant.predicate), (at) =>
+                  DateTime.makeUnsafe(Number(at) * 1000),
+                )
+              : Option.none(),
+          }),
+        );
       }
-    }
 
-    const pending = yield* transfers.openBalances(address);
-    const entries = yield* chain.claimable(pending.map((item) => item.balance));
-    const claimable: ClaimableBalance[] = [];
-
-    for (const item of pending) {
-      const entry = entries.find(
-        (candidate) => candidate.balance === item.balance,
+      yield* Effect.forEach(
+        missing,
+        (balance) =>
+          permits
+            .withPermit(chain.claimable([balance]))
+            .pipe(
+              Effect.flatMap((confirmed) =>
+                confirmed.length === 0
+                  ? transfers.closeBalance(balance)
+                  : Effect.void,
+              ),
+            ),
+        { concurrency: rpcReadConcurrency, discard: true },
       );
 
-      if (!entry) {
-        const confirmed = yield* chain.claimable([item.balance]);
+      return claimable;
+    });
 
-        if (confirmed.length === 0) yield* transfers.closeBalance(item.balance);
+  return Effect.fn("Wallet.portfolio")(function* (address: AccountAddress) {
+    const permits = yield* Semaphore.make(rpcReadConcurrency);
 
-        continue;
-      }
-
-      const claimant = entry.claimants.find(
-        (candidate) => candidate.destination === address,
-      );
-
-      claimable.push(
-        new ClaimableBalance({
-          ...item,
-          asset: entry.asset,
-          amount: entry.amount,
-          claimableAt: claimant
-            ? Option.map(opensAt(claimant.predicate), (at) =>
-                DateTime.makeUnsafe(Number(at) * 1000),
-              )
-            : Option.none(),
-        }),
-      );
-    }
+    const [holdings, claimable] = yield* Effect.all(
+      [loadHoldings(address, permits), loadClaimables(address, permits)],
+      { concurrency: rpcReadConcurrency },
+    );
 
     return {
-      reserveSponsor: Option.flatMap(
-        state,
-        (holdings) => holdings.reserveSponsor,
-      ),
-      balances,
+      ...holdings,
       claimable,
     };
   });

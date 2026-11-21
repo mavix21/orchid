@@ -15,16 +15,22 @@ import {
   Keypair,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
-import { databaseLayer, makeDatabase } from "@workspace/db";
+import { Database, databaseLayer } from "@workspace/db";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import { sql } from "drizzle-orm";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Latch from "effect/Latch";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as TestClock from "effect/testing/TestClock";
 import {
   AccountAddress,
   Approval,
@@ -180,8 +186,8 @@ export const fakeChain = Layer.effect(
             ),
       issuer: () => Effect.succeed(Option.some({ authRequired: false })),
       draftAsset: (address, plan) =>
-        Effect.sync(() => {
-          const now = Math.floor(Date.now() / 1000);
+        Effect.map(Clock.currentTimeMillis, (millis) => {
+          const now = Math.floor(millis / 1000);
 
           return request(
             draftPlan(plan, {
@@ -197,8 +203,8 @@ export const fakeChain = Layer.effect(
           );
         }),
       draftClaimable: (from, to, asset, amount) =>
-        Effect.sync(() => {
-          const now = Math.floor(Date.now() / 1000);
+        Effect.map(Clock.currentTimeMillis, (millis) => {
+          const now = Math.floor(millis / 1000);
 
           return request(
             draftClaimable({
@@ -217,14 +223,17 @@ export const fakeChain = Layer.effect(
           );
         }),
       pastOpeningWindow: (sealed) =>
-        Effect.succeed(DateTime.toEpochMillis(sealed.expiresAt) < Date.now()),
+        Effect.map(
+          Clock.currentTimeMillis,
+          (now) => DateTime.toEpochMillis(sealed.expiresAt) < now,
+        ),
       balance: (address) =>
         account(address).pipe(
           Effect.map(Option.flatMap((state) => state.balance)),
         ),
       draftOpening: (address) =>
-        Effect.sync(() => {
-          const now = Math.floor(Date.now() / 1000);
+        Effect.map(Clock.currentTimeMillis, (millis) => {
+          const now = Math.floor(millis / 1000);
 
           return request(
             draftOpening({
@@ -238,8 +247,8 @@ export const fakeChain = Layer.effect(
           );
         }),
       draftPayment: (from, to, asset, amount, memo) =>
-        Effect.sync(() => {
-          const now = Math.floor(Date.now() / 1000);
+        Effect.map(Clock.currentTimeMillis, (millis) => {
+          const now = Math.floor(millis / 1000);
 
           return request(
             draftPayment({
@@ -258,8 +267,8 @@ export const fakeChain = Layer.effect(
           );
         }),
       draftRecovery: (address) =>
-        Effect.sync(() => {
-          const now = Math.floor(Date.now() / 1000);
+        Effect.map(Clock.currentTimeMillis, (millis) => {
+          const now = Math.floor(millis / 1000);
 
           return request(
             draftRecovery({
@@ -424,11 +433,65 @@ export const paymentSequence = (draft: TransferDraft) => {
   return facts.sequence;
 };
 
+const BackendPid = Schema.Struct({ pid: Schema.Number });
+
+export const runAcrossLockWait = <A, E, R, L, TxE>(options: {
+  readonly locktype: "advisory" | "relation" | "transactionid";
+  readonly advance: Duration.Input;
+  readonly acquire: (
+    tx: Parameters<Parameters<Database["Service"]["transaction"]>[0]>[0],
+  ) => Effect.Effect<L, TxE>;
+  readonly run: Effect.Effect<A, E, R>;
+}) =>
+  Effect.gen(function* () {
+    const db = yield* Database;
+    const now = yield* Clock.currentTimeMillis;
+
+    const result = yield* Effect.gen(function* () {
+      yield* TestClock.setTime(now);
+
+      const blockerPid = yield* Deferred.make<number>();
+      const releaseLock = yield* Latch.make();
+
+      const holder = yield* db
+        .transaction((tx) =>
+          Effect.gen(function* () {
+            const pid = Schema.decodeUnknownSync(BackendPid)(
+              (yield* tx.execute(sql`select pg_backend_pid() as pid`)).rows[0],
+            ).pid;
+
+            yield* options.acquire(tx);
+            yield* Deferred.succeed(blockerPid, pid);
+            yield* releaseLock.await;
+          }),
+        )
+        .pipe(Effect.forkChild);
+
+      const pid = yield* Deferred.await(blockerPid);
+      const attempt = yield* Effect.forkChild(options.run);
+
+      while (
+        (yield* db.execute(
+          sql`select 1 from pg_locks where locktype = ${options.locktype} and not granted and ${pid} = any(pg_blocking_pids(pid))`,
+        )).rows.length === 0
+      )
+        yield* Effect.yieldNow;
+
+      yield* TestClock.adjust(options.advance);
+      yield* releaseLock.open;
+      yield* Fiber.join(holder);
+
+      return yield* Fiber.join(attempt);
+    }).pipe(Effect.provide(TestClock.layer()));
+
+    return { result, now };
+  });
+
 export function useDisposableDatabase() {
   beforeAll(async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
-        const db = yield* makeDatabase();
+        const db = yield* Database;
 
         yield* migrate(db, {
           migrationsFolder: `${import.meta.dirname}/../drizzle`,
@@ -453,7 +516,7 @@ export function useDisposableDatabase() {
     world.claimablesDown = false;
     await Effect.runPromise(
       Effect.gen(function* () {
-        const db = yield* makeDatabase();
+        const db = yield* Database;
 
         yield* db.execute(
           sql`truncate asset_orders, trustlines, transfers, usernames, wallets, backups, passkey_challenges`,

@@ -6,7 +6,7 @@ import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Keypair } from "@stellar/stellar-sdk";
-import { databaseLayer, makeDatabase } from "@workspace/db";
+import { Database, databaseLayer } from "@workspace/db";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import { sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
@@ -53,10 +53,7 @@ it.live("existing wallet rows migrate into permanent name bindings", () =>
     const scratchName = `wallet_migration_${crypto.randomUUID().replaceAll("-", "")}`;
 
     const control = (statement: ReturnType<typeof sql>) =>
-      makeDatabase().pipe(
-        Effect.flatMap((db) => db.execute(statement)),
-        Effect.provide(dbLayer),
-      );
+      Database.use((db) => db.execute(statement)).pipe(Effect.provide(dbLayer));
 
     const scratchLayer = databaseLayer({
       connectionString: `postgres://orchid:orchid-local@127.0.0.1:55433/${scratchName}`,
@@ -90,7 +87,7 @@ it.live("existing wallet rows migrate into permanent name bindings", () =>
     );
 
     yield* Effect.gen(function* () {
-      const db = yield* makeDatabase();
+      const db = yield* Database;
 
       yield* migrate(db, { migrationsFolder: before });
 
@@ -155,7 +152,7 @@ it.live("existing wallet rows migrate into permanent name bindings", () =>
     }).pipe(Effect.provide(scratchLayer));
 
     const migrated = yield* Effect.gen(function* () {
-      const db = yield* makeDatabase();
+      const db = yield* Database;
 
       const names = yield* db
         .select()

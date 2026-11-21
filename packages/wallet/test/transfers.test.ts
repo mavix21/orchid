@@ -1,4 +1,5 @@
 import { assertTagged } from "./tagged";
+import { sql } from "drizzle-orm";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import { expect, layer } from "@effect/vitest";
@@ -7,18 +8,19 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import {
   AddressRecipient,
   Pending,
   Profile,
   SenderBusy,
+  ServiceFailed,
   Settled,
   Amount,
 } from "../src/contract";
-import { Applied } from "../src/server/Chain.server";
+import { Applied, Chain } from "../src/server/Chain.server";
 import { Directory, StoreFailure } from "../src/server/Directory.server";
+import { walletLock } from "../src/server/slot.server";
 import { Concluded, Proposed, Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import {
@@ -30,6 +32,7 @@ import {
   approve,
   create,
   orderFor,
+  runAcrossLockWait,
   send,
   useDisposableDatabase,
   walletTestLayer,
@@ -239,11 +242,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           Layer.provide(dbLayer),
         );
 
-        const result = yield* Wallet.use((wallet) =>
+        const failure = yield* Wallet.use((wallet) =>
           wallet.transfer(order, approve(draft.request, key)),
-        ).pipe(Effect.result, Effect.provide(Layer.fresh(brokenWallet)));
+        ).pipe(Effect.flip, Effect.provide(Layer.fresh(brokenWallet)));
 
-        expect(Result.isFailure(result)).toBe(true);
+        expect(failure).toEqual(new ServiceFailed());
         expect(world.submitted).toHaveLength(initial);
         expect(
           Option.getOrThrow(
@@ -251,6 +254,78 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           ),
         ).toBeInstanceOf(Proposed);
       }),
+    );
+
+    const lockCases: ReadonlyArray<{
+      readonly name: string;
+      readonly locktype: "advisory" | "relation";
+      readonly lock: (
+        address: ReturnType<typeof addressOf>,
+      ) => ReturnType<typeof walletLock>;
+    }> = [
+      {
+        name: "the wallet advisory lock",
+        locktype: "advisory",
+        lock: walletLock,
+      },
+      {
+        name: "the post-lock slot query",
+        locktype: "relation",
+        lock: () => sql`lock table asset_orders in access exclusive mode`,
+      },
+    ];
+
+    it.effect.each(lockCases)(
+      "authorization keeps a transfer Proposed when waiting on $name crosses the approval margin",
+      ({ locktype, lock }) =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+
+          yield* create(key, "maria");
+          world.accounts.set(addressOf(key), {
+            sequence: "1000",
+            ledger: 100,
+            accountSponsored: true,
+            sponsored: true,
+            nativeBalance: 0n,
+            balance: Option.some(Schema.decodeSync(Amount)("50000000")),
+          });
+
+          const order = orderFor(
+            key,
+            AddressRecipient.make({ value: addressOf(key) }),
+          );
+
+          assertTagged(yield* send(order), "TransferDraft");
+
+          const stored = Option.getOrThrow(
+            yield* Transfers.use((service) => service.find(order.id)),
+          );
+
+          assertTagged(stored, "Proposed");
+
+          const sealed = yield* Chain.use((chain) =>
+            chain.seal(
+              stored.request,
+              Option.getOrThrow(approve(stored.request, key)),
+              addressOf(key),
+            ),
+          ).pipe(Effect.provide(fakeChain));
+
+          const { result: outcome } = yield* runAcrossLockWait({
+            locktype,
+            advance: "101 seconds",
+            acquire: (tx) => tx.execute(lock(addressOf(key))),
+            run: Transfers.use((service) => service.authorize(stored, sealed)),
+          });
+
+          expect(outcome).toBeInstanceOf(Proposed);
+          expect(
+            Option.getOrThrow(
+              yield* Transfers.use((service) => service.find(order.id)),
+            ),
+          ).toBeInstanceOf(Proposed);
+        }),
     );
   },
 );

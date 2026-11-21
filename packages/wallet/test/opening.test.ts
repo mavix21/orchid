@@ -93,39 +93,46 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect(
-      "missing account and missing trustline reopen with the same username and key",
-      () =>
-        Effect.gen(function* () {
-          const key = Keypair.random();
-          const claim = yield* create(key, "maria");
+    it.effect.each([
+      {
+        name: "missing account",
+        damage: (address: ReturnType<typeof addressOf>) => {
+          world.accounts.delete(address);
+        },
+      },
+      {
+        name: "missing trustline",
+        damage: (address: ReturnType<typeof addressOf>) => {
+          world.accounts.set(address, {
+            sequence: "2000",
+            ledger: 100,
+            accountSponsored: true,
+            sponsored: true,
+            nativeBalance: 0n,
+            balance: Option.none(),
+          });
+        },
+      },
+    ])("$name reopens with the same username and key", ({ damage }) =>
+      Effect.gen(function* () {
+        const key = Keypair.random();
+        const claim = yield* create(key, "maria");
 
-          for (const missing of ["account", "trustline"]) {
-            if (missing === "account") world.accounts.delete(claim.address);
-            else
-              world.accounts.set(claim.address, {
-                sequence: "2000",
-                ledger: 100,
-                accountSponsored: true,
-                sponsored: true,
-                nativeBalance: 0n,
-                balance: Option.none(),
-              });
+        damage(claim.address);
 
-            expect(
-              yield* Wallet.use((wallet) => wallet.overview(claim.address)),
-            ).toBeInstanceOf(NeedsReopening);
-            expect(
-              (yield* Directory.use((directory) =>
-                directory.byAddress(claim.address),
-              )).pipe(Option.map((row) => row.status)),
-            ).toEqual(Option.some("recovered"));
-            yield* create(key, "maria");
-            expect(
-              yield* Wallet.use((wallet) => wallet.overview(claim.address)),
-            ).toBeInstanceOf(Holding);
-          }
-        }),
+        expect(
+          yield* Wallet.use((wallet) => wallet.overview(claim.address)),
+        ).toBeInstanceOf(NeedsReopening);
+        expect(
+          (yield* Directory.use((directory) =>
+            directory.byAddress(claim.address),
+          )).pipe(Option.map((row) => row.status)),
+        ).toEqual(Option.some("recovered"));
+        yield* create(key, "maria");
+        expect(
+          yield* Wallet.use((wallet) => wallet.overview(claim.address)),
+        ).toBeInstanceOf(Holding);
+      }),
     );
 
     it.effect(
@@ -240,9 +247,18 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect(
-      "unsponsored and differently sponsored accounts never receive recovery drafts",
-      () =>
+    it.effect.each([
+      {
+        name: "unsponsored",
+        accountSponsored: false,
+      },
+      {
+        name: "partially sponsored",
+        accountSponsored: true,
+      },
+    ])(
+      "$name account never receives a recovery draft",
+      ({ accountSponsored }) =>
         Effect.gen(function* () {
           const key = Keypair.random();
           const claim = claimFor(key, "maria");
@@ -252,7 +268,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             nativeBalance: 0n,
             balance: Option.some(Schema.decodeSync(Amount)("0")),
             ledger: 100,
-            accountSponsored: false,
+            accountSponsored,
             sponsored: false,
           });
           expect(yield* opening(claim)).toBeInstanceOf(NotSponsored);
@@ -263,15 +279,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               ),
             ),
           ).toBe(true);
-          world.accounts.set(claim.address, {
-            sequence: "1000",
-            nativeBalance: 0n,
-            balance: Option.some(Schema.decodeSync(Amount)("0")),
-            ledger: 100,
-            accountSponsored: true,
-            sponsored: false,
-          });
-          expect(yield* opening(claim)).toBeInstanceOf(NotSponsored);
           expect(world.submitted).toHaveLength(0);
         }),
     );

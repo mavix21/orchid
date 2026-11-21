@@ -2,16 +2,22 @@ import { expect, it, layer } from "@effect/vitest";
 import { Account, Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 import {
   Holding,
   Opened,
   OpeningDraft,
+  OpeningPending,
+  Profile,
   RecoveryDraft,
   SigningRequest,
   Username,
   Offline,
+  type OpenStep,
   type WalletPort,
 } from "../src/contract";
 import {
@@ -19,6 +25,7 @@ import {
   NoWallet,
   SavedWallet,
   makeWalletClient,
+  makeWalletEffects,
 } from "../src/device/client";
 import { DeviceWallet, type KeyStore } from "../src/device/key-store";
 import { SecretPhrase } from "../src/device/secret-phrase";
@@ -38,8 +45,8 @@ import { SoftwareAuthenticator } from "./software-authenticator";
 
 const passkeys = new SoftwareAuthenticator(passkeyOrigin).passkeys;
 
-function memoryKeyStore() {
-  let saved = Option.none<DeviceWallet>();
+function memoryKeyStore(initial = Option.none<DeviceWallet>()) {
+  let saved = initial;
 
   const store: KeyStore = {
     read: () => Effect.sync(() => saved),
@@ -83,6 +90,113 @@ it("derives the Stellar account of a SEP-5 secret phrase", () => {
     "SBGWSG6BTNCKCOB3DIFBGCVMUPQFYPA2G4O34RMTB343OYPXU5DJDVMN",
   );
 });
+
+const pollingPort = (
+  answer: (call: number, claim: Parameters<WalletPort["open"]>[0]) => OpenStep,
+  started: Latch.Latch,
+): WalletPort => {
+  const unused = () => Effect.die("Not used by opening");
+  let calls = 0;
+
+  return {
+    overview: unused,
+    transfer: unused,
+    manage: unused,
+    passkeyChallenge: unused,
+    enroll: unused,
+    restore: unused,
+    open: (claim) =>
+      started.open.pipe(
+        Effect.andThen(Effect.sync(() => answer(++calls, claim))),
+      ),
+  };
+};
+
+const seededWallet = () => {
+  const phrase = Schema.decodeSync(SecretPhrase)(
+    "illness spike retreat truth genius clock brain pass fit cave bargain toe",
+  );
+
+  return Option.some(
+    new DeviceWallet({
+      phrase,
+      address: addressOf(signingKey(phrase)),
+      username: Schema.decodeSync(Username)("maria"),
+      reserveSponsor,
+      backup: "stored",
+    }),
+  );
+};
+
+it.effect("polls OpeningPending for 12 steps (22s) before stopping", () =>
+  Effect.gen(function* () {
+    const started = yield* Latch.make();
+
+    const port = pollingPort(
+      (call, claim) =>
+        call <= 12
+          ? new OpeningPending()
+          : new Opened({ profile: new Profile(claim) }),
+      started,
+    );
+
+    const attempt = yield* Effect.forkChild(
+      makeWalletEffects(port, memoryKeyStore(seededWallet()), passkeys).create(
+        "maria",
+      ),
+    );
+
+    yield* started.await;
+    yield* TestClock.adjust("20 seconds");
+
+    expect(attempt.pollUnsafe()).toBeUndefined();
+
+    yield* TestClock.adjust("2 seconds");
+
+    expect(yield* Fiber.join(attempt)).toEqual(new OpeningPending());
+  }),
+);
+
+it.effect(
+  "polls OpeningPending until RecoveryDraft arrives and finishes opening",
+  () =>
+    Effect.gen(function* () {
+      const started = yield* Latch.make();
+
+      const port = pollingPort(
+        (call, claim) =>
+          call < 3
+            ? new OpeningPending()
+            : call === 3
+              ? new RecoveryDraft({
+                  request: new SigningRequest({
+                    envelope: draftRecovery({
+                      source: new Account(claim.address, "100"),
+                      reserveSponsor,
+                      minTime: 1,
+                      maxTime: 4_000_000_000,
+                    }),
+                    expiresAt: DateTime.makeUnsafe(4_000_000_000_000),
+                  }),
+                })
+              : new Opened({ profile: new Profile(claim) }),
+        started,
+      );
+
+      const attempt = yield* Effect.forkChild(
+        makeWalletEffects(
+          port,
+          memoryKeyStore(seededWallet()),
+          passkeys,
+        ).create("maria"),
+      );
+
+      yield* started.await;
+      yield* TestClock.adjust("4 seconds");
+
+      expect(yield* Fiber.join(attempt)).toBeInstanceOf(Opened);
+    }),
+);
 
 useDisposableDatabase();
 

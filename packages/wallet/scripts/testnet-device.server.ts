@@ -7,7 +7,7 @@ import {
   TransactionBuilder,
   rpc,
 } from "@stellar/stellar-sdk";
-import { databaseLayer, makeDatabase } from "@workspace/db";
+import { Database, databaseLayer } from "@workspace/db";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -134,7 +134,7 @@ assert.equal((await server.getNetwork()).passphrase, networkPassphrase);
 
 await Effect.runPromise(
   Effect.gen(function* () {
-    const db = yield* makeDatabase();
+    const db = yield* Database;
 
     yield* migrate(db, { migrationsFolder: `${import.meta.dir}/../drizzle` });
   }).pipe(Effect.provide(dbLayer)),

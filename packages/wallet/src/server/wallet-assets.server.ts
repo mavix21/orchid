@@ -1,4 +1,5 @@
 import { Transfers, pending } from "./Transfers.server";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
@@ -125,10 +126,9 @@ export const assetFlow = Effect.gen(function* () {
         (item) => item.destination === order.wallet,
       );
 
-      if (
-        !claimant ||
-        !claimableAt(claimant.predicate, BigInt(Math.floor(Date.now() / 1000)))
-      )
+      const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
+
+      if (!claimant || !claimableAt(claimant.predicate, BigInt(now)))
         return new NotClaimable({ claimableAt: Option.none() });
       plan = ClaimPlan.make({ balance: action.balance });
 
@@ -188,7 +188,7 @@ export const assetFlow = Effect.gen(function* () {
     if (
       Option.isSome(existing) &&
       Predicate.isTagged(existing.value, "AssetProposed") &&
-      live(existing.value.request)
+      (yield* live(existing.value.request))
     ) {
       const stored = existing.value;
       const state = yield* chain.account(order.wallet);

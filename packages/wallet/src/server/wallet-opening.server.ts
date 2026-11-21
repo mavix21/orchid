@@ -97,7 +97,7 @@ export const openingFlow = Effect.gen(function* () {
 
     if (
       !stored ||
-      !live(stored) ||
+      !(yield* live(stored)) ||
       Option.isNone(facts) ||
       !Predicate.isTagged(facts.value, "RecoveryFacts") ||
       BigInt(facts.value.sequence) !== BigInt(state.sequence) + 1n
@@ -249,7 +249,7 @@ export const openingFlow = Effect.gen(function* () {
     if (
       Option.isSome(attempt) &&
       attempt.value instanceof SigningRequest &&
-      live(attempt.value)
+      (yield* live(attempt.value))
     ) {
       if (Option.isNone(approval))
         return new OpeningDraft({ request: attempt.value });

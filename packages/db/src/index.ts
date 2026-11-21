@@ -1,10 +1,24 @@
 import { PgClient } from "@effect/sql-pg";
+import {
+  type EffectPgDatabase,
+  makeWithDefaults,
+} from "drizzle-orm/effect-postgres";
+import * as Context from "effect/Context";
+import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 
-export { makeWithDefaults as makeDatabase } from "drizzle-orm/effect-postgres";
+export class Database extends Context.Service<Database, EffectPgDatabase>()(
+  "@workspace/db/Database",
+) {
+  static readonly layer = Layer.effect(Database, makeWithDefaults());
+}
 
 export function databaseLayer(hyperdrive: {
   readonly connectionString: string;
 }) {
-  return PgClient.layer({ url: Redacted.make(hyperdrive.connectionString) });
+  return Database.layer.pipe(
+    Layer.provide(
+      PgClient.layer({ url: Redacted.make(hyperdrive.connectionString) }),
+    ),
+  );
 }

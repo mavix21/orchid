@@ -1,7 +1,7 @@
 import { assertTagged } from "./tagged";
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
-import { makeDatabase } from "@workspace/db";
+import { Database } from "@workspace/db";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -208,37 +208,31 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect("reserved names are never bound", () =>
+    it.effect.each([
+      "orchid",
+      "orchid_help",
+      "orchidsupport",
+      "orchid_oficial",
+      "my_orchid",
+      "support",
+      "admin",
+      "security",
+      "wallet",
+      "official",
+      "soporte",
+      "ayuda",
+      "seguridad",
+      "oficial",
+      "equipo",
+      "billetera",
+      "administrador",
+    ])("reserved name %s is never bound", (name) =>
       Effect.gen(function* () {
         const key = Keypair.random();
 
-        const impersonations = [
-          "orchid",
-          "orchid_help",
-          "orchidsupport",
-          "orchid_oficial",
-          "my_orchid",
-
-          "support",
-          "admin",
-          "security",
-          "wallet",
-          "official",
-          "soporte",
-          "ayuda",
-          "seguridad",
-          "oficial",
-          "equipo",
-          "billetera",
-          "administrador",
-        ];
-
-        for (const name of impersonations) {
-          expect(yield* opening(claimFor(key, name))).toEqual(
-            new UsernameTaken({ username: Schema.decodeSync(Username)(name) }),
-          );
-        }
-
+        expect(yield* opening(claimFor(key, name))).toEqual(
+          new UsernameTaken({ username: Schema.decodeSync(Username)(name) }),
+        );
         expect(
           Option.isNone(
             yield* Directory.use((directory) =>
@@ -340,8 +334,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             directory.start(claim.address),
           );
 
-          yield* makeDatabase().pipe(
-            Effect.flatMap((db) => db.insert(usernames).values(claim)),
+          yield* Database.use((db) => db.insert(usernames).values(claim)).pipe(
             Effect.provide(dbLayer),
           );
 

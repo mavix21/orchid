@@ -1,5 +1,6 @@
-import { makeDatabase } from "@workspace/db";
+import { Database } from "@workspace/db";
 import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -187,16 +188,15 @@ export class AssetOrders extends Context.Service<
   static readonly layer = Layer.effect(
     AssetOrders,
     Effect.gen(function* () {
-      const db = yield* makeDatabase();
+      const db = yield* Database;
 
       type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-      const epoch = () => epochAt(Date.now());
-
-      const scope = and(
-        eq(assetOrders.network, network),
-        eq(assetOrders.testnetEpoch, epoch()),
-      );
+      const scopeAt = (now: number) =>
+        and(
+          eq(assetOrders.network, network),
+          eq(assetOrders.testnetEpoch, epochAt(now)),
+        );
 
       const decode = (row: AssetOrderRow) =>
         Effect.try({
@@ -218,10 +218,12 @@ export class AssetOrders extends Context.Service<
       });
 
       const find = Effect.fn("AssetOrders.find")(function* (id: AssetOrderId) {
+        const now = yield* Clock.currentTimeMillis;
+
         const rows = yield* db
           .select()
           .from(assetOrders)
-          .where(and(scope, eq(assetOrders.id, id)));
+          .where(and(scopeAt(now), eq(assetOrders.id, id)));
 
         return rows[0] ? Option.some(yield* decode(rows[0])) : Option.none();
       });
@@ -242,12 +244,14 @@ export class AssetOrders extends Context.Service<
       const inFlightFor = Effect.fn("AssetOrders.inFlightFor")(function* (
         wallet: AccountAddress,
       ) {
+        const now = yield* Clock.currentTimeMillis;
+
         const rows = yield* db
           .select()
           .from(assetOrders)
           .where(
             and(
-              scope,
+              scopeAt(now),
               eq(assetOrders.wallet, wallet),
               eq(assetOrders.status, "authorized"),
             ),
@@ -260,13 +264,15 @@ export class AssetOrders extends Context.Service<
         order: AssetOrder,
         request: SigningRequest,
       ) {
+        const now = yield* Clock.currentTimeMillis;
+
         const value = {
           id: order.id,
           wallet: order.wallet,
           order: Schema.encodeSync(AssetOrderJson)(order),
           opens: opensOf(request),
           network,
-          testnetEpoch: epoch(),
+          testnetEpoch: epochAt(now),
           envelope: request.envelope,
           expiresAt: DateTime.toDateUtc(request.expiresAt),
         };
@@ -282,12 +288,14 @@ export class AssetOrders extends Context.Service<
               opens: value.opens,
             },
             setWhere: and(
-              scope,
+              scopeAt(now),
               eq(assetOrders.status, "proposed"),
               eq(assetOrders.order, value.order),
               lt(
                 assetOrders.expiresAt,
-                new Date(Date.now() + approvalMargin * 1000),
+                DateTime.toDateUtc(
+                  DateTime.makeUnsafe(now + approvalMargin * 1000),
+                ),
               ),
             ),
           })
@@ -300,6 +308,8 @@ export class AssetOrders extends Context.Service<
         proposed: AssetProposed,
         request: SigningRequest,
       ) {
+        const now = yield* Clock.currentTimeMillis;
+
         const rows = yield* db
           .update(assetOrders)
           .set({
@@ -309,7 +319,7 @@ export class AssetOrders extends Context.Service<
           })
           .where(
             and(
-              scope,
+              scopeAt(now),
               eq(assetOrders.id, proposed.order.id),
               eq(assetOrders.status, "proposed"),
               eq(assetOrders.envelope, proposed.request.envelope),
@@ -329,6 +339,9 @@ export class AssetOrders extends Context.Service<
 
             yield* tx.execute(walletLock(wallet));
 
+            const lockedAt = yield* Clock.currentTimeMillis;
+            const scope = scopeAt(lockedAt);
+
             const held = yield* tx
               .select({ id: assetOrders.id })
               .from(assetOrders)
@@ -346,7 +359,7 @@ export class AssetOrders extends Context.Service<
               .where(
                 and(
                   eq(transfers.network, network),
-                  eq(transfers.testnetEpoch, epoch()),
+                  eq(transfers.testnetEpoch, epochAt(lockedAt)),
                   eq(transfers.sender, wallet),
                   eq(transfers.status, "authorized"),
                 ),
@@ -354,6 +367,8 @@ export class AssetOrders extends Context.Service<
 
             if (paying[0] || (held[0] && held[0].id !== id))
               return new SlotOccupied();
+
+            const commitAt = yield* Clock.currentTimeMillis;
 
             const written = yield* tx
               .update(assetOrders)
@@ -370,7 +385,9 @@ export class AssetOrders extends Context.Service<
                   eq(assetOrders.envelope, proposed.request.envelope),
                   gt(
                     assetOrders.expiresAt,
-                    new Date(Date.now() + approvalMargin * 1000),
+                    DateTime.toDateUtc(
+                      DateTime.makeUnsafe(commitAt + approvalMargin * 1000),
+                    ),
                   ),
                 ),
               )
@@ -392,10 +409,14 @@ export class AssetOrders extends Context.Service<
           }),
         );
 
-      const line = (wallet: AccountAddress, asset: IssuedAsset) => ({
+      const line = (
+        wallet: AccountAddress,
+        asset: IssuedAsset,
+        now: number,
+      ) => ({
         address: wallet,
         network,
-        testnetEpoch: epoch(),
+        testnetEpoch: epochAt(now),
         code: asset.code,
         issuer: asset.issuer,
       });
@@ -404,13 +425,18 @@ export class AssetOrders extends Context.Service<
         tx: Transaction,
         wallet: AccountAddress,
         asset: IssuedAsset,
+        now: number,
       ) =>
-        tx.insert(trustlines).values(line(wallet, asset)).onConflictDoNothing();
+        tx
+          .insert(trustlines)
+          .values(line(wallet, asset, now))
+          .onConflictDoNothing();
 
       const untrack = (
         executor: typeof db | Transaction,
         wallet: AccountAddress,
         asset: IssuedAsset,
+        now: number,
       ) =>
         executor
           .delete(trustlines)
@@ -418,7 +444,7 @@ export class AssetOrders extends Context.Service<
             and(
               eq(trustlines.address, wallet),
               eq(trustlines.network, network),
-              eq(trustlines.testnetEpoch, epoch()),
+              eq(trustlines.testnetEpoch, epochAt(now)),
               eq(trustlines.code, asset.code),
               eq(trustlines.issuer, asset.issuer),
             ),
@@ -427,30 +453,41 @@ export class AssetOrders extends Context.Service<
       const applied = Effect.fn("AssetOrders.applied")(function* (
         tx: Transaction,
         row: AssetOrderRow,
+        now: DateTime.Utc,
       ) {
         const { wallet, action } = Schema.decodeSync(AssetOrderJson)(row.order);
+        const nowMillis = DateTime.toEpochMillis(now);
 
         yield* Match.valueTags(action, {
           OpenTrustline: ({ asset }) =>
-            track(tx, wallet, asset).pipe(Effect.asVoid),
+            track(tx, wallet, asset, nowMillis).pipe(Effect.asVoid),
           CloseTrustline: ({ asset }) =>
-            untrack(tx, wallet, asset).pipe(Effect.asVoid),
+            untrack(tx, wallet, asset, nowMillis).pipe(Effect.asVoid),
           ClaimBalance: ({ balance }) =>
             tx
               .update(transfers)
-              .set({ balanceClosedAt: new Date() })
+              .set({ balanceClosedAt: DateTime.toDateUtc(now) })
               .where(eq(transfers.balanceId, balance))
               .pipe(Effect.asVoid),
         });
 
         if (row.opens)
-          yield* track(tx, wallet, Schema.decodeSync(OpensJson)(row.opens));
+          yield* track(
+            tx,
+            wallet,
+            Schema.decodeSync(OpensJson)(row.opens),
+            nowMillis,
+          );
       });
 
       const conclude = Effect.fn("AssetOrders.conclude")(function* (
         id: AssetOrderId,
         settlement: Applied | Rejected | Expired,
       ) {
+        const now = yield* DateTime.now;
+        const nowDate = DateTime.toDateUtc(now);
+        const scope = scopeAt(DateTime.toEpochMillis(now));
+
         const values = Match.valueTags(settlement, {
           Applied: (evidence): ConclusionColumns => ({
             status: "settled",
@@ -459,12 +496,12 @@ export class AssetOrders extends Context.Service<
           }),
           Rejected: (): ConclusionColumns => ({
             status: "failed",
-            concludedAt: new Date(),
+            concludedAt: nowDate,
             failure: "rejected",
           }),
           Expired: (): ConclusionColumns => ({
             status: "failed",
-            concludedAt: new Date(),
+            concludedAt: nowDate,
             failure: "expired",
           }),
         });
@@ -484,7 +521,7 @@ export class AssetOrders extends Context.Service<
               .returning();
 
             if (rows[0] && values.status === "settled")
-              yield* applied(tx, rows[0]);
+              yield* applied(tx, rows[0], now);
 
             return rows[0];
           }),
@@ -502,54 +539,61 @@ export class AssetOrders extends Context.Service<
         return current;
       });
 
-      const inFlight = db
-        .update(assetOrders)
-        .set({ sweepCheckedAt: new Date() })
-        .where(
-          and(
-            scope,
-            eq(assetOrders.status, "authorized"),
-            inArray(
-              assetOrders.id,
-              db
-                .select({ id: assetOrders.id })
-                .from(assetOrders)
-                .where(and(scope, eq(assetOrders.status, "authorized")))
-                .orderBy(
-                  sql`${assetOrders.sweepCheckedAt} asc nulls first`,
-                  assetOrders.id,
-                )
-                .limit(sweepBatchSize),
-            ),
-          ),
-        )
-        .returning()
-        .pipe(Effect.flatMap((rows) => Effect.forEach(rows, signed)));
+      const inFlight = Effect.gen(function* () {
+        const now = yield* DateTime.now;
+        const scope = scopeAt(DateTime.toEpochMillis(now));
 
-      const tracked = (wallet: AccountAddress) =>
-        db
+        const rows = yield* db
+          .update(assetOrders)
+          .set({ sweepCheckedAt: DateTime.toDateUtc(now) })
+          .where(
+            and(
+              scope,
+              eq(assetOrders.status, "authorized"),
+              inArray(
+                assetOrders.id,
+                db
+                  .select({ id: assetOrders.id })
+                  .from(assetOrders)
+                  .where(and(scope, eq(assetOrders.status, "authorized")))
+                  .orderBy(
+                    sql`${assetOrders.sweepCheckedAt} asc nulls first`,
+                    assetOrders.id,
+                  )
+                  .limit(sweepBatchSize),
+              ),
+            ),
+          )
+          .returning();
+
+        return yield* Effect.forEach(rows, signed);
+      });
+
+      const tracked = Effect.fn("AssetOrders.tracked")(function* (
+        wallet: AccountAddress,
+      ) {
+        const now = yield* Clock.currentTimeMillis;
+
+        const rows = yield* db
           .select({ code: trustlines.code, issuer: trustlines.issuer })
           .from(trustlines)
           .where(
             and(
               eq(trustlines.address, wallet),
               eq(trustlines.network, network),
-              eq(trustlines.testnetEpoch, epoch()),
+              eq(trustlines.testnetEpoch, epochAt(now)),
             ),
           )
           .orderBy(trustlines.openedAt, trustlines.code, trustlines.issuer)
+          .limit(maxSponsoredTrustlines * 4);
 
-          .limit(maxSponsoredTrustlines * 4)
-          .pipe(
-            Effect.map((rows) =>
-              rows.map((row) =>
-                IssuedAsset.make({
-                  code: Schema.decodeSync(AssetCode)(row.code),
-                  issuer: Schema.decodeSync(AccountAddress)(row.issuer),
-                }),
-              ),
-            ),
-          );
+        return rows.map((row) =>
+          IssuedAsset.make({
+            code: Schema.decodeSync(AssetCode)(row.code),
+            issuer: Schema.decodeSync(AccountAddress)(row.issuer),
+          }),
+        );
+      });
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.mapError((cause) => new StoreFailure({ cause })));
@@ -564,7 +608,12 @@ export class AssetOrders extends Context.Service<
         inFlight: wrap(inFlight),
         tracked: (wallet) => wrap(tracked(wallet)),
         forget: (wallet, asset) =>
-          wrap(untrack(db, wallet, asset).pipe(Effect.asVoid)),
+          wrap(
+            Clock.currentTimeMillis.pipe(
+              Effect.flatMap((now) => untrack(db, wallet, asset, now)),
+              Effect.asVoid,
+            ),
+          ),
       });
     }),
   );

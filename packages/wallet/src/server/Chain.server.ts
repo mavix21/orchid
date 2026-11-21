@@ -7,6 +7,7 @@ import {
   StrKey,
   xdr,
 } from "@stellar/stellar-sdk";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -58,7 +59,11 @@ import {
   type KnownExchangeMemo,
   memoRequirementFor,
 } from "./exchange-memos.server";
-import { WalletSettings, defaultRpcTimeout } from "./settings.server";
+import {
+  WalletSettings,
+  defaultRpcTimeout,
+  rpcReadConcurrency,
+} from "./settings.server";
 
 export class Sealed extends Schema.Class<Sealed>("Sealed")({
   envelope: Schema.String,
@@ -347,9 +352,12 @@ export class Chain extends Context.Service<
       const draftOpen = Effect.fn("Chain.draftOpening")(function* (
         address: AccountAddress,
       ) {
-        const sponsorAccount = yield* source(sponsorAddress);
-        const current = yield* account(address);
-        const now = Math.floor(Date.now() / 1000);
+        const [sponsorAccount, current] = yield* Effect.all(
+          [source(sponsorAddress), account(address)],
+          { concurrency: rpcReadConcurrency },
+        );
+
+        const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
 
         return request(
           draftOpening({
@@ -371,7 +379,7 @@ export class Chain extends Context.Service<
         memo?: PaymentMemo,
       ) {
         const holder = yield* source(from);
-        const now = Math.floor(Date.now() / 1000);
+        const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
 
         return request(
           draftPayment({
@@ -391,7 +399,10 @@ export class Chain extends Context.Service<
         address: AccountAddress,
       ) {
         const holder = yield* source(address);
-        const minTime = Math.floor(Date.now() / 1000) + recoveryDelay;
+
+        const minTime =
+          Math.floor((yield* Clock.currentTimeMillis) / 1000) + recoveryDelay;
+
         const maxTime = minTime + recoveryWindow;
 
         return request(
@@ -410,81 +421,85 @@ export class Chain extends Context.Service<
         approval: Approval,
         holder: AccountAddress,
       ) =>
-        Effect.try({
-          try: () => {
-            const facts = readEnvelope(signingRequest.envelope);
+        Clock.currentTimeMillis.pipe(
+          Effect.flatMap((now) =>
+            Effect.try({
+              try: () => {
+                const facts = readEnvelope(signingRequest.envelope);
 
-            if (Option.isNone(facts)) throw new Error("Invalid layout");
+                if (Option.isNone(facts)) throw new Error("Invalid layout");
 
-            const permitted = Match.valueTags(facts.value, {
-              OpeningFacts: (f) =>
-                f.address === holder && f.reserveSponsor === sponsorAddress,
-              PaymentFacts: (f) => f.from === holder,
-              RecoveryFacts: (f) =>
-                f.address === holder && f.reserveSponsor === sponsorAddress,
-              TrustlineFacts: (f) =>
-                f.address === holder && f.reserveSponsor === sponsorAddress,
-              TrustlineRemovalFacts: (f) => f.address === holder,
-              ClaimableFacts: (f) =>
-                f.from === holder && f.reserveSponsor === sponsorAddress,
-              ClaimFacts: (f) =>
-                f.address === holder &&
-                (!f.reserveSponsor || f.reserveSponsor === sponsorAddress),
-            });
+                const permitted = Match.valueTags(facts.value, {
+                  OpeningFacts: (f) =>
+                    f.address === holder && f.reserveSponsor === sponsorAddress,
+                  PaymentFacts: (f) => f.from === holder,
+                  RecoveryFacts: (f) =>
+                    f.address === holder && f.reserveSponsor === sponsorAddress,
+                  TrustlineFacts: (f) =>
+                    f.address === holder && f.reserveSponsor === sponsorAddress,
+                  TrustlineRemovalFacts: (f) => f.address === holder,
+                  ClaimableFacts: (f) =>
+                    f.from === holder && f.reserveSponsor === sponsorAddress,
+                  ClaimFacts: (f) =>
+                    f.address === holder &&
+                    (!f.reserveSponsor || f.reserveSponsor === sponsorAddress),
+                });
 
-            const sponsoring = Match.valueTags(facts.value, {
-              OpeningFacts: () => true,
-              PaymentFacts: () => false,
-              RecoveryFacts: () => false,
-              TrustlineFacts: () => true,
-              TrustlineRemovalFacts: () => false,
-              ClaimableFacts: () => true,
-              ClaimFacts: (f) => f.reserveSponsor !== undefined,
-            });
+                const sponsoring = Match.valueTags(facts.value, {
+                  OpeningFacts: () => true,
+                  PaymentFacts: () => false,
+                  RecoveryFacts: () => false,
+                  TrustlineFacts: () => true,
+                  TrustlineRemovalFacts: () => false,
+                  ClaimableFacts: () => true,
+                  ClaimFacts: (f) => f.reserveSponsor !== undefined,
+                });
 
-            if (
-              !permitted ||
-              facts.value.maxTime * 1000 !==
-                DateTime.toEpochMillis(signingRequest.expiresAt) ||
-              DateTime.toEpochMillis(signingRequest.expiresAt) <
-                Date.now() + approvalMargin * 1000
-            )
-              throw new Error("Invalid or stale approval");
+                if (
+                  !permitted ||
+                  facts.value.maxTime * 1000 !==
+                    DateTime.toEpochMillis(signingRequest.expiresAt) ||
+                  DateTime.toEpochMillis(signingRequest.expiresAt) <
+                    now + approvalMargin * 1000
+                )
+                  throw new Error("Invalid or stale approval");
 
-            const inner = TransactionBuilder.fromXDR(
-              signingRequest.envelope,
-              networkPassphrase,
-            );
+                const inner = TransactionBuilder.fromXDR(
+                  signingRequest.envelope,
+                  networkPassphrase,
+                );
 
-            if (!(inner instanceof Transaction))
-              throw new Error("Inner transaction required");
+                if (!(inner instanceof Transaction))
+                  throw new Error("Inner transaction required");
 
-            inner.addSignature(
-              holder,
-              btoa(String.fromCharCode(...approval.signature)),
-            );
+                inner.addSignature(
+                  holder,
+                  btoa(String.fromCharCode(...approval.signature)),
+                );
 
-            if (sponsoring) inner.sign(sponsor);
+                if (sponsoring) inner.sign(sponsor);
 
-            const outer = TransactionBuilder.buildFeeBumpTransaction(
-              feePayer.publicKey(),
-              baseFee,
-              inner,
-              networkPassphrase,
-            );
+                const outer = TransactionBuilder.buildFeeBumpTransaction(
+                  feePayer.publicKey(),
+                  baseFee,
+                  inner,
+                  networkPassphrase,
+                );
 
-            outer.sign(feePayer);
+                outer.sign(feePayer);
 
-            return new Sealed({
-              envelope: outer.toXDR(),
-              hash: Array.from(outer.hash(), (byte) =>
-                byte.toString(16).padStart(2, "0"),
-              ).join(""),
-              expiresAt: signingRequest.expiresAt,
-            });
-          },
-          catch: () => new ApprovalInvalid(),
-        });
+                return new Sealed({
+                  envelope: outer.toXDR(),
+                  hash: Array.from(outer.hash(), (byte) =>
+                    byte.toString(16).padStart(2, "0"),
+                  ).join(""),
+                  expiresAt: signingRequest.expiresAt,
+                });
+              },
+              catch: () => new ApprovalInvalid(),
+            }),
+          ),
+        );
 
       const submit = (sealed: Sealed) =>
         rpc
