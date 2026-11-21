@@ -20,13 +20,7 @@ import { ScreenActions } from "@/components/screen";
 import { walletEffects } from "@/wallet";
 
 import { AmountStep } from "./amount-step";
-import {
-  type Destination,
-  FieldProblem,
-  type MemoType,
-  type SendField,
-  type SendForm,
-} from "./intent";
+import { type Destination, FieldProblem, type SendForm } from "./intent";
 import { deviceFailure, sendResult } from "./outcomes";
 import { PaymentReviewCard } from "./payment-review";
 import { RecipientStep } from "./recipient-step";
@@ -35,12 +29,7 @@ import { type WalletRun, useWalletRun } from "./use-wallet-run";
 
 type Answer = WalletRun<ReviewOutcome | ResumeOutcome>;
 
-const emptyForm: SendForm = {
-  recipient: "",
-  amount: "",
-  memo: "",
-  memoType: Option.none(),
-};
+const emptyForm: SendForm = { recipient: "", amount: "", memo: "" };
 
 const settledValue = (answer: Answer) =>
   answer.working
@@ -292,13 +281,8 @@ export function SendFlow({
       />
     );
 
-  const edit = (field: SendField, value: string) => {
+  const edit = (field: keyof SendForm, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
-    setProblem(Option.none());
-  };
-
-  const editMemo = (memo: string, memoType: Option.Option<MemoType>) => {
-    setForm((current) => ({ ...current, memo, memoType }));
     setProblem(Option.none());
   };
 
@@ -324,7 +308,6 @@ export function SendFlow({
         asset={asset}
         available={available}
         onEdit={edit}
-        onEditMemo={editMemo}
         onIntent={reviewIntent}
         onProblem={(found) => setProblem(Option.some(found))}
         onChangeRecipient={() => setEntering("recipient")}

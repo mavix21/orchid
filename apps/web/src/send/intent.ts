@@ -28,13 +28,10 @@ export class FieldProblem {
   ) {}
 }
 
-export type MemoType = PaymentMemo["type"];
-
 export type SendForm = {
   readonly recipient: string;
   readonly amount: string;
   readonly memo: string;
-  readonly memoType: Option.Option<MemoType>;
 };
 
 export const memoByteLimit = 28;
@@ -85,38 +82,17 @@ export const recipientOf = (
     Match.exhaustive,
   );
 
-const memoProblems = {
-  type: "Elige cómo aparece el memo en tu exchange",
-  tooLong: "El memo es demasiado largo",
-  invalidText: "Este memo no es válido",
-  invalidId: "Un ID numérico es un número entero de hasta 20 dígitos",
-} as const;
-
-const memoOf = (
-  typed: string,
-  type: Option.Option<MemoType>,
-): Result.Result<PaymentMemo, FieldProblem> =>
-  Option.match(type, {
-    onNone: () => Result.fail(new FieldProblem("memo", memoProblems.type)),
-    onSome: (chosen) =>
-      chosen === "text" && memoBytes(typed) > memoByteLimit
-        ? Result.fail(new FieldProblem("memo", memoProblems.tooLong))
-        : Option.match(
-            Schema.decodeOption(PaymentMemo)({ type: chosen, value: typed }),
-            {
-              onNone: () =>
-                Result.fail(
-                  new FieldProblem(
-                    "memo",
-                    chosen === "id"
-                      ? memoProblems.invalidId
-                      : memoProblems.invalidText,
-                  ),
-                ),
-              onSome: Result.succeed,
-            },
-          ),
-  });
+const memoOf = (typed: string): Result.Result<PaymentMemo, FieldProblem> =>
+  memoBytes(typed) > memoByteLimit
+    ? Result.fail(new FieldProblem("memo", "El memo es demasiado largo"))
+    : Option.match(
+        Schema.decodeOption(PaymentMemo)({ type: "text", value: typed }),
+        {
+          onNone: () =>
+            Result.fail(new FieldProblem("memo", "Este memo no es válido")),
+          onSome: Result.succeed,
+        },
+      );
 
 export function intentOf(
   form: SendForm,
@@ -142,7 +118,7 @@ export function intentOf(
     );
 
   return Result.map(
-    memoOf(form.memo, form.memoType),
+    memoOf(form.memo),
     (value) =>
       new TransferIntent({
         to: to.success,
