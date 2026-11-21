@@ -120,14 +120,31 @@ const listProblem = (
     InvalidResponse: unavailableMessage,
   });
 
-const createdOn = (link: OpenPaymentLink) =>
+const createdOn = (link: OpenPaymentLink, withSeconds: boolean) =>
   DateTime.toDate(link.createdAt).toLocaleString("es-PE", {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    second: withSeconds ? "2-digit" : undefined,
     hourCycle: "h23",
   });
+
+const linkLabel = (link: OpenPaymentLink) =>
+  `${amountLabel(link.amount, link.asset)} ${createdOn(link, false)}`;
+
+const listedLinks = (links: ReadonlyArray<OpenPaymentLink>) =>
+  links.map((link) => ({
+    link,
+    created: createdOn(
+      link,
+      links.some(
+        (other) =>
+          other.balance !== link.balance &&
+          linkLabel(other) === linkLabel(link),
+      ),
+    ),
+  }));
 
 function LinksFrame({
   loading = false,
@@ -245,6 +262,8 @@ function LinkList({
     ),
   );
 
+  const rows = listedLinks(listed);
+
   return (
     <>
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
@@ -285,20 +304,20 @@ function LinkList({
           </p>
         ) : (
           <div role="list" className="flex flex-col gap-3">
-            {listed.map((link) => (
+            {rows.map(({ link, created }) => (
               <Item key={link.balance} variant="outline" role="listitem">
                 <ItemContent>
                   <ItemTitle className="whitespace-nowrap">
                     {amountLabel(link.amount, link.asset)}
                   </ItemTitle>
-                  <ItemDescription>{createdOn(link)}</ItemDescription>
+                  <ItemDescription>{created}</ItemDescription>
                 </ItemContent>
                 <ItemActions>
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() => onChoose(link, createdOn(link))}
-                    aria-label={`Recuperar ${amountLabel(link.amount, link.asset)}, creado el ${createdOn(link)}`}
+                    onClick={() => onChoose(link, created)}
+                    aria-label={`Recuperar ${amountLabel(link.amount, link.asset)}, creado el ${created}`}
                     data-testid="recover-link"
                   >
                     Recuperar

@@ -39,7 +39,7 @@ test("shares a payment link only once it holds the funds, never sends its secret
     timeout: 120_000,
   });
   await expect(page.getByTestId("top-nav-action")).toBeDisabled();
-  expect(shared).toEqual([]);
+  expect(shared.length).toBe(0);
 
   await page.getByTestId("share-link").click();
   await expect(page.getByTestId("finish-link")).toBeVisible();
