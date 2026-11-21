@@ -1,6 +1,8 @@
-import { makeDatabase } from "@workspace/db";
+import { Database } from "@workspace/db";
 import { and, eq, lte } from "drizzle-orm";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -17,7 +19,7 @@ import {
 import { StoreFailure } from "./Directory.server";
 import { backups, passkeyChallenges, usernames } from "./tables.server";
 
-const challengeLifetimeMillis = 5 * 60_000;
+const challengeLifetime = { minutes: 5 };
 
 type BackupRow = typeof backups.$inferSelect;
 
@@ -77,7 +79,7 @@ export class Backups extends Context.Service<
   static readonly layer = Layer.effect(
     Backups,
     Effect.gen(function* () {
-      const db = yield* makeDatabase();
+      const db = yield* Database;
 
       const issue = Effect.fn("Backups.issue")(function* (
         purpose: ChallengePurpose,
@@ -88,14 +90,16 @@ export class Backups extends Context.Service<
           ),
         );
 
+        const now = yield* DateTime.now;
+
         yield* db
           .delete(passkeyChallenges)
-          .where(lte(passkeyChallenges.expiresAt, new Date()));
+          .where(lte(passkeyChallenges.expiresAt, DateTime.toDateUtc(now)));
 
         yield* db.insert(passkeyChallenges).values({
           challenge,
           purpose,
-          expiresAt: new Date(Date.now() + challengeLifetimeMillis),
+          expiresAt: DateTime.toDateUtc(DateTime.add(now, challengeLifetime)),
         });
 
         return challenge;
@@ -105,6 +109,8 @@ export class Backups extends Context.Service<
         challenge: PasskeyChallenge,
         purpose: ChallengePurpose,
       ) {
+        const now = yield* Clock.currentTimeMillis;
+
         const removed = yield* db
           .delete(passkeyChallenges)
           .where(
@@ -115,7 +121,7 @@ export class Backups extends Context.Service<
           )
           .returning();
 
-        return removed.some((row) => row.expiresAt.getTime() > Date.now());
+        return removed.some((row) => row.expiresAt.getTime() > now);
       });
 
       const enroll = Effect.fn("Backups.enroll")(function* (backup: NewBackup) {

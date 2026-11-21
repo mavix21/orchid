@@ -4,6 +4,8 @@ import type * as Redacted from "effect/Redacted";
 
 export const defaultRpcTimeout = Duration.seconds(10);
 
+export const rpcReadConcurrency = 4;
+
 export class WalletSettings extends Context.Service<
   WalletSettings,
   {

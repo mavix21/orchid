@@ -1,4 +1,4 @@
-import { makeDatabase } from "@workspace/db";
+import { Database } from "@workspace/db";
 import {
   type SQL,
   and,
@@ -11,6 +11,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -153,7 +154,7 @@ export class Directory extends Context.Service<
   static readonly layer = Layer.effect(
     Directory,
     Effect.gen(function* () {
-      const db = yield* makeDatabase();
+      const db = yield* Database;
       const scope = eq(wallets.network, network);
 
       type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -231,13 +232,15 @@ export class Directory extends Context.Service<
       const start = Effect.fn("Directory.start")(function* (
         address: AccountAddress,
       ) {
+        const now = yield* Clock.currentTimeMillis;
+
         const inserted = yield* db
           .insert(wallets)
           .values({
             address,
             status: "opening",
             network,
-            testnetEpoch: epochAt(Date.now()),
+            testnetEpoch: epochAt(now),
           })
           .onConflictDoNothing()
           .returning();
@@ -376,17 +379,23 @@ export class Directory extends Context.Service<
 
             if (Option.isSome(refused)) return refused.value;
 
+            const now = yield* Clock.currentTimeMillis;
+
             const written = yield* tx
               .update(wallets)
               .set({
                 status: "active",
                 version: row.version + 1,
-                testnetEpoch: epochAt(Date.now()),
+                testnetEpoch: epochAt(now),
                 recoveryEnvelope: sealed.envelope,
                 recoveryHash: sealed.hash,
                 recoverySequence: facts.sequence,
-                recoveryMinTime: new Date(facts.minTime * 1000),
-                recoveryMaxTime: new Date(facts.maxTime * 1000),
+                recoveryMinTime: DateTime.toDateUtc(
+                  DateTime.makeUnsafe(facts.minTime * 1000),
+                ),
+                recoveryMaxTime: DateTime.toDateUtc(
+                  DateTime.makeUnsafe(facts.maxTime * 1000),
+                ),
               })
               .where(activatable)
               .returning();
@@ -473,39 +482,47 @@ export class Directory extends Context.Service<
           wrap(activate(row, sealed, facts, claim)),
         recover: (row) => wrap(recover(row)),
         recoverable: wrap(
-          db
-            .update(wallets)
-            .set({ sweepCheckedAt: new Date() })
-            .where(
-              and(
-                scope,
-                eq(wallets.status, "active"),
-                lte(wallets.recoveryMinTime, new Date()),
-                gt(wallets.recoveryMaxTime, new Date()),
-                inArray(
-                  wallets.address,
-                  db
-                    .select({ address: wallets.address })
-                    .from(wallets)
-                    .where(
-                      and(
-                        scope,
-                        eq(wallets.testnetEpoch, epochAt(Date.now())),
-                        eq(wallets.status, "active"),
-                        isNotNull(wallets.recoveryEnvelope),
-                        lte(wallets.recoveryMinTime, new Date()),
-                        gt(wallets.recoveryMaxTime, new Date()),
-                      ),
-                    )
-                    .orderBy(
-                      sql`${wallets.sweepCheckedAt} asc nulls first`,
-                      wallets.address,
-                    )
-                    .limit(sweepBatchSize),
+          Effect.gen(function* () {
+            const now = yield* DateTime.now;
+            const nowDate = DateTime.toDateUtc(now);
+
+            return yield* db
+              .update(wallets)
+              .set({ sweepCheckedAt: nowDate })
+              .where(
+                and(
+                  scope,
+                  eq(wallets.status, "active"),
+                  lte(wallets.recoveryMinTime, nowDate),
+                  gt(wallets.recoveryMaxTime, nowDate),
+                  inArray(
+                    wallets.address,
+                    db
+                      .select({ address: wallets.address })
+                      .from(wallets)
+                      .where(
+                        and(
+                          scope,
+                          eq(
+                            wallets.testnetEpoch,
+                            epochAt(DateTime.toEpochMillis(now)),
+                          ),
+                          eq(wallets.status, "active"),
+                          isNotNull(wallets.recoveryEnvelope),
+                          lte(wallets.recoveryMinTime, nowDate),
+                          gt(wallets.recoveryMaxTime, nowDate),
+                        ),
+                      )
+                      .orderBy(
+                        sql`${wallets.sweepCheckedAt} asc nulls first`,
+                        wallets.address,
+                      )
+                      .limit(sweepBatchSize),
+                  ),
                 ),
-              ),
-            )
-            .returning(),
+              )
+              .returning();
+          }),
         ),
       });
     }),

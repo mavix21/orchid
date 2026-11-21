@@ -2,16 +2,21 @@ import { expect, it, layer } from "@effect/vitest";
 import { Account, Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 import {
   Holding,
   Opened,
   OpeningDraft,
+  OpeningPending,
+  Profile,
   RecoveryDraft,
   SigningRequest,
   Username,
   Offline,
+  type OpenStep,
   type WalletPort,
 } from "../src/contract";
 import {
@@ -19,7 +24,9 @@ import {
   NoWallet,
   SavedWallet,
   makeWalletClient,
+  makeWalletEffects,
 } from "../src/device/client";
+import { pendingSteps } from "../src/device/polling";
 import { DeviceWallet, type KeyStore } from "../src/device/key-store";
 import { SecretPhrase } from "../src/device/secret-phrase";
 import { signingKey } from "../src/device/signing";
@@ -83,6 +90,106 @@ it("derives the Stellar account of a SEP-5 secret phrase", () => {
     "SBGWSG6BTNCKCOB3DIFBGCVMUPQFYPA2G4O34RMTB343OYPXU5DJDVMN",
   );
 });
+
+const pollingPort = (
+  answer: (call: number, claim: Parameters<WalletPort["open"]>[0]) => OpenStep,
+): WalletPort => {
+  const unused = () => Effect.die("Not used by opening");
+  let calls = 0;
+
+  return {
+    overview: unused,
+    transfer: unused,
+    manage: unused,
+    passkeyChallenge: unused,
+    enroll: unused,
+    restore: unused,
+    open: (claim) => Effect.sync(() => answer(++calls, claim)),
+  };
+};
+
+const seededStore = () => {
+  const phrase = Schema.decodeSync(SecretPhrase)(
+    "illness spike retreat truth genius clock brain pass fit cave bargain toe",
+  );
+
+  let saved = Option.some(
+    new DeviceWallet({
+      phrase,
+      address: addressOf(signingKey(phrase)),
+      username: Schema.decodeSync(Username)("maria"),
+      reserveSponsor,
+      backup: "stored",
+    }),
+  );
+
+  const store: KeyStore = {
+    read: () => Effect.sync(() => saved),
+    write: (wallet) =>
+      Effect.sync(() => {
+        saved = Option.some(wallet);
+      }),
+  };
+
+  return store;
+};
+
+it.effect(
+  "polls OpeningPending on the schedule and stops at pendingSteps",
+  () =>
+    Effect.gen(function* () {
+      let calls = 0;
+
+      const port = pollingPort((call) => {
+        calls = call;
+
+        return new OpeningPending();
+      });
+
+      const effects = makeWalletEffects(port, seededStore(), passkeys);
+      const attempt = yield* Effect.forkChild(effects.create("maria"));
+
+      yield* TestClock.adjust("20 seconds");
+
+      expect(attempt.pollUnsafe()).toBeUndefined();
+
+      yield* TestClock.adjust("2 seconds");
+
+      expect(yield* Fiber.join(attempt)).toEqual(new OpeningPending());
+      expect(calls).toBe(pendingSteps);
+    }),
+);
+
+it.effect(
+  "polls OpeningPending until RecoveryDraft arrives and finishes opening",
+  () =>
+    Effect.gen(function* () {
+      const port = pollingPort((call, claim) =>
+        call < 3
+          ? new OpeningPending()
+          : call === 3
+            ? new RecoveryDraft({
+                request: new SigningRequest({
+                  envelope: draftRecovery({
+                    source: new Account(claim.address, "100"),
+                    reserveSponsor,
+                    minTime: 1,
+                    maxTime: 4_000_000_000,
+                  }),
+                  expiresAt: DateTime.makeUnsafe(4_000_000_000_000),
+                }),
+              })
+            : new Opened({ profile: new Profile(claim) }),
+      );
+
+      const effects = makeWalletEffects(port, seededStore(), passkeys);
+      const attempt = yield* Effect.forkChild(effects.create("maria"));
+
+      yield* TestClock.adjust("4 seconds");
+
+      expect(yield* Fiber.join(attempt)).toBeInstanceOf(Opened);
+    }),
+);
 
 useDisposableDatabase();
 

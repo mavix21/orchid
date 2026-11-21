@@ -15,9 +15,10 @@ import {
   Keypair,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
-import { databaseLayer, makeDatabase } from "@workspace/db";
+import { Database, databaseLayer } from "@workspace/db";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import { sql } from "drizzle-orm";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -180,8 +181,8 @@ export const fakeChain = Layer.effect(
             ),
       issuer: () => Effect.succeed(Option.some({ authRequired: false })),
       draftAsset: (address, plan) =>
-        Effect.sync(() => {
-          const now = Math.floor(Date.now() / 1000);
+        Effect.map(Clock.currentTimeMillis, (millis) => {
+          const now = Math.floor(millis / 1000);
 
           return request(
             draftPlan(plan, {
@@ -197,8 +198,8 @@ export const fakeChain = Layer.effect(
           );
         }),
       draftClaimable: (from, to, asset, amount) =>
-        Effect.sync(() => {
-          const now = Math.floor(Date.now() / 1000);
+        Effect.map(Clock.currentTimeMillis, (millis) => {
+          const now = Math.floor(millis / 1000);
 
           return request(
             draftClaimable({
@@ -217,14 +218,17 @@ export const fakeChain = Layer.effect(
           );
         }),
       pastOpeningWindow: (sealed) =>
-        Effect.succeed(DateTime.toEpochMillis(sealed.expiresAt) < Date.now()),
+        Effect.map(
+          Clock.currentTimeMillis,
+          (now) => DateTime.toEpochMillis(sealed.expiresAt) < now,
+        ),
       balance: (address) =>
         account(address).pipe(
           Effect.map(Option.flatMap((state) => state.balance)),
         ),
       draftOpening: (address) =>
-        Effect.sync(() => {
-          const now = Math.floor(Date.now() / 1000);
+        Effect.map(Clock.currentTimeMillis, (millis) => {
+          const now = Math.floor(millis / 1000);
 
           return request(
             draftOpening({
@@ -238,8 +242,8 @@ export const fakeChain = Layer.effect(
           );
         }),
       draftPayment: (from, to, asset, amount, memo) =>
-        Effect.sync(() => {
-          const now = Math.floor(Date.now() / 1000);
+        Effect.map(Clock.currentTimeMillis, (millis) => {
+          const now = Math.floor(millis / 1000);
 
           return request(
             draftPayment({
@@ -258,8 +262,8 @@ export const fakeChain = Layer.effect(
           );
         }),
       draftRecovery: (address) =>
-        Effect.sync(() => {
-          const now = Math.floor(Date.now() / 1000);
+        Effect.map(Clock.currentTimeMillis, (millis) => {
+          const now = Math.floor(millis / 1000);
 
           return request(
             draftRecovery({
@@ -428,7 +432,7 @@ export function useDisposableDatabase() {
   beforeAll(async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
-        const db = yield* makeDatabase();
+        const db = yield* Database;
 
         yield* migrate(db, {
           migrationsFolder: `${import.meta.dirname}/../drizzle`,
@@ -453,7 +457,7 @@ export function useDisposableDatabase() {
     world.claimablesDown = false;
     await Effect.runPromise(
       Effect.gen(function* () {
-        const db = yield* makeDatabase();
+        const db = yield* Database;
 
         yield* db.execute(
           sql`truncate asset_orders, trustlines, transfers, usernames, wallets, backups, passkey_challenges`,

@@ -1,7 +1,7 @@
 import { assertTagged } from "./tagged";
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
-import { makeDatabase } from "@workspace/db";
+import { Database } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -45,7 +45,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           yield* Wallet.use((wallet) => wallet.sweep);
           expect(world.submitted).toHaveLength(initial);
           yield* Effect.gen(function* () {
-            const db = yield* makeDatabase();
+            const db = yield* Database;
 
             yield* db.execute(
               sql`update wallets set "recoveryMinTime" = now() - interval '1 second' where address = ${claim.address}`,
@@ -123,7 +123,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           }
 
           yield* Effect.gen(function* () {
-            const db = yield* makeDatabase();
+            const db = yield* Database;
 
             yield* db.execute(
               sql`update wallets set "recoveryMinTime" = now() - interval '1 minute', "recoveryMaxTime" = now() + interval '1 hour'`,
@@ -148,7 +148,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ),
           ).toBe(false);
           yield* Effect.gen(function* () {
-            const db = yield* makeDatabase();
+            const db = yield* Database;
 
             yield* db.execute(
               sql`update wallets set "recoveryMinTime" = now() - interval '1 minute', "recoveryMaxTime" = now() + interval '1 hour' where address = ${addresses[0]}`,

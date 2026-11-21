@@ -1,4 +1,5 @@
 import type { Account } from "@stellar/stellar-sdk";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -71,8 +72,8 @@ export const assetChain = (
         Effect.map(decode),
       );
 
-    const window = () => {
-      const minTime = Math.floor(Date.now() / 1000);
+    const window = Effect.map(Clock.currentTimeMillis, (now) => {
+      const minTime = Math.floor(now / 1000);
       const maxTime = minTime + paymentLifetime;
 
       return {
@@ -80,7 +81,7 @@ export const assetChain = (
         maxTime,
         expiresAt: DateTime.makeUnsafe(maxTime * 1000),
       };
-    };
+    });
 
     return {
       holdings: (address, assets) =>
@@ -116,7 +117,7 @@ export const assetChain = (
         amount: PositiveAmount,
       ) {
         const holder = yield* source(from);
-        const { expiresAt, ...bounds } = window();
+        const { expiresAt, ...bounds } = yield* window;
 
         return new SigningRequest({
           envelope: draftClaimable({
@@ -135,7 +136,7 @@ export const assetChain = (
         plan: AssetPlan,
       ) {
         const holder = yield* source(address);
-        const { expiresAt, ...bounds } = window();
+        const { expiresAt, ...bounds } = yield* window;
 
         return new SigningRequest({
           envelope: draftPlan(plan, {

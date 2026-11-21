@@ -1,5 +1,5 @@
 import { balancesToCheck } from "./balance-sweep.server";
-import { makeDatabase } from "@workspace/db";
+import { Database } from "@workspace/db";
 import {
   and,
   count,
@@ -13,6 +13,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -221,12 +222,13 @@ export class Transfers extends Context.Service<
   static readonly layer = Layer.effect(
     Transfers,
     Effect.gen(function* () {
-      const db = yield* makeDatabase();
+      const db = yield* Database;
 
-      const scope = and(
-        eq(transfers.network, network),
-        eq(transfers.testnetEpoch, epochAt(Date.now())),
-      );
+      const scopeAt = (now: number) =>
+        and(
+          eq(transfers.network, network),
+          eq(transfers.testnetEpoch, epochAt(now)),
+        );
 
       const decode = (row: TransferRow) =>
         Effect.try({
@@ -234,15 +236,16 @@ export class Transfers extends Context.Service<
           catch: (cause) => new StoreFailure({ cause }),
         });
 
-      const unclaimed = and(
-        scope,
-        isNotNull(transfers.balanceId),
-        isNull(transfers.balanceClosedAt),
-      );
-
-      const openFrom = (sender: AccountAddress) =>
+      const unclaimedAt = (now: number) =>
         and(
-          unclaimed,
+          scopeAt(now),
+          isNotNull(transfers.balanceId),
+          isNull(transfers.balanceClosedAt),
+        );
+
+      const openFromAt = (sender: AccountAddress, now: number) =>
+        and(
+          unclaimedAt(now),
           eq(transfers.sender, sender),
           inArray(transfers.status, ["authorized", "settled"]),
         );
@@ -250,6 +253,8 @@ export class Transfers extends Context.Service<
       const openBalances = Effect.fn("Transfers.openBalances")(function* (
         address: AccountAddress,
       ) {
+        const now = yield* Clock.currentTimeMillis;
+
         const rows = yield* db
           .select({
             balance: transfers.balanceId,
@@ -261,7 +266,7 @@ export class Transfers extends Context.Service<
           .innerJoin(usernames, eq(usernames.address, transfers.sender))
           .where(
             and(
-              unclaimed,
+              unclaimedAt(now),
               eq(transfers.status, "settled"),
               or(
                 eq(transfers.sender, address),
@@ -297,10 +302,12 @@ export class Transfers extends Context.Service<
       });
 
       const find = Effect.fn("Transfers.find")(function* (id: TransferId) {
+        const now = yield* Clock.currentTimeMillis;
+
         const rows = yield* db
           .select()
           .from(transfers)
-          .where(and(scope, eq(transfers.id, id)));
+          .where(and(scopeAt(now), eq(transfers.id, id)));
 
         return rows[0] ? Option.some(yield* decode(rows[0])) : Option.none();
       });
@@ -308,12 +315,14 @@ export class Transfers extends Context.Service<
       const latest = Effect.fn("Transfers.latestFrom")(function* (
         sender: AccountAddress,
       ) {
+        const now = yield* Clock.currentTimeMillis;
+
         const rows = yield* db
           .select()
           .from(transfers)
           .where(
             and(
-              scope,
+              scopeAt(now),
               eq(transfers.sender, sender),
               inArray(transfers.status, ["authorized", "settled", "failed"]),
             ),
@@ -332,6 +341,8 @@ export class Transfers extends Context.Service<
         recipient: ResolvedRecipient,
         request: SigningRequest,
       ) {
+        const now = yield* Clock.currentTimeMillis;
+
         const value = {
           id: order.id,
           sender: order.from,
@@ -341,7 +352,7 @@ export class Transfers extends Context.Service<
           resolvedRecipient: Schema.encodeSync(RecipientJson)(recipient),
           amount: order.amount,
           network,
-          testnetEpoch: epochAt(Date.now()),
+          testnetEpoch: epochAt(now),
           envelope: request.envelope,
           expiresAt: DateTime.toDateUtc(request.expiresAt),
           balanceId: Option.getOrNull(claimableBalanceOf(request.envelope)),
@@ -358,12 +369,14 @@ export class Transfers extends Context.Service<
               balanceId: value.balanceId,
             },
             setWhere: and(
-              scope,
+              scopeAt(now),
               eq(transfers.status, "proposed"),
               eq(transfers.order, value.order),
               lt(
                 transfers.expiresAt,
-                new Date(Date.now() + approvalMargin * 1000),
+                DateTime.toDateUtc(
+                  DateTime.makeUnsafe(now + approvalMargin * 1000),
+                ),
               ),
             ),
           })
@@ -385,6 +398,8 @@ export class Transfers extends Context.Service<
         proposed: Proposed,
         request: SigningRequest,
       ) {
+        const now = yield* Clock.currentTimeMillis;
+
         const rows = yield* db
           .update(transfers)
           .set({
@@ -395,7 +410,7 @@ export class Transfers extends Context.Service<
           })
           .where(
             and(
-              scope,
+              scopeAt(now),
               eq(transfers.id, proposed.order.id),
               eq(transfers.status, "proposed"),
               eq(transfers.envelope, proposed.request.envelope),
@@ -418,6 +433,8 @@ export class Transfers extends Context.Service<
       const authorize = (proposed: Proposed, sealed: Sealed) =>
         db.transaction((tx) =>
           Effect.gen(function* () {
+            const now = yield* Clock.currentTimeMillis;
+            const scope = scopeAt(now);
             const id = proposed.order.id;
             const request = proposed.request;
 
@@ -447,7 +464,7 @@ export class Transfers extends Context.Service<
               .where(
                 and(
                   eq(assetOrders.network, network),
-                  eq(assetOrders.testnetEpoch, epochAt(Date.now())),
+                  eq(assetOrders.testnetEpoch, epochAt(now)),
                   eq(assetOrders.wallet, proposed.order.from),
                   eq(assetOrders.status, "authorized"),
                 ),
@@ -459,7 +476,7 @@ export class Transfers extends Context.Service<
               const open = yield* tx
                 .select({ total: count() })
                 .from(transfers)
-                .where(openFrom(proposed.order.from));
+                .where(openFromAt(proposed.order.from, now));
 
               if ((open[0]?.total ?? 0) >= maxOpenClaimables)
                 return new ClaimablesFull();
@@ -480,7 +497,9 @@ export class Transfers extends Context.Service<
                   eq(transfers.envelope, request.envelope),
                   gt(
                     transfers.expiresAt,
-                    new Date(Date.now() + approvalMargin * 1000),
+                    DateTime.toDateUtc(
+                      DateTime.makeUnsafe(now + approvalMargin * 1000),
+                    ),
                   ),
                 ),
               )
@@ -506,6 +525,9 @@ export class Transfers extends Context.Service<
         id: TransferId,
         settlement: Applied | Rejected | Expired,
       ) {
+        const now = yield* DateTime.now;
+        const nowDate = DateTime.toDateUtc(now);
+
         const values = Match.valueTags(settlement, {
           Applied: (applied): ConclusionColumns => ({
             status: "settled",
@@ -514,12 +536,12 @@ export class Transfers extends Context.Service<
           }),
           Rejected: (): ConclusionColumns => ({
             status: "failed",
-            concludedAt: new Date(),
+            concludedAt: nowDate,
             failure: "rejected",
           }),
           Expired: (): ConclusionColumns => ({
             status: "failed",
-            concludedAt: new Date(),
+            concludedAt: nowDate,
             failure: "expired",
           }),
         });
@@ -529,7 +551,7 @@ export class Transfers extends Context.Service<
           .set(values)
           .where(
             and(
-              scope,
+              scopeAt(DateTime.toEpochMillis(now)),
               eq(transfers.id, id),
               eq(transfers.status, "authorized"),
             ),
@@ -551,45 +573,47 @@ export class Transfers extends Context.Service<
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.mapError((cause) => new StoreFailure({ cause })));
 
-      const inFlight = db
-        .update(transfers)
-        .set({ sweepCheckedAt: new Date() })
-        .where(
-          and(
-            scope,
-            eq(transfers.status, "authorized"),
-            inArray(
-              transfers.id,
-              db
-                .select({ id: transfers.id })
-                .from(transfers)
-                .where(and(scope, eq(transfers.status, "authorized")))
-                .orderBy(
-                  sql`${transfers.sweepCheckedAt} asc nulls first`,
-                  transfers.id,
-                )
-                .limit(sweepBatchSize),
-            ),
-          ),
-        )
-        .returning()
-        .pipe(
-          Effect.flatMap((rows) =>
-            Effect.forEach(rows, (row) =>
-              decode(row).pipe(
-                Effect.flatMap((transfer) =>
-                  Predicate.isTagged(transfer, "Authorized")
-                    ? Effect.succeed(transfer)
-                    : Effect.fail(
-                        new StoreFailure({
-                          cause: new Error("Invalid in-flight state"),
-                        }),
-                      ),
-                ),
+      const inFlight = Effect.gen(function* () {
+        const now = yield* DateTime.now;
+        const scope = scopeAt(DateTime.toEpochMillis(now));
+
+        const rows = yield* db
+          .update(transfers)
+          .set({ sweepCheckedAt: DateTime.toDateUtc(now) })
+          .where(
+            and(
+              scope,
+              eq(transfers.status, "authorized"),
+              inArray(
+                transfers.id,
+                db
+                  .select({ id: transfers.id })
+                  .from(transfers)
+                  .where(and(scope, eq(transfers.status, "authorized")))
+                  .orderBy(
+                    sql`${transfers.sweepCheckedAt} asc nulls first`,
+                    transfers.id,
+                  )
+                  .limit(sweepBatchSize),
               ),
+            ),
+          )
+          .returning();
+
+        return yield* Effect.forEach(rows, (row) =>
+          decode(row).pipe(
+            Effect.flatMap((transfer) =>
+              Predicate.isTagged(transfer, "Authorized")
+                ? Effect.succeed(transfer)
+                : Effect.fail(
+                    new StoreFailure({
+                      cause: new Error("Invalid in-flight state"),
+                    }),
+                  ),
             ),
           ),
         );
+      });
 
       return Transfers.of({
         find: (id) => wrap(find(id)),
@@ -600,23 +624,38 @@ export class Transfers extends Context.Service<
         authorize: (proposed, sealed) => wrap(authorize(proposed, sealed)),
         conclude: (id, settlement) => wrap(conclude(id, settlement)),
         inFlight: wrap(inFlight),
-        balancesToCheck: wrap(balancesToCheck(db)),
+        balancesToCheck: wrap(
+          balancesToCheck.pipe(Effect.provideService(Database, db)),
+        ),
         openClaimables: (sender) =>
           wrap(
-            db
-              .select({ total: count() })
-              .from(transfers)
-              .where(openFrom(sender))
-              .pipe(Effect.map((rows) => rows[0]?.total ?? 0)),
+            Clock.currentTimeMillis.pipe(
+              Effect.flatMap((now) =>
+                db
+                  .select({ total: count() })
+                  .from(transfers)
+                  .where(openFromAt(sender, now)),
+              ),
+              Effect.map((rows) => rows[0]?.total ?? 0),
+            ),
           ),
         openBalances: (address) => wrap(openBalances(address)),
         closeBalance: (balance) =>
           wrap(
-            db
-              .update(transfers)
-              .set({ balanceClosedAt: new Date() })
-              .where(and(unclaimed, eq(transfers.balanceId, balance)))
-              .pipe(Effect.asVoid),
+            DateTime.now.pipe(
+              Effect.flatMap((now) =>
+                db
+                  .update(transfers)
+                  .set({ balanceClosedAt: DateTime.toDateUtc(now) })
+                  .where(
+                    and(
+                      unclaimedAt(DateTime.toEpochMillis(now)),
+                      eq(transfers.balanceId, balance),
+                    ),
+                  ),
+              ),
+              Effect.asVoid,
+            ),
           ),
       });
     }),

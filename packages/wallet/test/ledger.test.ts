@@ -1,12 +1,15 @@
 import { expect, it } from "@effect/vitest";
 import { Account, Keypair, xdr } from "@stellar/stellar-sdk";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as Latch from "effect/Latch";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as HttpClientError from "effect/http/HttpClientError";
@@ -18,20 +21,30 @@ import {
   SigningRequest,
   baseAsset,
 } from "../src/contract";
-import { Chain, SubmissionRejected } from "../src/server/Chain.server";
+import {
+  ApprovalInvalid,
+  Chain,
+  SubmissionRejected,
+} from "../src/server/Chain.server";
 import { ChainUnreachable } from "../src/server/chain-errors.server";
 import { fetchEntries } from "../src/server/ledger.server";
 import {
   WalletSettings,
   defaultRpcTimeout,
 } from "../src/server/settings.server";
-import { draftPayment, signingPayload } from "../src/stellar/envelopes";
+import {
+  draftPayment,
+  readEnvelope,
+  signingPayload,
+} from "../src/stellar/envelopes";
+import { approvalMargin, paymentLifetime } from "../src/stellar/network";
 import {
   httpClientAnswering,
   requestBodyText,
   rpcAnswering,
   testRpcUrl,
 } from "./rpc-answering";
+import { assertTagged } from "./tagged";
 
 const account = xdr.LedgerKey.account(
   new xdr.LedgerKeyAccount({ accountId: Keypair.random().xdrAccountId() }),
@@ -79,8 +92,35 @@ const chainSubmitting = (reply: (transaction: string) => string) =>
     ),
   );
 
+const GetLedgerEntriesRequest = Schema.fromJsonString(
+  Schema.Struct({
+    method: Schema.Literal("getLedgerEntries"),
+    params: Schema.Struct({ keys: Schema.Array(Schema.String) }),
+  }),
+);
+
+const accountEntryXdr = (key: Keypair, sequence: bigint) =>
+  xdr.LedgerEntryData.account(
+    new xdr.AccountEntry({
+      accountId: key.xdrAccountId(),
+      balance: 0n,
+      seqNum: sequence,
+      numSubEntries: 0,
+      inflationDest: null,
+      flags: 0,
+      homeDomain: "",
+      thresholds: new Uint8Array([1, 0, 0, 0]),
+      signers: [],
+      ext: xdr.AccountEntryExt.v0(),
+    }),
+  ).toXDR("base64");
+
+const sponsorAccountKey = xdr.LedgerKey.account(
+  new xdr.LedgerKeyAccount({ accountId: sponsor.xdrPublicKey() }),
+).toXDR("base64");
+
 const sealedPayment = Effect.gen(function* () {
-  const now = Math.floor(Date.now() / 1000);
+  const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
 
   const envelope = draftPayment({
     asset: baseAsset,
@@ -410,5 +450,129 @@ it.effect(
 
       expect(yield* Fiber.join(attempt)).toBeInstanceOf(ChainUnreachable);
       expect(submitted).toEqual([sealed.envelope]);
+    }),
+);
+
+it.effect(
+  "draftPayment and seal honor Effect Clock when time advances into the approval margin",
+  () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(1_700_000_000_000);
+
+      const chainLayer = Chain.layer.pipe(
+        Layer.provide(
+          Layer.succeed(WalletSettings, {
+            rpcUrl: testRpcUrl,
+            reserveSponsorSecret: Redacted.make(sponsor.secret()),
+            feePayerSecret: Redacted.make(feePayer.secret()),
+            passkeyOrigins: [],
+          }),
+        ),
+        Layer.provide(
+          rpcAnswering(() =>
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              result: {
+                entries: [{ xdr: accountEntryXdr(holder, 123n) }],
+                latestLedger: 7,
+              },
+            }),
+          ),
+        ),
+      );
+
+      const draft = yield* Chain.use((chain) =>
+        chain.draftPayment(
+          address,
+          recipient,
+          baseAsset,
+          Schema.decodeSync(PositiveAmount)("1"),
+        ),
+      ).pipe(Effect.provide(chainLayer));
+
+      expect(DateTime.toEpochMillis(draft.expiresAt)).toBe(
+        (1_700_000_000 + paymentLifetime) * 1000,
+      );
+
+      const approval = new Approval({
+        signature: holder.sign(signingPayload(draft.envelope)),
+      });
+
+      const sealed = yield* Chain.use((chain) =>
+        chain.seal(draft, approval, address),
+      ).pipe(Effect.provide(chainLayer));
+
+      expect(sealed.expiresAt).toEqual(draft.expiresAt);
+
+      yield* TestClock.adjust(
+        Duration.seconds(paymentLifetime - approvalMargin + 1),
+      );
+
+      expect(
+        yield* Chain.use((chain) => chain.seal(draft, approval, address)).pipe(
+          Effect.provide(chainLayer),
+          Effect.flip,
+        ),
+      ).toBeInstanceOf(ApprovalInvalid);
+    }),
+);
+
+it.effect(
+  "draftOpening reads sponsor and target account state concurrently",
+  () =>
+    Effect.gen(function* () {
+      const sponsorStarted = yield* Latch.make();
+      const targetStarted = yield* Latch.make();
+
+      const chainLayer = Chain.layer.pipe(
+        Layer.provide(
+          Layer.succeed(WalletSettings, {
+            rpcUrl: testRpcUrl,
+            reserveSponsorSecret: Redacted.make(sponsor.secret()),
+            feePayerSecret: Redacted.make(feePayer.secret()),
+            passkeyOrigins: [],
+          }),
+        ),
+        Layer.provide(
+          httpClientAnswering((request) =>
+            Effect.gen(function* () {
+              const keys = Schema.decodeSync(GetLedgerEntriesRequest)(
+                requestBodyText(request),
+              ).params.keys;
+
+              const isSponsor = keys.includes(sponsorAccountKey);
+
+              yield* isSponsor ? sponsorStarted.open : targetStarted.open;
+              yield* isSponsor ? targetStarted.await : sponsorStarted.await;
+
+              return new Response(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  result: {
+                    entries: isSponsor
+                      ? [{ xdr: accountEntryXdr(sponsor, 500n) }]
+                      : [],
+                    latestLedger: 7,
+                  },
+                }),
+                { headers: { "Content-Type": "application/json" } },
+              );
+            }),
+          ),
+        ),
+      );
+
+      const draft = yield* Chain.use((chain) =>
+        chain.draftOpening(address),
+      ).pipe(Effect.provide(chainLayer));
+
+      const facts = Option.getOrThrow(readEnvelope(draft.envelope));
+
+      assertTagged(facts, "OpeningFacts");
+
+      expect(facts.address).toBe(address);
+      expect(facts.createAccount).toBe(true);
     }),
 );

@@ -1,5 +1,7 @@
 import { assertTagged } from "./tagged";
 import * as Effect from "effect/Effect";
+import * as Latch from "effect/Latch";
+import * as Layer from "effect/Layer";
 import { Transfers } from "../src/server/Transfers.server";
 import { expect, layer } from "@effect/vitest";
 import { Claimant, Keypair } from "@stellar/stellar-sdk";
@@ -30,16 +32,19 @@ import {
   PositiveAmount,
 } from "../src/contract";
 import { Wallet } from "../src/server/Wallet.server";
-import { Applied } from "../src/server/Chain.server";
+import { Applied, Chain } from "../src/server/Chain.server";
 import { ClaimFacts, TrustlineFacts } from "../src/stellar/asset-envelopes";
 import { readEnvelope } from "../src/stellar/envelopes";
 import {
   addressOf,
   approve,
   create,
+  fakeChain,
   fundHolder,
   orderFor,
   send,
+  settings,
+  stores,
   useDisposableDatabase,
   walletTestLayer,
   world,
@@ -314,6 +319,56 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(
             yield* manage(close, approve(removal.request, key)),
           ).toBeInstanceOf(AssetPending);
+        }),
+    );
+
+    it.effect(
+      "overview loads holdings and claimable balances concurrently",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+
+          yield* create(key, "concurrentowner");
+          fundHolder(key);
+
+          const holdingsStarted = yield* Latch.make();
+          const claimableStarted = yield* Latch.make();
+
+          const concurrentChain = Layer.effect(
+            Chain,
+            Effect.gen(function* () {
+              const actual = yield* Chain;
+
+              return Chain.of({
+                ...actual,
+                holdings: (address, assets) =>
+                  holdingsStarted.open.pipe(
+                    Effect.andThen(claimableStarted.await),
+                    Effect.andThen(actual.holdings(address, assets)),
+                  ),
+                claimable: (balances) =>
+                  claimableStarted.open.pipe(
+                    Effect.andThen(holdingsStarted.await),
+                    Effect.andThen(actual.claimable(balances)),
+                  ),
+              });
+            }),
+          ).pipe(Layer.provide(fakeChain));
+
+          const concurrentWallet = Wallet.serviceLayer.pipe(
+            Layer.provide(stores),
+            Layer.provide(concurrentChain),
+            Layer.provide(settings),
+          );
+
+          const overview = yield* Wallet.use((wallet) =>
+            wallet.overview(addressOf(key)),
+          ).pipe(Effect.provide(Layer.fresh(concurrentWallet)));
+
+          assertTagged(overview, "Holding");
+
+          expect(overview.balances).toHaveLength(1);
+          expect(overview.claimable).toEqual([]);
         }),
     );
   },

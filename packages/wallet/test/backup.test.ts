@@ -1,5 +1,5 @@
 import { expect, layer } from "@effect/vitest";
-import { makeDatabase } from "@workspace/db";
+import { Database } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -65,7 +65,7 @@ const device = (
 ) => ({ store, client: makeWalletClient(port, store, authenticator.passkeys) });
 
 const tableRows = Effect.gen(function* () {
-  const db = yield* makeDatabase();
+  const db = yield* Database;
 
   return {
     backups: yield* db.select().from(backups),
@@ -281,7 +281,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(yield* wallet.restore(fresh)).toEqual(new ChallengeRefused());
 
           const expiring = yield* assertion(wallet, authenticator);
-          const db = yield* makeDatabase();
+          const db = yield* Database;
 
           yield* db
             .update(passkeyChallenges)
@@ -345,7 +345,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           wallets: [],
         });
 
-        const db = yield* makeDatabase();
+        const db = yield* Database;
 
         expect(
           yield* db

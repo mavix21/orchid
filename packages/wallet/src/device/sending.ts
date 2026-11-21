@@ -12,7 +12,6 @@ import {
   type TransferDraft,
   TransferId,
   TransferOrder,
-  type TransferStep,
   type WalletPort,
   type WalletUnavailable,
   assetKey,
@@ -37,7 +36,7 @@ import {
   type TransferIntent,
   UnsupportedDevice,
 } from "./outcomes";
-import { pendingPause, pendingSteps } from "./polling";
+import { pendingSteps, pollSchedule } from "./polling";
 import { approve, signingKey } from "./signing";
 
 const orderJson = Schema.encodeSync(Schema.fromJsonString(TransferOrder));
@@ -105,13 +104,29 @@ const orderedFacts = (
   return matches ? Option.some(drafted) : Option.none();
 };
 
+interface DraftNext {
+  readonly wallet: DeviceWallet;
+  readonly approval: Option.Option<Approval>;
+  readonly refreshed: boolean;
+}
+
+interface DraftResult<D> {
+  readonly done: Option.Option<D | SendOutcome>;
+  readonly next?: DraftNext;
+}
+
+interface SendTurn<D> {
+  readonly done: Option.Option<D | SendOutcome>;
+  readonly pause: boolean;
+}
+
 type DraftHandler<D> = (
   wallet: DeviceWallet,
   order: TransferOrder,
   draft: TransferDraft,
-  remaining: number,
+  finalStep: boolean,
   refreshed: boolean,
-) => Effect.Effect<D, WalletUnavailable | KeyStoreUnavailable>;
+) => Effect.Effect<DraftResult<D>, WalletUnavailable | KeyStoreUnavailable>;
 
 const reviewed =
   (review: Option.Option<PaymentReview>) =>
@@ -139,74 +154,105 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
     });
 
   const advance = <D>(
-    wallet: DeviceWallet,
+    initial: DeviceWallet,
     order: TransferOrder,
-    approval: Option.Option<Approval>,
-    remaining: number,
-    refreshed: boolean,
     onDraft: DraftHandler<D>,
   ): Effect.Effect<D | SendOutcome, WalletUnavailable | KeyStoreUnavailable> =>
-    port
-      .transfer(order, approval)
-      .pipe(
-        Effect.flatMap((step) =>
-          respond(
-            wallet,
-            order,
-            step,
-            Option.isSome(approval),
-            remaining - 1,
-            refreshed,
-            onDraft,
-          ),
-        ),
-      );
+    Effect.gen(function* () {
+      let wallet = initial;
+      let approval: Option.Option<Approval> = Option.none();
+      let refreshed = false;
+      let attempts = 0;
 
-  const respond = <D>(
-    wallet: DeviceWallet,
-    order: TransferOrder,
-    step: TransferStep,
-    submitted: boolean,
-    remaining: number,
-    refreshed: boolean,
-    onDraft: DraftHandler<D>,
-  ): Effect.Effect<D | SendOutcome, WalletUnavailable | KeyStoreUnavailable> =>
-    Match.valueTags(step, {
-      TransferDraft: (draft) =>
-        onDraft(wallet, order, draft, remaining, refreshed),
-      Pending: (pending) =>
-        remaining === 0
-          ? Effect.succeed(pending)
-          : (submitted ? Effect.void : Effect.sleep(pendingPause)).pipe(
-              Effect.andThen(
-                advance(
-                  wallet,
-                  order,
-                  Option.none(),
-                  remaining,
-                  refreshed,
-                  onDraft,
-                ),
-              ),
+      const step: Effect.Effect<
+        SendTurn<D>,
+        WalletUnavailable | KeyStoreUnavailable
+      > = Effect.gen(function* () {
+        const submitted = Option.isSome(approval);
+
+        attempts++;
+
+        const response = yield* port.transfer(order, approval);
+
+        approval = Option.none();
+
+        return yield* Match.valueTags(response, {
+          TransferDraft: (draft) =>
+            onDraft(
+              wallet,
+              order,
+              draft,
+              attempts >= pendingSteps,
+              refreshed,
+            ).pipe(
+              Effect.map((decision): SendTurn<D> => {
+                if (decision.next) {
+                  wallet = decision.next.wallet;
+                  approval = decision.next.approval;
+                  refreshed = decision.next.refreshed;
+                }
+
+                return { done: decision.done, pause: false };
+              }),
             ),
-      Settled: (settled) => forget(order).pipe(Effect.as(settled)),
-      Failed: (failed) => forget(order).pipe(Effect.as(failed)),
-      NotOpened: Effect.succeed,
-      UnknownRecipient: Effect.succeed,
-      PhoneNotSupported: Effect.succeed,
-      InsufficientBalance: Effect.succeed,
-      SenderBusy: Effect.succeed,
-      InvalidAddress: Effect.succeed,
-      ExternalMemoRequired: Effect.succeed,
-      MemoNotAllowed: Effect.succeed,
-      RecipientCannotReceive: Effect.succeed,
-      ClaimableLimitReached: Effect.succeed,
-      AssetBusy: Effect.succeed,
+          Pending: (pending) =>
+            Effect.succeed<SendTurn<D>>({
+              done:
+                attempts >= pendingSteps ? Option.some(pending) : Option.none(),
+              pause: !submitted,
+            }),
+          Settled: (settled) =>
+            forget(order).pipe(
+              Effect.as<SendTurn<D>>({
+                done: Option.some(settled),
+                pause: false,
+              }),
+            ),
+          Failed: (failed) =>
+            forget(order).pipe(
+              Effect.as<SendTurn<D>>({
+                done: Option.some(failed),
+                pause: false,
+              }),
+            ),
+          NotOpened: (outcome) =>
+            Effect.succeed({ done: Option.some(outcome), pause: false }),
+          UnknownRecipient: (outcome) =>
+            Effect.succeed({ done: Option.some(outcome), pause: false }),
+          PhoneNotSupported: (outcome) =>
+            Effect.succeed({ done: Option.some(outcome), pause: false }),
+          InsufficientBalance: (outcome) =>
+            Effect.succeed({ done: Option.some(outcome), pause: false }),
+          SenderBusy: (outcome) =>
+            Effect.succeed({ done: Option.some(outcome), pause: false }),
+          InvalidAddress: (outcome) =>
+            Effect.succeed({ done: Option.some(outcome), pause: false }),
+          ExternalMemoRequired: (outcome) =>
+            Effect.succeed({ done: Option.some(outcome), pause: false }),
+          MemoNotAllowed: (outcome) =>
+            Effect.succeed({ done: Option.some(outcome), pause: false }),
+          RecipientCannotReceive: (outcome) =>
+            Effect.succeed({ done: Option.some(outcome), pause: false }),
+          ClaimableLimitReached: (outcome) =>
+            Effect.succeed({ done: Option.some(outcome), pause: false }),
+          AssetBusy: (outcome) =>
+            Effect.succeed({ done: Option.some(outcome), pause: false }),
+        });
+      });
+
+      const last = yield* Effect.repeat(step, {
+        schedule: pollSchedule<SendTurn<D>>(
+          (turn) => Option.isNone(turn.done),
+          (turn) => turn.pause,
+        ),
+      });
+
+      return Option.getOrElse(last.done, () => new DraftRejected());
     });
 
   const signing =
     (review: Option.Option<PaymentReview>): DraftHandler<SendOutcome> =>
-    (wallet, order, draft, remaining, refreshed) =>
+    (wallet, order, draft, finalStep, refreshed) =>
       Effect.gen(function* () {
         const facts = orderedFacts(wallet, order, draft).pipe(
           Option.filter(reviewed(review)),
@@ -215,12 +261,12 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
         const now = yield* nowSeconds;
 
         if (
-          remaining === 0 ||
+          finalStep ||
           Option.isNone(facts) ||
           approvalOutstanding(wallet, now) ||
           facts.value.maxTime > now + paymentLifetime + clockAllowance
         )
-          return new DraftRejected();
+          return { done: Option.some(new DraftRejected()) };
 
         const deadline = Math.min(
           facts.value.maxTime * 1000,
@@ -235,33 +281,37 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
 
         if (!(yield* withinMargin))
           return refreshed
-            ? new DraftRejected()
-            : yield* advance(
-                wallet,
-                order,
-                Option.none(),
-                remaining,
-                true,
-                signing(review),
-              );
+            ? { done: Option.some(new DraftRejected()) }
+            : {
+                done: Option.none(),
+                next: {
+                  wallet,
+                  approval: Option.none(),
+                  refreshed: true,
+                },
+              };
 
         const approved = yield* remember(
           store,
           new DeviceWallet({ ...wallet, approvedUntil: facts.value.maxTime }),
         );
 
-        if (Option.isNone(approved)) return new UnsupportedDevice();
+        if (Option.isNone(approved))
+          return { done: Option.some(new UnsupportedDevice()) };
 
-        if (!(yield* withinMargin)) return new DraftRejected();
+        if (!(yield* withinMargin))
+          return { done: Option.some(new DraftRejected()) };
 
-        return yield* advance(
-          approved.value,
-          order,
-          Option.some(approve(draft.request, signingKey(wallet.phrase))),
-          remaining,
-          refreshed,
-          signing(review),
-        );
+        return {
+          done: Option.none(),
+          next: {
+            wallet: approved.value,
+            approval: Option.some(
+              approve(draft.request, signingKey(wallet.phrase)),
+            ),
+            refreshed,
+          },
+        };
       });
 
   const reviewing: DraftHandler<PaymentReview | DraftRejected> = (
@@ -269,36 +319,40 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
     order,
     draft,
   ) =>
-    Effect.succeed(
-      Option.match(orderedFacts(wallet, order, draft), {
-        onNone: () => new DraftRejected(),
-        onSome: (facts) =>
-          new PaymentReview({
-            order,
-            to: facts.to,
-            username: Predicate.isTagged(order.to, "Username")
-              ? order.to.value
-              : undefined,
-            asset: facts.asset,
-            amount: facts.amount,
-            memo: Predicate.isTagged(facts, "PaymentFacts")
-              ? facts.memo
-              : undefined,
-            claimable: Predicate.isTagged(facts, "ClaimableFacts"),
-            memoRequired: draft.memoRequired,
-          }),
-      }),
-    );
+    Effect.succeed({
+      done: Option.some(
+        Option.match(orderedFacts(wallet, order, draft), {
+          onNone: () => new DraftRejected(),
+          onSome: (facts) =>
+            new PaymentReview({
+              order,
+              to: facts.to,
+              username: Predicate.isTagged(order.to, "Username")
+                ? order.to.value
+                : undefined,
+              asset: facts.asset,
+              amount: facts.amount,
+              memo: Predicate.isTagged(facts, "PaymentFacts")
+                ? facts.memo
+                : undefined,
+              claimable: Predicate.isTagged(facts, "ClaimableFacts"),
+              memoRequired: draft.memoRequired,
+            }),
+        }),
+      ),
+    });
 
   const observing: DraftHandler<ApprovalOutstanding | NoTransfer> = (
     wallet,
     order,
   ) =>
-    Effect.map(nowSeconds, (now) =>
-      approvalOutstanding(wallet, now)
-        ? new ApprovalOutstanding({ order })
-        : new NoTransfer(),
-    );
+    Effect.map(nowSeconds, (now) => ({
+      done: Option.some(
+        approvalOutstanding(wallet, now)
+          ? new ApprovalOutstanding({ order })
+          : new NoTransfer(),
+      ),
+    }));
 
   const prepared = <D>(
     intent: TransferIntent,
@@ -357,14 +411,7 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
 
       if (Option.isNone(ready)) return new UnsupportedDevice();
 
-      return yield* advance(
-        ready.value,
-        order,
-        Option.none(),
-        pendingSteps,
-        false,
-        onDraft,
-      );
+      return yield* advance(ready.value, order, onDraft);
     });
 
   const send = Effect.fn("Device.send")(function* (intent: TransferIntent) {
@@ -377,14 +424,7 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
 
   const observed = (wallet: DeviceWallet, id: TransferId) =>
     wallet.transfer?.id === id && wallet.approvedUntil !== undefined
-      ? advance(
-          wallet,
-          wallet.transfer,
-          Option.none(),
-          pendingSteps,
-          false,
-          observing,
-        )
+      ? advance(wallet, wallet.transfer, observing)
       : Effect.succeed(new NoTransfer());
 
   const recorded = (wallet: DeviceWallet, id: TransferId) =>
@@ -409,25 +449,19 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
         ),
       );
 
-  const following = (
-    id: TransferId,
-  ): Effect.Effect<
-    SendOutcome | ApprovalOutstanding | NoTransfer,
-    WalletUnavailable | KeyStoreUnavailable
-  > =>
+  const following = (id: TransferId) =>
     observedNow(id).pipe(
-      Effect.flatMap((answered) =>
-        Predicate.isTagged(answered, "Pending")
-          ? Effect.flatMap(DateTime.now, (now) =>
-              DateTime.isGreaterThan(
-                now,
-                DateTime.add(answered.expiresAt, followAfterExpiry),
+      Effect.repeat({
+        while: (answered) =>
+          Predicate.isTagged(answered, "Pending")
+            ? Effect.map(DateTime.now, (now) =>
+                DateTime.isLessThanOrEqualTo(
+                  now,
+                  DateTime.add(answered.expiresAt, followAfterExpiry),
+                ),
               )
-                ? Effect.succeed(answered)
-                : following(id),
-            )
-          : Effect.succeed(answered),
-      ),
+            : false,
+      }),
     );
 
   const resume = Effect.fn("Device.resume")(function* (
@@ -462,9 +496,6 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
     const answered = yield* advance(
       stored.value,
       kept,
-      Option.none(),
-      pendingSteps,
-      false,
       signing(Option.some(shown)),
     );
 

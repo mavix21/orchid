@@ -1,7 +1,7 @@
 import { assertTagged } from "./tagged";
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
-import { makeDatabase } from "@workspace/db";
+import { Database } from "@workspace/db";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -340,8 +340,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             directory.start(claim.address),
           );
 
-          yield* makeDatabase().pipe(
-            Effect.flatMap((db) => db.insert(usernames).values(claim)),
+          yield* Database.use((db) => db.insert(usernames).values(claim)).pipe(
             Effect.provide(dbLayer),
           );
 

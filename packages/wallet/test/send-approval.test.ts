@@ -1,10 +1,13 @@
 import { expect, it } from "@effect/vitest";
 import { Account, Keypair } from "@stellar/stellar-sdk";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 import {
   AddressRecipient,
   type Approval,
@@ -32,6 +35,7 @@ import {
   DraftRejected,
   TransferIntent,
   makeWalletClient,
+  makeWalletEffects,
 } from "../src/device/client";
 import { DeviceWallet, type KeyStore } from "../src/device/key-store";
 import { generateSecretPhrase } from "../src/device/secret-phrase";
@@ -74,15 +78,15 @@ const toPedro = new TransferIntent({
   amount,
 });
 
-const payment = (source = sender, lifetime = 120) =>
+const payment = (source = sender, lifetime = 120, at = now()) =>
   draftPayment({
     source: new Account(source, "100"),
     to: exchange,
     asset: baseAsset,
     amount,
     memo,
-    minTime: now(),
-    maxTime: now() + lifetime,
+    minTime: at,
+    maxTime: at + lifetime,
   });
 
 const claimable = (source = sender) =>
@@ -97,7 +101,7 @@ const claimable = (source = sender) =>
   });
 
 const deviceWith = (
-  envelope: () => UnsignedEnvelope,
+  envelope: (at: number) => UnsignedEnvelope,
   lifetime = 120,
   answer: (approval: Option.Option<Approval>) => Option.Option<TransferStep> = (
     approval,
@@ -145,7 +149,9 @@ const deviceWith = (
     enroll: unused,
     restore: unused,
     transfer: (order, approval) =>
-      Effect.sync(() => {
+      Effect.map(Clock.currentTimeMillis, (millis) => {
+        const at = Math.floor(millis / 1000);
+
         approvals.push(approval);
 
         return Option.getOrElse(
@@ -153,8 +159,8 @@ const deviceWith = (
           () =>
             new TransferDraft({
               request: new SigningRequest({
-                envelope: envelope(),
-                expiresAt: DateTime.makeUnsafe((now() + lifetime) * 1000),
+                envelope: envelope(at),
+                expiresAt: DateTime.makeUnsafe((at + lifetime) * 1000),
               }),
               recipient: recipientOf(order),
               memoRequired: false,
@@ -163,13 +169,11 @@ const deviceWith = (
       }),
   };
 
-  const client = makeWalletClient(
-    port,
-    store,
-    new SoftwareAuthenticator("http://localhost:3000").passkeys,
-  );
+  const passkeys = new SoftwareAuthenticator("http://localhost:3000").passkeys;
+  const client = makeWalletClient(port, store, passkeys);
+  const effects = makeWalletEffects(port, store, passkeys);
 
-  return { approvals, client, store };
+  return { approvals, client, effects, store };
 };
 
 it.effect("signs a live draft whose facts match the order", () =>
@@ -385,16 +389,19 @@ it.effect("releases an expired signed order the server never authorized", () =>
 
 it.effect("rechecks the approval margin after recording the approval", () =>
   Effect.gen(function* () {
-    const { approvals, client } = deviceWith(
-      () => payment(sender, 21),
+    const { approvals, effects } = deviceWith(
+      (at) => payment(sender, 21, at),
       21,
       undefined,
       Effect.sleep("1500 millis"),
     );
 
-    expect(yield* Effect.promise(() => client.send(toExchange))).toEqual(
-      new DraftRejected(),
-    );
+    const sending = yield* Effect.forkChild(effects.send(toExchange));
+
+    yield* TestClock.adjust("1500 millis");
+    yield* TestClock.adjust("1500 millis");
+
+    expect(yield* Fiber.join(sending)).toEqual(new DraftRejected());
     expect(approvals.filter(Option.isSome)).toHaveLength(0);
   }),
 );

@@ -7,7 +7,7 @@ import {
   Keypair,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
-import { makeDatabase } from "@workspace/db";
+import { Database } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -75,7 +75,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           yield* send(order);
           yield* Effect.gen(function* () {
-            const db = yield* makeDatabase();
+            const db = yield* Database;
 
             yield* db.execute(
               sql`update transfers set "expiresAt" = now() + interval '10 seconds' where id = ${order.id}`,
