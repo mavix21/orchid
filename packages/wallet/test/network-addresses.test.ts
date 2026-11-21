@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import { bech32, bech32m } from "@scure/base";
 import { Account, MuxedAccount } from "@stellar/stellar-sdk";
 import * as Option from "effect/Option";
 import { type AddressNetwork, recogniseAddress } from "../src/contract";
@@ -12,7 +13,12 @@ const stellarMuxed = new MuxedAccount(
 ).accountId();
 
 const lastCharacterAltered = (address: string) =>
+  address.slice(0, -1) + (address.endsWith("A") ? "B" : "A");
+
+const lastSegwitCharacterAltered = (address: string) =>
   address.slice(0, -1) + (address.endsWith("q") ? "p" : "q");
+
+const program = bech32.toWords(new Uint8Array(20).fill(1));
 
 it.each<{ name: string; address: string; network: AddressNetwork }>([
   { name: "Stellar account", address: stellarAccount, network: "stellar" },
@@ -90,11 +96,21 @@ it.each<{ name: string; address: string }>([
   },
   {
     name: "Bitcoin segwit with a bad checksum",
-    address: lastCharacterAltered("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"),
+    address: lastSegwitCharacterAltered(
+      "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
+    ),
   },
   {
     name: "Bitcoin segwit of another network",
     address: "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+  },
+  {
+    name: "Bitcoin witness v0 with a bech32m checksum",
+    address: bech32m.encode("bc", [0, ...program]),
+  },
+  {
+    name: "Bitcoin witness v1 with a bech32 checksum",
+    address: bech32.encode("bc", [1, ...program]),
   },
   { name: "empty text", address: "" },
 ])("rejects $name", ({ address }) => {
