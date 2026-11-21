@@ -100,10 +100,12 @@ export const sendResult = (
         "memo",
         "Este destino necesita memo: sin él tu dinero puede perderse",
       ),
-    MemoNotAllowed: () =>
+    MemoNotAllowed: ({ reason }) =>
       new FieldProblem(
         "memo",
-        "Los pagos entre usuarios de Orchid no llevan memo",
+        reason === "muxed"
+          ? "Esta dirección ya identifica tu cuenta en el exchange; no necesita memo"
+          : "Los pagos entre usuarios de Orchid no llevan memo",
       ),
     RecipientCannotReceive: ({ reason }) =>
       new FieldProblem(

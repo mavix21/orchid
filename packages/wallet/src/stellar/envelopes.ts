@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   Asset,
+  DestinationAddress,
   PaymentMemo,
   PositiveAmount,
   UnsignedEnvelope,
@@ -42,7 +43,7 @@ export class PaymentFacts extends Schema.TaggedClass<PaymentFacts>()(
   {
     ...bounds,
     from: AccountAddress,
-    to: AccountAddress,
+    to: DestinationAddress,
     asset: Asset,
     amount: PositiveAmount,
     memo: Schema.optional(PaymentMemo),
@@ -68,7 +69,7 @@ export interface OpeningInput {
 
 export interface PaymentInput {
   readonly source: Account;
-  readonly to: AccountAddress;
+  readonly to: DestinationAddress;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
   readonly memo?: PaymentMemo;
@@ -228,7 +229,7 @@ export function readEnvelope(
       const amount = parseAmount(first.amount);
       const asset = fromStellarAsset(first.asset);
       const from = Schema.decodeSync(AccountAddress)(tx.source);
-      const to = Schema.decodeSync(AccountAddress)(first.destination);
+      const to = Schema.decodeSync(DestinationAddress)(first.destination);
 
       if (
         Option.isSome(amount) &&

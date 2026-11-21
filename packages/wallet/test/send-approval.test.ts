@@ -55,6 +55,12 @@ const toExchange = new TransferIntent({
   memo,
 });
 
+const toMuxed = new TransferIntent({
+  to: AddressRecipient.make({ value: actors.muxed("1") }),
+  asset: baseAsset,
+  amount,
+});
+
 const toPedro = new TransferIntent({
   to: UsernameRecipient.make({ value: actors.pedroProfile.username }),
   asset: baseAsset,
@@ -142,6 +148,16 @@ const mismatches: ReadonlyArray<
     "a payment from another account",
     toExchange,
     () => payment(actors.stranger),
+  ],
+  [
+    "a payment to the base account of a muxed destination",
+    toMuxed,
+    () => actors.payment({ to: actors.exchange, amount }),
+  ],
+  [
+    "a payment to another muxed ID",
+    toMuxed,
+    () => actors.payment({ to: actors.muxed("2"), amount }),
   ],
   [
     "a payment to another address",

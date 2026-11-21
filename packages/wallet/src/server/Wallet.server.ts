@@ -13,6 +13,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  DestinationAddress,
   SigningRequest,
   AssetBusy,
   ClaimableLimitReached,
@@ -40,9 +41,11 @@ import {
   type BalanceId,
   type ServerFailure,
 } from "../contract";
+import { baseAccountOf, isMuxed } from "../stellar/destination";
 import { readEnvelope } from "../stellar/envelopes";
 import { Chain, ChainUnreachable, Sealed } from "./Chain.server";
 import type { KnownExchangeMemo } from "./exchange-memos.server";
+import { memoRefusal } from "./memo-refusal.server";
 import { Directory, StoreFailure, type WalletRow } from "./Directory.server";
 import {
   Authorized,
@@ -115,29 +118,11 @@ export class Wallet extends Context.Service<
       const memoRequirement = Effect.fn("Wallet.memoRequirement")(function* (
         recipient: ResolvedRecipient,
       ) {
-        return recipient instanceof ExternalRecipient
-          ? yield* chain.memoRequiredFor(recipient.address)
+        return recipient instanceof ExternalRecipient &&
+          !isMuxed(recipient.address)
+          ? yield* chain.memoRequiredFor(baseAccountOf(recipient.address))
           : Option.none<KnownExchangeMemo>();
       });
-
-      const memoRefusal = (
-        order: TransferOrder,
-        recipient: ResolvedRecipient,
-        requirement: Option.Option<KnownExchangeMemo>,
-      ): Option.Option<ExternalMemoRequired | MemoNotAllowed> => {
-        if (!(recipient instanceof ExternalRecipient))
-          return order.memo ? Option.some(new MemoNotAllowed()) : Option.none();
-
-        return Option.isSome(requirement) && !order.memo
-          ? Option.some(
-              new ExternalMemoRequired({
-                address: recipient.address,
-                exchange: requirement.value.exchange,
-                source: requirement.value.source,
-              }),
-            )
-          : Option.none();
-      };
 
       const proposedStep = (
         proposed: Proposed,
@@ -208,10 +193,10 @@ export class Wallet extends Context.Service<
         const invalidRecipient = Match.valueTags(order.to, {
           Address: ({ value }) =>
             chain.validAddress(value)
-              ? Option.none<AccountAddress>()
+              ? Option.none<DestinationAddress>()
               : Option.some(value),
-          Username: () => Option.none<AccountAddress>(),
-          Phone: () => Option.none<AccountAddress>(),
+          Username: () => Option.none<DestinationAddress>(),
+          Phone: () => Option.none<DestinationAddress>(),
         });
 
         if (Option.isSome(invalidRecipient))
@@ -329,18 +314,22 @@ export class Wallet extends Context.Service<
                 ),
               ),
           Address: ({ value }) =>
-            directory
-              .byAddress(value)
-              .pipe(
-                Effect.flatMap(
-                  (found): Effect.Effect<ResolvedRecipient, StoreFailure> =>
-                    Option.isSome(found) && found.value.status === "active"
-                      ? directory.profile(found.value)
-                      : Effect.succeed(
-                          new ExternalRecipient({ address: value }),
-                        ),
-                ),
-              ),
+            isMuxed(value)
+              ? Effect.succeed<ResolvedRecipient>(
+                  new ExternalRecipient({ address: value }),
+                )
+              : directory
+                  .byAddress(value)
+                  .pipe(
+                    Effect.flatMap(
+                      (found): Effect.Effect<ResolvedRecipient, StoreFailure> =>
+                        Option.isSome(found) && found.value.status === "active"
+                          ? directory.profile(found.value)
+                          : Effect.succeed(
+                              new ExternalRecipient({ address: value }),
+                            ),
+                    ),
+                  ),
           Phone: () =>
             Effect.die("Phone was rejected before recipient resolution"),
         });

@@ -5,7 +5,7 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
-  type AccountAddress,
+  type DestinationAddress,
   type Approval,
   type PaymentMemo,
   Profile,
@@ -51,9 +51,9 @@ const destination = (order: TransferOrder, draft: TransferDraft) =>
     Address: ({ value }) => Option.some(value),
     Username: ({ value }) =>
       draft.recipient instanceof Profile && draft.recipient.username === value
-        ? Option.some(draft.recipient.address)
-        : Option.none<AccountAddress>(),
-    Phone: () => Option.none<AccountAddress>(),
+        ? Option.some<DestinationAddress>(draft.recipient.address)
+        : Option.none<DestinationAddress>(),
+    Phone: () => Option.none<DestinationAddress>(),
   });
 
 const clockAllowance = 60;

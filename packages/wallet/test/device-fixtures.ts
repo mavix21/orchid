@@ -1,4 +1,4 @@
-import { Account, Keypair } from "@stellar/stellar-sdk";
+import { Account, Keypair, MuxedAccount } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -6,7 +6,9 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   type Asset,
+  type DestinationAddress,
   type ExternalRecipient,
+  MuxedAddress,
   type PaymentMemo,
   PositiveAmount,
   Profile,
@@ -100,9 +102,13 @@ export const sendActors = () => {
     pedro,
     stranger,
     pedroProfile,
+    muxed: (id: string) =>
+      Schema.decodeSync(MuxedAddress)(
+        new MuxedAccount(new Account(exchange, "0"), id).accountId(),
+      ),
     payment: (opts: {
       readonly source?: AccountAddress;
-      readonly to: AccountAddress;
+      readonly to: DestinationAddress;
       readonly amount: PositiveAmount;
       readonly asset?: Asset;
       readonly memo?: PaymentMemo;

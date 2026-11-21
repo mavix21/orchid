@@ -1,5 +1,5 @@
 import { expect, layer } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
+import { Account, Keypair, MuxedAccount } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
@@ -10,6 +10,8 @@ import {
   ExternalMemoRequired,
   ExternalRecipient,
   LedgerUnreachable,
+  MemoNotAllowed,
+  MuxedAddress,
   NativeAsset,
   PaymentMemo,
   TransferOrder,
@@ -78,6 +80,62 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
           expect(Option.isNone(yield* findTransfer(order.id))).toBe(true);
           expect(world.submitted).toHaveLength(initial);
+        }),
+    );
+
+    it.effect(
+      "a muxed destination pays the muxed address without a memo through its base account",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet();
+          const baseKey = Keypair.random();
+
+          fundHolder(baseKey);
+
+          const base = addressOf(baseKey);
+
+          registerExchange(base);
+
+          const muxed = Schema.decodeSync(MuxedAddress)(
+            new MuxedAccount(new Account(base, "0"), "42").accountId(),
+          );
+
+          const order = orderFor(key, AddressRecipient.make({ value: muxed }));
+          const draft = yield* draftTransfer(order);
+
+          expect(draft.recipient).toEqual(
+            new ExternalRecipient({ address: muxed }),
+          );
+          expect(draft.memoRequired).toBe(false);
+
+          const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
+
+          assertTagged(facts, "PaymentFacts");
+          expect(facts.to).toBe(muxed);
+          expect(facts.memo).toBeUndefined();
+
+          const withMemo = new TransferOrder({
+            ...orderFor(key, AddressRecipient.make({ value: muxed })),
+            memo: Schema.decodeSync(PaymentMemo)({ type: "id", value: "42" }),
+          });
+
+          expect(yield* send(withMemo)).toEqual(
+            new MemoNotAllowed({ reason: "muxed" }),
+          );
+          expect(Option.isNone(yield* findTransfer(withMemo.id))).toBe(true);
+
+          const missing = Schema.decodeSync(MuxedAddress)(
+            new MuxedAccount(
+              new Account(addressOf(Keypair.random()), "0"),
+              "42",
+            ).accountId(),
+          );
+
+          expect(
+            (yield* send(
+              orderFor(key, AddressRecipient.make({ value: missing })),
+            ))._tag,
+          ).toBe("RecipientCannotReceive");
         }),
     );
 

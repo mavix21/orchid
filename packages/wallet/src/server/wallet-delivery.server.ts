@@ -8,6 +8,7 @@ import {
   type ResolvedRecipient,
   type TransferOrder,
 } from "../contract";
+import { baseAccountOf } from "../stellar/destination";
 import { maxOpenClaimables } from "../stellar/network";
 import { Chain } from "./Chain.server";
 import { Transfers } from "./Transfers.server";
@@ -25,7 +26,10 @@ export const deliveryFlow = Effect.gen(function* () {
       Issued: (asset) => [asset],
     });
 
-    const destination = yield* chain.holdings(recipient.address, assets);
+    const destination = yield* chain.holdings(
+      baseAccountOf(recipient.address),
+      assets,
+    );
 
     const reason = Option.isNone(destination)
       ? "no_account"
@@ -38,7 +42,7 @@ export const deliveryFlow = Effect.gen(function* () {
     if (reason) {
       if (reason !== "no_trustline" || recipient instanceof ExternalRecipient)
         return new RecipientCannotReceive({
-          address: recipient.address,
+          address: baseAccountOf(recipient.address),
           reason,
         });
 
