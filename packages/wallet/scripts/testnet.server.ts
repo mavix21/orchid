@@ -18,6 +18,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import {
   AccountAddress,
   AddressRecipient,
@@ -101,6 +102,7 @@ const services = Layer.merge(
     }),
   ),
   Layer.provide(dbLayer),
+  Layer.provide(FetchHttpClient.layer),
 );
 
 const run = <A, E>(
@@ -151,7 +153,7 @@ const waitApplied = async (sealed: Sealed) => {
     if (settlement instanceof Rejected)
       throw new Error(`Verification transaction rejected: ${settlement.code}`);
 
-    await run(Chain.use((chain) => chain.submit(sealed)));
+    await run(Chain.use((chain) => chain.submit(sealed).pipe(Effect.ignore)));
     await Bun.sleep(1000);
   }
 

@@ -1,6 +1,11 @@
-import { createServer } from "node:http";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
+import * as HttpClient from "effect/http/HttpClient";
+import type * as HttpClientError from "effect/http/HttpClientError";
+import type * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
 const RpcRequest = Schema.fromJsonString(
   Schema.Struct({
@@ -9,37 +14,35 @@ const RpcRequest = Schema.fromJsonString(
   }),
 );
 
-export const rpcAnswering = (reply: (keys: ReadonlyArray<string>) => string) =>
-  Effect.acquireRelease(
-    Effect.promise(() => {
-      const server = createServer((request, response) => {
-        let body = "";
+export const testRpcUrl = "https://rpc.test";
 
-        request.on("data", (chunk) => {
-          body += String(chunk);
-        });
+export const requestBodyText = (request: HttpClientRequest.HttpClientRequest) =>
+  Predicate.isTagged(request.body, "Uint8Array")
+    ? new TextDecoder().decode(request.body.body)
+    : "";
 
-        request.on("end", () => {
-          response.setHeader("Content-Type", "application/json");
-          response.end(reply(Schema.decodeSync(RpcRequest)(body).params.keys));
-        });
-      });
-
-      return new Promise<typeof server>((resolve) =>
-        server.listen(0, () => resolve(server)),
-      );
-    }),
-    (server) =>
-      Effect.promise(
-        () => new Promise((resolve) => server.close(() => resolve(true))),
+export const httpClientAnswering = (
+  reply: (
+    request: HttpClientRequest.HttpClientRequest,
+  ) => Effect.Effect<Response, HttpClientError.HttpClientError>,
+) =>
+  Layer.succeed(
+    HttpClient.HttpClient,
+    HttpClient.make((request) =>
+      reply(request).pipe(
+        Effect.map((response) => HttpClientResponse.fromWeb(request, response)),
       ),
-  ).pipe(
-    Effect.map(
-      (server) =>
-        `http://127.0.0.1:${
-          Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Number }))(
-            server.address(),
-          ).port
-        }`,
+    ),
+  );
+
+export const rpcAnswering = (reply: (keys: ReadonlyArray<string>) => string) =>
+  httpClientAnswering((request) =>
+    Effect.succeed(
+      new Response(
+        reply(
+          Schema.decodeSync(RpcRequest)(requestBodyText(request)).params.keys,
+        ),
+        { headers: { "Content-Type": "application/json" } },
+      ),
     ),
   );

@@ -33,7 +33,8 @@
     "noUncheckedSideEffectImports": true,
     "plugins": [
       {
-        "name": "@effect/language-service"
+        "name": "@effect/language-service",
+        "allowedUnstableApis": ["effect/http/FetchHttpClient#layer"]
       }
     ]
   }

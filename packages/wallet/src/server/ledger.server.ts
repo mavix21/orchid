@@ -2,6 +2,9 @@ import { StrKey, xdr } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { AccountAddress, Amount } from "../contract";
 import { ChainUnreachable } from "./chain-errors.server";
 
@@ -45,31 +48,30 @@ export const rpcCall = <A, I>(
   method: string,
   params: RpcParams,
   result: Schema.Codec<A, I>,
-): Effect.Effect<A, ChainUnreachable> =>
-  Effect.tryPromise({
-    try: async (signal) => {
-      const response = await fetch(rpcUrl, {
-        signal,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      });
+): Effect.Effect<A, ChainUnreachable, HttpClient.HttpClient> =>
+  Effect.gen(function* () {
+    const client = yield* HttpClient.HttpClient;
 
-      if (!response.ok) throw new Error(`Stellar RPC ${method} failed`);
+    const request = yield* HttpClientRequest.post(rpcUrl).pipe(
+      HttpClientRequest.bodyJson({ jsonrpc: "2.0", id: 1, method, params }),
+      Effect.orDie,
+    );
 
-      return response.text();
-    },
-    catch: (cause) => new ChainUnreachable({ cause }),
-  }).pipe(
-    Effect.map(Schema.decodeSync(rpcReply(result))),
-    Effect.flatMap((reply) =>
-      "result" in reply
-        ? Effect.succeed(reply.result)
-        : Effect.fail(
-            new ChainUnreachable({ cause: new Error(reply.error.message) }),
-          ),
-    ),
-  );
+    const text = yield* client.execute(request).pipe(
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap((response) => response.text),
+      Effect.provideService(HttpClient.TracerPropagationEnabled, false),
+      Effect.mapError((cause) => new ChainUnreachable({ cause })),
+    );
+
+    const reply = Schema.decodeSync(rpcReply(result))(text);
+
+    return "result" in reply
+      ? reply.result
+      : yield* new ChainUnreachable({
+          cause: new Error(reply.error.message),
+        });
+  });
 
 export const fetchEntries = (
   rpcUrl: string,

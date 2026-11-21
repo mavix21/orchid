@@ -24,6 +24,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import {
   AccountAddress,
   Approval,
@@ -92,7 +93,10 @@ export const settings = Layer.succeed(WalletSettings, {
   passkeyOrigins: [passkeyOrigin],
 });
 
-export const realChain = Chain.layer.pipe(Layer.provide(settings));
+export const realChain = Chain.layer.pipe(
+  Layer.provide(settings),
+  Layer.provide(FetchHttpClient.layer),
+);
 
 export const world = {
   accounts: new Map<AccountAddress, AccountState>(),

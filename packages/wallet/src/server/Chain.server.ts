@@ -4,7 +4,6 @@ import {
   Keypair,
   Transaction,
   TransactionBuilder,
-  rpc,
   StrKey,
   xdr,
 } from "@stellar/stellar-sdk";
@@ -17,6 +16,7 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as HttpClient from "effect/http/HttpClient";
 import {
   AccountAddress,
   Approval,
@@ -88,7 +88,30 @@ export class ApprovalInvalid extends Schema.TaggedError<ApprovalInvalid>()(
   {},
 ) {}
 
-const loopbackHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
+export class SubmissionRejected extends Schema.TaggedError<SubmissionRejected>()(
+  "SubmissionRejected",
+  {
+    code: Schema.optional(Schema.String),
+  },
+) {}
+
+const RawSendTransaction = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("PENDING") }),
+  Schema.Struct({ status: Schema.Literal("DUPLICATE") }),
+  Schema.Struct({ status: Schema.Literal("TRY_AGAIN_LATER") }),
+  Schema.Struct({
+    status: Schema.Literal("ERROR"),
+    errorResultXdr: Schema.optional(Schema.String),
+  }),
+]);
+
+const resultCode = (transactionResult: xdr.TransactionResult): string => {
+  const result = transactionResult.result;
+
+  return result.type === "txFeeBumpInnerFailed"
+    ? result.innerResultPair.result.result.type
+    : result.type;
+};
 
 const lookupWindow = {
   latestLedger: Schema.Number,
@@ -143,12 +166,7 @@ export function settlementFromResponse(
     return new Applied({ at: DateTime.makeUnsafe(response.createdAt * 1000) });
 
   if (response.status === "FAILED") {
-    const result = response.resultXdr.result;
-
-    const code =
-      result.type === "txFeeBumpInnerFailed"
-        ? result.innerResultPair.result.result.type
-        : result.type;
+    const code = resultCode(response.resultXdr);
 
     if (code === "txFailed") return new Rejected({ code });
   }
@@ -219,7 +237,9 @@ export class Chain extends Context.Service<
       approval: Approval,
       holder: AccountAddress,
     ): Effect.Effect<Sealed, ApprovalInvalid>;
-    submit(sealed: Sealed): Effect.Effect<void, ChainUnreachable>;
+    submit(
+      sealed: Sealed,
+    ): Effect.Effect<void, ChainUnreachable | SubmissionRejected>;
     settlement(sealed: Sealed): Effect.Effect<Settlement, ChainUnreachable>;
   }
 >()("@workspace/wallet/server/Chain") {
@@ -228,9 +248,10 @@ export class Chain extends Context.Service<
     Effect.gen(function* () {
       const settings = yield* WalletSettings;
 
-      const server = new rpc.Server(settings.rpcUrl, {
-        allowHttp: loopbackHosts.has(new URL(settings.rpcUrl).hostname),
-      });
+      const provideHttp = Effect.provideService(
+        HttpClient.HttpClient,
+        yield* HttpClient.HttpClient,
+      );
 
       const sponsor = Keypair.fromSecret(
         Redacted.value(settings.reserveSponsorSecret),
@@ -261,7 +282,9 @@ export class Chain extends Context.Service<
           ),
         ];
 
-        const response = yield* fetchEntries(settings.rpcUrl, keys);
+        const response = yield* fetchEntries(settings.rpcUrl, keys).pipe(
+          provideHttp,
+        );
 
         return accountFromEntries(
           response.entries ?? [],
@@ -430,14 +453,44 @@ export class Chain extends Context.Service<
         });
 
       const submit = (sealed: Sealed) =>
-        Effect.tryPromise({
-          try: async () => {
-            await server.sendTransaction(
-              TransactionBuilder.fromXDR(sealed.envelope, networkPassphrase),
-            );
-          },
-          catch: (cause) => new ChainUnreachable({ cause }),
-        });
+        rpcCall(
+          settings.rpcUrl,
+          "sendTransaction",
+          { transaction: sealed.envelope },
+          RawSendTransaction,
+        ).pipe(
+          provideHttp,
+          Effect.flatMap((reply) =>
+            Match.value(reply).pipe(
+              Match.when({ status: "PENDING" }, () => Effect.void),
+              Match.when({ status: "DUPLICATE" }, () => Effect.void),
+              Match.when({ status: "TRY_AGAIN_LATER" }, () =>
+                Effect.fail(
+                  new ChainUnreachable({
+                    cause: new Error(
+                      "Stellar RPC sendTransaction returned TRY_AGAIN_LATER",
+                    ),
+                  }),
+                ),
+              ),
+              Match.when({ status: "ERROR" }, ({ errorResultXdr }) =>
+                Effect.fail(
+                  errorResultXdr === undefined
+                    ? new SubmissionRejected({})
+                    : new SubmissionRejected({
+                        code: resultCode(
+                          xdr.TransactionResult.fromXDR(
+                            errorResultXdr,
+                            "base64",
+                          ),
+                        ),
+                      }),
+                ),
+              ),
+              Match.exhaustive,
+            ),
+          ),
+        );
 
       const transaction = (hash: string) =>
         rpcCall(
@@ -445,7 +498,7 @@ export class Chain extends Context.Service<
           "getTransaction",
           { hash },
           RawTransactionLookup,
-        ).pipe(Effect.map(transactionLookup));
+        ).pipe(provideHttp, Effect.map(transactionLookup));
 
       const settlement = (sealed: Sealed) =>
         resolveSettlement(sealed, { transaction, account });
@@ -457,17 +510,20 @@ export class Chain extends Context.Service<
           {},
           Schema.Struct({ closeTime: Schema.NumberFromString }),
         ).pipe(
+          provideHttp,
           Effect.map(
             ({ closeTime }) =>
               closeTime * 1000 > DateTime.toEpochMillis(sealed.expiresAt),
           ),
         );
 
+      const assets = yield* assetChain(settings.rpcUrl, sponsorAddress, source);
+
       return Chain.of({
-        ...assetChain(settings.rpcUrl, sponsorAddress, source),
+        ...assets,
         validAddress: StrKey.isValidEd25519PublicKey,
         memoRequiredFor: (address) =>
-          memoRequirementFor(settings.rpcUrl, address),
+          memoRequirementFor(settings.rpcUrl, address).pipe(provideHttp),
         pastOpeningWindow,
         account,
         balance: (address) =>

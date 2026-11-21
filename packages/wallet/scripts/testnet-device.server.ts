@@ -16,6 +16,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import {
   type CreateOutcome,
   type DeviceWallet,
@@ -87,6 +88,7 @@ const services = Layer.merge(
     }),
   ),
   Layer.provide(dbLayer),
+  Layer.provide(FetchHttpClient.layer),
 );
 
 const runtime = ManagedRuntime.make(services);
