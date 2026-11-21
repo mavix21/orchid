@@ -18,6 +18,7 @@ import {
   balanceExists,
   execute,
   exists,
+  fateOf,
   lineFacts,
   sponsorCounters,
 } from "./lib/steps";
@@ -73,6 +74,7 @@ for (const round of [1, 2, 3, 4]) {
       outcomes.filter((outcome) => outcome.status === "SUCCESS").length === 1,
     balanceExists: await balanceExists(open.balanceId),
     linkExists: await exists(open.link.publicKey()),
+    ledgerEvidence: await fateOf(open.balanceId),
   });
 
   if (await exists(open.link.publicKey()))
@@ -205,30 +207,11 @@ await lineFacts(
   world.usdc,
 );
 
-const bearerRecovery = await run(
-  bump(
-    world.feePayer,
-    await build(
-      prefunded.link.publicKey(),
-      [Operation.accountMerge({ destination: world.bank.publicKey() })],
-      [prefunded.link],
-    ),
-  ),
-);
-
-emit(
-  proof,
-  "pre-funded L: bearer alone merges the residual XLM out",
-  bearerRecovery,
-);
-
-const unauthorizedSponsorProbe = await build(
+const sponsorProbe = await build(
   world.sponsor.publicKey(),
   [
-    Operation.payment({
+    Operation.accountMerge({
       destination: world.sponsor.publicKey(),
-      asset: Asset.native(),
-      amount: "1",
       source: prefunded.link.publicKey(),
     }),
   ],
@@ -237,8 +220,29 @@ const unauthorizedSponsorProbe = await build(
 
 emit(
   proof,
-  "pre-funded L: sponsor attempts to move L residual XLM without L key",
-  await run(bump(world.feePayer, unauthorizedSponsorProbe)),
+  "pre-funded L: sponsor-only merge attempt while L is live",
+  await run(bump(world.feePayer, sponsorProbe)),
+);
+
+await accountFacts(
+  proof,
+  "pre-funded L after the sponsor-only attempt",
+  prefunded.link.publicKey(),
+);
+
+emit(
+  proof,
+  "pre-funded L: the same merge with the bearer's authority",
+  await run(
+    bump(
+      world.feePayer,
+      await build(
+        prefunded.link.publicKey(),
+        [Operation.accountMerge({ destination: world.bank.publicKey() })],
+        [prefunded.link],
+      ),
+    ),
+  ),
 );
 
 const nonDefault: ReadonlyArray<readonly [string, xdr.Operation]> = [
@@ -465,7 +469,19 @@ emit(
 
 emit(proof, "issuer clawback: state", undefined, {
   balanceExists: await balanceExists(clawedOpen.balanceId),
+  ledgerEvidence: await fateOf(clawedOpen.balanceId),
 });
+
+await execute(
+  proof,
+  "issuer clawback: bearer receive afterwards",
+  await receiveFresh(
+    world,
+    channelZero,
+    clawedOpen.link,
+    receiveFor(clawedOpen, wallet.publicKey()),
+  ),
+);
 
 await execute(
   proof,

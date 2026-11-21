@@ -1,13 +1,14 @@
-import type {
-  FeeBumpTransaction,
-  Keypair,
-  Transaction,
+import {
+  NotFoundError,
+  type Asset,
+  type FeeBumpTransaction,
+  type Keypair,
+  type Transaction,
 } from "@stellar/stellar-sdk";
 import { horizon, rpcServer } from "./network";
 import { account, counters, lineOf, snapshot } from "./state";
 import { emit, type Notes } from "./report";
 import { run, type World } from "./world";
-import type { Asset } from "@stellar/stellar-sdk";
 
 export const execute = async (
   proof: string,
@@ -96,16 +97,31 @@ export const memoFacts = async (proof: string, label: string, hash: string) => {
 };
 
 export const balanceExists = async (balanceId: string) => {
-  const found = await horizon
-    .claimableBalances()
-    .claimableBalance(balanceId)
-    .call()
-    .then(
-      (record) => record,
-      () => undefined,
-    );
+  try {
+    await horizon.claimableBalances().claimableBalance(balanceId).call();
 
-  return found !== undefined;
+    return true;
+  } catch (error) {
+    if (error instanceof NotFoundError) return false;
+
+    throw error;
+  }
+};
+
+export const fateOf = async (balanceId: string) => {
+  const operations = await horizon
+    .operations()
+    .forClaimableBalance(balanceId)
+    .limit(20)
+    .call();
+
+  return operations.records
+    .map((record) =>
+      record.type === "claim_claimable_balance"
+        ? `claim by ${record.claimant}`
+        : record.type,
+    )
+    .join("; ");
 };
 
 export const exists = async (address: string) =>

@@ -10,6 +10,7 @@
     "proof:3": "bun proof-3-payout-boundary.ts",
     "proof:3b": "bun proof-3b-sponsor-headroom.ts",
     "proof:4": "bun proof-4-destinations.ts",
+    "proof:4b": "bun proof-4b-refusals.ts",
     "proof:5": "bun proof-5-recovery.ts"
   },
   "dependencies": {

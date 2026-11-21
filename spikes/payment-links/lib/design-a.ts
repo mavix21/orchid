@@ -29,28 +29,33 @@ export const createLinkBalance = async (
   world: World,
   link: string,
   amount: string,
-  rosaClaimant: Claimant = new Claimant(world.rosa.publicKey()),
+  senderClaimant?: Claimant,
   asset: Asset = world.usdc,
+  sender: Keypair = world.rosa,
+  feePayer: Keypair = world.feePayer,
 ): Promise<Created> => {
   const inner = await build(
-    world.rosa.publicKey(),
+    sender.publicKey(),
     [
       Operation.beginSponsoringFutureReserves({
-        sponsoredId: world.rosa.publicKey(),
+        sponsoredId: sender.publicKey(),
         source: world.sponsor.publicKey(),
       }),
       Operation.createClaimableBalance({
         asset,
         amount,
-        claimants: [new Claimant(link), rosaClaimant],
+        claimants: [
+          new Claimant(link),
+          senderClaimant ?? new Claimant(sender.publicKey()),
+        ],
       }),
       Operation.endSponsoringFutureReserves(),
     ],
-    [world.rosa, world.sponsor],
+    [sender, world.sponsor],
   );
 
   return {
-    transaction: bump(world.feePayer, inner),
+    transaction: bump(feePayer, inner),
     balanceId: inner.getClaimableBalanceId(1),
     sequence: inner.sequence,
   };
@@ -185,14 +190,16 @@ export const receivePrefunded = async (
 export const reclaim = async (
   world: World,
   balanceId: string,
+  sender: Keypair = world.rosa,
+  feePayer: Keypair = world.feePayer,
 ): Promise<FeeBumpTransaction> => {
   const inner = await build(
-    world.rosa.publicKey(),
+    sender.publicKey(),
     [Operation.claimClaimableBalance({ balanceId })],
-    [world.rosa],
+    [sender],
   );
 
-  return bump(world.feePayer, inner);
+  return bump(feePayer, inner);
 };
 
 export const mergeLink = async (

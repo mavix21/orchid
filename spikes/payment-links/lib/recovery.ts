@@ -8,7 +8,7 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { baseFee, horizon, passphrase, rpcServer } from "./network";
-import { run } from "./world";
+import { build, bump, run } from "./world";
 
 export interface Receipt {
   readonly network: string;
@@ -22,7 +22,19 @@ export const keyOf = (balanceId: string) =>
     }),
   );
 
+export const exportReceipt = (receipt: Receipt) =>
+  `${receipt.network}|${receipt.balanceId}`;
+
+export const parseReceipt = (text: string): Receipt => {
+  const [network = "", balanceId = ""] = text.split("|");
+
+  return { network, balanceId };
+};
+
 export const readByReceipt = async (receipt: Receipt) => {
+  if (receipt.network !== passphrase)
+    return "refused: receipt belongs to another network";
+
   const response = await rpcServer.getLedgerEntries(keyOf(receipt.balanceId));
 
   const entry = response.entries[0];
@@ -104,34 +116,44 @@ export interface Listed {
   readonly amount: string;
 }
 
-export const listForSender = async (sender: string) => {
-  const page = await horizon
+export const listForSender = async (sender: string, pageSize: number) => {
+  const collected: Listed[] = [];
+
+  let page = await horizon
     .claimableBalances()
     .claimant(sender)
-    .limit(200)
+    .limit(pageSize)
     .call();
 
-  return page.records.map((record): Listed => ({
-    id: record.id,
-    claimants: record.claimants.length,
-    sponsor: record.sponsor ?? "none",
-    asset: record.asset,
-    amount: record.amount,
-  }));
+  let pages = 1;
+
+  while (page.records.length > 0) {
+    collected.push(
+      ...page.records.map((record): Listed => ({
+        id: record.id,
+        claimants: record.claimants.length,
+        sponsor: record.sponsor ?? "none",
+        asset: record.asset,
+        amount: record.amount,
+      })),
+    );
+    page = await page.next();
+    pages += 1;
+  }
+
+  return { listed: collected, pages };
 };
 
-export const reclaimAlone = async (sender: Keypair, balanceId: string) => {
-  const record = await horizon.loadAccount(sender.publicKey());
+export const reclaimAlone = async (
+  sender: Keypair,
+  balanceId: string,
+  feePayer?: Keypair,
+) => {
+  const inner = await build(
+    sender.publicKey(),
+    [Operation.claimClaimableBalance({ balanceId })],
+    [sender],
+  );
 
-  const transaction = new TransactionBuilder(record, {
-    fee: baseFee,
-    networkPassphrase: passphrase,
-  })
-    .addOperation(Operation.claimClaimableBalance({ balanceId }))
-    .setTimeout(60)
-    .build();
-
-  transaction.sign(sender);
-
-  return run(transaction);
+  return run(feePayer === undefined ? inner : bump(feePayer, inner));
 };

@@ -1,4 +1,9 @@
-import { Asset, MuxedAccount, StrKey } from "@stellar/stellar-sdk";
+import {
+  Asset,
+  MuxedAccount,
+  StrKey,
+  type Horizon,
+} from "@stellar/stellar-sdk";
 import { toStroops } from "./network";
 import { account } from "./state";
 
@@ -33,39 +38,14 @@ export interface Reviewed {
   readonly asset: Asset;
   readonly amount: string;
   readonly hasMemo: boolean;
+  readonly link: string;
 }
 
 const memoRequired = (data: { readonly [key: string]: string }) =>
   Buffer.from(data["config.memo_required"] ?? "", "base64").toString() === "1";
 
-export const reviewDestination = async (
-  destination: string,
-  reviewed: Reviewed,
-) => {
-  const muxed = StrKey.isValidMed25519PublicKey(destination);
-
-  const base = muxed
-    ? MuxedAccount.fromAddress(destination, "0").baseAccount().accountId()
-    : destination;
-
-  const record = await account(base);
-
-  if (record === undefined)
-    return "refused: destination account does not exist";
-
-  const reasons = [
-    muxed && reviewed.hasMemo ? "memo conflicts with the muxed address" : "",
-    memoRequired(record.data_attr) && !muxed && !reviewed.hasMemo
-      ? "destination requires a memo (SEP-29)"
-      : "",
-    ...lineReasons(record, reviewed),
-  ].filter((reason) => reason !== "");
-
-  return reasons.length === 0 ? "accepted" : `refused: ${reasons.join(", ")}`;
-};
-
 const lineReasons = (
-  record: NonNullable<Awaited<ReturnType<typeof account>>>,
+  record: Horizon.ServerApi.AccountRecord,
   reviewed: Reviewed,
 ) => {
   if (reviewed.asset.isNative()) return [];
@@ -96,4 +76,54 @@ const lineReasons = (
       ? ""
       : "trustline has insufficient capacity",
   ];
+};
+
+const baseOf = (destination: string) =>
+  StrKey.isValidMed25519PublicKey(destination)
+    ? MuxedAccount.fromAddress(destination, "0").baseAccount().accountId()
+    : destination;
+
+const readable = async (address: string) => {
+  try {
+    return { record: await account(address), failed: false };
+  } catch {
+    return { record: undefined, failed: true };
+  }
+};
+
+export const reviewDestination = async (
+  destination: string,
+  reviewed: Reviewed,
+) => {
+  const stellar =
+    StrKey.isValidEd25519PublicKey(destination) ||
+    StrKey.isValidMed25519PublicKey(destination);
+
+  if (!stellar) return "refused: not a Stellar address";
+
+  const muxed = StrKey.isValidMed25519PublicKey(destination);
+  const base = baseOf(destination);
+
+  if (base === reviewed.link) return "refused: destination is the link account";
+
+  if (!reviewed.asset.isNative() && base === reviewed.asset.getIssuer())
+    return "refused: destination is the asset issuer";
+
+  const { record, failed } = await readable(base);
+
+  if (failed)
+    return "refused: destination could not be verified, failing closed";
+
+  if (record === undefined)
+    return "refused: destination account does not exist";
+
+  const reasons = [
+    muxed && reviewed.hasMemo ? "memo conflicts with the muxed address" : "",
+    memoRequired(record.data_attr) && !muxed && !reviewed.hasMemo
+      ? "destination requires a memo (SEP-29)"
+      : "",
+    ...lineReasons(record, reviewed),
+  ].filter((reason) => reason !== "");
+
+  return reasons.length === 0 ? "accepted" : `refused: ${reasons.join(", ")}`;
 };

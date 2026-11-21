@@ -1,6 +1,5 @@
 import {
   Account,
-  Asset,
   Keypair,
   Memo,
   MuxedAccount,
@@ -8,29 +7,18 @@ import {
   Operation,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
-import { receiveFresh, reclaim } from "./lib/design-a";
+import { receiveFresh } from "./lib/design-a";
 import { baseFee, horizon } from "./lib/network";
 import { emit } from "./lib/report";
-import { reviewDestination } from "./lib/review";
 import { openLink, receiveFor } from "./lib/scenario";
-import { authorizeHolder, openRestricted } from "./lib/restricted";
 import {
-  balanceExists,
   execute,
   lineFacts,
   memoFacts,
   sequenceOf,
   sponsorCounters,
 } from "./lib/steps";
-import {
-  build,
-  bump,
-  create,
-  openWallet,
-  openWorld,
-  run,
-  trust,
-} from "./lib/world";
+import { build, bump, openWallet, openWorld, run } from "./lib/world";
 
 const proof = "4";
 const amount = "25";
@@ -192,74 +180,6 @@ await lineFacts(
 
 await sponsorCounters(proof, "after opening and receive", world);
 
-const noAccount = Keypair.random();
-const noTrust = Keypair.random();
-const smallLine = await openWallet(world, "10");
-const revocable = await openRestricted(world, "revocable-clawback");
-const revoked = Keypair.random();
-
-await create(world.bank, [
-  [noTrust, "5"],
-  [revoked, "5"],
-]);
-
-await trust(revoked, revocable.asset);
-
-await authorizeHolder(revocable, revoked.publicKey(), true);
-
-await authorizeHolder(revocable, revoked.publicKey(), false);
-
-const review = async (
-  label: string,
-  destination: string,
-  asset: Asset,
-  hasMemo: boolean,
-) =>
-  emit(proof, `pre-sign review: ${label}`, undefined, {
-    verdict: await reviewDestination(destination, { asset, amount, hasMemo }),
-  });
-
-await review("existing wallet", exchange.publicKey(), world.usdc, true);
-
-await review(
-  "missing memo for a SEP-29 destination",
-  exchange.publicKey(),
-  world.usdc,
-  false,
-);
-
-await review(
-  "account does not exist",
-  noAccount.publicKey(),
-  world.usdc,
-  false,
-);
-
-await review("no trustline", noTrust.publicKey(), world.usdc, false);
-
-await review(
-  "insufficient trustline capacity",
-  smallLine.publicKey(),
-  world.usdc,
-  false,
-);
-
-await review(
-  "trustline not authorized",
-  revoked.publicKey(),
-  revocable.asset,
-  false,
-);
-
-await review(
-  "muxed address with a separate memo",
-  muxedAddress,
-  world.usdc,
-  true,
-);
-
-await review("muxed address, no memo", muxedAddress, world.usdc, false);
-
 const missingMemoPayment = await run(
   bump(
     world.feePayer,
@@ -306,21 +226,4 @@ emit(
   proof,
   "wrong-network control: envelope signed for the public network passphrase, submitted to testnet",
   await run(bump(world.feePayer, wrongNetwork)),
-);
-
-const refusedOpen = await openLink(proof, "refused destination", world, amount);
-
-emit(
-  proof,
-  "refused destination: nothing was signed, so the balance is untouched",
-  undefined,
-  {
-    balanceStillClaimable: await balanceExists(refusedOpen.balanceId),
-  },
-);
-
-await execute(
-  proof,
-  "refused destination: sender reclaim cleans up",
-  await reclaim(world, refusedOpen.balanceId),
 );

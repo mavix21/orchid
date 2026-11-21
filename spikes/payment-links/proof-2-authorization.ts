@@ -327,7 +327,7 @@ const concurrent = await Promise.all([
   ),
   execute(
     proof,
-    "concurrency: wallet opening sourced by the sponsor",
+    "concurrency: unsponsored account creation sourced by the sponsor (1 operation, not the 4-operation Opening)",
     bump(world.feePayer, opening),
   ),
 ]);

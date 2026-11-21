@@ -1,28 +1,45 @@
 import { Asset, Claimant, Keypair, Operation } from "@stellar/stellar-sdk";
 import { createLinkBalance } from "./lib/design-a";
-import { horizon, passphrase } from "./lib/network";
+import { passphrase } from "./lib/network";
 import {
   candidateBalanceId,
+  exportReceipt,
   listForSender,
+  parseReceipt,
   readByReceipt,
   reclaimAlone,
   scanSequences,
-  type Receipt,
 } from "./lib/recovery";
 import { emit } from "./lib/report";
-import { balanceExists, execute, lineFacts, sequenceOf } from "./lib/steps";
-import { build, create, openWorld, trust } from "./lib/world";
+import { openZeroSender } from "./lib/scenario";
+import { accountFacts, execute, lineFacts, sequenceOf } from "./lib/steps";
+import { lineOf } from "./lib/state";
+import { build, bump, create, openWorld, trust } from "./lib/world";
 
 const proof = "5";
 const amount = "25";
+const publicNetwork = "Public Global Stellar Network ; September 2015";
 
 const world = await openWorld(0);
 const orchidSponsor = world.sponsor.publicKey();
-const sender = world.rosa;
+const sender = await openZeroSender(world, "100");
+const independentPayer = Keypair.random();
+
+await create(world.bank, [[independentPayer, "20"]]);
+
+await accountFacts(proof, "zero-XLM sender", sender.publicKey());
 
 const publish = async (label: string) => {
   const link = Keypair.random();
-  const created = await createLinkBalance(world, link.publicKey(), amount);
+
+  const created = await createLinkBalance(
+    world,
+    link.publicKey(),
+    amount,
+    undefined,
+    world.usdc,
+    sender,
+  );
 
   await execute(proof, `${label}: create`, created.transaction, {
     balanceId: created.balanceId,
@@ -51,72 +68,78 @@ await execute(
   ),
 );
 
-const receipt: Receipt = { network: passphrase, balanceId: exported.balanceId };
+const receiptText = exportReceipt({
+  network: passphrase,
+  balanceId: exported.balanceId,
+});
 
-emit(proof, "exact-key RPC read from the exported receipt", undefined, {
+emit(
+  proof,
+  "control: the zero-XLM sender reclaims without an independent fee payer",
+  await reclaimAlone(sender, lost.balanceId),
+);
+
+emit(proof, "receipt for another network is refused", undefined, {
+  verdict: await readByReceipt(
+    parseReceipt(`${publicNetwork}|${exported.balanceId}`),
+  ),
+});
+
+const receipt = parseReceipt(receiptText);
+
+emit(proof, "exact-key RPC read from the exported receipt text", undefined, {
   network: receipt.network,
   balanceId: receipt.balanceId,
   rpc: await readByReceipt(receipt),
 });
 
-const listed = await listForSender(sender.publicKey());
+const discovery = await listForSender(sender.publicKey(), 2);
 
-emit(
-  proof,
-  "Horizon claimant query for the sender, no Orchid database",
-  undefined,
-  {
-    balances: listed.length,
-    withTwoClaimantsAndOrchidSponsor: listed.filter(
-      (item) => item.claimants === 2 && item.sponsor === orchidSponsor,
-    ).length,
-    unrelated: listed.filter(
-      (item) => item.claimants !== 2 || item.sponsor !== orchidSponsor,
-    ).length,
-  },
+const verified = await Promise.all(
+  discovery.listed
+    .filter((item) => item.claimants === 2 && item.sponsor === orchidSponsor)
+    .map(async (item) => ({
+      item,
+      live: await readByReceipt({
+        network: passphrase,
+        balanceId: item.id,
+      }),
+    })),
 );
 
-const independent = await reclaimAlone(sender, lost.balanceId);
-
-emit(
-  proof,
-  "reclaim from listing: only the sender key, sender pays the fee",
-  independent,
-);
-
-emit(proof, "reclaim from listing: state", undefined, {
-  balanceExists: await balanceExists(lost.balanceId),
+emit(proof, "paginated Horizon claimant query, no Orchid database", undefined, {
+  pages: discovery.pages,
+  balances: discovery.listed.length,
+  withTwoClaimantsAndOrchidSponsor: verified.length,
+  unrelated: discovery.listed.length - verified.length,
+  discoveredBothLinks:
+    verified.some((entry) => entry.item.id === exported.balanceId) &&
+    verified.some((entry) => entry.item.id === lost.balanceId),
 });
 
-const viaReceipt = await reclaimAlone(sender, exported.balanceId);
+const discoveredLost = verified.find(
+  (entry) => entry.item.id !== receipt.balanceId,
+);
+
+if (discoveredLost === undefined) throw new Error("Nothing was discovered");
 
 emit(
   proof,
-  "reclaim from the exported receipt: only the sender key",
-  viaReceipt,
+  "reclaim of a discovered balance: sender key, independent fee payer",
+  await reclaimAlone(sender, discoveredLost.item.id, independentPayer),
 );
 
-const record = await horizon
-  .transactions()
-  .transaction(independent.hash)
-  .call();
-
-emit(proof, "independent reclaim: transaction fee account", undefined, {
-  feeAccount: record.fee_account,
-  senderIsFeeAccount: record.fee_account === sender.publicKey(),
-  orchidSponsorInvolved: record.fee_account === orchidSponsor,
-});
+emit(
+  proof,
+  "reclaim from the receipt text: sender key, independent fee payer",
+  await reclaimAlone(sender, receipt.balanceId, independentPayer),
+);
 
 const first = await publish("scan link one");
 const second = await publish("scan link two");
 
 const firstSequence = BigInt(first.sequence);
 const secondSequence = BigInt(second.sequence);
-
-emit(proof, "candidate balance ID derivation matches the ledger", undefined, {
-  derivedMatches:
-    candidateBalanceId(sender.publicKey(), firstSequence) === first.balanceId,
-});
 
 const narrow = await scanSequences(
   sender.publicKey(),
@@ -125,6 +148,8 @@ const narrow = await scanSequences(
 );
 
 emit(proof, "sequence scan over a small known range", undefined, {
+  derivedMatchesSdk:
+    candidateBalanceId(sender.publicKey(), firstSequence) === first.balanceId,
   requests: narrow.requests,
   found: narrow.found.length,
   foundBoth:
@@ -134,11 +159,18 @@ emit(proof, "sequence scan over a small known range", undefined, {
 
 await execute(
   proof,
-  "sender bumps its own sequence by 1000",
-  await build(
-    sender.publicKey(),
-    [Operation.bumpSequence({ bumpTo: (secondSequence + 1_000n).toString() })],
-    [sender],
+  "sender bumps its own sequence by 1000, fee paid by the independent payer",
+  bump(
+    independentPayer,
+    await build(
+      sender.publicKey(),
+      [
+        Operation.bumpSequence({
+          bumpTo: (secondSequence + 1_000n).toString(),
+        }),
+      ],
+      [sender],
+    ),
   ),
 );
 
@@ -161,37 +193,46 @@ emit(
   },
 );
 
-const balanceOfUsdc = await horizon
-  .accounts()
-  .accountId(sender.publicKey())
-  .call();
+const held = await lineOf(sender.publicKey(), world.usdc);
 
-const held = balanceOfUsdc.balances.find(
-  (line) =>
-    line.asset_type !== "native" &&
-    line.asset_type !== "liquidity_pool_shares" &&
-    line.asset_code === "USDC",
+await execute(
+  proof,
+  "sender burns its USDC and merges away, fee paid by the independent payer",
+  bump(
+    independentPayer,
+    await build(
+      sender.publicKey(),
+      [
+        Operation.payment({
+          destination: world.issuer.publicKey(),
+          asset: world.usdc,
+          amount: held?.balance ?? "0",
+        }),
+        Operation.changeTrust({ asset: world.usdc, limit: "0" }),
+        Operation.accountMerge({ destination: independentPayer.publicKey() }),
+      ],
+      [sender],
+    ),
+  ),
 );
 
 await execute(
   proof,
-  "sender burns its USDC back to the issuer before closing",
-  await build(
-    sender.publicKey(),
-    [
-      Operation.payment({
-        destination: world.issuer.publicKey(),
-        asset: world.usdc,
-        amount: held?.balance ?? "0",
-      }),
-      Operation.changeTrust({ asset: world.usdc, limit: "0" }),
-      Operation.accountMerge({ destination: world.bank.publicKey() }),
-    ],
-    [sender],
+  "reopening: an independent funder supplies 2 XLM of reserves",
+  bump(
+    independentPayer,
+    await build(
+      independentPayer.publicKey(),
+      [
+        Operation.createAccount({
+          destination: sender.publicKey(),
+          startingBalance: "2",
+        }),
+      ],
+      [independentPayer],
+    ),
   ),
 );
-
-await create(world.bank, [[sender, "10"]]);
 
 await trust(sender, world.usdc);
 
@@ -214,25 +255,31 @@ emit(proof, "sequence scan from the reopened account lower bound", undefined, {
   found: afterReopen.found.length,
 });
 
-const relisted = await listForSender(sender.publicKey());
+const relisted = await listForSender(sender.publicKey(), 2);
+
+const rediscovered = relisted.listed.filter(
+  (item) => item.claimants === 2 && item.sponsor === orchidSponsor,
+);
 
 emit(
   proof,
-  "Horizon claimant query after the sender was merged and reopened",
+  "paginated claimant query after the sender was merged and reopened",
   undefined,
   {
-    balances: relisted.length,
-    scanLinksStillListed: [first, second, third].every((link) =>
-      relisted.some((item) => item.id === link.balanceId),
+    pages: relisted.pages,
+    balances: relisted.listed.length,
+    rediscovered: rediscovered.length,
+    allScanLinksRediscovered: [first, second, third].every((link) =>
+      rediscovered.some((item) => item.id === link.balanceId),
     ),
   },
 );
 
-for (const link of [first, second, third])
+for (const item of rediscovered)
   emit(
     proof,
-    "reclaim after reopening: only the sender key",
-    await reclaimAlone(sender, link.balanceId),
+    "reclaim after reopening, discovered ID",
+    await reclaimAlone(sender, item.id, independentPayer),
   );
 
 await lineFacts(
