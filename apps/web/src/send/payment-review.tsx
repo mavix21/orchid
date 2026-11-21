@@ -49,7 +49,11 @@ export function PaymentReviewCard({ review }: { review: PaymentReview }) {
         <ReviewRow label="Activo">{assetCode(review.asset)}</ReviewRow>
         <ReviewRow label="Monto">{formatAmount(review.amount)}</ReviewRow>
         {review.memo === undefined ? null : (
-          <ReviewRow label="Memo">{review.memo.value}</ReviewRow>
+          <ReviewRow label="Memo">
+            <span className="break-all whitespace-pre-wrap">
+              {review.memo.value}
+            </span>
+          </ReviewRow>
         )}
         <ReviewRow label="Comisión">Orchid paga la comisión</ReviewRow>
       </dl>
