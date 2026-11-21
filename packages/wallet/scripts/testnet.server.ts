@@ -3,6 +3,7 @@ import { Backups } from "../src/server/Backups.server";
 import assert from "node:assert/strict";
 import {
   Account,
+  Asset,
   Horizon,
   Keypair,
   Operation,
@@ -19,7 +20,16 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  AddressRecipient,
   Approval,
+  ExternalMemoRequired,
+  NativeAsset,
+  PaymentMemo,
+  PositiveAmount,
+  Settled,
+  TransferDraft,
+  TransferId,
+  TransferOrder,
   Opened,
   OpeningDraft,
   RecoveryDraft,
@@ -32,7 +42,7 @@ import {
 } from "../src/contract";
 import { Applied, Chain, Rejected, Sealed } from "../src/server/Chain.server";
 import { Directory, type WalletRow } from "../src/server/Directory.server";
-import { Transfers } from "../src/server/Transfers.server";
+import { Authorized, Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { WalletSettings } from "../src/server/settings.server";
 import {
@@ -533,6 +543,102 @@ assert.equal((await walletRow(second.claim.address)).status, "active");
 
 console.log("Sweep skipped recovery after the device advanced its sequence.");
 
+const exchange = addressOf(
+  Keypair.fromSecret(secret("VERIFY_EXCHANGE_SECRET")),
+);
+
+const toExchange = (memo?: PaymentMemo) =>
+  new TransferOrder({
+    id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
+    from: second.claim.address,
+    to: AddressRecipient.make({ value: exchange }),
+    asset: NativeAsset.make({}),
+    amount: Schema.decodeSync(PositiveAmount)("10000000"),
+    memo,
+  });
+
+const transfer = (
+  order: TransferOrder,
+  approval: Option.Option<Approval> = Option.none(),
+) => run(Wallet.use((wallet) => wallet.transfer(order, approval)));
+
+assert.deepEqual(
+  await transfer(toExchange()),
+  new ExternalMemoRequired({
+    address: exchange,
+    exchange: "Exchange",
+    source: "https://stellar.org/protocol/sep-29",
+  }),
+);
+
+console.log(
+  "PASS a payment without a memo to the test exchange returns ExternalMemoRequired from its config.memo_required entry.",
+);
+
+const topUp = new TransactionBuilder(
+  await server.getAccount(sponsor.publicKey()),
+  { fee: baseFee, networkPassphrase },
+)
+  .addOperation(
+    Operation.payment({
+      destination: second.claim.address,
+      asset: Asset.native(),
+      amount: "5",
+    }),
+  )
+  .setTimeout(120)
+  .build();
+
+topUp.sign(sponsor);
+
+const topUpSent = await server.sendTransaction(topUp);
+
+assert.equal(topUpSent.status, "PENDING");
+
+assert.equal(
+  (await server.pollTransaction(topUpSent.hash, { attempts: 60 })).status,
+  rpc.Api.GetTransactionStatus.SUCCESS,
+);
+
+const memoOrder = toExchange(
+  Schema.decodeSync(PaymentMemo)({ type: "text", value: "orchid-sep29" }),
+);
+
+const memoDraft = await transfer(memoOrder);
+
+assert.ok(memoDraft instanceof TransferDraft);
+
+assert.equal(memoDraft.memoRequired, true);
+
+await transfer(memoOrder, approve(memoDraft.request, activityUser));
+
+const memoTransfer = Option.getOrThrow(
+  await run(Transfers.use((store) => store.find(memoOrder.id))),
+);
+
+assert.ok(memoTransfer instanceof Authorized);
+
+let memoReceipt = await transfer(memoOrder);
+
+for (
+  let attempt = 0;
+  attempt < 60 && !(memoReceipt instanceof Settled);
+  attempt++
+) {
+  await Bun.sleep(1000);
+  memoReceipt = await transfer(memoOrder);
+}
+
+assert.ok(memoReceipt instanceof Settled);
+
+assert.deepEqual(memoReceipt.memo, memoOrder.memo);
+
+remember("memo payment to the test exchange", memoTransfer.sealed.hash);
+
+console.log(
+  "PASS a payment with a memo to the test exchange drafts with memoRequired and settles.",
+);
+
 const result = {
   verifiedAt: new Date().toISOString(),
   network: "testnet",
@@ -553,6 +659,8 @@ const result = {
     "sweep skips changed sequence",
     "settlement discovers inner inclusion under alternate fee payer while original outer is NOT_FOUND",
     "consumed sequence plus complete inner absence evidence concludes sequence_consumed",
+    "config.memo_required = 1 refuses a memoless payment with SEP-29 evidence",
+    "memo payment to a config.memo_required account drafts with memoRequired and settles",
   ],
   deferred: [
     "Live USDC payment and nonzero-USDC recovery guard require Circle testnet USDC funding; covered by local behavioral tests.",

@@ -56,7 +56,7 @@ export type { AccountState } from "./ledger.server";
 
 import {
   type KnownExchangeMemo,
-  exchangeMemoFor,
+  memoRequirementFor,
 } from "./exchange-memos.server";
 import { WalletSettings } from "./settings.server";
 
@@ -191,7 +191,9 @@ export class Chain extends Context.Service<
   Chain,
   AssetChain & {
     validAddress(address: AccountAddress): boolean;
-    memoRequiredFor(address: AccountAddress): Option.Option<KnownExchangeMemo>;
+    memoRequiredFor(
+      address: AccountAddress,
+    ): Effect.Effect<Option.Option<KnownExchangeMemo>, ChainUnreachable>;
     pastOpeningWindow(sealed: Sealed): Effect.Effect<boolean, ChainUnreachable>;
     account(
       address: AccountAddress,
@@ -464,7 +466,8 @@ export class Chain extends Context.Service<
       return Chain.of({
         ...assetChain(settings.rpcUrl, sponsorAddress, source),
         validAddress: StrKey.isValidEd25519PublicKey,
-        memoRequiredFor: exchangeMemoFor,
+        memoRequiredFor: (address) =>
+          memoRequirementFor(settings.rpcUrl, address),
         pastOpeningWindow,
         account,
         balance: (address) =>

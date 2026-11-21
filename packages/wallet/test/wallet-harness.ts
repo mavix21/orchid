@@ -128,7 +128,7 @@ export const fakeChain = Layer.effect(
     return Chain.of({
       ...real,
       memoRequiredFor: (address) =>
-        exchangeMemoFor(address, world.exchangeMemos),
+        Effect.succeed(exchangeMemoFor(address, world.exchangeMemos)),
       account,
       holdings: (address, assets) =>
         world.holdings.has(address)
