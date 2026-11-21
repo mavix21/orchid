@@ -7,6 +7,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientError from "effect/http/HttpClientError";
@@ -24,8 +25,10 @@ import {
   SubmissionRejected,
 } from "../src/server/Chain.server";
 import { ChainUnreachable } from "../src/server/chain-errors.server";
+import { holdingsFromEntries } from "../src/server/ledger-assets.server";
 import { stellarRpc } from "../src/server/ledger.server";
 import { draftPayment, signingPayload } from "../src/stellar/envelopes";
+import { usdc } from "../src/stellar/network";
 import {
   accountEntryXdr,
   chainWithHttp,
@@ -367,4 +370,44 @@ it.effect.each([
 
     expect(Exit.isSuccess(exit)).toBe(true);
   }),
+);
+
+it.each([
+  ["no liabilities", 1_000n, 300n, 0n, 700n],
+  ["buying liabilities", 100n, 0n, 90n, 10n],
+  ["balance and buying liabilities", 1_000n, 300n, 90n, 610n],
+  ["buying liabilities above the headroom", 100n, 60n, 90n, 0n],
+])(
+  "incoming capacity of a trustline with %s",
+  (_name, limit, balance, buying, capacity) => {
+    const key = Keypair.random();
+
+    const line = xdr.LedgerEntryData.trustline(
+      new xdr.TrustLineEntry({
+        accountId: key.xdrPublicKey(),
+        asset: usdc.toTrustLineXdrObject(),
+        balance,
+        limit,
+        flags: 1,
+        ext: xdr.TrustLineEntryExt.v1(
+          new xdr.TrustLineEntryV1({
+            liabilities: new xdr.Liabilities({ buying, selling: 0n }),
+            ext: xdr.TrustLineEntryV1Ext.v0(),
+          }),
+        ),
+      }),
+    ).toXDR("base64");
+
+    const holdings = holdingsFromEntries(
+      [{ xdr: accountEntryXdr(key, 1n, 1) }, { xdr: line }],
+      100,
+      Keypair.random().publicKey(),
+      Schema.decodeSync(AccountAddress)(key.publicKey()),
+      [baseAsset],
+    );
+
+    expect(
+      Option.getOrThrow(holdings).lines.map((entry) => entry.capacity),
+    ).toEqual([capacity]);
+  },
 );

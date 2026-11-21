@@ -132,6 +132,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                   asset: euro,
                   balance: held,
                   spendable: held,
+                  capacity: held,
                   authorized: true,
                   sponsored: true,
                 },

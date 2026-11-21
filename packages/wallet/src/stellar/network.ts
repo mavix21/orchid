@@ -15,7 +15,7 @@ export const baseReserve = 5_000_000n;
 
 export const maxSponsoredTrustlines = 6;
 
-export const maxOpenClaimables = 2;
+export const claimableQuota = { username: 2, paymentLink: 5 } as const;
 
 export const reclaimDelay = 7 * 24 * 60 * 60;
 

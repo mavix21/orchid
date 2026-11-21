@@ -58,7 +58,7 @@ import {
 } from "./Transfers.server";
 import { AssetOrders, assetPending } from "./AssetOrders.server";
 import { assetFlow } from "./wallet-assets.server";
-import { maxOpenClaimables } from "../stellar/network";
+import { claimableQuota } from "../stellar/network";
 import { openingFlow } from "./wallet-opening.server";
 import { Backups } from "./Backups.server";
 import { concealFailure } from "./failures.server";
@@ -266,7 +266,7 @@ export class Wallet extends Context.Service<
                 }),
               ClaimablesFull: () =>
                 Effect.succeed(
-                  new ClaimableLimitReached({ limit: maxOpenClaimables }),
+                  new ClaimableLimitReached({ limit: claimableQuota.username }),
                 ),
               SlotOccupied: () =>
                 assets

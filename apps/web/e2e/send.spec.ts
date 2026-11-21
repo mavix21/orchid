@@ -160,6 +160,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   );
   await expect(page.getByRole("dialog").getByRole("textbox")).toBeFocused();
   await page.getByRole("dialog").getByRole("textbox").fill("4521");
+  await page.getByTestId("memo-type-id").click();
   await page.getByTestId("save-memo").click();
   await expect(page.getByTestId("edit-memo")).toBeVisible();
 

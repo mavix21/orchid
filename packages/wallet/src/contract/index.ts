@@ -290,7 +290,12 @@ export class RecipientCannotReceive extends Schema.TaggedClass<RecipientCannotRe
   "RecipientCannotReceive",
   {
     address: AccountAddress,
-    reason: Schema.Literals(["no_account", "no_trustline", "not_authorized"]),
+    reason: Schema.Literals([
+      "no_account",
+      "no_trustline",
+      "not_authorized",
+      "no_capacity",
+    ]),
   },
 ) {}
 
