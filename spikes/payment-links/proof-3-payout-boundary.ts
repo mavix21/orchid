@@ -1,5 +1,10 @@
 import { Asset, Keypair, Operation, type xdr } from "@stellar/stellar-sdk";
-import { receiveFresh, receivePrefunded, reclaim, sweep } from "./lib/design-a";
+import {
+  receiveFresh,
+  receivePrefunded,
+  reclaim,
+  mergeLink,
+} from "./lib/design-a";
 import { emit } from "./lib/report";
 import { linkVerdict } from "./lib/review";
 import { openLink, receiveFor } from "./lib/scenario";
@@ -73,8 +78,8 @@ for (const round of [1, 2, 3, 4]) {
   if (await exists(open.link.publicKey()))
     await execute(
       proof,
-      `${label}: sweep`,
-      await sweep(world, open.link.publicKey()),
+      `${label}: merge`,
+      await mergeLink(world, open.link.publicKey()),
     );
 
   await sponsorCounters(proof, label, world);
@@ -302,8 +307,8 @@ await accountFacts(
 
 await execute(
   proof,
-  "native XLM link, fresh L: sweep",
-  await sweep(world, nativeOpen.link.publicKey()),
+  "native XLM link, fresh L: merge",
+  await mergeLink(world, nativeOpen.link.publicKey()),
 );
 
 await sponsorCounters(proof, "after native fresh", world);

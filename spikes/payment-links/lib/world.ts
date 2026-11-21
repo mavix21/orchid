@@ -61,6 +61,7 @@ export const build = async (
   operations: ReadonlyArray<ReturnType<(typeof Operation)["payment"]>>,
   signers: ReadonlyArray<Keypair>,
   configure?: (builder: TransactionBuilder) => TransactionBuilder,
+  lifetime = 120,
 ) => {
   const builder = new TransactionBuilder(await sourceOf(source), {
     fee: baseFee,
@@ -71,7 +72,7 @@ export const build = async (
 
   operations.forEach((operation) => configured.addOperation(operation));
 
-  const transaction = configured.setTimeout(120).build();
+  const transaction = configured.setTimeout(lifetime).build();
 
   transaction.sign(...signers);
 

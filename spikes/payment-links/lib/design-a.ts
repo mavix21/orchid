@@ -22,6 +22,7 @@ export interface Receive {
   readonly balanceId: string;
   readonly destination: string;
   readonly memo?: Memo;
+  readonly cleanupSigner?: string;
 }
 
 export const createLinkBalance = async (
@@ -114,7 +115,10 @@ export const receiveOperations = (
     lowThreshold: 1,
     medThreshold: 1,
     highThreshold: 1,
-    signer: { ed25519PublicKey: world.sponsor.publicKey(), weight: 1 },
+    signer: {
+      ed25519PublicKey: receive.cleanupSigner ?? world.sponsor.publicKey(),
+      weight: 1,
+    },
     source: link,
   }),
   Operation.endSponsoringFutureReserves({ source: link }),
@@ -126,6 +130,7 @@ export const receiveFresh = async (
   link: Keypair,
   receive: Receive,
   withLinkSignature = true,
+  lifetime = 120,
 ): Promise<FeeBumpTransaction> => {
   const inner = await build(
     channel.publicKey(),
@@ -133,6 +138,7 @@ export const receiveFresh = async (
     [channel, world.sponsor, ...(withLinkSignature ? [link] : [])],
     (builder) =>
       receive.memo === undefined ? builder : builder.addMemo(receive.memo),
+    lifetime,
   );
 
   return bump(world.feePayer, inner);
@@ -189,14 +195,15 @@ export const reclaim = async (
   return bump(world.feePayer, inner);
 };
 
-export const sweep = async (
+export const mergeLink = async (
   world: World,
   link: string,
+  signer: Keypair = world.sponsor,
 ): Promise<FeeBumpTransaction> => {
   const inner = await build(
     link,
     [Operation.accountMerge({ destination: world.sponsor.publicKey() })],
-    [world.sponsor],
+    [signer],
   );
 
   return bump(world.feePayer, inner);

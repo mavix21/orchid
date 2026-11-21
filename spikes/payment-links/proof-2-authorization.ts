@@ -10,7 +10,7 @@ import {
   mergeInCreationLedger,
   receiveFresh,
   reclaim,
-  sweep,
+  mergeLink,
 } from "./lib/design-a";
 import { pause } from "./lib/network";
 import { emit } from "./lib/report";
@@ -114,20 +114,20 @@ await accountFacts(proof, "L after receive", link.publicKey());
 
 await lineFacts(proof, "wallet after receive", wallet.publicKey(), world.usdc);
 
-await sponsorCounters(proof, "after A+ receive, before sweep", world);
+await sponsorCounters(proof, "after A+ receive, before merge", world);
 
 const merged = await execute(
   proof,
-  "next-ledger sweep: L as tx source, sponsor signature only",
-  await sweep(world, link.publicKey()),
+  "next-ledger merge: L as tx source, sponsor signature only",
+  await mergeLink(world, link.publicKey()),
 );
 
-emit(proof, "next-ledger sweep: result", undefined, {
-  sweepLedgerMinusReceiveLedger: (merged.ledger ?? 0) - (received.ledger ?? 0),
+emit(proof, "next-ledger merge: result", undefined, {
+  mergeLedgerMinusReceiveLedger: (merged.ledger ?? 0) - (received.ledger ?? 0),
   linkExists: await exists(link.publicKey()),
 });
 
-await sponsorCounters(proof, "after sweep", world);
+await sponsorCounters(proof, "after merge", world);
 
 const creationLedgerLink = Keypair.random();
 
@@ -254,15 +254,15 @@ await execute(
 
 await execute(
   proof,
-  "dust and stray balance: sweep",
-  await sweep(world, stray.publicKey()),
+  "dust and stray balance: merge",
+  await mergeLink(world, stray.publicKey()),
 );
 
 emit(proof, "dust and stray balance: result", undefined, {
   linkExists: await exists(stray.publicKey()),
 });
 
-await sponsorCounters(proof, "after dust and stray sweep", world);
+await sponsorCounters(proof, "after dust and stray merge", world);
 
 const first = Keypair.random();
 const second = Keypair.random();
@@ -343,14 +343,14 @@ emit(proof, "concurrency: summary", undefined, {
 
 await execute(
   proof,
-  "concurrency: sweep first link",
-  await sweep(world, first.publicKey()),
+  "concurrency: merge first link",
+  await mergeLink(world, first.publicKey()),
 );
 
 await execute(
   proof,
-  "concurrency: sweep second link",
-  await sweep(world, second.publicKey()),
+  "concurrency: merge second link",
+  await mergeLink(world, second.publicKey()),
 );
 
 await sponsorCounters(proof, "after concurrency", world);
@@ -373,8 +373,100 @@ await execute(
 
 await execute(
   proof,
-  "channel reuse: sweep",
-  await sweep(world, reuse.publicKey()),
+  "channel reuse: merge",
+  await mergeLink(world, reuse.publicKey()),
+);
+
+await sponsorCounters(proof, "after channel reuse", world);
+
+const authority = Keypair.random();
+const sweeper = Keypair.random();
+
+const authorityCreation = await createLinkBalance(
+  world,
+  authority.publicKey(),
+  amount,
+);
+
+await execute(proof, "op 8 authority: create", authorityCreation.transaction);
+
+await execute(
+  proof,
+  "op 8 authority: receive where op 7 installs a signer that does not sign the envelope",
+  await receiveFresh(world, channelOne, authority, {
+    asset: world.usdc,
+    amount,
+    balanceId: authorityCreation.balanceId,
+    destination: wallet.publicKey(),
+    cleanupSigner: sweeper.publicKey(),
+  }),
+);
+
+await accountFacts(
+  proof,
+  "op 8 authority: L after receive",
+  authority.publicKey(),
+);
+
+await execute(
+  proof,
+  "op 8 authority: merge signed only by the installed signer",
+  await mergeLink(world, authority.publicKey(), sweeper),
+);
+
+const expiring = Keypair.random();
+
+const expiringCreation = await createLinkBalance(
+  world,
+  expiring.publicKey(),
+  amount,
+);
+
+await execute(proof, "expiry: create", expiringCreation.transaction);
+
+const expiringReceive = {
+  asset: world.usdc,
+  amount,
+  balanceId: expiringCreation.balanceId,
+  destination: wallet.publicKey(),
+};
+
+const expiredDraft = await receiveFresh(
+  world,
+  channelZero,
+  expiring,
+  expiringReceive,
+  true,
+  4,
+);
+
+await pause(12_000);
+
+const channelBeforeExpiry = await sequenceOf(channelZero.publicKey());
+
+await execute(
+  proof,
+  "expiry: signed receive submitted after its time bound",
+  expiredDraft,
+);
+
+emit(proof, "expiry: state", undefined, {
+  channelSequenceUnchanged:
+    channelBeforeExpiry === (await sequenceOf(channelZero.publicKey())),
+  balanceStillClaimable: await balanceExists(expiringCreation.balanceId),
+  linkExists: await exists(expiring.publicKey()),
+});
+
+await execute(
+  proof,
+  "expiry: the same channel signs a fresh receive for the same balance",
+  await receiveFresh(world, channelZero, expiring, expiringReceive),
+);
+
+await execute(
+  proof,
+  "expiry: merge",
+  await mergeLink(world, expiring.publicKey()),
 );
 
 await sponsorCounters(proof, "final", world);
