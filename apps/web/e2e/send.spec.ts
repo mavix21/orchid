@@ -30,6 +30,8 @@ const usdc = new Asset(
 
 const serverFunction = "/_serverFn/";
 
+const baseAddress = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed";
+
 const openWallet = async (page: Page, username: string) => {
   const claimed: Array<string> = [];
 
@@ -185,6 +187,12 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await page.getByTestId("change-recipient").click();
   await page.getByTestId("change-destination").click();
   await choose(page, "address");
+  await page.getByRole("textbox").fill(baseAddress);
+  await page.getByTestId("continue-recipient").click();
+  await expect(page.getByRole("textbox")).toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
   await fill(page, exchange, "0.1");
   await expect(page.getByTestId("edit-memo")).toBeVisible();
   await expect(page.getByRole("dialog").getByRole("textbox")).toHaveCount(0);

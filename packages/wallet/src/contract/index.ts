@@ -42,6 +42,8 @@ export * from "./backup";
 
 export * from "./identity";
 
+export * from "./network-addresses";
+
 export class InvalidAddress extends Schema.TaggedClass<InvalidAddress>()(
   "InvalidAddress",
   {
