@@ -125,7 +125,10 @@ export class Directory extends Context.Service<
       claim: WalletClaim,
     ): Effect.Effect<Available | Unavailable, StoreFailure>;
 
-    start(address: AccountAddress): Effect.Effect<WalletRow, StoreFailure>;
+    start(
+      address: AccountAddress,
+      initial?: SigningRequest,
+    ): Effect.Effect<WalletRow, StoreFailure>;
     draft(
       row: WalletRow,
       request: SigningRequest,
@@ -231,6 +234,7 @@ export class Directory extends Context.Service<
 
       const start = Effect.fn("Directory.start")(function* (
         address: AccountAddress,
+        initial?: SigningRequest,
       ) {
         const now = yield* Clock.currentTimeMillis;
 
@@ -241,6 +245,10 @@ export class Directory extends Context.Service<
             status: "opening",
             network,
             testnetEpoch: epochAt(now),
+            attemptEnvelope: initial ? initial.envelope : null,
+            attemptExpiresAt: initial
+              ? DateTime.toDateUtc(initial.expiresAt)
+              : null,
           })
           .onConflictDoNothing()
           .returning();
@@ -474,7 +482,7 @@ export class Directory extends Context.Service<
               Effect.map((found) => availability(claim, found)),
             ),
           ),
-        start: (address) => wrap(start(address)),
+        start: (address, initial) => wrap(start(address, initial)),
         draft: (row, request) => wrap(draft(row, request)),
         seal: (row, sealed, claim) => wrap(seal(row, sealed, claim)),
         recoveryDraft: (row, request) => wrap(recoveryDraft(row, request)),

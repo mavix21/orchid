@@ -10,6 +10,7 @@ import {
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
@@ -47,8 +48,7 @@ import { ChainUnreachable } from "./chain-errors.server";
 import {
   type AccountState,
   accountFromEntries,
-  fetchEntries,
-  rpcCall,
+  stellarRpc,
 } from "./ledger.server";
 
 export { ChainUnreachable } from "./chain-errors.server";
@@ -57,7 +57,6 @@ export type { AccountState } from "./ledger.server";
 
 import {
   type KnownExchangeMemo,
-  knownExchangeMemos,
   memoRequirementFor,
 } from "./exchange-memos.server";
 import {
@@ -100,6 +99,44 @@ export class SubmissionRejected extends Schema.TaggedError<SubmissionRejected>()
     code: Schema.optional(Schema.String),
   },
 ) {}
+
+const loopbackHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+const validateRpcUrl = (rpcUrl: string): Effect.Effect<string> =>
+  Effect.gen(function* () {
+    const parsed = yield* Effect.try(() => new URL(rpcUrl)).pipe(Effect.orDie);
+
+    if (
+      parsed.protocol !== "https:" &&
+      !(parsed.protocol === "http:" && loopbackHosts.has(parsed.hostname))
+    )
+      return yield* Effect.die(
+        new Error(
+          "Stellar RPC URL must use HTTPS unless targeting a loopback host",
+        ),
+      );
+
+    return rpcUrl;
+  });
+
+const validateRpcTimeout = (
+  input: Duration.Input | undefined,
+): Effect.Effect<Duration.Duration> => {
+  if (input === undefined) return Effect.succeed(defaultRpcTimeout);
+
+  const parsed = Duration.fromInput(input);
+
+  if (
+    Option.isSome(parsed) &&
+    Duration.isFinite(parsed.value) &&
+    Duration.isPositive(parsed.value)
+  )
+    return Effect.succeed(parsed.value);
+
+  return Effect.die(
+    new Error("Stellar RPC timeout must be a positive finite duration"),
+  );
+};
 
 const RawSendTransaction = Schema.Union([
   Schema.Struct({ status: Schema.Literal("PENDING") }),
@@ -253,12 +290,9 @@ export class Chain extends Context.Service<
     Chain,
     Effect.gen(function* () {
       const settings = yield* WalletSettings;
-      const rpcTimeout = settings.rpcTimeout ?? defaultRpcTimeout;
-
-      const provideHttp = Effect.provideService(
-        HttpClient.HttpClient,
-        yield* HttpClient.HttpClient,
-      );
+      const rpcUrl = yield* validateRpcUrl(settings.rpcUrl);
+      const rpcTimeout = yield* validateRpcTimeout(settings.rpcTimeout);
+      const rpc = stellarRpc(yield* HttpClient.HttpClient, rpcUrl, rpcTimeout);
 
       const sponsor = Keypair.fromSecret(
         Redacted.value(settings.reserveSponsorSecret),
@@ -289,11 +323,7 @@ export class Chain extends Context.Service<
           ),
         ];
 
-        const response = yield* fetchEntries(
-          settings.rpcUrl,
-          keys,
-          rpcTimeout,
-        ).pipe(provideHttp);
+        const response = yield* rpc.entries(keys);
 
         return accountFromEntries(
           response.entries ?? [],
@@ -472,90 +502,73 @@ export class Chain extends Context.Service<
         );
 
       const submit = (sealed: Sealed) =>
-        rpcCall(
-          settings.rpcUrl,
-          "sendTransaction",
-          { transaction: sealed.envelope },
-          RawSendTransaction,
-          rpcTimeout,
-        ).pipe(
-          provideHttp,
-          Effect.flatMap((reply) =>
-            Match.value(reply).pipe(
-              Match.when({ status: "PENDING" }, () => Effect.void),
-              Match.when({ status: "DUPLICATE" }, () => Effect.void),
-              Match.when({ status: "TRY_AGAIN_LATER" }, () =>
-                Effect.fail(
-                  new ChainUnreachable({
-                    cause: new Error(
-                      "Stellar RPC sendTransaction returned TRY_AGAIN_LATER",
-                    ),
-                  }),
+        rpc
+          .call(
+            "sendTransaction",
+            { transaction: sealed.envelope },
+            RawSendTransaction,
+          )
+          .pipe(
+            Effect.flatMap((reply) =>
+              Match.value(reply).pipe(
+                Match.when({ status: "PENDING" }, () => Effect.void),
+                Match.when({ status: "DUPLICATE" }, () => Effect.void),
+                Match.when({ status: "TRY_AGAIN_LATER" }, () =>
+                  Effect.fail(
+                    new ChainUnreachable({
+                      cause: new Error(
+                        "Stellar RPC sendTransaction returned TRY_AGAIN_LATER",
+                      ),
+                    }),
+                  ),
                 ),
-              ),
-              Match.when({ status: "ERROR" }, ({ errorResultXdr }) =>
-                Effect.fail(
-                  errorResultXdr === undefined
-                    ? new SubmissionRejected({})
-                    : new SubmissionRejected({
-                        code: resultCode(
-                          xdr.TransactionResult.fromXDR(
-                            errorResultXdr,
-                            "base64",
+                Match.when({ status: "ERROR" }, ({ errorResultXdr }) =>
+                  Effect.fail(
+                    errorResultXdr === undefined
+                      ? new SubmissionRejected({})
+                      : new SubmissionRejected({
+                          code: resultCode(
+                            xdr.TransactionResult.fromXDR(
+                              errorResultXdr,
+                              "base64",
+                            ),
                           ),
-                        ),
-                      }),
+                        }),
+                  ),
                 ),
+                Match.exhaustive,
               ),
-              Match.exhaustive,
             ),
-          ),
-        );
+          );
 
       const transaction = (hash: string) =>
-        rpcCall(
-          settings.rpcUrl,
-          "getTransaction",
-          { hash },
-          RawTransactionLookup,
-          rpcTimeout,
-        ).pipe(provideHttp, Effect.map(transactionLookup));
+        rpc
+          .call("getTransaction", { hash }, RawTransactionLookup)
+          .pipe(Effect.map(transactionLookup));
 
       const settlement = (sealed: Sealed) =>
         resolveSettlement(sealed, { transaction, account });
 
       const pastOpeningWindow = (sealed: Sealed) =>
-        rpcCall(
-          settings.rpcUrl,
-          "getLatestLedger",
-          {},
-          Schema.Struct({ closeTime: Schema.NumberFromString }),
-          rpcTimeout,
-        ).pipe(
-          provideHttp,
-          Effect.map(
-            ({ closeTime }) =>
-              closeTime * 1000 > DateTime.toEpochMillis(sealed.expiresAt),
-          ),
-        );
+        rpc
+          .call(
+            "getLatestLedger",
+            {},
+            Schema.Struct({ closeTime: Schema.NumberFromString }),
+          )
+          .pipe(
+            Effect.map(
+              ({ closeTime }) =>
+                closeTime * 1000 > DateTime.toEpochMillis(sealed.expiresAt),
+            ),
+          );
 
-      const assets = yield* assetChain(
-        settings.rpcUrl,
-        sponsorAddress,
-        source,
-        rpcTimeout,
-      );
+      const assets = assetChain(rpc, sponsorAddress, source);
 
       return Chain.of({
         ...assets,
         validAddress: StrKey.isValidEd25519PublicKey,
-        memoRequiredFor: (address) =>
-          memoRequirementFor(
-            settings.rpcUrl,
-            address,
-            knownExchangeMemos,
-            rpcTimeout,
-          ).pipe(provideHttp),
+        memoRequiredFor: (address) => memoRequirementFor(rpc, address),
         pastOpeningWindow,
         account,
         balance: (address) =>

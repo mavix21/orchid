@@ -1,9 +1,14 @@
 import { expect, layer } from "@effect/vitest";
 import { Database } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import * as Clock from "effect/Clock";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 import {
   AssertionRefused,
   BackupFound,
@@ -27,6 +32,7 @@ import {
 } from "../src/device/client";
 import type { DeviceWallet, KeyStore } from "../src/device/key-store";
 import { backupSalt } from "../src/device/phrase-seal";
+import { Backups } from "../src/server/Backups.server";
 import {
   backups,
   passkeyChallenges,
@@ -354,6 +360,125 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             .where(eq(passkeyChallenges.purpose, "enrollment")),
         ).toEqual([]);
       }),
+    );
+
+    it.effect(
+      "consume rejects a challenge that expires while waiting on DELETE",
+      () =>
+        Effect.gen(function* () {
+          const db = yield* Database;
+          const now = yield* Clock.currentTimeMillis;
+
+          const consumed = yield* Effect.gen(function* () {
+            yield* TestClock.setTime(now);
+
+            const challenge = yield* Backups.use((service) =>
+              service.issue("restore"),
+            );
+
+            const lockHeld = yield* Latch.make();
+            const releaseLock = yield* Latch.make();
+
+            const holder = yield* db
+              .transaction((tx) =>
+                Effect.gen(function* () {
+                  yield* tx
+                    .select()
+                    .from(passkeyChallenges)
+                    .where(eq(passkeyChallenges.challenge, challenge))
+                    .for("update");
+                  yield* lockHeld.open;
+                  yield* releaseLock.await;
+                }),
+              )
+              .pipe(Effect.forkChild);
+
+            yield* lockHeld.await;
+
+            const attempt = yield* Backups.use((service) =>
+              service.consume(challenge, "restore"),
+            ).pipe(Effect.forkChild);
+
+            while (
+              (yield* db.execute(
+                sql`select 1 from pg_locks where locktype = 'transactionid' and not granted`,
+              )).rows.length === 0
+            )
+              yield* Effect.yieldNow;
+
+            yield* TestClock.adjust(Duration.minutes(5));
+            yield* releaseLock.open;
+            yield* Fiber.join(holder);
+
+            return yield* Fiber.join(attempt);
+          }).pipe(Effect.provide(TestClock.layer()));
+
+          expect(consumed).toBe(false);
+        }),
+    );
+
+    it.effect(
+      "issue computes the five-minute challenge expiry after cleanup completes",
+      () =>
+        Effect.gen(function* () {
+          const db = yield* Database;
+          const now = yield* Clock.currentTimeMillis;
+
+          const stale = Schema.decodeSync(PasskeyChallenge)("B".repeat(43));
+
+          yield* db.insert(passkeyChallenges).values({
+            challenge: stale,
+            purpose: "restore",
+            expiresAt: new Date(now - 1000),
+          });
+
+          const issued = yield* Effect.gen(function* () {
+            yield* TestClock.setTime(now);
+
+            const lockHeld = yield* Latch.make();
+            const releaseLock = yield* Latch.make();
+
+            const holder = yield* db
+              .transaction((tx) =>
+                Effect.gen(function* () {
+                  yield* tx
+                    .select()
+                    .from(passkeyChallenges)
+                    .where(eq(passkeyChallenges.challenge, stale))
+                    .for("update");
+                  yield* lockHeld.open;
+                  yield* releaseLock.await;
+                }),
+              )
+              .pipe(Effect.forkChild);
+
+            yield* lockHeld.await;
+
+            const attempt = yield* Backups.use((service) =>
+              service.issue("restore"),
+            ).pipe(Effect.forkChild);
+
+            while (
+              (yield* db.execute(
+                sql`select 1 from pg_locks where locktype = 'transactionid' and not granted`,
+              )).rows.length === 0
+            )
+              yield* Effect.yieldNow;
+
+            yield* TestClock.adjust(Duration.seconds(30));
+            yield* releaseLock.open;
+            yield* Fiber.join(holder);
+
+            return yield* Fiber.join(attempt);
+          }).pipe(Effect.provide(TestClock.layer()));
+
+          const rows = yield* db
+            .select()
+            .from(passkeyChallenges)
+            .where(eq(passkeyChallenges.challenge, issued));
+
+          expect(rows[0]?.expiresAt.getTime()).toBe(now + 30_000 + 5 * 60_000);
+        }),
     );
   },
 );

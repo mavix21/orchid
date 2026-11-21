@@ -90,16 +90,22 @@ export class Backups extends Context.Service<
           ),
         );
 
-        const now = yield* DateTime.now;
+        const cleanupAt = yield* DateTime.now;
 
         yield* db
           .delete(passkeyChallenges)
-          .where(lte(passkeyChallenges.expiresAt, DateTime.toDateUtc(now)));
+          .where(
+            lte(passkeyChallenges.expiresAt, DateTime.toDateUtc(cleanupAt)),
+          );
+
+        const issuedAt = yield* DateTime.now;
 
         yield* db.insert(passkeyChallenges).values({
           challenge,
           purpose,
-          expiresAt: DateTime.toDateUtc(DateTime.add(now, challengeLifetime)),
+          expiresAt: DateTime.toDateUtc(
+            DateTime.add(issuedAt, challengeLifetime),
+          ),
         });
 
         return challenge;
@@ -109,8 +115,6 @@ export class Backups extends Context.Service<
         challenge: PasskeyChallenge,
         purpose: ChallengePurpose,
       ) {
-        const now = yield* Clock.currentTimeMillis;
-
         const removed = yield* db
           .delete(passkeyChallenges)
           .where(
@@ -120,6 +124,8 @@ export class Backups extends Context.Service<
             ),
           )
           .returning();
+
+        const now = yield* Clock.currentTimeMillis;
 
         return removed.some((row) => row.expiresAt.getTime() > now);
       });

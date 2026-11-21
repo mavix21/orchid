@@ -1,10 +1,8 @@
 import type { Account } from "@stellar/stellar-sdk";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
-import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
-import * as HttpClient from "effect/http/HttpClient";
 import {
   type AccountAddress,
   type Asset,
@@ -29,8 +27,7 @@ import {
   issuerFromEntries,
   lineKey,
 } from "./ledger-assets.server";
-import { fetchEntries } from "./ledger.server";
-import { defaultRpcTimeout } from "./settings.server";
+import type { LedgerResult, StellarRpc } from "./ledger.server";
 
 export interface AssetChain {
   holdings(
@@ -57,95 +54,89 @@ export interface AssetChain {
 }
 
 export const assetChain = (
-  rpcUrl: string,
+  rpc: StellarRpc,
   reserveSponsor: AccountAddress,
   source: (address: AccountAddress) => Effect.Effect<Account, ChainUnreachable>,
-  timeout: Duration.Input = defaultRpcTimeout,
-): Effect.Effect<AssetChain, never, HttpClient.HttpClient> =>
-  Effect.map(HttpClient.HttpClient, (httpClient) => {
-    const read = <A>(
-      keys: Parameters<typeof fetchEntries>[1],
-      decode: (result: Effect.Success<ReturnType<typeof fetchEntries>>) => A,
-    ) =>
-      fetchEntries(rpcUrl, keys, timeout).pipe(
-        Effect.provideService(HttpClient.HttpClient, httpClient),
-        Effect.map(decode),
-      );
+): AssetChain => {
+  const read = <A>(
+    keys: Parameters<StellarRpc["entries"]>[0],
+    decode: (result: LedgerResult) => A,
+  ) => rpc.entries(keys).pipe(Effect.map(decode));
 
-    const window = Effect.map(Clock.currentTimeMillis, (now) => {
-      const minTime = Math.floor(now / 1000);
-      const maxTime = minTime + paymentLifetime;
-
-      return {
-        minTime,
-        maxTime,
-        expiresAt: DateTime.makeUnsafe(maxTime * 1000),
-      };
-    });
+  const window = Effect.map(Clock.currentTimeMillis, (now) => {
+    const minTime = Math.floor(now / 1000);
+    const maxTime = minTime + paymentLifetime;
 
     return {
-      holdings: (address, assets) =>
-        read(
-          [
-            accountKey(address),
-            lineKey(address, usdc),
-            ...assets.map((asset) => lineKey(address, toStellarAsset(asset))),
-          ],
-          (result) =>
-            holdingsFromEntries(
-              result.entries ?? [],
-              result.latestLedger,
-              reserveSponsor,
-              address,
-              assets,
-            ),
-        ),
-      issuer: (asset) =>
-        read([accountKey(asset.issuer)], (result) =>
-          issuerFromEntries(result.entries ?? [], asset.issuer),
-        ),
-      claimable: (balances) =>
-        balances.length === 0
-          ? Effect.succeed([])
-          : read(balances.map(balanceKey), (result) =>
-              claimablesFromEntries(result.entries ?? [], reserveSponsor),
-            ),
-      draftClaimable: Effect.fn("Chain.draftClaimable")(function* (
-        from: AccountAddress,
-        to: AccountAddress,
-        asset: Asset,
-        amount: PositiveAmount,
-      ) {
-        const holder = yield* source(from);
-        const { expiresAt, ...bounds } = yield* window;
-
-        return new SigningRequest({
-          envelope: draftClaimable({
-            ...bounds,
-            source: holder,
-            reserveSponsor,
-            to,
-            asset,
-            amount,
-          }),
-          expiresAt,
-        });
-      }),
-      draftAsset: Effect.fn("Chain.draftAsset")(function* (
-        address: AccountAddress,
-        plan: AssetPlan,
-      ) {
-        const holder = yield* source(address);
-        const { expiresAt, ...bounds } = yield* window;
-
-        return new SigningRequest({
-          envelope: draftPlan(plan, {
-            ...bounds,
-            source: holder,
-            reserveSponsor,
-          }),
-          expiresAt,
-        });
-      }),
+      minTime,
+      maxTime,
+      expiresAt: DateTime.makeUnsafe(maxTime * 1000),
     };
   });
+
+  return {
+    holdings: (address, assets) =>
+      read(
+        [
+          accountKey(address),
+          lineKey(address, usdc),
+          ...assets.map((asset) => lineKey(address, toStellarAsset(asset))),
+        ],
+        (result) =>
+          holdingsFromEntries(
+            result.entries ?? [],
+            result.latestLedger,
+            reserveSponsor,
+            address,
+            assets,
+          ),
+      ),
+    issuer: (asset) =>
+      read([accountKey(asset.issuer)], (result) =>
+        issuerFromEntries(result.entries ?? [], asset.issuer),
+      ),
+    claimable: (balances) =>
+      balances.length === 0
+        ? Effect.succeed([])
+        : read(balances.map(balanceKey), (result) =>
+            claimablesFromEntries(result.entries ?? [], reserveSponsor),
+          ),
+    draftClaimable: Effect.fn("Chain.draftClaimable")(function* (
+      from: AccountAddress,
+      to: AccountAddress,
+      asset: Asset,
+      amount: PositiveAmount,
+    ) {
+      const holder = yield* source(from);
+      const { expiresAt, ...bounds } = yield* window;
+
+      return new SigningRequest({
+        envelope: draftClaimable({
+          ...bounds,
+          source: holder,
+          reserveSponsor,
+          to,
+          asset,
+          amount,
+        }),
+        expiresAt,
+      });
+    }),
+    draftAsset: Effect.fn("Chain.draftAsset")(function* (
+      address: AccountAddress,
+      plan: AssetPlan,
+    ) {
+      const holder = yield* source(address);
+      const { expiresAt, ...bounds } = yield* window;
+
+      return new SigningRequest({
+        envelope: draftPlan(plan, {
+          ...bounds,
+          source: holder,
+          reserveSponsor,
+        }),
+        expiresAt,
+      });
+    }),
+  };
+};

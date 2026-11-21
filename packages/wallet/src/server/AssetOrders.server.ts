@@ -335,11 +335,12 @@ export class AssetOrders extends Context.Service<
       const authorize = (proposed: AssetProposed, sealed: Sealed) =>
         db.transaction((tx) =>
           Effect.gen(function* () {
-            const now = yield* Clock.currentTimeMillis;
-            const scope = scopeAt(now);
             const { id, wallet } = proposed.order;
 
             yield* tx.execute(walletLock(wallet));
+
+            const lockedAt = yield* Clock.currentTimeMillis;
+            const scope = scopeAt(lockedAt);
 
             const held = yield* tx
               .select({ id: assetOrders.id })
@@ -358,7 +359,7 @@ export class AssetOrders extends Context.Service<
               .where(
                 and(
                   eq(transfers.network, network),
-                  eq(transfers.testnetEpoch, epochAt(now)),
+                  eq(transfers.testnetEpoch, epochAt(lockedAt)),
                   eq(transfers.sender, wallet),
                   eq(transfers.status, "authorized"),
                 ),
@@ -366,6 +367,8 @@ export class AssetOrders extends Context.Service<
 
             if (paying[0] || (held[0] && held[0].id !== id))
               return new SlotOccupied();
+
+            const commitAt = yield* Clock.currentTimeMillis;
 
             const written = yield* tx
               .update(assetOrders)
@@ -383,7 +386,7 @@ export class AssetOrders extends Context.Service<
                   gt(
                     assetOrders.expiresAt,
                     DateTime.toDateUtc(
-                      DateTime.makeUnsafe(now + approvalMargin * 1000),
+                      DateTime.makeUnsafe(commitAt + approvalMargin * 1000),
                     ),
                   ),
                 ),

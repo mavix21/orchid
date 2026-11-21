@@ -433,12 +433,13 @@ export class Transfers extends Context.Service<
       const authorize = (proposed: Proposed, sealed: Sealed) =>
         db.transaction((tx) =>
           Effect.gen(function* () {
-            const now = yield* Clock.currentTimeMillis;
-            const scope = scopeAt(now);
             const id = proposed.order.id;
             const request = proposed.request;
 
             yield* tx.execute(walletLock(proposed.order.from));
+
+            const lockedAt = yield* Clock.currentTimeMillis;
+            const scope = scopeAt(lockedAt);
 
             const held = yield* tx
               .select()
@@ -464,7 +465,7 @@ export class Transfers extends Context.Service<
               .where(
                 and(
                   eq(assetOrders.network, network),
-                  eq(assetOrders.testnetEpoch, epochAt(now)),
+                  eq(assetOrders.testnetEpoch, epochAt(lockedAt)),
                   eq(assetOrders.wallet, proposed.order.from),
                   eq(assetOrders.status, "authorized"),
                 ),
@@ -476,11 +477,13 @@ export class Transfers extends Context.Service<
               const open = yield* tx
                 .select({ total: count() })
                 .from(transfers)
-                .where(openFromAt(proposed.order.from, now));
+                .where(openFromAt(proposed.order.from, lockedAt));
 
               if ((open[0]?.total ?? 0) >= maxOpenClaimables)
                 return new ClaimablesFull();
             }
+
+            const commitAt = yield* Clock.currentTimeMillis;
 
             const written = yield* tx
               .update(transfers)
@@ -498,7 +501,7 @@ export class Transfers extends Context.Service<
                   gt(
                     transfers.expiresAt,
                     DateTime.toDateUtc(
-                      DateTime.makeUnsafe(now + approvalMargin * 1000),
+                      DateTime.makeUnsafe(commitAt + approvalMargin * 1000),
                     ),
                   ),
                 ),

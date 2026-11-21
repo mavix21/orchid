@@ -1,14 +1,21 @@
 import { assertTagged } from "./tagged";
+import { Database } from "@workspace/db";
+import { sql } from "drizzle-orm";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Latch from "effect/Latch";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 import {
   AddressRecipient,
   Pending,
@@ -17,10 +24,12 @@ import {
   Settled,
   Amount,
 } from "../src/contract";
-import { Applied } from "../src/server/Chain.server";
+import { Applied, Chain } from "../src/server/Chain.server";
 import { Directory, StoreFailure } from "../src/server/Directory.server";
+import { walletLock } from "../src/server/slot.server";
 import { Concluded, Proposed, Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
+import { approvalMargin, paymentLifetime } from "../src/stellar/network";
 import {
   dbLayer,
   world,
@@ -251,6 +260,95 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           ),
         ).toBeInstanceOf(Proposed);
       }),
+    );
+
+    it.effect(
+      "authorization keeps a transfer Proposed when waiting on the wallet lock crosses the approval margin",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+
+          yield* create(key, "maria");
+          world.accounts.set(addressOf(key), {
+            sequence: "1000",
+            ledger: 100,
+            accountSponsored: true,
+            sponsored: true,
+            nativeBalance: 0n,
+            balance: Option.some(Schema.decodeSync(Amount)("50000000")),
+          });
+
+          const order = orderFor(
+            key,
+            AddressRecipient.make({ value: addressOf(key) }),
+          );
+
+          const draft = yield* send(order);
+
+          assertTagged(draft, "TransferDraft");
+
+          const stored = Option.getOrThrow(
+            yield* Transfers.use((service) => service.find(order.id)),
+          );
+
+          assertTagged(stored, "Proposed");
+
+          const sealed = yield* Chain.use((chain) =>
+            chain.seal(
+              stored.request,
+              Option.getOrThrow(approve(stored.request, key)),
+              addressOf(key),
+            ),
+          ).pipe(Effect.provide(fakeChain));
+
+          const db = yield* Database;
+          const now = yield* Clock.currentTimeMillis;
+
+          const outcome = yield* Effect.gen(function* () {
+            yield* TestClock.setTime(now);
+
+            const lockHeld = yield* Latch.make();
+            const releaseLock = yield* Latch.make();
+
+            const holder = yield* db
+              .transaction((tx) =>
+                Effect.gen(function* () {
+                  yield* tx.execute(walletLock(addressOf(key)));
+                  yield* lockHeld.open;
+                  yield* releaseLock.await;
+                }),
+              )
+              .pipe(Effect.forkChild);
+
+            yield* lockHeld.await;
+
+            const attempt = yield* Transfers.use((service) =>
+              service.authorize(stored, sealed),
+            ).pipe(Effect.forkChild);
+
+            while (
+              (yield* db.execute(
+                sql`select 1 from pg_locks where locktype = 'advisory' and not granted`,
+              )).rows.length === 0
+            )
+              yield* Effect.yieldNow;
+
+            yield* TestClock.adjust(
+              Duration.seconds(paymentLifetime - approvalMargin + 1),
+            );
+            yield* releaseLock.open;
+            yield* Fiber.join(holder);
+
+            return yield* Fiber.join(attempt);
+          }).pipe(Effect.provide(TestClock.layer()));
+
+          expect(outcome).toBeInstanceOf(Proposed);
+          expect(
+            Option.getOrThrow(
+              yield* Transfers.use((service) => service.find(order.id)),
+            ),
+          ).toBeInstanceOf(Proposed);
+        }),
     );
   },
 );

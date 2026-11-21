@@ -2,6 +2,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
+import * as Semaphore from "effect/Semaphore";
 import {
   type AccountAddress,
   type BalanceId,
@@ -23,10 +24,17 @@ export const portfolioFlow = Effect.gen(function* () {
   const assets = yield* AssetOrders;
   const transfers = yield* Transfers;
 
-  const loadHoldings = (address: AccountAddress) =>
+  const loadHoldings = (
+    address: AccountAddress,
+    permits: Semaphore.Semaphore,
+  ) =>
     Effect.gen(function* () {
       const tracked = yield* assets.tracked(address);
-      const state = yield* chain.holdings(address, [baseAsset, ...tracked]);
+
+      const state = yield* permits.withPermit(
+        chain.holdings(address, [baseAsset, ...tracked]),
+      );
+
       const balances: Balance[] = [];
 
       if (Option.isSome(state)) {
@@ -55,8 +63,8 @@ export const portfolioFlow = Effect.gen(function* () {
         yield* Effect.forEach(
           missing,
           (asset) =>
-            chain
-              .holdings(address, [asset])
+            permits
+              .withPermit(chain.holdings(address, [asset]))
               .pipe(
                 Effect.flatMap((confirmed) =>
                   Option.isSome(confirmed) && confirmed.value.lines.length === 0
@@ -77,12 +85,15 @@ export const portfolioFlow = Effect.gen(function* () {
       };
     });
 
-  const loadClaimables = (address: AccountAddress) =>
+  const loadClaimables = (
+    address: AccountAddress,
+    permits: Semaphore.Semaphore,
+  ) =>
     Effect.gen(function* () {
       const pending = yield* transfers.openBalances(address);
 
-      const entries = yield* chain.claimable(
-        pending.map((item) => item.balance),
+      const entries = yield* permits.withPermit(
+        chain.claimable(pending.map((item) => item.balance)),
       );
 
       const claimable: ClaimableBalance[] = [];
@@ -119,8 +130,8 @@ export const portfolioFlow = Effect.gen(function* () {
       yield* Effect.forEach(
         missing,
         (balance) =>
-          chain
-            .claimable([balance])
+          permits
+            .withPermit(chain.claimable([balance]))
             .pipe(
               Effect.flatMap((confirmed) =>
                 confirmed.length === 0
@@ -135,8 +146,10 @@ export const portfolioFlow = Effect.gen(function* () {
     });
 
   return Effect.fn("Wallet.portfolio")(function* (address: AccountAddress) {
+    const permits = yield* Semaphore.make(rpcReadConcurrency);
+
     const [holdings, claimable] = yield* Effect.all(
-      [loadHoldings(address), loadClaimables(address)],
+      [loadHoldings(address, permits), loadClaimables(address, permits)],
       { concurrency: rpcReadConcurrency },
     );
 
