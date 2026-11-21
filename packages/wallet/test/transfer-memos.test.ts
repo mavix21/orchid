@@ -88,9 +88,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           const key = yield* fundedWallet();
-          const baseKey = Keypair.random();
-
-          fundHolder(baseKey);
+          const baseKey = yield* fundedWallet("pedro");
 
           const base = addressOf(baseKey);
 

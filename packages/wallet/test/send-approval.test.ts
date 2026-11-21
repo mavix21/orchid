@@ -199,6 +199,17 @@ it.live.each(mismatches)("refuses %s", ([, intent, envelope]) =>
   }),
 );
 
+it.live("signs a draft paying the ordered muxed destination", () =>
+  Effect.gen(function* () {
+    const { approvals, client } = deviceWith(() =>
+      actors.payment({ to: actors.muxed("1"), amount }),
+    );
+
+    expect(yield* client.send(toMuxed)).toEqual(new DraftRejected());
+    expect(approvals.filter(Option.isSome)).toHaveLength(1);
+  }),
+);
+
 it.live(
   "asks once for a fresh draft when the draft expires within the approval margin",
   () =>

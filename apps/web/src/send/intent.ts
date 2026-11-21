@@ -1,6 +1,7 @@
 import {
   DestinationAddress,
   AddressRecipient,
+  MuxedAddress,
   type Asset,
   PaymentMemo,
   type Recipient,
@@ -102,7 +103,11 @@ export function intentOf(
 
   const memo = form.memo.trim();
 
-  if (destination === "username" || memo === "")
+  if (
+    destination === "username" ||
+    memo === "" ||
+    Schema.is(MuxedAddress)(to.success.value)
+  )
     return Result.succeed(
       new TransferIntent({ to: to.success, asset, amount: amount.value }),
     );
