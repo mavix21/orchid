@@ -1,5 +1,7 @@
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import {
   type AccountAddress,
   type BalanceId,
@@ -16,11 +18,11 @@ import {
   assetKey,
 } from "../contract";
 import { network } from "../stellar/network";
-import { Chain, type ChainUnreachable } from "./Chain.server";
+import { Applied, Chain, type ChainUnreachable } from "./Chain.server";
 import { Directory, type StoreFailure } from "./Directory.server";
 import { selectRecoverablePaymentLinks } from "./ledger-assets.server";
 import { rpcReadConcurrency } from "./settings.server";
-import { Transfers } from "./Transfers.server";
+import { type Authorized, Transfers } from "./Transfers.server";
 
 export const paymentLinksFlow = Effect.gen(function* () {
   const chain = yield* Chain;
@@ -90,10 +92,38 @@ export const paymentLinksFlow = Effect.gen(function* () {
     return new OpenPaymentLinks({ links });
   });
 
+  const reconcileLiveLink = Effect.fn("Wallet.reconcileLiveLink")(function* (
+    authorized: Authorized,
+  ) {
+    if (
+      authorized.claimable === undefined ||
+      !Predicate.isTagged(authorized.order.to, "PaymentLink")
+    )
+      return Option.none<Applied>();
+
+    const expectedAddress = authorized.order.to.value;
+    const entries = yield* chain.claimable([authorized.claimable]);
+
+    const matched = selectRecoverablePaymentLinks(
+      entries,
+      authorized.order.from,
+    ).some(
+      (entry) =>
+        entry.balance === authorized.claimable &&
+        entry.address === expectedAddress &&
+        assetKey(entry.asset) === assetKey(authorized.order.asset) &&
+        entry.amount === authorized.order.amount,
+    );
+
+    return matched
+      ? Option.some(new Applied({ at: yield* DateTime.now }))
+      : Option.none<Applied>();
+  });
+
   const resolvePaymentLink = Effect.fn("Wallet.resolvePaymentLink")(function* (
     sender: AccountAddress,
     receipt: PaymentLinkReceipt,
-  ): Effect.fn.Return<ResolveReceiptStep, ChainUnreachable> {
+  ): Effect.fn.Return<ResolveReceiptStep, StoreFailure | ChainUnreachable> {
     if (!chain.validAddress(sender))
       return new InvalidAddress({ address: sender });
 
@@ -119,6 +149,22 @@ export const paymentLinksFlow = Effect.gen(function* () {
 
     if (!match) return new PaymentLinkNotFound();
 
+    const latest = yield* transfers.latestFrom(sender);
+
+    if (
+      Option.isSome(latest) &&
+      Predicate.isTagged(latest.value, "Authorized") &&
+      latest.value.claimable === match.balance &&
+      Predicate.isTagged(latest.value.order.to, "PaymentLink") &&
+      latest.value.order.to.value === match.address &&
+      assetKey(latest.value.order.asset) === assetKey(match.asset) &&
+      latest.value.order.amount === match.amount
+    )
+      yield* transfers.conclude(
+        latest.value.order.id,
+        new Applied({ at: yield* DateTime.now }),
+      );
+
     return new ResolvedPaymentLink({
       balance: match.balance,
       address: match.address,
@@ -127,5 +173,10 @@ export const paymentLinksFlow = Effect.gen(function* () {
     });
   });
 
-  return { paymentLinks, resolvePaymentLink, closeGoneBalance };
+  return {
+    paymentLinks,
+    resolvePaymentLink,
+    reconcileLiveLink,
+    closeGoneBalance,
+  };
 });

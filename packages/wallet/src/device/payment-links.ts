@@ -149,8 +149,7 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
       const resolved = yield* port.resolvePaymentLink(wallet.address, receipt);
 
       if (Predicate.isTagged(resolved, "ResolvedPaymentLink")) {
-        if (concluded || wallet.approvedUntil === undefined)
-          yield* clearStoredLink(wallet);
+        yield* clearStoredLink(wallet);
 
         return resolved;
       }
