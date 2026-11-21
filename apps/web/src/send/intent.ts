@@ -1,4 +1,5 @@
 import {
+  type AddressNetwork,
   DestinationAddress,
   AddressRecipient,
   MuxedAddress,
@@ -9,6 +10,7 @@ import {
   Username,
   UsernameRecipient,
   parseAmount,
+  recogniseAddress,
 } from "@workspace/wallet";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
@@ -37,6 +39,22 @@ export const memoByteLimit = 28;
 export const memoBytes = (memo: string) =>
   new TextEncoder().encode(memo.trim()).length;
 
+const otherNetworkNames: Record<Exclude<AddressNetwork, "stellar">, string> = {
+  evm: "una red EVM (como Base o Ethereum)",
+  solana: "Solana",
+  tron: "Tron",
+  bitcoin: "Bitcoin",
+};
+
+const addressProblem = (typed: string) =>
+  Option.match(recogniseAddress(typed), {
+    onNone: () => "La dirección no es válida",
+    onSome: (network) =>
+      network === "stellar"
+        ? "La dirección no es válida"
+        : `Esta es una dirección de ${otherNetworkNames[network]}. Por ahora Orchid envía dólares por Stellar. Pídele a quien recibe una dirección de Stellar, o envíale un link de pago.`,
+  });
+
 export const recipientOf = (
   destination: Destination,
   typed: string,
@@ -57,12 +75,7 @@ export const recipientOf = (
     Match.when("address", () =>
       Option.match(Schema.decodeOption(DestinationAddress)(typed), {
         onNone: () =>
-          Result.fail(
-            new FieldProblem(
-              "recipient",
-              "Una dirección Stellar empieza con G o M",
-            ),
-          ),
+          Result.fail(new FieldProblem("recipient", addressProblem(typed))),
         onSome: (value) => Result.succeed(AddressRecipient.make({ value })),
       }),
     ),
