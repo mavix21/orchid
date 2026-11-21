@@ -91,6 +91,18 @@ To develop against Neon, `bunx neon checkout dev` selects the database branch an
 
 `packages/db` exports `Database` and `databaseLayer`; the web server builds the layer from `env.HYPERDRIVE` inside each request. Wallet tables and their Drizzle migrations live in `packages/wallet`; see the [wallet README](packages/wallet/README.md) for its behaviour, tests and the Hyperdrive caching prerequisite for deployment. The design rationale is in [docs/architecture/wallet-testnet](docs/architecture/wallet-testnet/rationale.md).
 
+### Test from your phone
+
+`bun run dev:phone` starts the dev stack and serves it over HTTPS to your own Tailscale devices only, at `https://<machine>.<tailnet>.ts.net:8443`. It uses Tailscale Serve, never Funnel, so nothing is reachable from the public internet, and the hostname is stable, so passkeys created on the phone keep working. The Postgres container above must be running. It prints the URL on its own line once the app responds; Ctrl+C or `bun run dev:phone:stop` stops the stack and removes the serve entry. Running it again while it is up only reprints the URL.
+
+The ts.net origin is accepted for passkeys only in this mode (it is derived from `tailscale status --json`); `PASSKEY_ORIGINS` in `apps/web/wrangler.jsonc` is unchanged.
+
+One-time setup:
+
+1. Install Tailscale on the Mac and the phone and sign in to the same tailnet on both.
+2. In the Tailscale admin console, DNS page, enable MagicDNS and HTTPS Certificates.
+3. Keep the Mac awake and Tailscale connected.
+
 Design tokens (Figma Light/Dark variables as shadcn CSS variables) live in `packages/ui/src/styles/tokens.css`.
 
 Checks: `bun run typecheck`, `bun run lint`, `bun run fmt:check`, `bun run build`. Format: `bun run fmt`. Production preview: `bun run --cwd apps/web preview`.
