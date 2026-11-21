@@ -41,11 +41,11 @@ Sending and receiving are free; that is how Orchid spreads. Revenue comes from w
 
 ## Roadmap
 
-| Stage                       | Features                                                                                                                              |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Live on Stellar testnet** | Permanent usernames, sponsored accounts, passkey backup and restore, USDC payments from the app with exchange memos, reserve recovery |
-| **Next**                    | Memo checks against the ledger, payment links, activity, accounts that open on first deposit, deposits from Solana and Tron           |
-| **Then**                    | Sending to Solana, Base and other networks, payouts to Yape and Plin, Ahorro, swaps, tokenized stocks and Bitcoin                     |
+| Stage                       | Features                                                                                                                                                         |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Live on Stellar testnet** | Permanent usernames, sponsored accounts, passkey backup and restore, USDC payments from the app with exchange memos checked against the ledger, reserve recovery |
+| **Next**                    | Payment links, activity, accounts that open on first deposit, deposits from Solana and Tron                                                                      |
+| **Then**                    | Sending to Solana, Base and other networks, payouts to Yape and Plin, Ahorro, swaps, tokenized stocks and Bitcoin                                                |
 
 ## Built with
 
