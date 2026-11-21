@@ -93,7 +93,7 @@ const turnServeOff = (host) => {
 
   if (result.status !== 0)
     process.stderr.write(
-      `dev:phone: could not remove the Tailscale serve entry. Run \`tailscale serve --https=${servePort} off\`.\n${result.stderr}`,
+      `dev:phone: could not remove the Tailscale serve entry. Run \`tailscale serve --https=${servePort} --set-path=/ off\`.\n${result.stderr}`,
     );
 };
 
@@ -227,6 +227,9 @@ const start = async () => {
     const runningLauncher = readRunningLauncher();
 
     if (runningLauncher !== undefined) {
+      if (readState()?.dev === undefined)
+        fail("another dev:phone is starting. Retry in a moment.");
+
       serveOnTailnet(host);
       process.stdout.write(
         `dev:phone is already running (pid ${runningLauncher}).\n`,
