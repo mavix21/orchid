@@ -1,22 +1,15 @@
 import { assertTagged } from "./tagged";
-import { Database } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
-import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
-import * as Deferred from "effect/Deferred";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
-import * as Latch from "effect/Latch";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import * as TestClock from "effect/testing/TestClock";
 import {
   AddressRecipient,
   Pending,
@@ -30,7 +23,6 @@ import { Directory, StoreFailure } from "../src/server/Directory.server";
 import { walletLock } from "../src/server/slot.server";
 import { Concluded, Proposed, Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
-import { approvalMargin, paymentLifetime } from "../src/stellar/network";
 import {
   dbLayer,
   world,
@@ -40,6 +32,7 @@ import {
   approve,
   create,
   orderFor,
+  runAcrossLockWait,
   send,
   useDisposableDatabase,
   walletTestLayer,
@@ -263,20 +256,28 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       }),
     );
 
-    it.effect.each([
+    const lockCases: ReadonlyArray<{
+      readonly name: string;
+      readonly locktype: "advisory" | "relation";
+      readonly lock: (
+        address: ReturnType<typeof addressOf>,
+      ) => ReturnType<typeof walletLock>;
+    }> = [
       {
         name: "the wallet advisory lock",
         locktype: "advisory",
-        acquire: (address: ReturnType<typeof addressOf>) => walletLock(address),
+        lock: walletLock,
       },
       {
         name: "the post-lock slot query",
         locktype: "relation",
-        acquire: () => sql`lock table asset_orders in access exclusive mode`,
+        lock: () => sql`lock table asset_orders in access exclusive mode`,
       },
-    ])(
+    ];
+
+    it.effect.each(lockCases)(
       "authorization keeps a transfer Proposed when waiting on $name crosses the approval margin",
-      ({ locktype, acquire }) =>
+      ({ locktype, lock }) =>
         Effect.gen(function* () {
           const key = Keypair.random();
 
@@ -295,9 +296,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             AddressRecipient.make({ value: addressOf(key) }),
           );
 
-          const draft = yield* send(order);
-
-          assertTagged(draft, "TransferDraft");
+          assertTagged(yield* send(order), "TransferDraft");
 
           const stored = Option.getOrThrow(
             yield* Transfers.use((service) => service.find(order.id)),
@@ -313,52 +312,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ),
           ).pipe(Effect.provide(fakeChain));
 
-          const db = yield* Database;
-          const now = yield* Clock.currentTimeMillis;
-          const BackendPid = Schema.Struct({ pid: Schema.Number });
-
-          const outcome = yield* Effect.gen(function* () {
-            yield* TestClock.setTime(now);
-
-            const blockerPid = yield* Deferred.make<number>();
-            const releaseLock = yield* Latch.make();
-
-            const holder = yield* db
-              .transaction((tx) =>
-                Effect.gen(function* () {
-                  const pid = Schema.decodeUnknownSync(BackendPid)(
-                    (yield* tx.execute(sql`select pg_backend_pid() as pid`))
-                      .rows[0],
-                  ).pid;
-
-                  yield* tx.execute(acquire(addressOf(key)));
-                  yield* Deferred.succeed(blockerPid, pid);
-                  yield* releaseLock.await;
-                }),
-              )
-              .pipe(Effect.forkChild);
-
-            const pid = yield* Deferred.await(blockerPid);
-
-            const attempt = yield* Transfers.use((service) =>
-              service.authorize(stored, sealed),
-            ).pipe(Effect.forkChild);
-
-            while (
-              (yield* db.execute(
-                sql`select 1 from pg_locks where locktype = ${locktype} and not granted and ${pid} = any(pg_blocking_pids(pid))`,
-              )).rows.length === 0
-            )
-              yield* Effect.yieldNow;
-
-            yield* TestClock.adjust(
-              Duration.seconds(paymentLifetime - approvalMargin + 1),
-            );
-            yield* releaseLock.open;
-            yield* Fiber.join(holder);
-
-            return yield* Fiber.join(attempt);
-          }).pipe(Effect.provide(TestClock.layer()));
+          const { result: outcome } = yield* runAcrossLockWait({
+            locktype,
+            advance: "101 seconds",
+            acquire: (tx) => tx.execute(lock(addressOf(key))),
+            run: Transfers.use((service) => service.authorize(stored, sealed)),
+          });
 
           expect(outcome).toBeInstanceOf(Proposed);
           expect(

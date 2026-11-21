@@ -20,12 +20,17 @@ import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import { sql } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Latch from "effect/Latch";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as TestClock from "effect/testing/TestClock";
 import {
   AccountAddress,
   Approval,
@@ -427,6 +432,60 @@ export const paymentSequence = (draft: TransferDraft) => {
 
   return facts.sequence;
 };
+
+const BackendPid = Schema.Struct({ pid: Schema.Number });
+
+export const runAcrossLockWait = <A, E, R, L, TxE>(options: {
+  readonly locktype: "advisory" | "relation" | "transactionid";
+  readonly advance: Duration.Input;
+  readonly acquire: (
+    tx: Parameters<Parameters<Database["Service"]["transaction"]>[0]>[0],
+  ) => Effect.Effect<L, TxE>;
+  readonly run: Effect.Effect<A, E, R>;
+}) =>
+  Effect.gen(function* () {
+    const db = yield* Database;
+    const now = yield* Clock.currentTimeMillis;
+
+    const result = yield* Effect.gen(function* () {
+      yield* TestClock.setTime(now);
+
+      const blockerPid = yield* Deferred.make<number>();
+      const releaseLock = yield* Latch.make();
+
+      const holder = yield* db
+        .transaction((tx) =>
+          Effect.gen(function* () {
+            const pid = Schema.decodeUnknownSync(BackendPid)(
+              (yield* tx.execute(sql`select pg_backend_pid() as pid`)).rows[0],
+            ).pid;
+
+            yield* options.acquire(tx);
+            yield* Deferred.succeed(blockerPid, pid);
+            yield* releaseLock.await;
+          }),
+        )
+        .pipe(Effect.forkChild);
+
+      const pid = yield* Deferred.await(blockerPid);
+      const attempt = yield* Effect.forkChild(options.run);
+
+      while (
+        (yield* db.execute(
+          sql`select 1 from pg_locks where locktype = ${options.locktype} and not granted and ${pid} = any(pg_blocking_pids(pid))`,
+        )).rows.length === 0
+      )
+        yield* Effect.yieldNow;
+
+      yield* TestClock.adjust(options.advance);
+      yield* releaseLock.open;
+      yield* Fiber.join(holder);
+
+      return yield* Fiber.join(attempt);
+    }).pipe(Effect.provide(TestClock.layer()));
+
+    return { result, now };
+  });
 
 export function useDisposableDatabase() {
   beforeAll(async () => {

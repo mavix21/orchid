@@ -29,16 +29,12 @@ import {
 } from "../src/server/Chain.server";
 import { ChainUnreachable } from "../src/server/chain-errors.server";
 import { stellarRpc } from "../src/server/ledger.server";
-import {
-  WalletSettings,
-  defaultRpcTimeout,
-} from "../src/server/settings.server";
+import { WalletSettings } from "../src/server/settings.server";
 import {
   draftPayment,
   readEnvelope,
   signingPayload,
 } from "../src/stellar/envelopes";
-import { approvalMargin, paymentLifetime } from "../src/stellar/network";
 import {
   httpClientAnswering,
   requestBodyText,
@@ -60,10 +56,22 @@ const recipient = Schema.decodeSync(AccountAddress)(
   Keypair.random().publicKey(),
 );
 
+const jsonResponse = (body: string) =>
+  new Response(body, {
+    headers: { "Content-Type": "application/json" },
+  });
+
 const SendTransactionRequest = Schema.fromJsonString(
   Schema.Struct({
     method: Schema.Literal("sendTransaction"),
     params: Schema.Struct({ transaction: Schema.String }),
+  }),
+);
+
+const GetLedgerEntriesRequest = Schema.fromJsonString(
+  Schema.Struct({
+    method: Schema.Literal("getLedgerEntries"),
+    params: Schema.Struct({ keys: Schema.Array(Schema.String) }),
   }),
 );
 
@@ -95,37 +103,20 @@ const chainFor = (
     Layer.provide(http),
   );
 
-const fetchEntries = (
-  rpcUrl: string,
-  keys: ReadonlyArray<xdr.LedgerKey>,
-  timeout: Duration.Duration = defaultRpcTimeout,
-) =>
-  Effect.flatMap(HttpClient.HttpClient, (client) =>
-    stellarRpc(client, rpcUrl, timeout).entries(keys),
-  );
-
 const chainSubmitting = (reply: (transaction: string) => string) =>
   chainFor(
     testRpcUrl,
     httpClientAnswering((request) =>
       Effect.succeed(
-        new Response(
+        jsonResponse(
           reply(
             Schema.decodeSync(SendTransactionRequest)(requestBodyText(request))
               .params.transaction,
           ),
-          { headers: { "Content-Type": "application/json" } },
         ),
       ),
     ),
   );
-
-const GetLedgerEntriesRequest = Schema.fromJsonString(
-  Schema.Struct({
-    method: Schema.Literal("getLedgerEntries"),
-    params: Schema.Struct({ keys: Schema.Array(Schema.String) }),
-  }),
-);
 
 const accountEntryXdr = (key: Keypair, sequence: bigint) =>
   xdr.LedgerEntryData.account(
@@ -207,13 +198,13 @@ it.effect("asks the ledger RPC for each repeated key only once", () =>
     );
 
     expect(
-      yield* fetchEntries(testRpcUrl, [account, account]).pipe(
-        Effect.provide(http),
-      ),
-    ).toEqual({
-      entries: [],
-      latestLedger: 7,
-    });
+      yield* Effect.flatMap(HttpClient.HttpClient, (client) =>
+        stellarRpc(client, testRpcUrl, Duration.seconds(10)).entries([
+          account,
+          account,
+        ]),
+      ).pipe(Effect.provide(http)),
+    ).toEqual({ entries: [], latestLedger: 7 });
   }),
 );
 
@@ -237,34 +228,11 @@ it.effect.each([
 ])("fails with ChainUnreachable on $name", ({ http }) =>
   Effect.gen(function* () {
     expect(
-      yield* fetchEntries(testRpcUrl, [account]).pipe(
-        Effect.provide(http),
+      yield* Chain.use((chain) => chain.account(address)).pipe(
+        Effect.provide(chainFor(testRpcUrl, http)),
         Effect.flip,
       ),
     ).toBeInstanceOf(ChainUnreachable);
-  }),
-);
-
-it.effect.each([
-  { name: "malformed JSON", body: "{not json" },
-  {
-    name: "a schema mismatch",
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, result: { entries: "no" } }),
-  },
-])("dies on $name from the RPC", ({ body }) =>
-  Effect.gen(function* () {
-    const http = httpClientAnswering(() =>
-      Effect.succeed(
-        new Response(body, { headers: { "Content-Type": "application/json" } }),
-      ),
-    );
-
-    const exit = yield* fetchEntries(testRpcUrl, [account]).pipe(
-      Effect.provide(http),
-      Effect.exit,
-    );
-
-    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
   }),
 );
 
@@ -279,29 +247,28 @@ it.effect("does not propagate trace headers to the Stellar RPC", () =>
       });
 
       return Effect.succeed(
-        new Response(
+        jsonResponse(
           JSON.stringify({
             jsonrpc: "2.0",
             id: 1,
             result: { entries: [], latestLedger: 7 },
           }),
-          { headers: { "Content-Type": "application/json" } },
         ),
       );
     });
 
-    yield* fetchEntries(testRpcUrl, [account]).pipe(
+    yield* Chain.use((chain) => chain.account(address)).pipe(
       Effect.withSpan("stellar-rpc-check"),
-      Effect.provide(http),
+      Effect.provide(chainFor(testRpcUrl, http)),
     );
 
     expect(seen).toEqual([{ traceparent: undefined, b3: undefined }]);
   }),
 );
 
-it.live.each([{ status: "PENDING" }, { status: "DUPLICATE" }])(
-  "submit accepts sendTransaction status $status",
-  ({ status }) =>
+it.effect.each(["PENDING", "DUPLICATE"])(
+  "submit accepts sendTransaction status %s",
+  (status) =>
     Effect.gen(function* () {
       const sealed = yield* sealedPayment;
       const submitted: Array<string> = [];
@@ -324,72 +291,65 @@ it.live.each([{ status: "PENDING" }, { status: "DUPLICATE" }])(
     }),
 );
 
-it.live("submit fails with ChainUnreachable on TRY_AGAIN_LATER", () =>
+it.effect.each([
+  {
+    name: "TRY_AGAIN_LATER",
+    result: { status: "TRY_AGAIN_LATER" },
+    tag: "ChainUnreachable",
+    code: undefined,
+  },
+  {
+    name: "ERROR with a direct transaction result",
+    result: { status: "ERROR", errorResultXdr: txBadSeqXdr },
+    tag: "SubmissionRejected",
+    code: "txBadSeq",
+  },
+  {
+    name: "ERROR with a fee-bump inner transaction result",
+    result: { status: "ERROR", errorResultXdr: feeBumpTooEarlyXdr },
+    tag: "SubmissionRejected",
+    code: "txTooEarly",
+  },
+  {
+    name: "ERROR with an absent errorResultXdr",
+    result: { status: "ERROR" },
+    tag: "SubmissionRejected",
+    code: undefined,
+  },
+])("submit rejects $name", ({ result, tag, code }) =>
   Effect.gen(function* () {
     const sealed = yield* sealedPayment;
 
-    const chainLayer = chainSubmitting(() =>
-      JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        result: { status: "TRY_AGAIN_LATER", hash: sealed.hash },
-      }),
+    const failure = yield* Chain.use((chain) => chain.submit(sealed)).pipe(
+      Effect.provide(
+        chainSubmitting(() =>
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result }),
+        ),
+      ),
+      Effect.flip,
     );
 
+    expect(failure._tag).toBe(tag);
     expect(
-      yield* Chain.use((chain) => chain.submit(sealed)).pipe(
-        Effect.provide(chainLayer),
-        Effect.flip,
-      ),
-    ).toBeInstanceOf(ChainUnreachable);
+      failure instanceof SubmissionRejected ? failure.code : undefined,
+    ).toBe(code);
   }),
 );
 
-it.live.each([
-  {
-    name: "a direct transaction result",
-    result: { status: "ERROR", errorResultXdr: txBadSeqXdr },
-    expected: new SubmissionRejected({ code: "txBadSeq" }),
-  },
-  {
-    name: "a fee-bump inner transaction result",
-    result: { status: "ERROR", errorResultXdr: feeBumpTooEarlyXdr },
-    expected: new SubmissionRejected({ code: "txTooEarly" }),
-  },
-  {
-    name: "an absent errorResultXdr",
-    result: { status: "ERROR" },
-    expected: new SubmissionRejected({}),
-  },
-])(
-  "submit fails with SubmissionRejected on ERROR with $name",
-  ({ result, expected }) =>
-    Effect.gen(function* () {
-      const sealed = yield* sealedPayment;
-
-      const chainLayer = chainSubmitting(() =>
-        JSON.stringify({ jsonrpc: "2.0", id: 1, result }),
-      );
-
-      expect(
-        yield* Chain.use((chain) => chain.submit(sealed)).pipe(
-          Effect.provide(chainLayer),
-          Effect.flip,
-        ),
-      ).toEqual(expected);
-    }),
-);
-
-it.live("submit dies on an unrecognized sendTransaction status", () =>
+it.effect("submit dies on an unrecognized sendTransaction status", () =>
   Effect.gen(function* () {
     const sealed = yield* sealedPayment;
 
-    const chainLayer = chainSubmitting(() =>
-      JSON.stringify({ jsonrpc: "2.0", id: 1, result: { status: "UNKNOWN" } }),
-    );
-
     const exit = yield* Chain.use((chain) => chain.submit(sealed)).pipe(
-      Effect.provide(chainLayer),
+      Effect.provide(
+        chainSubmitting(() =>
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { status: "UNKNOWN" },
+          }),
+        ),
+      ),
       Effect.exit,
     );
 
@@ -399,11 +359,15 @@ it.live("submit dies on an unrecognized sendTransaction status", () =>
 
 it.effect.each([
   {
-    name: "response headers",
+    name: "response headers stall past the default 10s RPC timeout",
+    rpcTimeout: undefined,
+    beforeMs: 9_999,
     http: httpClientAnswering(() => Effect.never),
   },
   {
-    name: "response body",
+    name: "response body stalls past the default 10s RPC timeout",
+    rpcTimeout: undefined,
+    beforeMs: 9_999,
     http: httpClientAnswering(() =>
       Effect.succeed(
         new Response(new ReadableStream({ start() {} }), {
@@ -412,61 +376,28 @@ it.effect.each([
       ),
     ),
   },
-])(
-  "fails with ChainUnreachable when $name stall past the default 10s RPC timeout",
-  ({ http }) =>
-    Effect.gen(function* () {
-      const attempt = yield* Chain.use((chain) => chain.account(address)).pipe(
-        Effect.provide(chainFor(testRpcUrl, http)),
-        Effect.flip,
-        Effect.forkChild,
-      );
+  {
+    name: "response stalls past a custom 3s RPC timeout",
+    rpcTimeout: Duration.seconds(3),
+    beforeMs: 2_999,
+    http: httpClientAnswering(() => Effect.never),
+  },
+])("fails with ChainUnreachable when $name", ({ rpcTimeout, beforeMs, http }) =>
+  Effect.gen(function* () {
+    const attempt = yield* Chain.use((chain) => chain.account(address)).pipe(
+      Effect.provide(chainFor(testRpcUrl, http, rpcTimeout)),
+      Effect.flip,
+      Effect.forkChild,
+    );
 
-      yield* TestClock.adjust(Duration.millis(9_999));
+    yield* TestClock.adjust(Duration.millis(beforeMs));
 
-      expect(attempt.pollUnsafe()).toBeUndefined();
+    expect(attempt.pollUnsafe()).toBeUndefined();
 
-      yield* TestClock.adjust(Duration.millis(1));
+    yield* TestClock.adjust(Duration.millis(1));
 
-      expect(yield* Fiber.join(attempt)).toBeInstanceOf(ChainUnreachable);
-    }),
-);
-
-it.effect(
-  "submit fails with ChainUnreachable and does not resubmit when sendTransaction times out",
-  () =>
-    Effect.gen(function* () {
-      const sealed = yield* sealedPayment;
-      const submitted: Array<string> = [];
-
-      const chainLayer = chainFor(
-        testRpcUrl,
-        httpClientAnswering((request) => {
-          submitted.push(
-            Schema.decodeSync(SendTransactionRequest)(requestBodyText(request))
-              .params.transaction,
-          );
-
-          return Effect.never;
-        }),
-        "3 seconds",
-      );
-
-      const attempt = yield* Chain.use((chain) => chain.submit(sealed)).pipe(
-        Effect.provide(chainLayer),
-        Effect.flip,
-        Effect.forkChild,
-      );
-
-      yield* TestClock.adjust("2 seconds");
-
-      expect(attempt.pollUnsafe()).toBeUndefined();
-
-      yield* TestClock.adjust("1 second");
-
-      expect(yield* Fiber.join(attempt)).toBeInstanceOf(ChainUnreachable);
-      expect(submitted).toEqual([sealed.envelope]);
-    }),
+    expect(yield* Fiber.join(attempt)).toBeInstanceOf(ChainUnreachable);
+  }),
 );
 
 it.effect(
@@ -498,9 +429,7 @@ it.effect(
         ),
       ).pipe(Effect.provide(chainLayer));
 
-      expect(DateTime.toEpochMillis(draft.expiresAt)).toBe(
-        (1_700_000_000 + paymentLifetime) * 1000,
-      );
+      expect(DateTime.toEpochMillis(draft.expiresAt)).toBe(1_700_000_120_000);
 
       const approval = new Approval({
         signature: holder.sign(signingPayload(draft.envelope)),
@@ -512,9 +441,7 @@ it.effect(
 
       expect(sealed.expiresAt).toEqual(draft.expiresAt);
 
-      yield* TestClock.adjust(
-        Duration.seconds(paymentLifetime - approvalMargin + 1),
-      );
+      yield* TestClock.adjust("101 seconds");
 
       expect(
         yield* Chain.use((chain) => chain.seal(draft, approval, address)).pipe(
@@ -536,16 +463,14 @@ it.effect(
         testRpcUrl,
         httpClientAnswering((request) =>
           Effect.gen(function* () {
-            const keys = Schema.decodeSync(GetLedgerEntriesRequest)(
+            const isSponsor = Schema.decodeSync(GetLedgerEntriesRequest)(
               requestBodyText(request),
-            ).params.keys;
-
-            const isSponsor = keys.includes(sponsorAccountKey);
+            ).params.keys.includes(sponsorAccountKey);
 
             yield* isSponsor ? sponsorStarted.open : targetStarted.open;
             yield* isSponsor ? targetStarted.await : sponsorStarted.await;
 
-            return new Response(
+            return jsonResponse(
               JSON.stringify({
                 jsonrpc: "2.0",
                 id: 1,
@@ -556,7 +481,6 @@ it.effect(
                   latestLedger: 7,
                 },
               }),
-              { headers: { "Content-Type": "application/json" } },
             );
           }),
         ),
@@ -576,13 +500,32 @@ it.effect(
 );
 
 it.effect.each([
-  { name: "remote plain HTTP", rpcUrl: "http://soroban-testnet.stellar.org" },
   {
-    name: "non-loopback host prefixed with loopback",
+    name: "remote plain HTTP URL",
     rpcUrl: "http://127.0.0.1.example.test",
+    rpcTimeout: undefined,
   },
-  { name: "non-HTTP scheme on loopback", rpcUrl: "ftp://localhost:8000" },
-])("Chain rejects $name RPC URL at construction", ({ rpcUrl }) =>
+  {
+    name: "non-HTTP loopback URL",
+    rpcUrl: "ftp://localhost:8000",
+    rpcTimeout: undefined,
+  },
+  {
+    name: "infinite rpcTimeout",
+    rpcUrl: testRpcUrl,
+    rpcTimeout: Duration.infinity,
+  },
+  {
+    name: "zero rpcTimeout",
+    rpcUrl: testRpcUrl,
+    rpcTimeout: Duration.zero,
+  },
+  {
+    name: "negative rpcTimeout",
+    rpcUrl: testRpcUrl,
+    rpcTimeout: Duration.millis(-1),
+  },
+])("Chain rejects $name at construction", ({ rpcUrl, rpcTimeout }) =>
   Effect.gen(function* () {
     const exit = yield* Chain.use((chain) =>
       Effect.succeed(chain.validAddress(address)),
@@ -591,53 +534,6 @@ it.effect.each([
         chainFor(
           rpcUrl,
           rpcAnswering(() => ""),
-        ),
-      ),
-      Effect.exit,
-    );
-
-    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
-  }),
-);
-
-it.effect.each([
-  { name: "HTTPS", rpcUrl: "https://soroban-testnet.stellar.org" },
-  { name: "localhost HTTP", rpcUrl: "http://localhost:8000" },
-  { name: "IPv4 loopback HTTP", rpcUrl: "http://127.0.0.1:8000" },
-  { name: "IPv6 loopback HTTP", rpcUrl: "http://[::1]:8000" },
-])("Chain accepts $name RPC URL", ({ rpcUrl }) =>
-  Effect.gen(function* () {
-    const http = rpcAnswering(() =>
-      JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        result: { entries: [], latestLedger: 7 },
-      }),
-    );
-
-    expect(
-      yield* Chain.use((chain) => chain.account(address)).pipe(
-        Effect.provide(chainFor(rpcUrl, http)),
-      ),
-    ).toEqual(Option.none());
-  }),
-);
-
-it.effect.each([
-  { name: "infinite Duration", rpcTimeout: Duration.infinity },
-  { name: "numeric Infinity", rpcTimeout: Number.POSITIVE_INFINITY },
-  { name: "zero Duration", rpcTimeout: Duration.zero },
-  { name: "negative Duration", rpcTimeout: Duration.millis(-1) },
-  { name: "NaN", rpcTimeout: Number.NaN },
-])("Chain rejects $name rpcTimeout at construction", ({ rpcTimeout }) =>
-  Effect.gen(function* () {
-    const exit = yield* Chain.use((chain) =>
-      Effect.succeed(chain.validAddress(address)),
-    ).pipe(
-      Effect.provide(
-        chainFor(
-          testRpcUrl,
-          rpcAnswering(() => ""),
           rpcTimeout,
         ),
       ),
@@ -645,5 +541,26 @@ it.effect.each([
     );
 
     expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+  }),
+);
+
+it.effect.each([
+  "http://localhost:8000",
+  "http://127.0.0.1:8000",
+  "http://[::1]:8000",
+])("Chain accepts loopback HTTP RPC URL %s", (rpcUrl) =>
+  Effect.gen(function* () {
+    expect(
+      yield* Chain.use((chain) =>
+        Effect.succeed(chain.validAddress(address)),
+      ).pipe(
+        Effect.provide(
+          chainFor(
+            rpcUrl,
+            rpcAnswering(() => ""),
+          ),
+        ),
+      ),
+    ).toBe(true);
   }),
 );

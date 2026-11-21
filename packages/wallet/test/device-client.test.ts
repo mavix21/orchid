@@ -27,7 +27,6 @@ import {
   makeWalletClient,
   makeWalletEffects,
 } from "../src/device/client";
-import { pendingSteps } from "../src/device/polling";
 import { DeviceWallet, type KeyStore } from "../src/device/key-store";
 import { SecretPhrase } from "../src/device/secret-phrase";
 import { signingKey } from "../src/device/signing";
@@ -46,8 +45,8 @@ import { SoftwareAuthenticator } from "./software-authenticator";
 
 const passkeys = new SoftwareAuthenticator(passkeyOrigin).passkeys;
 
-function memoryKeyStore() {
-  let saved = Option.none<DeviceWallet>();
+function memoryKeyStore(initial = Option.none<DeviceWallet>()) {
+  let saved = initial;
 
   const store: KeyStore = {
     read: () => Effect.sync(() => saved),
@@ -113,12 +112,12 @@ const pollingPort = (
   };
 };
 
-const seededStore = () => {
+const seededWallet = () => {
   const phrase = Schema.decodeSync(SecretPhrase)(
     "illness spike retreat truth genius clock brain pass fit cave bargain toe",
   );
 
-  let saved = Option.some(
+  return Option.some(
     new DeviceWallet({
       phrase,
       address: addressOf(signingKey(phrase)),
@@ -127,44 +126,35 @@ const seededStore = () => {
       backup: "stored",
     }),
   );
-
-  const store: KeyStore = {
-    read: () => Effect.sync(() => saved),
-    write: (wallet) =>
-      Effect.sync(() => {
-        saved = Option.some(wallet);
-      }),
-  };
-
-  return store;
 };
 
-it.effect(
-  "polls OpeningPending on the schedule and stops at pendingSteps",
-  () =>
-    Effect.gen(function* () {
-      let calls = 0;
-      const started = yield* Latch.make();
+it.effect("polls OpeningPending for 12 steps (22s) before stopping", () =>
+  Effect.gen(function* () {
+    const started = yield* Latch.make();
 
-      const port = pollingPort((call) => {
-        calls = call;
+    const port = pollingPort(
+      (call, claim) =>
+        call <= 12
+          ? new OpeningPending()
+          : new Opened({ profile: new Profile(claim) }),
+      started,
+    );
 
-        return new OpeningPending();
-      }, started);
+    const attempt = yield* Effect.forkChild(
+      makeWalletEffects(port, memoryKeyStore(seededWallet()), passkeys).create(
+        "maria",
+      ),
+    );
 
-      const effects = makeWalletEffects(port, seededStore(), passkeys);
-      const attempt = yield* Effect.forkChild(effects.create("maria"));
+    yield* started.await;
+    yield* TestClock.adjust("20 seconds");
 
-      yield* started.await;
-      yield* TestClock.adjust("20 seconds");
+    expect(attempt.pollUnsafe()).toBeUndefined();
 
-      expect(attempt.pollUnsafe()).toBeUndefined();
+    yield* TestClock.adjust("2 seconds");
 
-      yield* TestClock.adjust("2 seconds");
-
-      expect(yield* Fiber.join(attempt)).toEqual(new OpeningPending());
-      expect(calls).toBe(pendingSteps);
-    }),
+    expect(yield* Fiber.join(attempt)).toEqual(new OpeningPending());
+  }),
 );
 
 it.effect(
@@ -193,8 +183,13 @@ it.effect(
         started,
       );
 
-      const effects = makeWalletEffects(port, seededStore(), passkeys);
-      const attempt = yield* Effect.forkChild(effects.create("maria"));
+      const attempt = yield* Effect.forkChild(
+        makeWalletEffects(
+          port,
+          memoryKeyStore(seededWallet()),
+          passkeys,
+        ).create("maria"),
+      );
 
       yield* started.await;
       yield* TestClock.adjust("4 seconds");

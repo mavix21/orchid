@@ -1,15 +1,10 @@
 import { expect, layer } from "@effect/vitest";
 import { Database } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import * as Clock from "effect/Clock";
-import * as Deferred from "effect/Deferred";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
-import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as TestClock from "effect/testing/TestClock";
 import {
   AssertionRefused,
   BackupFound,
@@ -44,6 +39,7 @@ import { Wallet } from "../src/server/Wallet.server";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import {
   passkeyOrigin,
+  runAcrossLockWait,
   useDisposableDatabase,
   walletTestLayer,
 } from "./wallet-harness";
@@ -367,58 +363,23 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "consume rejects a challenge that expires while waiting on DELETE",
       () =>
         Effect.gen(function* () {
-          const db = yield* Database;
-          const now = yield* Clock.currentTimeMillis;
-          const BackendPid = Schema.Struct({ pid: Schema.Number });
+          const challenge = yield* Backups.use((service) =>
+            service.issue("restore"),
+          );
 
-          const consumed = yield* Effect.gen(function* () {
-            yield* TestClock.setTime(now);
-
-            const challenge = yield* Backups.use((service) =>
-              service.issue("restore"),
-            );
-
-            const blockerPid = yield* Deferred.make<number>();
-            const releaseLock = yield* Latch.make();
-
-            const holder = yield* db
-              .transaction((tx) =>
-                Effect.gen(function* () {
-                  const pid = Schema.decodeUnknownSync(BackendPid)(
-                    (yield* tx.execute(sql`select pg_backend_pid() as pid`))
-                      .rows[0],
-                  ).pid;
-
-                  yield* tx
-                    .select()
-                    .from(passkeyChallenges)
-                    .where(eq(passkeyChallenges.challenge, challenge))
-                    .for("update");
-                  yield* Deferred.succeed(blockerPid, pid);
-                  yield* releaseLock.await;
-                }),
-              )
-              .pipe(Effect.forkChild);
-
-            const pid = yield* Deferred.await(blockerPid);
-
-            const attempt = yield* Backups.use((service) =>
+          const { result: consumed } = yield* runAcrossLockWait({
+            locktype: "transactionid",
+            advance: "5 minutes",
+            acquire: (tx) =>
+              tx
+                .select()
+                .from(passkeyChallenges)
+                .where(eq(passkeyChallenges.challenge, challenge))
+                .for("update"),
+            run: Backups.use((service) =>
               service.consume(challenge, "restore"),
-            ).pipe(Effect.forkChild);
-
-            while (
-              (yield* db.execute(
-                sql`select 1 from pg_locks where locktype = 'transactionid' and not granted and ${pid} = any(pg_blocking_pids(pid))`,
-              )).rows.length === 0
-            )
-              yield* Effect.yieldNow;
-
-            yield* TestClock.adjust(Duration.minutes(5));
-            yield* releaseLock.open;
-            yield* Fiber.join(holder);
-
-            return yield* Fiber.join(attempt);
-          }).pipe(Effect.provide(TestClock.layer()));
+            ),
+          });
 
           expect(consumed).toBe(false);
         }),
@@ -429,61 +390,25 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           const db = yield* Database;
-          const now = yield* Clock.currentTimeMillis;
-          const BackendPid = Schema.Struct({ pid: Schema.Number });
-
           const stale = Schema.decodeSync(PasskeyChallenge)("B".repeat(43));
 
           yield* db.insert(passkeyChallenges).values({
             challenge: stale,
             purpose: "restore",
-            expiresAt: new Date(now - 1000),
+            expiresAt: new Date((yield* Clock.currentTimeMillis) - 1000),
           });
 
-          const issued = yield* Effect.gen(function* () {
-            yield* TestClock.setTime(now);
-
-            const blockerPid = yield* Deferred.make<number>();
-            const releaseLock = yield* Latch.make();
-
-            const holder = yield* db
-              .transaction((tx) =>
-                Effect.gen(function* () {
-                  const pid = Schema.decodeUnknownSync(BackendPid)(
-                    (yield* tx.execute(sql`select pg_backend_pid() as pid`))
-                      .rows[0],
-                  ).pid;
-
-                  yield* tx
-                    .select()
-                    .from(passkeyChallenges)
-                    .where(eq(passkeyChallenges.challenge, stale))
-                    .for("update");
-                  yield* Deferred.succeed(blockerPid, pid);
-                  yield* releaseLock.await;
-                }),
-              )
-              .pipe(Effect.forkChild);
-
-            const pid = yield* Deferred.await(blockerPid);
-
-            const attempt = yield* Backups.use((service) =>
-              service.issue("restore"),
-            ).pipe(Effect.forkChild);
-
-            while (
-              (yield* db.execute(
-                sql`select 1 from pg_locks where locktype = 'transactionid' and not granted and ${pid} = any(pg_blocking_pids(pid))`,
-              )).rows.length === 0
-            )
-              yield* Effect.yieldNow;
-
-            yield* TestClock.adjust(Duration.seconds(30));
-            yield* releaseLock.open;
-            yield* Fiber.join(holder);
-
-            return yield* Fiber.join(attempt);
-          }).pipe(Effect.provide(TestClock.layer()));
+          const { result: issued, now } = yield* runAcrossLockWait({
+            locktype: "transactionid",
+            advance: "30 seconds",
+            acquire: (tx) =>
+              tx
+                .select()
+                .from(passkeyChallenges)
+                .where(eq(passkeyChallenges.challenge, stale))
+                .for("update"),
+            run: Backups.use((service) => service.issue("restore")),
+          });
 
           const rows = yield* db
             .select()
