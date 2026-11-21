@@ -5,8 +5,10 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import type * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientError from "effect/http/HttpClientError";
 import {
   AccountAddress,
@@ -47,27 +49,30 @@ const SendTransactionRequest = Schema.fromJsonString(
   }),
 );
 
-const chainSubmitting = (reply: (transaction: string) => string) =>
+const chainFor = (rpcUrl: string, http: Layer.Layer<HttpClient.HttpClient>) =>
   Chain.layer.pipe(
     Layer.provide(
       Layer.succeed(WalletSettings, {
-        rpcUrl: testRpcUrl,
+        rpcUrl,
         reserveSponsorSecret: Redacted.make(sponsor.secret()),
         feePayerSecret: Redacted.make(feePayer.secret()),
         passkeyOrigins: [],
       }),
     ),
-    Layer.provide(
-      httpClientAnswering((request) =>
-        Effect.succeed(
-          new Response(
-            reply(
-              Schema.decodeSync(SendTransactionRequest)(
-                requestBodyText(request),
-              ).params.transaction,
-            ),
-            { headers: { "Content-Type": "application/json" } },
+    Layer.provide(http),
+  );
+
+const chainSubmitting = (reply: (transaction: string) => string) =>
+  chainFor(
+    testRpcUrl,
+    httpClientAnswering((request) =>
+      Effect.succeed(
+        new Response(
+          reply(
+            Schema.decodeSync(SendTransactionRequest)(requestBodyText(request))
+              .params.transaction,
           ),
+          { headers: { "Content-Type": "application/json" } },
         ),
       ),
     ),
@@ -320,5 +325,53 @@ it.live("submit dies on an unrecognized sendTransaction status", () =>
     );
 
     expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+  }),
+);
+
+it.effect.each([
+  { name: "remote plain HTTP", rpcUrl: "http://soroban-testnet.stellar.org" },
+  {
+    name: "non-loopback host prefixed with loopback",
+    rpcUrl: "http://127.0.0.1.example.test",
+  },
+  { name: "non-HTTP scheme on loopback", rpcUrl: "ftp://localhost:8000" },
+])("Chain rejects $name RPC URL at construction", ({ rpcUrl }) =>
+  Effect.gen(function* () {
+    const exit = yield* Chain.use((chain) =>
+      Effect.succeed(chain.validAddress(address)),
+    ).pipe(
+      Effect.provide(
+        chainFor(
+          rpcUrl,
+          rpcAnswering(() => ""),
+        ),
+      ),
+      Effect.exit,
+    );
+
+    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+  }),
+);
+
+it.effect.each([
+  { name: "HTTPS", rpcUrl: "https://soroban-testnet.stellar.org" },
+  { name: "localhost HTTP", rpcUrl: "http://localhost:8000" },
+  { name: "IPv4 loopback HTTP", rpcUrl: "http://127.0.0.1:8000" },
+  { name: "IPv6 loopback HTTP", rpcUrl: "http://[::1]:8000" },
+])("Chain accepts $name RPC URL", ({ rpcUrl }) =>
+  Effect.gen(function* () {
+    const http = rpcAnswering(() =>
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { entries: [], latestLedger: 7 },
+      }),
+    );
+
+    expect(
+      yield* Chain.use((chain) => chain.account(address)).pipe(
+        Effect.provide(chainFor(rpcUrl, http)),
+      ),
+    ).toEqual(Option.none());
   }),
 );

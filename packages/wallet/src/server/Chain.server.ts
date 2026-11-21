@@ -95,6 +95,25 @@ export class SubmissionRejected extends Schema.TaggedError<SubmissionRejected>()
   },
 ) {}
 
+const loopbackHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+const validateRpcUrl = (rpcUrl: string): Effect.Effect<string> =>
+  Effect.gen(function* () {
+    const parsed = yield* Effect.try(() => new URL(rpcUrl)).pipe(Effect.orDie);
+
+    if (
+      parsed.protocol !== "https:" &&
+      !(parsed.protocol === "http:" && loopbackHosts.has(parsed.hostname))
+    )
+      return yield* Effect.die(
+        new Error(
+          "Stellar RPC URL must use HTTPS unless targeting a loopback host",
+        ),
+      );
+
+    return rpcUrl;
+  });
+
 const RawSendTransaction = Schema.Union([
   Schema.Struct({ status: Schema.Literal("PENDING") }),
   Schema.Struct({ status: Schema.Literal("DUPLICATE") }),
@@ -247,6 +266,7 @@ export class Chain extends Context.Service<
     Chain,
     Effect.gen(function* () {
       const settings = yield* WalletSettings;
+      const rpcUrl = yield* validateRpcUrl(settings.rpcUrl);
 
       const provideHttp = Effect.provideService(
         HttpClient.HttpClient,
@@ -282,9 +302,7 @@ export class Chain extends Context.Service<
           ),
         ];
 
-        const response = yield* fetchEntries(settings.rpcUrl, keys).pipe(
-          provideHttp,
-        );
+        const response = yield* fetchEntries(rpcUrl, keys).pipe(provideHttp);
 
         return accountFromEntries(
           response.entries ?? [],
@@ -454,7 +472,7 @@ export class Chain extends Context.Service<
 
       const submit = (sealed: Sealed) =>
         rpcCall(
-          settings.rpcUrl,
+          rpcUrl,
           "sendTransaction",
           { transaction: sealed.envelope },
           RawSendTransaction,
@@ -493,19 +511,17 @@ export class Chain extends Context.Service<
         );
 
       const transaction = (hash: string) =>
-        rpcCall(
-          settings.rpcUrl,
-          "getTransaction",
-          { hash },
-          RawTransactionLookup,
-        ).pipe(provideHttp, Effect.map(transactionLookup));
+        rpcCall(rpcUrl, "getTransaction", { hash }, RawTransactionLookup).pipe(
+          provideHttp,
+          Effect.map(transactionLookup),
+        );
 
       const settlement = (sealed: Sealed) =>
         resolveSettlement(sealed, { transaction, account });
 
       const pastOpeningWindow = (sealed: Sealed) =>
         rpcCall(
-          settings.rpcUrl,
+          rpcUrl,
           "getLatestLedger",
           {},
           Schema.Struct({ closeTime: Schema.NumberFromString }),
@@ -517,13 +533,13 @@ export class Chain extends Context.Service<
           ),
         );
 
-      const assets = yield* assetChain(settings.rpcUrl, sponsorAddress, source);
+      const assets = yield* assetChain(rpcUrl, sponsorAddress, source);
 
       return Chain.of({
         ...assets,
         validAddress: StrKey.isValidEd25519PublicKey,
         memoRequiredFor: (address) =>
-          memoRequirementFor(settings.rpcUrl, address).pipe(provideHttp),
+          memoRequirementFor(rpcUrl, address).pipe(provideHttp),
         pastOpeningWindow,
         account,
         balance: (address) =>
