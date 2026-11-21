@@ -3,14 +3,29 @@ import { Keypair, xdr } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as HttpClient from "effect/http/HttpClient";
 import { AccountAddress } from "../src/contract";
 import { ChainUnreachable } from "../src/server/chain-errors.server";
 import {
   KnownExchangeMemo,
   memoRequirementFor,
 } from "../src/server/exchange-memos.server";
+import { stellarRpc } from "../src/server/ledger.server";
+import { defaultRpcTimeout } from "../src/server/settings.server";
 import { network } from "../src/stellar/network";
 import { rpcAnswering, testRpcUrl } from "./rpc-answering";
+
+const checkMemoRequirement = (
+  address: AccountAddress,
+  entries: ReadonlyArray<KnownExchangeMemo>,
+) =>
+  Effect.flatMap(HttpClient.HttpClient, (client) =>
+    memoRequirementFor(
+      stellarRpc(client, testRpcUrl, defaultRpcTimeout),
+      address,
+      entries,
+    ),
+  );
 
 const ledgerPublishing = (
   address: AccountAddress,
@@ -72,13 +87,13 @@ it.effect(
       );
 
       expect(
-        yield* memoRequirementFor(testRpcUrl, address, [entry]).pipe(
+        yield* checkMemoRequirement(address, [entry]).pipe(
           Effect.provide(http),
         ),
       ).toEqual(Option.some(entry));
       expect(
         yield* Effect.flip(
-          memoRequirementFor(testRpcUrl, randomAddress(), [entry]).pipe(
+          checkMemoRequirement(randomAddress(), [entry]).pipe(
             Effect.provide(http),
           ),
         ),
@@ -114,9 +129,7 @@ it.effect.each([
       const http = ledgerPublishing(address, memoRequired);
 
       expect(
-        yield* memoRequirementFor(testRpcUrl, address, []).pipe(
-          Effect.provide(http),
-        ),
+        yield* checkMemoRequirement(address, []).pipe(Effect.provide(http)),
       ).toEqual(
         required
           ? Option.some(

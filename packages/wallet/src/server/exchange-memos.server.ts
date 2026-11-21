@@ -4,7 +4,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AccountAddress } from "../contract";
 import { network } from "../stellar/network";
-import { fetchEntries } from "./ledger.server";
+import type { StellarRpc } from "./ledger.server";
 
 export class KnownExchangeMemo extends Schema.Class<KnownExchangeMemo>(
   "KnownExchangeMemo",
@@ -39,7 +39,7 @@ export function exchangeMemoFor(
 }
 
 export const memoRequirementFor = Effect.fn("Chain.memoRequiredFor")(function* (
-  rpcUrl: string,
+  rpc: StellarRpc,
   address: AccountAddress,
   entries: ReadonlyArray<KnownExchangeMemo> = knownExchangeMemos,
 ) {
@@ -49,7 +49,7 @@ export const memoRequirementFor = Effect.fn("Chain.memoRequiredFor")(function* (
 
   const accountId = Keypair.fromPublicKey(address).xdrAccountId();
 
-  const response = yield* fetchEntries(rpcUrl, [
+  const response = yield* rpc.entries([
     xdr.LedgerKey.data(
       new xdr.LedgerKeyData({ accountId, dataName: memoRequiredDataName }),
     ),

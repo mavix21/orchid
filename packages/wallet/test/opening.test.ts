@@ -8,11 +8,14 @@ import {
 } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Latch from "effect/Latch";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  AddressBound,
   AddressRecipient,
   InvalidAddress,
   NotSponsored,
@@ -20,6 +23,7 @@ import {
   NeedsReopening,
   Opened,
   OpeningDraft,
+  Profile,
   RecoveryDraft,
   Amount,
   Username,
@@ -301,6 +305,75 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             yield* send(orderFor(key, AddressRecipient.make({ value: bad }))),
           ).toBeInstanceOf(InvalidAddress);
           expect(world.submitted).toHaveLength(0);
+        }),
+    );
+
+    it.effect(
+      "concurrent first open of a usable account returns AddressBound when another username activates first",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+          const claimA = claimFor(key, "alice");
+          const claimB = claimFor(key, "bob");
+
+          world.accounts.set(claimA.address, {
+            sequence: "1000",
+            nativeBalance: 0n,
+            balance: Option.some(Schema.decodeSync(Amount)("0")),
+            ledger: 100,
+            accountSponsored: true,
+            sponsored: true,
+          });
+
+          const draftStarted = yield* Latch.make();
+          const resumeDraft = yield* Latch.make();
+
+          const pausedChain = Layer.effect(
+            Chain,
+            Effect.gen(function* () {
+              const real = yield* Chain;
+
+              return Chain.of({
+                ...real,
+                draftRecovery: (address) =>
+                  draftStarted.open.pipe(
+                    Effect.andThen(resumeDraft.await),
+                    Effect.andThen(real.draftRecovery(address)),
+                  ),
+              });
+            }),
+          ).pipe(Layer.provide(fakeChain));
+
+          const pausedWallet = Wallet.serviceLayer.pipe(
+            Layer.provide(stores),
+            Layer.provide(pausedChain),
+            Layer.provide(settings),
+          );
+
+          const callerA = yield* Wallet.use((wallet) =>
+            wallet.open(claimA, Option.none()),
+          ).pipe(Effect.provide(Layer.fresh(pausedWallet)), Effect.forkChild);
+
+          yield* draftStarted.await;
+
+          const bDraft = yield* opening(claimB);
+
+          assertTagged(bDraft, "RecoveryDraft");
+
+          const bOpened = yield* opening(claimB, approve(bDraft.request, key));
+
+          assertTagged(bOpened, "Opened");
+
+          yield* resumeDraft.open;
+
+          expect(yield* Fiber.join(callerA)).toEqual(
+            new AddressBound({
+              profile: new Profile({
+                address: claimA.address,
+                username: claimB.username,
+              }),
+            }),
+          );
         }),
     );
   },

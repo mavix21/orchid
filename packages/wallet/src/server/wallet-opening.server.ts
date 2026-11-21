@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  AddressBound,
   Approval,
   InvalidAddress,
   NotSponsored,
@@ -38,6 +39,40 @@ export const openingFlow = Effect.gen(function* () {
   const directory = yield* Directory;
   const { readAccount } = yield* confirmedReads;
 
+  const openedOrBound = Effect.fn("Wallet.openedOrBound")(function* (
+    row: WalletRow,
+    claim: WalletClaim,
+  ): Effect.fn.Return<OpenStep, StoreFailure> {
+    const profile = yield* directory.profile(row);
+
+    return profile.username === claim.username
+      ? new Opened({ profile })
+      : new AddressBound({ profile });
+  });
+
+  const saveRecoveryDraft = Effect.fn("Wallet.saveRecoveryDraft")(function* (
+    row: WalletRow,
+    request: SigningRequest,
+    claim: WalletClaim,
+  ): Effect.fn.Return<OpenStep, StoreFailure> {
+    const written = yield* directory.recoveryDraft(row, request);
+
+    if (written.status === "active")
+      return yield* openedOrBound(written, claim);
+
+    if (!written.recoveryDraft || !written.recoveryMaxTime)
+      return new OpeningPending();
+
+    return new RecoveryDraft({
+      request: new SigningRequest({
+        envelope: Schema.decodeSync(SigningRequest.fields.envelope)(
+          written.recoveryDraft,
+        ),
+        expiresAt: DateTime.makeUnsafe(written.recoveryMaxTime),
+      }),
+    });
+  });
+
   const recoveryStage = Effect.fn("Wallet.recoveryStage")(function* (
     row: WalletRow,
     state: AccountState,
@@ -68,22 +103,8 @@ export const openingFlow = Effect.gen(function* () {
       BigInt(facts.value.sequence) !== BigInt(state.sequence) + 1n
     ) {
       const request = yield* chain.draftRecovery(address);
-      const written = yield* directory.recoveryDraft(row, request);
 
-      if (written.status === "active")
-        return new Opened({ profile: yield* directory.profile(written) });
-
-      if (!written.recoveryDraft || !written.recoveryMaxTime)
-        return new OpeningPending();
-
-      return new RecoveryDraft({
-        request: new SigningRequest({
-          envelope: Schema.decodeSync(SigningRequest.fields.envelope)(
-            written.recoveryDraft,
-          ),
-          expiresAt: DateTime.makeUnsafe(written.recoveryMaxTime),
-        }),
-      });
+      return yield* saveRecoveryDraft(row, request, claim);
     }
 
     if (Option.isNone(approval)) return new RecoveryDraft({ request: stored });
@@ -140,12 +161,48 @@ export const openingFlow = Effect.gen(function* () {
 
     if (Option.isSome(refused)) return refused.value;
 
-    const row = yield* directory.start(claim.address);
-
+    const existing = yield* directory.byAddress(claim.address);
     const usable = Option.isSome(state) && Option.isSome(state.value.balance);
 
+    if (Option.isNone(existing)) {
+      if (usable && Option.isSome(state)) {
+        if (!state.value.sponsored) return new NotSponsored();
+
+        const request = yield* chain.draftRecovery(claim.address);
+        const row = yield* directory.start(claim.address);
+
+        if (row.status === "active") return yield* openedOrBound(row, claim);
+
+        return row.recoveryDraft && row.recoveryMaxTime
+          ? yield* recoveryStage(row, state.value, approval, claim)
+          : yield* saveRecoveryDraft(row, request, claim);
+      }
+
+      const request = yield* chain.draftOpening(claim.address);
+      const written = yield* directory.start(claim.address, request);
+
+      if (written.status === "active") return new OpeningPending();
+
+      const stored = openingAttempt(written);
+
+      if (Option.isSome(stored))
+        return stored.value instanceof SigningRequest
+          ? new OpeningDraft({ request: stored.value })
+          : new OpeningPending();
+
+      const drafted = yield* directory.draft(written, request);
+      const committed = openingAttempt(drafted);
+
+      return Option.isSome(committed) &&
+        committed.value instanceof SigningRequest
+        ? new OpeningDraft({ request: committed.value })
+        : new OpeningPending();
+    }
+
+    const row = existing.value;
+
     if (row.status === "active") {
-      if (usable) return new Opened({ profile: yield* directory.profile(row) });
+      if (usable) return yield* openedOrBound(row, claim);
 
       yield* directory.recover(row);
 

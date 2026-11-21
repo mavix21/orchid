@@ -1,4 +1,6 @@
 import { StrKey, xdr } from "@stellar/stellar-sdk";
+import * as Cause from "effect/Cause";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -20,6 +22,8 @@ const LedgerResult = Schema.Struct({
   latestLedger: Schema.Number,
 });
 
+export type LedgerResult = typeof LedgerResult.Type;
+
 export interface AccountState {
   readonly sequence: string;
   readonly nativeBalance: bigint;
@@ -33,6 +37,17 @@ export type RpcParams = Readonly<
   Record<string, string | ReadonlyArray<string>>
 >;
 
+export interface StellarRpc {
+  call<A, I>(
+    method: string,
+    params: RpcParams,
+    result: Schema.Codec<A, I>,
+  ): Effect.Effect<A, ChainUnreachable>;
+  entries(
+    keys: ReadonlyArray<xdr.LedgerKey>,
+  ): Effect.Effect<LedgerResult, ChainUnreachable>;
+}
+
 const rpcReply = <A, I>(result: Schema.Codec<A, I>) =>
   Schema.fromJsonString(
     Schema.Union([
@@ -43,46 +58,60 @@ const rpcReply = <A, I>(result: Schema.Codec<A, I>) =>
     ]),
   );
 
-export const rpcCall = <A, I>(
+export const stellarRpc = (
+  client: HttpClient.HttpClient,
   rpcUrl: string,
-  method: string,
-  params: RpcParams,
-  result: Schema.Codec<A, I>,
-): Effect.Effect<A, ChainUnreachable, HttpClient.HttpClient> =>
-  Effect.gen(function* () {
-    const client = yield* HttpClient.HttpClient;
+  deadline: Duration.Duration,
+): StellarRpc => {
+  const call = <A, I>(
+    method: string,
+    params: RpcParams,
+    result: Schema.Codec<A, I>,
+  ): Effect.Effect<A, ChainUnreachable> =>
+    Effect.gen(function* () {
+      const request = yield* HttpClientRequest.post(rpcUrl).pipe(
+        HttpClientRequest.bodyJson({ jsonrpc: "2.0", id: 1, method, params }),
+        Effect.orDie,
+      );
 
-    const request = yield* HttpClientRequest.post(rpcUrl).pipe(
-      HttpClientRequest.bodyJson({ jsonrpc: "2.0", id: 1, method, params }),
-      Effect.orDie,
+      const text = yield* client.execute(request).pipe(
+        Effect.flatMap(HttpClientResponse.filterStatusOk),
+        Effect.flatMap((response) => response.text),
+        Effect.provideService(HttpClient.TracerPropagationEnabled, false),
+        Effect.mapError((cause) => new ChainUnreachable({ cause })),
+      );
+
+      const reply = Schema.decodeSync(rpcReply(result))(text);
+
+      return "result" in reply
+        ? reply.result
+        : yield* new ChainUnreachable({
+            cause: new Error(reply.error.message),
+          });
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: deadline,
+        orElse: () =>
+          Effect.fail(
+            new ChainUnreachable({
+              cause: new Cause.TimeoutError(
+                `Stellar RPC ${method} timed out after ${Duration.format(deadline)}`,
+              ),
+            }),
+          ),
+      }),
     );
 
-    const text = yield* client.execute(request).pipe(
-      Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.flatMap((response) => response.text),
-      Effect.provideService(HttpClient.TracerPropagationEnabled, false),
-      Effect.mapError((cause) => new ChainUnreachable({ cause })),
-    );
-
-    const reply = Schema.decodeSync(rpcReply(result))(text);
-
-    return "result" in reply
-      ? reply.result
-      : yield* new ChainUnreachable({
-          cause: new Error(reply.error.message),
-        });
-  });
-
-export const fetchEntries = (
-  rpcUrl: string,
-  keys: ReadonlyArray<xdr.LedgerKey>,
-) =>
-  rpcCall(
-    rpcUrl,
-    "getLedgerEntries",
-    { keys: [...new Set(keys.map((key) => key.toXdr("base64")))] },
-    LedgerResult,
-  );
+  return {
+    call,
+    entries: (keys) =>
+      call(
+        "getLedgerEntries",
+        { keys: [...new Set(keys.map((key) => key.toXdr("base64")))] },
+        LedgerResult,
+      ),
+  };
+};
 
 export function sponsorOf(entry: LedgerEntry): Option.Option<AccountAddress> {
   if (!entry.extXdr) return Option.none();
