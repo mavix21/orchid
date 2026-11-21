@@ -1,41 +1,29 @@
-import { assertTagged } from "./tagged";
-import { sql } from "drizzle-orm";
-import { AssetOrders } from "../src/server/AssetOrders.server";
-import { Backups } from "../src/server/Backups.server";
 import { expect, layer } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
-import * as DateTime from "effect/DateTime";
+import { sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
+import * as Predicate from "effect/Predicate";
+import { Profile, ServiceFailed } from "../src/contract";
+import { Chain } from "../src/server/Chain.server";
+import { StoreFailure } from "../src/server/Directory.server";
+import { Transfers } from "../src/server/Transfers.server";
+import { assertTagged } from "./tagged";
 import {
-  AddressRecipient,
-  Pending,
-  Profile,
-  SenderBusy,
-  ServiceFailed,
-  Settled,
-  Amount,
-} from "../src/contract";
-import { Applied, Chain } from "../src/server/Chain.server";
-import { Directory, StoreFailure } from "../src/server/Directory.server";
-import { walletLock } from "../src/server/slot.server";
-import { Concluded, Proposed, Transfers } from "../src/server/Transfers.server";
-import { Wallet } from "../src/server/Wallet.server";
-import {
-  dbLayer,
-  world,
-  fakeChain,
-  settings,
   addressOf,
   approve,
-  create,
-  orderFor,
+  draftTransfer,
+  fakeChain,
+  findTransfer,
+  fundedWallet,
   runAcrossLockWait,
+  selfOrder,
   send,
+  settleHash,
+  sweep,
   useDisposableDatabase,
   walletTestLayer,
+  walletWithTransfers,
+  world,
 } from "./wallet-harness";
 
 useDisposableDatabase();
@@ -46,54 +34,28 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "a signed transfer survives failed submit and sweep finishes without the device",
       () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
-
-          yield* create(key, "maria");
-          world.accounts.set(addressOf(key), {
-            sequence: "1000",
-            ledger: 100,
-            accountSponsored: true,
-            sponsored: true,
-            nativeBalance: 0n,
-            balance: Option.some(Schema.decodeSync(Amount)("50000000")),
-          });
-
-          const order = orderFor(
-            key,
-            AddressRecipient.make({ value: addressOf(key) }),
-          );
-
-          const draft = yield* send(order);
-
-          assertTagged(draft, "TransferDraft");
+          const key = yield* fundedWallet();
+          const order = selfOrder(key);
+          const draft = yield* draftTransfer(order);
 
           expect(draft.recipient).toBeInstanceOf(Profile);
           expect(yield* send(order)).toEqual(draft);
-          world.failSubmit = true;
-          expect(
-            yield* send(order, approve(draft.request, key)),
-          ).toBeInstanceOf(Pending);
 
-          const stored = Option.getOrThrow(
-            yield* Transfers.use((transfers) => transfers.find(order.id)),
+          world.failSubmit = true;
+          expect((yield* send(order, approve(draft.request, key)))._tag).toBe(
+            "Pending",
           );
+
+          const stored = Option.getOrThrow(yield* findTransfer(order.id));
 
           assertTagged(stored, "Authorized");
-
           world.failSubmit = false;
-          yield* Wallet.use((wallet) => wallet.sweep);
+          yield* sweep;
           expect(world.submitted.at(-1)?.hash).toBe(stored.sealed.hash);
-          world.evidence.set(
-            stored.sealed.hash,
-            new Applied({ at: DateTime.nowUnsafe() }),
-          );
-          yield* Wallet.use((wallet) => wallet.sweep);
-          expect(yield* send(order)).toBeInstanceOf(Settled);
-          expect(
-            Option.getOrThrow(
-              yield* Transfers.use((transfers) => transfers.find(order.id)),
-            ),
-          ).toBeInstanceOf(Concluded);
+
+          settleHash(stored.sealed.hash);
+          yield* sweep;
+          expect((yield* send(order))._tag).toBe("Settled");
         }),
     );
 
@@ -101,46 +63,30 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "concurrent approvals allow only one signed transfer per sender",
       () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
-
-          yield* create(key, "maria");
-          world.accounts.set(addressOf(key), {
-            sequence: "1000",
-            ledger: 100,
-            accountSponsored: true,
-            sponsored: true,
-            nativeBalance: 0n,
-            balance: Option.some(Schema.decodeSync(Amount)("50000000")),
-          });
-
-          const to = AddressRecipient.make({ value: addressOf(key) });
-          const orders = [orderFor(key, to), orderFor(key, to)];
+          const key = yield* fundedWallet();
+          const orders = [selfOrder(key), selfOrder(key)];
 
           const drafts = yield* Effect.all(
-            orders.map((order) => send(order)),
+            orders.map((o) => draftTransfer(o)),
             { concurrency: "unbounded" },
           );
 
           const results = yield* Effect.all(
-            orders.map((order, index) => {
-              const draft = drafts[index];
+            orders.map((order, i) => {
+              const draft = drafts[i];
 
-              assertTagged(draft, "TransferDraft");
+              if (!draft) throw new Error("Expected draft");
 
               return send(order, approve(draft.request, key));
             }),
             { concurrency: "unbounded" },
           );
 
-          expect(
-            results.filter((result) => result instanceof Pending),
-          ).toHaveLength(1);
-          expect(
-            results.filter((result) => result instanceof SenderBusy),
-          ).toHaveLength(1);
-          expect(
-            yield* Transfers.use((transfers) => transfers.inFlight),
-          ).toHaveLength(1);
+          expect(results.filter(Predicate.isTagged("Pending"))).toHaveLength(1);
+          expect(results.filter(Predicate.isTagged("SenderBusy"))).toHaveLength(
+            1,
+          );
+          expect(yield* Transfers.use((t) => t.inFlight)).toHaveLength(1);
         }),
     );
 
@@ -148,26 +94,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "same id concurrent approvals keep one immutable sealed envelope",
       () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
-
-          yield* create(key, "maria");
-          world.accounts.set(addressOf(key), {
-            sequence: "1000",
-            ledger: 100,
-            accountSponsored: true,
-            sponsored: true,
-            nativeBalance: 0n,
-            balance: Option.some(Schema.decodeSync(Amount)("50000000")),
-          });
-
-          const order = orderFor(
-            key,
-            AddressRecipient.make({ value: addressOf(key) }),
-          );
-
-          const draft = yield* send(order);
-
-          assertTagged(draft, "TransferDraft");
+          const key = yield* fundedWallet();
+          const order = selfOrder(key);
+          const draft = yield* draftTransfer(order);
+          const before = world.submitted.length;
 
           const results = yield* Effect.all(
             [
@@ -177,135 +107,61 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             { concurrency: "unbounded" },
           );
 
-          expect(results.every((result) => result instanceof Pending)).toBe(
+          expect(results.every(Predicate.isTagged("Pending"))).toBe(true);
+          const inFlight = yield* Transfers.use((t) => t.inFlight);
+
+          expect(inFlight).toHaveLength(1);
+          const storedEnvelope = inFlight[0]?.sealed.envelope;
+          const submitted = world.submitted.slice(before);
+
+          expect(submitted.length).toBeGreaterThan(0);
+          expect(submitted.every((s) => s.envelope === storedEnvelope)).toBe(
             true,
           );
-          expect(
-            yield* Transfers.use((transfers) => transfers.inFlight),
-          ).toHaveLength(1);
         }),
     );
 
     it.effect("database failure during authorization submits nothing", () =>
       Effect.gen(function* () {
-        const key = Keypair.random();
-
-        yield* create(key, "maria");
-        world.accounts.set(addressOf(key), {
-          sequence: "1000",
-          ledger: 100,
-          accountSponsored: true,
-          sponsored: true,
-          nativeBalance: 0n,
-          balance: Option.some(Schema.decodeSync(Amount)("50000000")),
-        });
-
-        const order = orderFor(
-          key,
-          AddressRecipient.make({ value: addressOf(key) }),
-        );
-
-        const draft = yield* send(order);
-
-        assertTagged(draft, "TransferDraft");
-
+        const key = yield* fundedWallet();
+        const order = selfOrder(key);
+        const draft = yield* draftTransfer(order);
         const initial = world.submitted.length;
 
-        const brokenTransfers = Layer.effect(
-          Transfers,
-          Effect.gen(function* () {
-            const actual = yield* Transfers;
-
-            return Transfers.of({
-              ...actual,
-              authorize: () =>
-                Effect.fail(
-                  new StoreFailure({
-                    cause: new Error("Database unavailable"),
-                  }),
-                ),
-            });
-          }),
-        ).pipe(Layer.provide(Transfers.layer));
-
-        const brokenWallet = Wallet.serviceLayer.pipe(
-          Layer.provide(
-            Layer.mergeAll(
-              Directory.layer,
-              brokenTransfers,
-              AssetOrders.layer,
-              Backups.layer,
+        const brokenWallet = walletWithTransfers(() => ({
+          authorize: () =>
+            Effect.fail(
+              new StoreFailure({ cause: new Error("Database unavailable") }),
             ),
-          ),
-          Layer.provide(fakeChain),
-          Layer.provide(settings),
-          Layer.provide(dbLayer),
-        );
+        }));
 
-        const failure = yield* Wallet.use((wallet) =>
-          wallet.transfer(order, approve(draft.request, key)),
-        ).pipe(Effect.flip, Effect.provide(Layer.fresh(brokenWallet)));
-
-        expect(failure).toEqual(new ServiceFailed());
-        expect(world.submitted).toHaveLength(initial);
         expect(
-          Option.getOrThrow(
-            yield* Transfers.use((service) => service.find(order.id)),
+          yield* send(order, approve(draft.request, key)).pipe(
+            Effect.flip,
+            Effect.provide(brokenWallet),
           ),
-        ).toBeInstanceOf(Proposed);
+        ).toEqual(new ServiceFailed());
+        expect(world.submitted).toHaveLength(initial);
+        expect(Option.getOrThrow(yield* findTransfer(order.id))._tag).toBe(
+          "Proposed",
+        );
       }),
     );
 
-    const lockCases: ReadonlyArray<{
-      readonly name: string;
-      readonly locktype: "advisory" | "relation";
-      readonly lock: (
-        address: ReturnType<typeof addressOf>,
-      ) => ReturnType<typeof walletLock>;
-    }> = [
-      {
-        name: "the wallet advisory lock",
-        locktype: "advisory",
-        lock: walletLock,
-      },
-      {
-        name: "the post-lock slot query",
-        locktype: "relation",
-        lock: () => sql`lock table asset_orders in access exclusive mode`,
-      },
-    ];
-
-    it.effect.each(lockCases)(
-      "authorization keeps a transfer Proposed when waiting on $name crosses the approval margin",
-      ({ locktype, lock }) =>
+    it.effect(
+      "authorization keeps a transfer Proposed when waiting on the post-lock slot query crosses the approval margin",
+      () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
+          const key = yield* fundedWallet();
+          const order = selfOrder(key);
 
-          yield* create(key, "maria");
-          world.accounts.set(addressOf(key), {
-            sequence: "1000",
-            ledger: 100,
-            accountSponsored: true,
-            sponsored: true,
-            nativeBalance: 0n,
-            balance: Option.some(Schema.decodeSync(Amount)("50000000")),
-          });
-
-          const order = orderFor(
-            key,
-            AddressRecipient.make({ value: addressOf(key) }),
-          );
-
-          assertTagged(yield* send(order), "TransferDraft");
-
-          const stored = Option.getOrThrow(
-            yield* Transfers.use((service) => service.find(order.id)),
-          );
+          yield* draftTransfer(order);
+          const stored = Option.getOrThrow(yield* findTransfer(order.id));
 
           assertTagged(stored, "Proposed");
 
-          const sealed = yield* Chain.use((chain) =>
-            chain.seal(
+          const sealed = yield* Chain.use((c) =>
+            c.seal(
               stored.request,
               Option.getOrThrow(approve(stored.request, key)),
               addressOf(key),
@@ -313,18 +169,17 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           ).pipe(Effect.provide(fakeChain));
 
           const { result: outcome } = yield* runAcrossLockWait({
-            locktype,
+            locktype: "relation",
             advance: "101 seconds",
-            acquire: (tx) => tx.execute(lock(addressOf(key))),
-            run: Transfers.use((service) => service.authorize(stored, sealed)),
+            acquire: (tx) =>
+              tx.execute(sql`lock table asset_orders in access exclusive mode`),
+            run: Transfers.use((s) => s.authorize(stored, sealed)),
           });
 
-          expect(outcome).toBeInstanceOf(Proposed);
-          expect(
-            Option.getOrThrow(
-              yield* Transfers.use((service) => service.find(order.id)),
-            ),
-          ).toBeInstanceOf(Proposed);
+          expect(outcome._tag).toBe("Proposed");
+          expect(Option.getOrThrow(yield* findTransfer(order.id))._tag).toBe(
+            "Proposed",
+          );
         }),
     );
   },

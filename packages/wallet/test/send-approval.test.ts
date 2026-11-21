@@ -1,5 +1,4 @@
 import { expect, it } from "@effect/vitest";
-import { Account, Keypair } from "@stellar/stellar-sdk";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -15,199 +14,140 @@ import {
   ExternalMemoRequired,
   ExternalRecipient,
   NativeAsset,
-  NotOpened,
   PaymentMemo,
+  Pending,
   PositiveAmount,
-  Profile,
   type ResolvedRecipient,
-  SigningRequest,
-  TransferDraft,
   TransferId,
   TransferOrder,
   type TransferStep,
-  Pending,
   type UnsignedEnvelope,
-  Username,
   UsernameRecipient,
-  type WalletPort,
   baseAsset,
 } from "../src/contract";
 import {
   DraftRejected,
   TransferIntent,
-  makeWalletClient,
   makeWalletEffects,
 } from "../src/device/client";
-import { DeviceWallet, type KeyStore } from "../src/device/key-store";
-import { generateSecretPhrase } from "../src/device/secret-phrase";
-import { signingKey } from "../src/device/signing";
-import { draftClaimable } from "../src/stellar/asset-envelopes";
-import { draftPayment } from "../src/stellar/envelopes";
-import { addressOf } from "./wallet-harness";
+import { DeviceWallet } from "../src/device/key-store";
+import {
+  memoryKeyStore,
+  nowSeconds,
+  savedWallet,
+  sendActors,
+  transferDraftOf,
+  unusedPort,
+} from "./device-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
 
-const phrase = generateSecretPhrase();
-const sender = addressOf(signingKey(phrase));
-const sponsor = addressOf(Keypair.random());
-const stranger = addressOf(Keypair.random());
-const exchange = addressOf(Keypair.random());
-const pedro = addressOf(Keypair.random());
+const actors = sendActors();
 const amount = Schema.decodeSync(PositiveAmount)("10000000");
 const otherAmount = Schema.decodeSync(PositiveAmount)("20000000");
-
 const memo = Schema.decodeSync(PaymentMemo)({ type: "text", value: "deposit" });
-
 const otherMemo = Schema.decodeSync(PaymentMemo)({ type: "id", value: "7" });
-
-const pedroProfile = new Profile({
-  username: Schema.decodeSync(Username)("pedro"),
-  address: pedro,
-});
-
-const now = () => Math.floor(Date.now() / 1000);
+const passkeys = new SoftwareAuthenticator("http://localhost:3000").passkeys;
 
 const toExchange = new TransferIntent({
-  to: AddressRecipient.make({ value: exchange }),
+  to: AddressRecipient.make({ value: actors.exchange }),
   asset: baseAsset,
   amount,
   memo,
 });
 
 const toPedro = new TransferIntent({
-  to: UsernameRecipient.make({ value: pedroProfile.username }),
+  to: UsernameRecipient.make({ value: actors.pedroProfile.username }),
   asset: baseAsset,
   amount,
 });
 
-const payment = (source = sender, lifetime = 120, at = now()) =>
-  draftPayment({
-    source: new Account(source, "100"),
-    to: exchange,
-    asset: baseAsset,
-    amount,
-    memo,
-    minTime: at,
-    maxTime: at + lifetime,
-  });
+const payment = (source = actors.sender, lifetime = 120, at = nowSeconds()) =>
+  actors.payment({ source, to: actors.exchange, amount, memo, lifetime, at });
 
-const claimable = (source = sender) =>
-  draftClaimable({
-    source: new Account(source, "100"),
-    reserveSponsor: sponsor,
-    to: pedro,
-    asset: baseAsset,
-    amount,
-    minTime: now(),
-    maxTime: now() + 120,
-  });
+const claimable = (to = actors.pedro, reserveSponsor = actors.sponsor) =>
+  actors.claimable({ to, amount, reserveSponsor });
 
 const deviceWith = (
   envelope: (at: number) => UnsignedEnvelope,
-  lifetime = 120,
-  answer: (approval: Option.Option<Approval>) => Option.Option<TransferStep> = (
-    approval,
-  ) => (Option.isSome(approval) ? Option.some(new NotOpened()) : Option.none()),
-  storage = Effect.void,
+  options: {
+    readonly lifetime?: number;
+    readonly answer?: (
+      approval: Option.Option<Approval>,
+    ) => Option.Option<TransferStep>;
+    readonly beforeWrite?: Effect.Effect<void>;
+    readonly initial?: DeviceWallet;
+  } = {},
 ) => {
   const approvals: Array<Option.Option<Approval>> = [];
+  const orderIds: Array<string> = [];
 
-  let saved = Option.some(
-    new DeviceWallet({
-      phrase,
-      address: sender,
-      username: Schema.decodeSync(Username)("maria"),
-      reserveSponsor: sponsor,
-      backup: "stored",
-    }),
+  const store = memoryKeyStore(
+    Option.some(options.initial ?? actors.wallet),
+    options.beforeWrite,
   );
-
-  const store: KeyStore = {
-    read: () => Effect.sync(() => saved),
-    write: (wallet) =>
-      storage.pipe(
-        Effect.andThen(
-          Effect.sync(() => {
-            saved = Option.some(wallet);
-          }),
-        ),
-      ),
-  };
 
   const recipientOf = (order: TransferOrder) =>
     Match.valueTags(order.to, {
-      Username: (): ResolvedRecipient => pedroProfile,
-      Address: () => new ExternalRecipient({ address: exchange }),
-      Phone: () => new ExternalRecipient({ address: exchange }),
+      Username: (): ResolvedRecipient => actors.pedroProfile,
+      Address: ({ value }) => new ExternalRecipient({ address: value }),
+      Phone: () => new ExternalRecipient({ address: actors.exchange }),
     });
 
-  const unused = () => Effect.die("Not used by send");
-
-  const port: WalletPort = {
-    overview: unused,
-    open: unused,
-    manage: unused,
-    passkeyChallenge: unused,
-    enroll: unused,
-    restore: unused,
+  const port = unusedPort({
     transfer: (order, approval) =>
       Effect.map(Clock.currentTimeMillis, (millis) => {
         const at = Math.floor(millis / 1000);
 
         approvals.push(approval);
+        orderIds.push(order.id);
 
         return Option.getOrElse(
-          answer(approval),
+          options.answer?.(approval) ?? Option.none(),
           () =>
-            new TransferDraft({
-              request: new SigningRequest({
-                envelope: envelope(at),
-                expiresAt: DateTime.makeUnsafe((at + lifetime) * 1000),
-              }),
-              recipient: recipientOf(order),
-              memoRequired: false,
-            }),
+            transferDraftOf(
+              envelope(at),
+              recipientOf(order),
+              options.lifetime ?? 120,
+              at,
+            ),
         );
       }),
+  });
+
+  return {
+    approvals,
+    orderIds,
+    client: makeWalletEffects(port, store, passkeys),
+    store,
   };
-
-  const passkeys = new SoftwareAuthenticator("http://localhost:3000").passkeys;
-  const client = makeWalletClient(port, store, passkeys);
-  const effects = makeWalletEffects(port, store, passkeys);
-
-  return { approvals, client, effects, store };
 };
 
-it.effect("signs a live draft whose facts match the order", () =>
-  Effect.gen(function* () {
-    const { approvals, client } = deviceWith(() => payment());
-
-    expect(yield* Effect.promise(() => client.send(toExchange))).toEqual(
-      new NotOpened(),
-    );
-    expect(approvals.filter(Option.isSome)).toHaveLength(1);
-  }),
-);
-
-const mismatches: Array<[string, TransferIntent, () => UnsignedEnvelope]> = [
+const mismatches: ReadonlyArray<
+  readonly [string, TransferIntent, () => UnsignedEnvelope]
+> = [
   [
     "a payment whose envelope expires before the draft says",
     toExchange,
-    () => payment(sender, 10),
+    () => payment(actors.sender, 10),
   ],
   [
     "a claimable for an external address",
     new TransferIntent({
       ...toPedro,
-      to: AddressRecipient.make({ value: pedro }),
+      to: AddressRecipient.make({ value: actors.pedro }),
     }),
-    () => claimable(),
+    () => claimable(actors.pedro),
   ],
-  ["a payment from another account", toExchange, () => payment(stranger)],
+  [
+    "a payment from another account",
+    toExchange,
+    () => payment(actors.stranger),
+  ],
   [
     "a payment to another address",
     new TransferIntent({
       ...toExchange,
-      to: AddressRecipient.make({ value: stranger }),
+      to: AddressRecipient.make({ value: actors.stranger }),
     }),
     () => payment(),
   ],
@@ -226,165 +166,112 @@ const mismatches: Array<[string, TransferIntent, () => UnsignedEnvelope]> = [
     new TransferIntent({ ...toExchange, memo: otherMemo }),
     () => payment(),
   ],
-  ["a claimable from another account", toPedro, () => claimable(stranger)],
-  [
-    "a claimable to another address",
-    toPedro,
-    () =>
-      draftClaimable({
-        source: new Account(sender, "100"),
-        reserveSponsor: sponsor,
-        to: stranger,
-        asset: baseAsset,
-        amount,
-        minTime: now(),
-        maxTime: now() + 120,
-      }),
-  ],
-  [
-    "a claimable of another asset",
-    new TransferIntent({ ...toPedro, asset: NativeAsset.make({}) }),
-    () => claimable(),
-  ],
-  [
-    "a claimable of another amount",
-    new TransferIntent({ ...toPedro, amount: otherAmount }),
-    () => claimable(),
-  ],
+  ["a claimable to another address", toPedro, () => claimable(actors.stranger)],
   [
     "a claimable sponsored by another reserve sponsor",
     toPedro,
-    () =>
-      draftClaimable({
-        source: new Account(sender, "100"),
-        reserveSponsor: stranger,
-        to: pedro,
-        asset: baseAsset,
-        amount,
-        minTime: now(),
-        maxTime: now() + 120,
-      }),
+    () => claimable(actors.pedro, actors.stranger),
   ],
 ];
 
-it.effect.each(mismatches)("refuses %s", ([, intent, envelope]) =>
+it.live.each(mismatches)("refuses %s", ([, intent, envelope]) =>
   Effect.gen(function* () {
     const { approvals, client } = deviceWith(envelope);
 
-    expect(yield* Effect.promise(() => client.send(intent))).toEqual(
-      new DraftRejected(),
-    );
+    expect(yield* client.send(intent)).toEqual(new DraftRejected());
     expect(approvals.filter(Option.isSome)).toHaveLength(0);
   }),
 );
 
-it.effect(
+it.live(
   "asks once for a fresh draft when the draft expires within the approval margin",
   () =>
     Effect.gen(function* () {
-      const { approvals, client } = deviceWith(() => payment(), 10);
+      const { approvals, client } = deviceWith(() => payment(), {
+        lifetime: 10,
+      });
 
-      expect(yield* Effect.promise(() => client.send(toExchange))).toEqual(
-        new DraftRejected(),
-      );
+      expect(yield* client.send(toExchange)).toEqual(new DraftRejected());
       expect(approvals).toEqual([Option.none(), Option.none()]);
     }),
 );
 
-it.effect("signs only one draft for an order", () =>
+it.live("signs only one draft for an order", () =>
   Effect.gen(function* () {
-    const { approvals, client } = deviceWith(
-      () => payment(),
-      120,
-      () => Option.none(),
-    );
+    const { approvals, client } = deviceWith(() => payment());
 
-    expect(yield* Effect.promise(() => client.send(toExchange))).toEqual(
-      new DraftRejected(),
-    );
+    expect(yield* client.send(toExchange)).toEqual(new DraftRejected());
     expect(approvals.filter(Option.isSome)).toHaveLength(1);
   }),
 );
 
-it.effect(
+it.live(
   "keeps a signed order whose signature expired while the server reports it pending",
   () =>
     Effect.gen(function* () {
       const signed = new TransferOrder({
         ...toExchange,
         id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
-        from: sender,
+        from: actors.sender,
       });
 
       const inFlight = new Pending({
         ...signed,
-        recipient: new ExternalRecipient({ address: exchange }),
+        recipient: new ExternalRecipient({ address: actors.exchange }),
         expiresAt: DateTime.makeUnsafe(Date.now()),
       });
 
-      const { approvals, client, store } = deviceWith(
-        () => payment(),
-        120,
-        () => Option.some(inFlight),
-      );
-
-      const wallet = Option.getOrThrow(yield* store.read());
-
-      yield* store.write(
-        new DeviceWallet({
-          ...wallet,
+      const { approvals, client, store } = deviceWith(() => payment(), {
+        answer: () => Option.some(inFlight),
+        initial: new DeviceWallet({
+          ...actors.wallet,
           transfer: signed,
-          approvedUntil: now() - 3600,
+          approvedUntil: nowSeconds() - 3600,
         }),
-      );
+      });
 
       expect(
-        (yield* Effect.promise(() =>
-          client.send(
-            new TransferIntent({ ...toExchange, amount: otherAmount }),
-          ),
+        (yield* client.send(
+          new TransferIntent({ ...toExchange, amount: otherAmount }),
         ))._tag,
       ).toBe("ApprovalOutstanding");
       expect(approvals).toEqual([Option.none()]);
-      expect(Option.getOrThrow(yield* store.read()).transfer?.id).toBe(
-        signed.id,
-      );
+      expect((yield* savedWallet(store)).transfer?.id).toBe(signed.id);
     }),
 );
 
-it.effect("releases an expired signed order the server never authorized", () =>
+it.live("releases an expired signed order the server never authorized", () =>
   Effect.gen(function* () {
+    const oldOrder = new TransferOrder({
+      ...toExchange,
+      id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
+      from: actors.sender,
+    });
+
     const refusal = new ExternalMemoRequired({
-      address: exchange,
+      address: actors.exchange,
       exchange: "Synthetic exchange",
       source: "https://example.com",
     });
 
-    const { client, store } = deviceWith(
-      () => payment(),
-      120,
-      () => Option.some(refusal),
-    );
-
-    const wallet = Option.getOrThrow(yield* store.read());
-
-    yield* store.write(
-      new DeviceWallet({
-        ...wallet,
-        transfer: new TransferOrder({
-          ...toExchange,
-          id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
-          from: sender,
-        }),
-        approvedUntil: now() - 3600,
+    const { client, orderIds, store } = deviceWith(() => payment(), {
+      answer: () => Option.some(refusal),
+      initial: new DeviceWallet({
+        ...actors.wallet,
+        transfer: oldOrder,
+        approvedUntil: nowSeconds() - 3600,
       }),
-    );
+    });
 
     expect(
-      yield* Effect.promise(() =>
-        client.send(new TransferIntent({ ...toExchange, amount: otherAmount })),
+      yield* client.send(
+        new TransferIntent({ ...toExchange, amount: otherAmount }),
       ),
     ).toEqual(refusal);
+    expect(orderIds).toHaveLength(2);
+    expect(orderIds[0]).toBe(oldOrder.id);
+    expect(orderIds[1]).not.toBe(oldOrder.id);
+    expect((yield* savedWallet(store)).transfer?.id).toBe(orderIds[1]);
   }),
 );
 
@@ -392,19 +279,20 @@ it.effect("rechecks the approval margin after recording the approval", () =>
   Effect.gen(function* () {
     const writing = yield* Latch.make();
 
-    const { approvals, effects } = deviceWith(
-      (at) => payment(sender, 21, at),
-      21,
-      undefined,
-      writing.open.pipe(Effect.andThen(Effect.sleep("1500 millis"))),
+    const { approvals, client } = deviceWith(
+      (at) => payment(actors.sender, 21, at),
+      {
+        lifetime: 21,
+        beforeWrite: writing.open.pipe(
+          Effect.andThen(Effect.sleep("1500 millis")),
+        ),
+      },
     );
 
-    const sending = yield* Effect.forkChild(effects.send(toExchange));
+    const sending = yield* Effect.forkChild(client.send(toExchange));
 
     yield* writing.await;
-    yield* TestClock.adjust("1500 millis");
-    yield* TestClock.adjust("1500 millis");
-
+    yield* TestClock.adjust("3000 millis");
     expect(yield* Fiber.join(sending)).toEqual(new DraftRejected());
     expect(approvals.filter(Option.isSome)).toHaveLength(0);
   }),

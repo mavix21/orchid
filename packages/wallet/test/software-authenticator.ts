@@ -25,9 +25,6 @@ interface SoftwareCredential {
   signCount: number;
 }
 
-const userPresentAndVerified = 0x05;
-const attestedCredentialData = 0x40;
-
 const sha256 = (data: Buffer | string) =>
   createHash("sha256").update(data).digest();
 
@@ -50,7 +47,7 @@ const coseKey = (publicKey: KeyObject) => {
   ]);
 };
 
-const noneAttestation = (authenticatorData: Buffer) =>
+const noneAttestation = (authData: Buffer) =>
   Buffer.concat([
     Buffer.from([0xa3, 0x63]),
     Buffer.from("fmt"),
@@ -60,12 +57,26 @@ const noneAttestation = (authenticatorData: Buffer) =>
     Buffer.from("attStmt"),
     Buffer.from([0xa0, 0x68]),
     Buffer.from("authData"),
-    Buffer.from([0x58, authenticatorData.length]),
-    authenticatorData,
+    Buffer.from([0x58, authData.length]),
+    authData,
   ]);
 
+const makeCredential = (id: Buffer): SoftwareCredential => {
+  const { privateKey, publicKey } = generateKeyPairSync("ec", {
+    namedCurve: "P-256",
+  });
+
+  return {
+    id,
+    privateKey,
+    publicKey,
+    prfSecret: randomBytes(32),
+    signCount: 0,
+  };
+};
+
 export class SoftwareAuthenticator {
-  readonly credentials: Array<SoftwareCredential> = [];
+  private current: SoftwareCredential | undefined;
   prf = true;
   cancels = false;
 
@@ -88,17 +99,7 @@ export class SoftwareAuthenticator {
   }
 
   forge(id: string) {
-    const { privateKey, publicKey } = generateKeyPairSync("ec", {
-      namedCurve: "P-256",
-    });
-
-    this.credentials.push({
-      id: Buffer.from(id, "base64url"),
-      privateKey,
-      publicKey,
-      prfSecret: randomBytes(32),
-      signCount: 0,
-    });
+    this.current = makeCredential(Buffer.from(id, "base64url"));
   }
 
   readonly passkeys: Passkeys = {
@@ -106,32 +107,21 @@ export class SoftwareAuthenticator {
       Effect.suspend(() => {
         if (this.cancels) return Effect.fail(new PasskeyCancelled());
 
-        const { privateKey, publicKey } = generateKeyPairSync("ec", {
-          namedCurve: "P-256",
-        });
+        const credential = makeCredential(randomBytes(16));
 
-        const credential: SoftwareCredential = {
-          id: randomBytes(16),
-          privateKey,
-          publicKey,
-          prfSecret: randomBytes(32),
-          signCount: 0,
-        };
-
-        this.credentials.push(credential);
-
+        this.current = credential;
         const idLength = Buffer.alloc(2);
 
         idLength.writeUInt16BE(credential.id.length);
 
-        const authenticatorData = Buffer.concat([
+        const authData = Buffer.concat([
           this.rpIdHash(),
-          Buffer.from([userPresentAndVerified | attestedCredentialData]),
+          Buffer.from([0x45]),
           counterBytes(credential.signCount),
           Buffer.alloc(16),
           idLength,
           credential.id,
-          coseKey(publicKey),
+          coseKey(credential.publicKey),
         ]);
 
         if (!this.prf) return Effect.succeed(Option.none());
@@ -147,10 +137,10 @@ export class SoftwareAuthenticator {
                 "webauthn.create",
                 challenge,
               ).toString("base64url"),
-              authenticatorData: authenticatorData.toString("base64url"),
+              authenticatorData: authData.toString("base64url"),
               attestationObject:
-                noneAttestation(authenticatorData).toString("base64url"),
-              publicKey: publicKey
+                noneAttestation(authData).toString("base64url"),
+              publicKey: credential.publicKey
                 .export({ type: "spki", format: "der" })
                 .toString("base64url"),
               publicKeyAlgorithm: -7,
@@ -163,24 +153,23 @@ export class SoftwareAuthenticator {
       Effect.suspend(() => {
         if (this.cancels) return Effect.fail(new PasskeyCancelled());
 
-        const credential = this.credentials.at(-1);
+        const credential = this.current;
 
         if (credential === undefined || !this.prf)
           return Effect.succeed(Option.none());
 
         credential.signCount += 1;
-
         const clientDataJSON = this.clientData("webauthn.get", challenge);
 
-        const authenticatorData = Buffer.concat([
+        const authData = Buffer.concat([
           this.rpIdHash(),
-          Buffer.from([userPresentAndVerified]),
+          Buffer.from([0x05]),
           counterBytes(credential.signCount),
         ]);
 
         const signature = sign(
           "sha256",
-          Buffer.concat([authenticatorData, sha256(clientDataJSON)]),
+          Buffer.concat([authData, sha256(clientDataJSON)]),
           { key: credential.privateKey, dsaEncoding: "der" },
         );
 
@@ -192,7 +181,7 @@ export class SoftwareAuthenticator {
                 credential.id.toString("base64url"),
               ),
               clientDataJSON: clientDataJSON.toString("base64url"),
-              authenticatorData: authenticatorData.toString("base64url"),
+              authenticatorData: authData.toString("base64url"),
               signature: signature.toString("base64url"),
             }),
           }),
