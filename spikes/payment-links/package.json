@@ -1,0 +1,22 @@
+{
+  "name": "@workspace/spike-payment-links",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "proof:1": "bun proof-1-design-b.ts",
+    "proof:2": "bun proof-2-authorization.ts",
+    "proof:3": "bun proof-3-payout-boundary.ts",
+    "proof:3b": "bun proof-3b-sponsor-headroom.ts",
+    "proof:4": "bun proof-4-destinations.ts",
+    "proof:5": "bun proof-5-recovery.ts"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "17.4.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.4",
+    "typescript": "7.0.2"
+  }
+}
