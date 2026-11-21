@@ -171,12 +171,13 @@ it.effect("does not propagate trace headers to the Stellar RPC", () =>
   }),
 );
 
-it.effect("submit accepts both PENDING and DUPLICATE acknowledgements", () =>
-  Effect.gen(function* () {
-    const sealed = yield* sealedPayment;
-    let submitted: string | undefined;
+it.effect.each(["PENDING", "DUPLICATE"])(
+  "submit accepts sendTransaction status %s",
+  (status) =>
+    Effect.gen(function* () {
+      const sealed = yield* sealedPayment;
+      let submitted: string | undefined;
 
-    for (const status of ["PENDING", "DUPLICATE"]) {
       yield* Chain.use((c) => c.submit(sealed)).pipe(
         Effect.provide(
           chainSubmitting((tx) => {
@@ -186,10 +187,8 @@ it.effect("submit accepts both PENDING and DUPLICATE acknowledgements", () =>
           }),
         ),
       );
-    }
-
-    expect(submitted).toBe(sealed.envelope);
-  }),
+      expect(submitted).toBe(sealed.envelope);
+    }),
 );
 
 it.effect.each([
@@ -316,42 +315,66 @@ it.effect(
 );
 
 it.effect.each([
-  ["remote plain HTTP URL", "http://127.0.0.1.example.test", undefined],
-  ["non-HTTP loopback URL", "ftp://localhost:8000", undefined],
-  ["unbounded rpcTimeout", testRpcUrl, Duration.infinity],
-  ["nonpositive rpcTimeout", testRpcUrl, Duration.zero],
-] as const)("Chain rejects %s at construction", ([, rpcUrl, rpcTimeout]) =>
-  Effect.gen(function* () {
-    const exit = yield* Effect.void.pipe(
-      Effect.provide(
-        chainWithHttp(
-          rpcAnswering(() => ""),
-          { rpcUrl, rpcTimeout },
-        ),
-      ),
-      Effect.exit,
-    );
-
-    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
-  }),
-);
-
-it.effect("Chain accepts loopback HTTP RPC URLs at construction", () =>
-  Effect.gen(function* () {
-    const empty = rpcAnswering(() => "");
-
-    for (const rpcUrl of [
-      "http://localhost:8000",
-      "http://127.0.0.1:8000",
-      "http://[::1]:8000",
-    ])
-      expect(
-        Exit.isSuccess(
-          yield* Effect.void.pipe(
-            Effect.provide(chainWithHttp(empty, { rpcUrl })),
-            Effect.exit,
+  {
+    name: "remote plain HTTP URL",
+    rpcUrl: "http://127.0.0.1.example.test",
+    rpcTimeout: undefined,
+    accepted: false,
+  },
+  {
+    name: "non-HTTP loopback URL",
+    rpcUrl: "ftp://localhost:8000",
+    rpcTimeout: undefined,
+    accepted: false,
+  },
+  {
+    name: "unbounded rpcTimeout",
+    rpcUrl: testRpcUrl,
+    rpcTimeout: Duration.infinity,
+    accepted: false,
+  },
+  {
+    name: "nonpositive rpcTimeout",
+    rpcUrl: testRpcUrl,
+    rpcTimeout: Duration.zero,
+    accepted: false,
+  },
+  {
+    name: "localhost HTTP URL",
+    rpcUrl: "http://localhost:8000",
+    rpcTimeout: undefined,
+    accepted: true,
+  },
+  {
+    name: "IPv4 loopback HTTP URL",
+    rpcUrl: "http://127.0.0.1:8000",
+    rpcTimeout: undefined,
+    accepted: true,
+  },
+  {
+    name: "IPv6 loopback HTTP URL",
+    rpcUrl: "http://[::1]:8000",
+    rpcTimeout: undefined,
+    accepted: true,
+  },
+])(
+  "Chain construction for $name accepted: $accepted",
+  ({ rpcUrl, rpcTimeout, accepted }) =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.void.pipe(
+        Effect.provide(
+          chainWithHttp(
+            rpcAnswering(() => ""),
+            { rpcUrl, rpcTimeout },
           ),
         ),
+        Effect.exit,
+      );
+
+      expect(
+        accepted
+          ? Exit.isSuccess(exit)
+          : Exit.isFailure(exit) && Cause.hasDies(exit.cause),
       ).toBe(true);
-  }),
+    }),
 );

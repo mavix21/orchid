@@ -347,29 +347,6 @@ export const walletWithChain = (
     ),
   );
 
-export const walletWithTransfers = (
-  override: (a: Transfers["Service"]) => Partial<Transfers["Service"]>,
-) =>
-  Layer.fresh(
-    Wallet.serviceLayer.pipe(
-      Layer.provide(
-        Layer.mergeAll(
-          Directory.layer,
-          Layer.effect(
-            Transfers,
-            Effect.map(Transfers, (a) =>
-              Transfers.of({ ...a, ...override(a) }),
-            ),
-          ).pipe(Layer.provide(Transfers.layer)),
-          AssetOrders.layer,
-          Backups.layer,
-        ).pipe(Layer.provide(dbLayer)),
-      ),
-      Layer.provide(fakeChain),
-      Layer.provide(settings),
-    ),
-  );
-
 export const stellarWallet = (
   reply: (
     method: string,

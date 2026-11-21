@@ -25,6 +25,9 @@ interface SoftwareCredential {
   signCount: number;
 }
 
+const userPresentAndVerified = 0x05;
+const attestedCredentialData = 0x40;
+
 const sha256 = (data: Buffer | string) =>
   createHash("sha256").update(data).digest();
 
@@ -114,9 +117,9 @@ export class SoftwareAuthenticator {
 
         idLength.writeUInt16BE(credential.id.length);
 
-        const authData = Buffer.concat([
+        const authenticatorData = Buffer.concat([
           this.rpIdHash(),
-          Buffer.from([0x45]),
+          Buffer.from([userPresentAndVerified | attestedCredentialData]),
           counterBytes(credential.signCount),
           Buffer.alloc(16),
           idLength,
@@ -137,9 +140,9 @@ export class SoftwareAuthenticator {
                 "webauthn.create",
                 challenge,
               ).toString("base64url"),
-              authenticatorData: authData.toString("base64url"),
+              authenticatorData: authenticatorData.toString("base64url"),
               attestationObject:
-                noneAttestation(authData).toString("base64url"),
+                noneAttestation(authenticatorData).toString("base64url"),
               publicKey: credential.publicKey
                 .export({ type: "spki", format: "der" })
                 .toString("base64url"),
@@ -161,15 +164,15 @@ export class SoftwareAuthenticator {
         credential.signCount += 1;
         const clientDataJSON = this.clientData("webauthn.get", challenge);
 
-        const authData = Buffer.concat([
+        const authenticatorData = Buffer.concat([
           this.rpIdHash(),
-          Buffer.from([0x05]),
+          Buffer.from([userPresentAndVerified]),
           counterBytes(credential.signCount),
         ]);
 
         const signature = sign(
           "sha256",
-          Buffer.concat([authData, sha256(clientDataJSON)]),
+          Buffer.concat([authenticatorData, sha256(clientDataJSON)]),
           { key: credential.privateKey, dsaEncoding: "der" },
         );
 
@@ -181,7 +184,7 @@ export class SoftwareAuthenticator {
                 credential.id.toString("base64url"),
               ),
               clientDataJSON: clientDataJSON.toString("base64url"),
-              authenticatorData: authData.toString("base64url"),
+              authenticatorData: authenticatorData.toString("base64url"),
               signature: signature.toString("base64url"),
             }),
           }),
