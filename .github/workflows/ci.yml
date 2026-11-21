@@ -40,4 +40,5 @@ jobs:
       - run: bun run lint
       - run: bun run typecheck
       - run: bun run --cwd packages/wallet vitest run
+      - run: bun run --cwd apps/web test
       - run: bun run build

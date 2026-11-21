@@ -20,6 +20,7 @@ import { TokenIcon } from "@/components/token-icon";
 import {
   type Destination,
   type FieldProblem,
+  type MemoType,
   type SendField,
   type SendForm,
   intentOf,
@@ -53,6 +54,7 @@ export function AmountStep({
   asset,
   available,
   onEdit,
+  onEditMemo,
   onIntent,
   onProblem,
   onChangeRecipient,
@@ -63,6 +65,7 @@ export function AmountStep({
   asset: Asset;
   available: Amount;
   onEdit: (field: SendField, value: string) => void;
+  onEditMemo: (memo: string, memoType: Option.Option<MemoType>) => void;
   onIntent: (intent: TransferIntent) => void;
   onProblem: (problem: FieldProblem) => void;
   onChangeRecipient: () => void;
@@ -210,9 +213,10 @@ export function AmountStep({
         <MemoDrawer
           open={memoOpen}
           memo={form.memo}
+          memoType={form.memoType}
           problem={memoProblem}
           onOpenChange={setMemoOpen}
-          onSave={(memo) => onEdit("memo", memo)}
+          onSave={onEditMemo}
         />
       ) : null}
     </>

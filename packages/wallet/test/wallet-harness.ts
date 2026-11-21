@@ -217,6 +217,7 @@ export const fakeChain = Layer.effect(
                               asset: a,
                               balance: s.balance.value,
                               spendable: s.balance.value,
+                              capacity: amount("9223372036854775807"),
                               authorized: true,
                               sponsored: true,
                             },

@@ -12,16 +12,20 @@ import {
   type Approval,
   AssetCode,
   AssetOrder,
+  AddressRecipient,
   AssetOrderId,
   BalanceId,
+  baseAsset,
   ClaimBalance,
   CloseTrustline,
+  ClaimableLimitReached,
   InsufficientBalance,
   IssuedAsset,
   NativeAsset,
   OpenTrustline,
   PositiveAmount,
   Profile,
+  RecipientCannotReceive,
   ResolvedRecipient,
   TransferOrder,
   Username,
@@ -37,9 +41,11 @@ import { epochAt, network } from "../src/stellar/network";
 import { assertTagged } from "./tagged";
 import {
   addressOf,
+  accountState,
   amount,
   approve,
   fakeChain,
+  fundHolder,
   fundedWallet,
   holdingsFor,
   orderFor,
@@ -77,6 +83,7 @@ const euroLine = (bal: string) => ({
   asset,
   balance: amount(bal),
   spendable: amount(bal),
+  capacity: amount("9223372036854775807"),
   authorized: true,
   sponsored: true,
 });
@@ -286,6 +293,113 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             (yield* manage(claimOrder, approve(claimDraft.request, recipient)))
               ._tag,
           ).toBe("AssetPending");
+        }),
+    );
+
+    it.effect("a third username claimable is refused while two stay open", () =>
+      Effect.gen(function* () {
+        const sender = yield* fundedWallet("quotasender");
+        const senderAddr = addressOf(sender);
+
+        const recipientAddress = addressOf(
+          yield* fundedWallet("quotarecipient"),
+        );
+
+        world.holdings.set(
+          senderAddr,
+          holdingsFor(senderAddr, { lines: [euroLine("50000000")] }),
+        );
+
+        const claimable = () =>
+          new TransferOrder({
+            ...orderFor(
+              sender,
+              UsernameRecipient.make({
+                value: Schema.decodeSync(Username)("quotarecipient"),
+              }),
+            ),
+            asset,
+          });
+
+        const open = Effect.fn(function* (sequence: string) {
+          world.accounts.set(senderAddr, accountState({ sequence }));
+
+          const order = claimable();
+          const draft = yield* send(order);
+
+          assertTagged(draft, "TransferDraft");
+          expect(
+            (yield* send(order, approve(draft.request, sender)))._tag,
+          ).toBe("Pending");
+
+          const submitted = world.submitted.at(-1);
+
+          if (!submitted) throw new Error("Expected submission");
+
+          const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
+
+          assertTagged(facts, "ClaimableFacts");
+          world.claimables.set(facts.balance, {
+            balance: facts.balance,
+            asset,
+            amount: Schema.decodeSync(PositiveAmount)("10000000"),
+            sponsored: true,
+            claimants: [
+              new Claimant(recipientAddress, Claimant.predicateUnconditional()),
+            ],
+          });
+          settleHash(submitted.hash);
+          yield* sweep;
+        });
+
+        yield* open("2000");
+        yield* open("3000");
+
+        expect(yield* Transfers.use((s) => s.openClaimables(senderAddr))).toBe(
+          2,
+        );
+        expect(yield* send(claimable())).toEqual(
+          new ClaimableLimitReached({ limit: 2 }),
+        );
+      }),
+    );
+
+    it.effect(
+      "a payment above the destination's incoming capacity is refused before drafting",
+      () =>
+        Effect.gen(function* () {
+          const sender = yield* fundedWallet("capacitysender");
+          const destinationKey = Keypair.random();
+          const destination = addressOf(destinationKey);
+
+          fundHolder(destinationKey);
+
+          const order = orderFor(
+            sender,
+            AddressRecipient.make({ value: destination }),
+          );
+
+          const holdingWithCapacity = (capacity: string) =>
+            holdingsFor(destination, {
+              lines: [
+                {
+                  ...euroLine("0"),
+                  asset: baseAsset,
+                  capacity: amount(capacity),
+                },
+              ],
+            });
+
+          world.holdings.set(destination, holdingWithCapacity("9999999"));
+          expect(yield* send(order)).toEqual(
+            new RecipientCannotReceive({
+              address: destination,
+              reason: "no_capacity",
+            }),
+          );
+
+          world.holdings.set(destination, holdingWithCapacity("10000000"));
+          assertTagged(yield* send(order), "TransferDraft");
         }),
     );
 

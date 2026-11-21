@@ -120,6 +120,11 @@ export const sendResult = (
             "not_authorized",
             () => `El emisor de ${assetCode(asset)} no autoriza esa cuenta`,
           ),
+          Match.when(
+            "no_capacity",
+            () =>
+              `Esa cuenta no puede recibir tanto ${assetCode(asset)} por ahora`,
+          ),
           Match.exhaustive,
         ),
       ),

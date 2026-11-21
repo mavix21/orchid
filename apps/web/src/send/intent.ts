@@ -28,16 +28,19 @@ export class FieldProblem {
   ) {}
 }
 
+export type MemoType = PaymentMemo["type"];
+
 export type SendForm = {
   readonly recipient: string;
   readonly amount: string;
   readonly memo: string;
+  readonly memoType: Option.Option<MemoType>;
 };
 
 export const memoByteLimit = 28;
 
 export const memoBytes = (memo: string) =>
-  new TextEncoder().encode(memo.trim()).length;
+  new TextEncoder().encode(memo).length;
 
 const otherNetworkNames: Record<Exclude<AddressNetwork, "stellar">, string> = {
   evm: "una red EVM (como Base o Ethereum)",
@@ -82,23 +85,38 @@ export const recipientOf = (
     Match.exhaustive,
   );
 
-const memoOf = (typed: string): Result.Result<PaymentMemo, FieldProblem> => {
-  if (memoBytes(typed) > memoByteLimit)
-    return Result.fail(new FieldProblem("memo", "El memo es demasiado largo"));
+const memoProblems = {
+  type: "Elige cómo aparece el memo en tu exchange",
+  tooLong: "El memo es demasiado largo",
+  invalidText: "Este memo no es válido",
+  invalidId: "Un ID numérico es un número entero de hasta 20 dígitos",
+} as const;
 
-  return Option.match(
-    Schema.decodeOption(PaymentMemo)({ type: "id", value: typed }).pipe(
-      Option.orElse(() =>
-        Schema.decodeOption(PaymentMemo)({ type: "text", value: typed }),
-      ),
-    ),
-    {
-      onNone: () =>
-        Result.fail(new FieldProblem("memo", "Este memo no es válido")),
-      onSome: Result.succeed,
-    },
-  );
-};
+const memoOf = (
+  typed: string,
+  type: Option.Option<MemoType>,
+): Result.Result<PaymentMemo, FieldProblem> =>
+  Option.match(type, {
+    onNone: () => Result.fail(new FieldProblem("memo", memoProblems.type)),
+    onSome: (chosen) =>
+      chosen === "text" && memoBytes(typed) > memoByteLimit
+        ? Result.fail(new FieldProblem("memo", memoProblems.tooLong))
+        : Option.match(
+            Schema.decodeOption(PaymentMemo)({ type: chosen, value: typed }),
+            {
+              onNone: () =>
+                Result.fail(
+                  new FieldProblem(
+                    "memo",
+                    chosen === "id"
+                      ? memoProblems.invalidId
+                      : memoProblems.invalidText,
+                  ),
+                ),
+              onSome: Result.succeed,
+            },
+          ),
+  });
 
 export function intentOf(
   form: SendForm,
@@ -114,11 +132,9 @@ export function intentOf(
   if (Option.isNone(amount))
     return Result.fail(new FieldProblem("amount", "Escribe un monto válido"));
 
-  const memo = form.memo.trim();
-
   if (
     destination === "username" ||
-    memo === "" ||
+    form.memo === "" ||
     Schema.is(MuxedAddress)(to.success.value)
   )
     return Result.succeed(
@@ -126,7 +142,7 @@ export function intentOf(
     );
 
   return Result.map(
-    memoOf(memo),
+    memoOf(form.memo, form.memoType),
     (value) =>
       new TransferIntent({
         to: to.success,

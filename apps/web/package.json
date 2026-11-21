@@ -13,7 +13,8 @@
     "deploy": "bun run check:hyperdrive && bun run build && wrangler deploy",
     "check:hyperdrive": "bun ../../tools/wallet/check-hyperdrive-caching.mjs",
     "cf-typegen": "wrangler types",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test": "vitest run"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -43,6 +44,7 @@
     "@vitejs/plugin-react": "^6",
     "typescript": "7.0.2",
     "vite": "^8",
+    "vitest": "5.1.1",
     "wrangler": "^4.162.0"
   }
 }

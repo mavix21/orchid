@@ -40,7 +40,7 @@ import {
   approvalMargin,
   claimableReadLimit,
   epochAt,
-  maxOpenClaimables,
+  claimableQuota,
   network,
   sweepBatchSize,
 } from "../stellar/network";
@@ -479,7 +479,7 @@ export class Transfers extends Context.Service<
                 .from(transfers)
                 .where(openFromAt(proposed.order.from, lockedAt));
 
-              if ((open[0]?.total ?? 0) >= maxOpenClaimables)
+              if ((open[0]?.total ?? 0) >= claimableQuota.username)
                 return new ClaimablesFull();
             }
 

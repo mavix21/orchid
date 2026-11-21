@@ -9,7 +9,7 @@ import {
   type TransferOrder,
 } from "../contract";
 import { baseAccountOf } from "../stellar/destination";
-import { maxOpenClaimables } from "../stellar/network";
+import { claimableQuota } from "../stellar/network";
 import { Chain } from "./Chain.server";
 import { Transfers } from "./Transfers.server";
 
@@ -31,13 +31,21 @@ export const deliveryFlow = Effect.gen(function* () {
       assets,
     );
 
+    const line = Option.flatMap(destination, (holdings) =>
+      Option.fromNullishOr(holdings.lines[0]),
+    );
+
     const reason = Option.isNone(destination)
       ? "no_account"
-      : assets.length && !destination.value.lines[0]
-        ? "no_trustline"
-        : assets.length && !destination.value.lines[0]?.authorized
-          ? "not_authorized"
-          : undefined;
+      : assets.length === 0
+        ? undefined
+        : Option.isNone(line)
+          ? "no_trustline"
+          : !line.value.authorized
+            ? "not_authorized"
+            : line.value.capacity < order.amount
+              ? "no_capacity"
+              : undefined;
 
     if (reason) {
       if (reason !== "no_trustline" || recipient instanceof ExternalRecipient)
@@ -46,8 +54,10 @@ export const deliveryFlow = Effect.gen(function* () {
           reason,
         });
 
-      if ((yield* transfers.openClaimables(order.from)) >= maxOpenClaimables)
-        return new ClaimableLimitReached({ limit: maxOpenClaimables });
+      if (
+        (yield* transfers.openClaimables(order.from)) >= claimableQuota.username
+      )
+        return new ClaimableLimitReached({ limit: claimableQuota.username });
 
       return yield* chain.draftClaimable(
         order.from,

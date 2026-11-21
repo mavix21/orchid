@@ -29,6 +29,7 @@ export interface Line {
   readonly balance: Amount;
 
   readonly spendable: Amount;
+  readonly capacity: Amount;
   readonly authorized: boolean;
 
   readonly sponsored: boolean;
@@ -165,14 +166,17 @@ export function holdingsFromEntries(
 
       const entry = line.data.value;
 
-      const selling =
-        entry.ext.type === "v1" ? entry.ext.v1.liabilities.selling : 0n;
+      const liabilities =
+        entry.ext.type === "v1" ? entry.ext.v1.liabilities : undefined;
 
       return [
         {
           asset,
           balance: amountOf(entry.balance),
-          spendable: amountOf(entry.balance - selling),
+          spendable: amountOf(entry.balance - (liabilities?.selling ?? 0n)),
+          capacity: amountOf(
+            entry.limit - entry.balance - (liabilities?.buying ?? 0n),
+          ),
           authorized:
             (entry.flags & xdr.TrustLineFlags.authorizedFlag.value) !== 0,
           sponsored: sponsoredBy(line.raw, sponsor),
