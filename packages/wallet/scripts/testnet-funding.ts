@@ -1,4 +1,14 @@
-import { Horizon, NotFoundError } from "@stellar/stellar-sdk";
+import {
+  Asset,
+  Horizon,
+  Keypair,
+  NotFoundError,
+  Operation,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
+import { networkPassphrase, usdc } from "../src/stellar/network";
+
+export { usdc };
 
 const testnetRequestTimeout = 20_000;
 
@@ -52,3 +62,30 @@ const fundWithin = async (
 
 export const fundWithFriendbot = (address: string) =>
   fundWithin(address, friendbotAttempts);
+
+export const fundWithUsdc = async (address: string, amount: string) => {
+  const funder = Keypair.random();
+
+  const source = await fundWithFriendbot(funder.publicKey());
+
+  const payment = new TransactionBuilder(source, {
+    fee: "10000",
+    networkPassphrase,
+  })
+    .addOperation(
+      Operation.pathPaymentStrictReceive({
+        sendAsset: Asset.native(),
+        sendMax: "100",
+        destination: address,
+        destAsset: usdc,
+        destAmount: amount,
+        path: [],
+      }),
+    )
+    .setTimeout(60)
+    .build();
+
+  payment.sign(funder);
+
+  return horizon.submitTransaction(payment);
+};

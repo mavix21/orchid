@@ -1,22 +1,15 @@
 import assert from "node:assert/strict";
 import {
   FeeBumpTransaction,
-  Horizon,
   Keypair,
-  Operation,
   TransactionBuilder,
   rpc,
 } from "@stellar/stellar-sdk";
-import { Database, databaseLayer } from "@workspace/db";
-import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
-import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import {
   type CreateOutcome,
   type DeviceWallet,
@@ -38,58 +31,22 @@ import { signingKey } from "../src/device/signing";
 import { SoftwareAuthenticator } from "../test/software-authenticator";
 import { Chain } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
-import { Transfers } from "../src/server/Transfers.server";
-import { AssetOrders } from "../src/server/AssetOrders.server";
-import { Backups } from "../src/server/Backups.server";
 import { Wallet } from "../src/server/Wallet.server";
-import { WalletSettings } from "../src/server/settings.server";
-import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
+import { networkPassphrase, usdc } from "../src/stellar/network";
+import { freshDatabase, rpcUrl, walletServices } from "./live.server";
+import { fundWithFriendbot, fundWithUsdc, horizon } from "./testnet-funding";
 
-const secret = (name: string) => {
-  const value = process.env[name];
-
-  if (!value)
-    throw new Error(`Missing verification environment variable ${name}`);
-
-  return value;
-};
-
-const sponsor = Keypair.fromSecret(secret("RESERVE_SPONSOR_SECRET"));
-const feePayer = Keypair.fromSecret(secret("FEE_PAYER_SECRET"));
-const rpcUrl = "https://soroban-testnet.stellar.org";
+const sponsor = Keypair.random();
+const feePayer = Keypair.random();
 const passkeyOrigin = "http://localhost:3000";
 const authenticator = new SoftwareAuthenticator(passkeyOrigin);
 const server = new rpc.Server(rpcUrl);
-const horizon = new Horizon.Server("https://horizon-testnet.stellar.org");
 
-const dbLayer = databaseLayer({
-  connectionString:
-    "postgres://orchid:orchid-local@127.0.0.1:55433/wallet_live",
+const services = walletServices(await freshDatabase(), {
+  sponsor,
+  feePayer,
+  passkeyOrigins: [passkeyOrigin],
 });
-
-const dependencies = Layer.mergeAll(
-  Chain.layer,
-  Directory.layer,
-  Transfers.layer,
-  AssetOrders.layer,
-  Backups.layer,
-);
-
-const services = Layer.merge(
-  Wallet.serviceLayer.pipe(Layer.provide(dependencies)),
-  dependencies,
-).pipe(
-  Layer.provide(
-    Layer.succeed(WalletSettings, {
-      rpcUrl,
-      reserveSponsorSecret: Redacted.make(sponsor.secret()),
-      feePayerSecret: Redacted.make(feePayer.secret()),
-      passkeyOrigins: [passkeyOrigin],
-    }),
-  ),
-  Layer.provide(dbLayer),
-  Layer.provide(FetchHttpClient.layer),
-);
 
 const runtime = ManagedRuntime.make(services);
 
@@ -132,12 +89,8 @@ const openWallet = async (
 
 assert.equal((await server.getNetwork()).passphrase, networkPassphrase);
 
-await Effect.runPromise(
-  Effect.gen(function* () {
-    const db = yield* Database;
-
-    yield* migrate(db, { migrationsFolder: `${import.meta.dir}/../drizzle` });
-  }).pipe(Effect.provide(dbLayer)),
+await Promise.all(
+  [sponsor, feePayer].map((key) => fundWithFriendbot(key.publicKey())),
 );
 
 const client = makeWalletClient(
@@ -203,7 +156,7 @@ const row = Option.getOrThrow(
 
 assert.equal(row.status, "active");
 
-assert.ok(row.attemptHash && row.recoveryEnvelope && row.recoveryHash);
+assert.ok(row.recoveryEnvelope && row.recoveryHash);
 
 const sealedRecovery = TransactionBuilder.fromXDR(
   row.recoveryEnvelope,
@@ -271,26 +224,7 @@ await openWallet(
   recipientName,
 );
 
-const usdcFunder = Keypair.fromSecret(secret("USDC_FUNDER_SECRET"));
-const funder = await horizon.loadAccount(usdcFunder.publicKey());
-
-const funding = new TransactionBuilder(funder, {
-  fee: baseFee,
-  networkPassphrase,
-})
-  .addOperation(
-    Operation.payment({
-      destination: wallet.address,
-      asset: usdc,
-      amount: "1",
-    }),
-  )
-  .setTimeout(60)
-  .build();
-
-funding.sign(usdcFunder);
-
-await horizon.submitTransaction(funding);
+await fundWithUsdc(wallet.address, "1");
 
 const payment = new TransferIntent({
   to: UsernameRecipient.make({
@@ -368,7 +302,6 @@ console.log(
       address: wallet.address,
       reserveSponsor: sponsor.publicKey(),
       feePayer: feePayer.publicKey(),
-      openingHash: row.attemptHash,
       recoveryHash: row.recoveryHash,
       paymentRecipient: recipientName,
       paymentHash: paymentRecord.hash,

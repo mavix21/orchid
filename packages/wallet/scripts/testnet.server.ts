@@ -1,25 +1,17 @@
-import { AssetOrders } from "../src/server/AssetOrders.server";
-import { Backups } from "../src/server/Backups.server";
 import assert from "node:assert/strict";
 import {
   Account,
   Asset,
-  Horizon,
   Keypair,
   MuxedAccount,
   Operation,
   TransactionBuilder,
   rpc,
 } from "@stellar/stellar-sdk";
-import { Database, databaseLayer } from "@workspace/db";
-import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import {
   AccountAddress,
   AddressRecipient,
@@ -49,7 +41,6 @@ import { Applied, Chain, Rejected, Sealed } from "../src/server/Chain.server";
 import { Directory, type WalletRow } from "../src/server/Directory.server";
 import { Authorized, Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
-import { WalletSettings } from "../src/server/settings.server";
 import {
   OpeningFacts,
   draftRecovery,
@@ -57,57 +48,27 @@ import {
   signingPayload,
 } from "../src/stellar/envelopes";
 import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
+import { freshDatabase, rpcUrl, walletServices } from "./live.server";
+import { fundWithFriendbot, horizon } from "./testnet-funding";
+import { memoRequiredDataName } from "../src/server/exchange-memos.server";
 
-const setting = (name: string) => {
-  const value = process.env[name];
+const sponsor = Keypair.random();
+const feePayer = Keypair.random();
+const user = Keypair.random();
+const activityUser = Keypair.random();
+const outsider = Keypair.random();
+const exchangeKey = Keypair.random();
+const exchange = Schema.decodeSync(AccountAddress)(exchangeKey.publicKey());
+const runId = crypto.randomUUID().replaceAll("-", "").slice(0, 8);
+const recoveryName = `vr_${runId}`;
 
-  if (!value)
-    throw new Error(`Missing verification environment variable ${name}`);
+const server = new rpc.Server(rpcUrl);
 
-  return value;
-};
-
-const sponsor = Keypair.fromSecret(setting("RESERVE_SPONSOR_SECRET"));
-const feePayer = Keypair.fromSecret(setting("FEE_PAYER_SECRET"));
-const user = Keypair.fromSecret(setting("VERIFY_USER_SECRET"));
-const activityUser = Keypair.fromSecret(setting("VERIFY_ACTIVITY_SECRET"));
-const outsider = Keypair.fromSecret(setting("VERIFY_RECIPIENT_SECRET"));
-
-const exchange = Schema.decodeSync(AccountAddress)(
-  setting("VERIFY_EXCHANGE_ADDRESS"),
-);
-
-const server = new rpc.Server("https://soroban-testnet.stellar.org");
-const horizon = new Horizon.Server("https://horizon-testnet.stellar.org");
-
-const dbLayer = databaseLayer({
-  connectionString:
-    "postgres://orchid:orchid-local@127.0.0.1:55433/wallet_live",
+const services = walletServices(await freshDatabase(), {
+  sponsor,
+  feePayer,
+  passkeyOrigins: [],
 });
-
-const dependencies = Layer.mergeAll(
-  Chain.layer,
-  Directory.layer,
-  Transfers.layer,
-  AssetOrders.layer,
-  Backups.layer,
-);
-
-const services = Layer.merge(
-  Wallet.serviceLayer.pipe(Layer.provide(dependencies)),
-  dependencies,
-).pipe(
-  Layer.provide(
-    Layer.succeed(WalletSettings, {
-      rpcUrl: "https://soroban-testnet.stellar.org",
-      reserveSponsorSecret: Redacted.make(sponsor.secret()),
-      feePayerSecret: Redacted.make(feePayer.secret()),
-      passkeyOrigins: [],
-    }),
-  ),
-  Layer.provide(dbLayer),
-  Layer.provide(FetchHttpClient.layer),
-);
 
 const run = <A, E>(
   program: Effect.Effect<A, E, Wallet | Chain | Directory | Transfers>,
@@ -137,14 +98,6 @@ const walletRow = async (address: AccountAddress): Promise<WalletRow> =>
   Option.getOrThrow(
     await run(Directory.use((directory) => directory.byAddress(address))),
   );
-
-const fund = async (key: Keypair) => {
-  const response = await fetch(
-    `https://friendbot.stellar.org/?addr=${key.publicKey()}`,
-  );
-
-  assert.equal(response.status, 200, "Friendbot funding failed");
-};
 
 const opening = (
   claim: WalletClaim,
@@ -272,25 +225,31 @@ const createWithShortRecovery = async (key: Keypair, name: string) => {
 
 assert.equal((await server.getNetwork()).passphrase, networkPassphrase);
 
-await Effect.runPromise(
-  Effect.gen(function* () {
-    const db = yield* Database;
-
-    yield* migrate(db, { migrationsFolder: `${import.meta.dir}/../drizzle` });
-  }).pipe(Effect.provide(dbLayer)),
+await Promise.all(
+  [sponsor, feePayer, outsider, exchangeKey].map((key) =>
+    fundWithFriendbot(key.publicKey()),
+  ),
 );
-
-await fund(sponsor);
-
-await fund(feePayer);
 
 console.log("Friendbot funded fresh, separate reserve sponsor and fee payer.");
 
-await fund(outsider);
+const requireMemo = new TransactionBuilder(
+  await horizon.loadAccount(exchange),
+  { fee: baseFee, networkPassphrase },
+)
+  .addOperation(
+    Operation.manageData({ name: memoRequiredDataName, value: "1" }),
+  )
+  .setTimeout(120)
+  .build();
+
+requireMemo.sign(exchangeKey);
+
+await horizon.submitTransaction(requireMemo);
 
 const outsiderClaim = new WalletClaim({
   address: addressOf(outsider),
-  username: Schema.decodeSync(Username)("verify_outsider"),
+  username: Schema.decodeSync(Username)(`vo_${runId}`),
 });
 
 assert.ok((await opening(outsiderClaim)) instanceof NotSponsored);
@@ -311,14 +270,14 @@ const racer = Keypair.random();
 
 const racerClaim = new WalletClaim({
   address: addressOf(racer),
-  username: Schema.decodeSync(Username)("verify_recovery"),
+  username: Schema.decodeSync(Username)(recoveryName),
 });
 
 const racerDraft = await opening(racerClaim);
 
 assert.ok(racerDraft instanceof OpeningDraft);
 
-const first = await createWithShortRecovery(user, "verify_recovery");
+const first = await createWithShortRecovery(user, recoveryName);
 
 assert.ok(
   (await opening(racerClaim, approve(racerDraft.request, racer))) instanceof
@@ -455,7 +414,8 @@ assert.ok(
 
 remember("sponsored trustline-only repair", repairHash);
 
-const second = await createWithShortRecovery(activityUser, "verify_activity");
+const second = await createWithShortRecovery(activityUser, `va_${runId}`);
+
 const holder = await server.getAccount(second.claim.address);
 
 const bump = new TransactionBuilder(holder, { fee: baseFee, networkPassphrase })

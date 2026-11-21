@@ -1,11 +1,5 @@
 import { type Page, type Route, expect, test } from "@playwright/test";
-import {
-  Asset,
-  Keypair,
-  Networks,
-  Operation,
-  TransactionBuilder,
-} from "@stellar/stellar-sdk";
+import { Keypair } from "@stellar/stellar-sdk";
 import {
   AccountAddress,
   ExternalMemoRequired,
@@ -21,12 +15,10 @@ import {
   submitButton,
   usernameInput,
 } from "./device";
-import { fundWithFriendbot, horizon } from "./testnet";
-
-const usdc = new Asset(
-  "USDC",
-  "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-);
+import {
+  fundWithUsdc,
+  usdc,
+} from "../../../packages/wallet/scripts/testnet-funding";
 
 const serverFunction = "/_serverFn/";
 
@@ -49,32 +41,6 @@ const openWallet = async (page: Page, username: string) => {
   if (address === undefined) throw new Error("No wallet address was claimed");
 
   return address;
-};
-
-const fundWithUsdc = async (address: string, amount: string) => {
-  const funder = Keypair.random();
-
-  const source = await fundWithFriendbot(funder.publicKey());
-
-  const payment = new TransactionBuilder(source, {
-    fee: "10000",
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(
-      Operation.pathPaymentStrictReceive({
-        sendAsset: Asset.native(),
-        sendMax: "100",
-        destination: address,
-        destAsset: usdc,
-        destAmount: amount,
-        path: [],
-      }),
-    )
-    .setTimeout(60)
-    .build();
-
-  payment.sign(funder);
-  await horizon.submitTransaction(payment);
 };
 
 const choose = (page: Page, destination: "address" | "username") =>
