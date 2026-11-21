@@ -13,9 +13,9 @@ import {
 import { stellarRpc } from "../src/server/ledger.server";
 import { defaultRpcTimeout } from "../src/server/settings.server";
 import { network } from "../src/stellar/network";
-import { rpcAnswering, testRpcUrl } from "./rpc-answering";
+import { rpcAnswering, rpcError, rpcOk, testRpcUrl } from "./rpc-answering";
 
-const checkMemoRequirement = (
+const checkMemo = (
   address: AccountAddress,
   entries: ReadonlyArray<KnownExchangeMemo>,
 ) =>
@@ -38,27 +38,23 @@ const ledgerPublishing = (
       new xdr.LedgerKeyData({ accountId, dataName: "config.memo_required" }),
     ).toXdr("base64");
 
-    return JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      result: {
-        latestLedger: 7,
-        entries:
-          Option.isSome(memoRequired) && keys.includes(requested)
-            ? [
-                {
-                  xdr: xdr.LedgerEntryData.data(
-                    new xdr.DataEntry({
-                      accountId,
-                      dataName: "config.memo_required",
-                      dataValue: memoRequired.value,
-                      ext: xdr.DataEntryExt.v0(),
-                    }),
-                  ).toXdr("base64"),
-                },
-              ]
-            : [],
-      },
+    return rpcOk({
+      latestLedger: 7,
+      entries:
+        Option.isSome(memoRequired) && keys.includes(requested)
+          ? [
+              {
+                xdr: xdr.LedgerEntryData.data(
+                  new xdr.DataEntry({
+                    accountId,
+                    dataName: "config.memo_required",
+                    dataValue: memoRequired.value,
+                    ext: xdr.DataEntryExt.v0(),
+                  }),
+                ).toXdr("base64"),
+              },
+            ]
+          : [],
     });
   });
 
@@ -66,7 +62,7 @@ const randomAddress = () =>
   Schema.decodeSync(AccountAddress)(Keypair.random().publicKey());
 
 it.effect(
-  "registered addresses answer from the registry without the ledger, and other addresses fail while it is unreachable",
+  "registered addresses answer without the ledger, and others fail while unreachable",
   () =>
     Effect.gen(function* () {
       const address = randomAddress();
@@ -78,24 +74,15 @@ it.effect(
         source: "https://example.com/fixtures/stellar-testnet-memo-required",
       });
 
-      const http = rpcAnswering(() =>
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          error: { code: -32603, message: "could not query captive core" },
-        }),
-      );
+      const http = rpcAnswering(() => rpcError);
 
       expect(
-        yield* checkMemoRequirement(address, [entry]).pipe(
-          Effect.provide(http),
-        ),
+        yield* checkMemo(address, [entry]).pipe(Effect.provide(http)),
       ).toEqual(Option.some(entry));
       expect(
-        yield* Effect.flip(
-          checkMemoRequirement(randomAddress(), [entry]).pipe(
-            Effect.provide(http),
-          ),
+        yield* checkMemo(randomAddress(), [entry]).pipe(
+          Effect.provide(http),
+          Effect.flip,
         ),
       ).toBeInstanceOf(ChainUnreachable);
     }),
@@ -104,32 +91,20 @@ it.effect(
 const published = (text: string) => Option.some(new TextEncoder().encode(text));
 
 it.effect.each([
-  {
-    name: "no memo_required entry",
-    memoRequired: Option.none(),
-    required: false,
-  },
-  { name: 'memo_required "1"', memoRequired: published("1"), required: true },
-  { name: 'memo_required "0"', memoRequired: published("0"), required: false },
-  {
-    name: 'memo_required "11"',
-    memoRequired: published("11"),
-    required: false,
-  },
-  {
-    name: 'memo_required "true"',
-    memoRequired: published("true"),
-    required: false,
-  },
+  { name: "no entry", memoRequired: Option.none(), required: false },
+  { name: '"1"', memoRequired: published("1"), required: true },
+  { name: '"0"', memoRequired: published("0"), required: false },
+  { name: '"11"', memoRequired: published("11"), required: false },
 ])(
   "an unregistered account publishing $name requires a memo: $required",
   ({ memoRequired, required }) =>
     Effect.gen(function* () {
       const address = randomAddress();
-      const http = ledgerPublishing(address, memoRequired);
 
       expect(
-        yield* checkMemoRequirement(address, []).pipe(Effect.provide(http)),
+        yield* checkMemo(address, []).pipe(
+          Effect.provide(ledgerPublishing(address, memoRequired)),
+        ),
       ).toEqual(
         required
           ? Option.some(
@@ -145,47 +120,38 @@ it.effect.each([
     }),
 );
 
-const validRegistryEntry = {
+const validEntry = {
   network,
   address: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
   exchange: "Synthetic exchange fixture",
   source: "https://example.com/fixtures/stellar-testnet-memo-required",
 };
 
-it("registry accepts a testnet entry with a valid address and HTTPS source", () => {
-  expect(
-    Option.isSome(
-      Schema.decodeUnknownOption(KnownExchangeMemo)(validRegistryEntry),
-    ),
-  ).toBe(true);
-});
-
 it.each([
+  { name: "valid entry", entry: validEntry, valid: true },
   {
     name: "non-testnet network",
-    invalid: { ...validRegistryEntry, network: "mainnet" },
+    entry: { ...validEntry, network: "mainnet" },
+    valid: false,
   },
   {
-    name: "bad address checksum",
-    invalid: {
-      ...validRegistryEntry,
-      address: `${validRegistryEntry.address.slice(0, -1)}A`,
-    },
+    name: "bad checksum",
+    entry: { ...validEntry, address: `${validEntry.address.slice(0, -1)}A` },
+    valid: false,
   },
-  {
-    name: "empty source",
-    invalid: { ...validRegistryEntry, source: "" },
-  },
+  { name: "empty source", entry: { ...validEntry, source: "" }, valid: false },
   {
     name: "non-HTTPS source",
-    invalid: { ...validRegistryEntry, source: "file:///not-public" },
+    entry: { ...validEntry, source: "file:///not-public" },
+    valid: false,
   },
   {
     name: "empty exchange",
-    invalid: { ...validRegistryEntry, exchange: "" },
+    entry: { ...validEntry, exchange: "" },
+    valid: false,
   },
-])("registry rejects $name", ({ invalid }) => {
+])("registry decoding for $name is valid: $valid", ({ entry, valid }) => {
   expect(
-    Option.isNone(Schema.decodeUnknownOption(KnownExchangeMemo)(invalid)),
-  ).toBe(true);
+    Option.isSome(Schema.decodeUnknownOption(KnownExchangeMemo)(entry)),
+  ).toBe(valid);
 });

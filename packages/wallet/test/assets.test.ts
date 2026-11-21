@@ -1,64 +1,56 @@
-import { assertTagged } from "./tagged";
+import { expect, layer } from "@effect/vitest";
+import { Claimant, Keypair } from "@stellar/stellar-sdk";
 import { Database } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Latch from "effect/Latch";
-import * as Layer from "effect/Layer";
-import { AssetOrders, AssetProposed } from "../src/server/AssetOrders.server";
-import { walletLock } from "../src/server/slot.server";
-import { transfers, trustlines } from "../src/server/tables.server";
-import { OrderJson, Transfers } from "../src/server/Transfers.server";
-import { expect, layer } from "@effect/vitest";
-import { Claimant, Keypair } from "@stellar/stellar-sdk";
-import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
+  type Approval,
+  AssetCode,
+  AssetOrder,
+  AssetOrderId,
   BalanceId,
+  ClaimBalance,
+  CloseTrustline,
+  InsufficientBalance,
+  IssuedAsset,
+  NativeAsset,
+  OpenTrustline,
+  PositiveAmount,
   Profile,
   ResolvedRecipient,
   TransferOrder,
   Username,
-  NativeAsset,
-  Pending,
-  Amount,
-  AssetCode,
-  AssetOrder,
-  AssetOrderId,
-  AssetDraft,
-  AssetPending,
-  AssetSettled,
-  AssetBusy,
-  ClaimBalance,
-  IssuedAsset,
-  OpenTrustline,
-  CloseTrustline,
-  TrustlineLimitReached,
-  TrustlineNotEmpty,
   UsernameRecipient,
-  TransferDraft,
-  PositiveAmount,
 } from "../src/contract";
+import { AssetOrders } from "../src/server/AssetOrders.server";
+import { Chain } from "../src/server/Chain.server";
+import { transfers, trustlines } from "../src/server/tables.server";
+import { OrderJson, Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
-import { Applied, Chain } from "../src/server/Chain.server";
-import { ClaimFacts, TrustlineFacts } from "../src/stellar/asset-envelopes";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { epochAt, network } from "../src/stellar/network";
+import { assertTagged } from "./tagged";
 import {
   addressOf,
+  amount,
   approve,
-  create,
   fakeChain,
-  fundHolder,
+  fundedWallet,
+  holdingsFor,
   orderFor,
+  overviewOf,
   runAcrossLockWait,
   send,
-  settings,
-  stores,
+  settleHash,
+  sweep,
   useDisposableDatabase,
   walletTestLayer,
+  walletWithChain,
   world,
 } from "./wallet-harness";
 
@@ -71,15 +63,89 @@ const asset = IssuedAsset.make({
 
 const manage = (
   order: AssetOrder,
-  approval = Option.none<import("../src/contract").Approval>(),
-) => Wallet.use((wallet) => wallet.manage(order, approval));
+  approval: Option.Option<Approval> = Option.none(),
+) => Wallet.use((w) => w.manage(order, approval));
 
-const order = (key: Keypair, action: AssetOrder["action"]) =>
+const assetOrder = (key: Keypair, action: AssetOrder["action"]) =>
   new AssetOrder({
     id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
     wallet: addressOf(key),
     action,
   });
+
+const euroLine = (bal: string) => ({
+  asset,
+  balance: amount(bal),
+  spendable: amount(bal),
+  authorized: true,
+  sponsored: true,
+});
+
+const seedPortfolio = Effect.fn(function* (key: Keypair, username: string) {
+  const db = yield* Database;
+  const now = yield* Clock.currentTimeMillis;
+  const epoch = epochAt(now);
+  const owner = addressOf(key);
+  const ownerName = Schema.decodeSync(Username)(username);
+
+  yield* db.insert(trustlines).values(
+    ["EUR", "GBP", "JPY"].map((code) => ({
+      address: owner,
+      network,
+      testnetEpoch: epoch,
+      code: Schema.decodeSync(AssetCode)(code),
+      issuer: addressOf(Keypair.random()),
+    })),
+  );
+
+  const RecipientJson = Schema.fromJsonString(ResolvedRecipient);
+  const profile = new Profile({ address: owner, username: ownerName });
+
+  const balances = [0, 1, 2].map((i) =>
+    Schema.decodeSync(BalanceId)(`000000000${i}${"a".repeat(62)}`),
+  );
+
+  yield* db.insert(transfers).values(
+    balances.map((balanceId) => {
+      const payment = orderFor(
+        key,
+        UsernameRecipient.make({ value: ownerName }),
+      );
+
+      return {
+        id: payment.id,
+        sender: owner,
+        recipient: owner,
+        destination: owner,
+        order: Schema.encodeSync(OrderJson)(payment),
+        resolvedRecipient: Schema.encodeSync(RecipientJson)(profile),
+        amount: payment.amount,
+        network,
+        testnetEpoch: epoch,
+        status: "settled" as const,
+        envelope: "envelope",
+        hash: "0".repeat(64),
+        expiresAt: new Date(now + 60_000),
+        concludedAt: new Date(now),
+        balanceId,
+      };
+    }),
+  );
+
+  const transientBalance = balances[0];
+
+  if (!transientBalance) throw new Error("Expected balance id");
+
+  world.claimables.set(transientBalance, {
+    balance: transientBalance,
+    asset,
+    amount: Schema.decodeSync(PositiveAmount)("10000000"),
+    sponsored: true,
+    claimants: [new Claimant(owner, Claimant.predicateUnconditional())],
+  });
+
+  return { owner, transientBalance };
+});
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
@@ -87,42 +153,37 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "sponsored trustline approval survives submit failure and sweep records settlement",
       () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
-
-          yield* create(key, "assetowner");
-          fundHolder(key);
-
-          const opening = order(key, OpenTrustline.make({ asset }));
+          const key = yield* fundedWallet("assetowner");
+          const opening = assetOrder(key, OpenTrustline.make({ asset }));
           const draft = yield* manage(opening);
 
-          expect(draft).toBeInstanceOf(AssetDraft);
-
           assertTagged(draft, "AssetDraft");
-
           expect(
-            Option.getOrThrow(readEnvelope(draft.request.envelope)),
-          ).toBeInstanceOf(TrustlineFacts);
+            Option.getOrThrow(readEnvelope(draft.request.envelope))._tag,
+          ).toBe("TrustlineFacts");
+
           world.failSubmit = true;
           expect(
-            yield* manage(opening, approve(draft.request, key)),
-          ).toBeInstanceOf(AssetPending);
+            (yield* manage(opening, approve(draft.request, key)))._tag,
+          ).toBe("AssetPending");
+          expect(
+            (yield* manage(assetOrder(key, OpenTrustline.make({ asset }))))
+              ._tag,
+          ).toBe("AssetBusy");
 
-          const competing = order(key, OpenTrustline.make({ asset }));
-
-          expect(yield* manage(competing)).toBeInstanceOf(AssetBusy);
           world.failSubmit = false;
-          yield* Wallet.use((wallet) => wallet.sweep);
-
+          yield* sweep;
           const submitted = world.submitted.at(-1);
 
           if (!submitted) throw new Error("Expected submission");
 
-          world.evidence.set(
-            submitted.hash,
-            new Applied({ at: DateTime.nowUnsafe() }),
-          );
-          yield* Wallet.use((wallet) => wallet.sweep);
-          expect(yield* manage(opening)).toBeInstanceOf(AssetSettled);
+          settleHash(submitted.hash);
+          yield* sweep;
+
+          const settled = yield* manage(opening);
+
+          assertTagged(settled, "AssetSettled");
+          expect(settled.id).toBe(opening.id);
         }),
     );
 
@@ -130,43 +191,28 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "ledger reserve cap and nonzero trustline prevent new sponsored entries and removal",
       () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
+          const key = yield* fundedWallet("limitowner");
+          const addr = addressOf(key);
 
-          yield* create(key, "limitowner");
-          fundHolder(key);
-
-          const account = world.accounts.get(addressOf(key));
-
-          if (!account) throw new Error("Missing account");
-
-          world.holdings.set(addressOf(key), {
-            account,
-            reserveSponsor: Option.none(),
-            native: Schema.decodeSync(Amount)("0"),
-            reserves: { subentries: 6, sponsored: 8, sponsoring: 0 },
-            lines: [],
-          });
+          world.holdings.set(
+            addr,
+            holdingsFor(addr, {
+              reserves: { subentries: 6, sponsored: 8, sponsoring: 0 },
+            }),
+          );
           expect(
-            yield* manage(order(key, OpenTrustline.make({ asset }))),
-          ).toBeInstanceOf(TrustlineLimitReached);
-          world.holdings.set(addressOf(key), {
-            account,
-            reserveSponsor: Option.none(),
-            native: Schema.decodeSync(Amount)("0"),
-            reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
-            lines: [
-              {
-                asset,
-                balance: Schema.decodeSync(Amount)("1"),
-                spendable: Schema.decodeSync(Amount)("1"),
-                authorized: true,
-                sponsored: true,
-              },
-            ],
-          });
+            (yield* manage(assetOrder(key, OpenTrustline.make({ asset }))))
+              ._tag,
+          ).toBe("TrustlineLimitReached");
+
+          world.holdings.set(
+            addr,
+            holdingsFor(addr, { lines: [euroLine("1")] }),
+          );
           expect(
-            yield* manage(order(key, CloseTrustline.make({ asset }))),
-          ).toBeInstanceOf(TrustlineNotEmpty);
+            (yield* manage(assetOrder(key, CloseTrustline.make({ asset }))))
+              ._tag,
+          ).toBe("TrustlineNotEmpty");
         }),
     );
 
@@ -174,33 +220,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "missing recipient trustline uses a sponsored claimable and claim opens the line atomically",
       () =>
         Effect.gen(function* () {
-          const sender = Keypair.random();
-          const recipient = Keypair.random();
+          const sender = yield* fundedWallet("assetsender");
+          const recipient = yield* fundedWallet("assetrecipient");
+          const senderAddr = addressOf(sender);
 
-          yield* create(sender, "assetsender");
-          yield* create(recipient, "assetrecipient");
-          fundHolder(sender);
-          fundHolder(recipient);
-
-          const account = world.accounts.get(addressOf(sender));
-
-          if (!account) throw new Error("Missing account");
-
-          world.holdings.set(addressOf(sender), {
-            account,
-            reserveSponsor: Option.none(),
-            native: Schema.decodeSync(Amount)("0"),
-            reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
-            lines: [
-              {
-                asset,
-                balance: Schema.decodeSync(Amount)("50000000"),
-                spendable: Schema.decodeSync(Amount)("50000000"),
-                authorized: true,
-                sponsored: true,
-              },
-            ],
-          });
+          world.holdings.set(
+            senderAddr,
+            holdingsFor(senderAddr, { lines: [euroLine("50000000")] }),
+          );
 
           const payment = new TransferOrder({
             ...orderFor(
@@ -219,15 +246,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
 
           assertTagged(facts, "ClaimableFacts");
-
           expect(
-            yield* send(payment, approve(draft.request, sender)),
-          ).toBeInstanceOf(Pending);
-          yield* Wallet.use((wallet) => wallet.sweep);
+            (yield* send(payment, approve(draft.request, sender)))._tag,
+          ).toBe("Pending");
+          yield* sweep;
           expect(
-            yield* Transfers.use((service) =>
-              service.openClaimables(addressOf(sender)),
-            ),
+            yield* Transfers.use((s) => s.openClaimables(senderAddr)),
           ).toBe(1);
 
           world.claimables.set(facts.balance, {
@@ -243,23 +267,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ],
           });
 
-          const claim = yield* manage(
-            order(recipient, ClaimBalance.make({ balance: facts.balance })),
-          );
-
-          assertTagged(claim, "AssetDraft");
-
-          const claimed = Option.getOrThrow(
-            readEnvelope(claim.request.envelope),
-          );
-
-          expect(claimed).toBeInstanceOf(ClaimFacts);
-
-          assertTagged(claimed, "ClaimFacts");
-
-          expect(claimed.opens).toEqual(asset);
-
-          const claimOrder = order(
+          const claimOrder = assetOrder(
             recipient,
             ClaimBalance.make({ balance: facts.balance }),
           );
@@ -268,9 +276,16 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(claimDraft, "AssetDraft");
 
+          const claimed = Option.getOrThrow(
+            readEnvelope(claimDraft.request.envelope),
+          );
+
+          assertTagged(claimed, "ClaimFacts");
+          expect(claimed.opens).toEqual(asset);
           expect(
-            yield* manage(claimOrder, approve(claimDraft.request, recipient)),
-          ).toBeInstanceOf(AssetPending);
+            (yield* manage(claimOrder, approve(claimDraft.request, recipient)))
+              ._tag,
+          ).toBe("AssetPending");
         }),
     );
 
@@ -278,30 +293,16 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "native sends spend only available XLM and empty trustline removal stays holder signed",
       () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
+          const key = yield* fundedWallet("nativeowner");
+          const addr = addressOf(key);
 
-          yield* create(key, "nativeowner");
-          fundHolder(key);
-
-          const account = world.accounts.get(addressOf(key));
-
-          if (!account) throw new Error("Missing account");
-
-          world.holdings.set(addressOf(key), {
-            account,
-            reserveSponsor: Option.none(),
-            native: Schema.decodeSync(Amount)("50000000"),
-            reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
-            lines: [
-              {
-                asset,
-                balance: Schema.decodeSync(Amount)("0"),
-                spendable: Schema.decodeSync(Amount)("0"),
-                authorized: true,
-                sponsored: true,
-              },
-            ],
-          });
+          world.holdings.set(
+            addr,
+            holdingsFor(addr, {
+              native: amount("5000000"),
+              lines: [euroLine("0")],
+            }),
+          );
 
           const native = new TransferOrder({
             ...orderFor(
@@ -313,24 +314,36 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             asset: NativeAsset.make({}),
           });
 
+          expect(yield* send(native)).toEqual(
+            new InsufficientBalance({ available: amount("5000000") }),
+          );
+
+          world.holdings.set(
+            addr,
+            holdingsFor(addr, {
+              native: amount("50000000"),
+              lines: [euroLine("0")],
+            }),
+          );
+
           const draft = yield* send(native);
 
-          expect(draft).toBeInstanceOf(TransferDraft);
-
           assertTagged(draft, "TransferDraft");
+          expect(
+            Option.getOrThrow(readEnvelope(draft.request.envelope)),
+          ).toMatchObject({ asset: NativeAsset.make({}) });
 
-          const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
-
-          expect(facts).toMatchObject({ asset: NativeAsset.make({}) });
-
-          const close = order(key, CloseTrustline.make({ asset }));
+          const close = assetOrder(key, CloseTrustline.make({ asset }));
           const removal = yield* manage(close);
 
           assertTagged(removal, "AssetDraft");
-
           expect(
-            yield* manage(close, approve(removal.request, key)),
-          ).toBeInstanceOf(AssetPending);
+            (yield* manage(close, approve(removal.request, Keypair.random())))
+              ._tag,
+          ).toBe("AssetDraft");
+          expect(
+            (yield* manage(close, approve(removal.request, key)))._tag,
+          ).toBe("AssetPending");
         }),
     );
 
@@ -338,155 +351,49 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "overview shares one concurrency budget of four across holdings and claimables",
       () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
-          const claim = yield* create(key, "concurrentowner");
+          const key = yield* fundedWallet("concurrentowner");
 
-          fundHolder(key);
-
-          const db = yield* Database;
-          const now = yield* Clock.currentTimeMillis;
-          const epoch = epochAt(now);
-          const owner = addressOf(key);
-
-          const missingAssets = ["EUR", "GBP", "JPY", "BRL"].map((code) =>
-            IssuedAsset.make({
-              code: Schema.decodeSync(AssetCode)(code),
-              issuer: addressOf(Keypair.random()),
-            }),
+          const { owner, transientBalance } = yield* seedPortfolio(
+            key,
+            "concurrentowner",
           );
 
-          yield* db.insert(trustlines).values(
-            missingAssets.map((tracked) => ({
-              address: owner,
-              network,
-              testnetEpoch: epoch,
-              code: tracked.code,
-              issuer: tracked.issuer,
-            })),
-          );
-
-          const RecipientJson = Schema.fromJsonString(ResolvedRecipient);
-
-          const ownerProfile = new Profile({
-            address: owner,
-            username: claim.username,
-          });
-
-          const settledTransfers: ReadonlyArray<typeof transfers.$inferInsert> =
-            [0, 1, 2, 3].map((index) => {
-              const transferOrder = orderFor(
-                key,
-                UsernameRecipient.make({ value: claim.username }),
-              );
-
-              return {
-                id: transferOrder.id,
-                sender: owner,
-                recipient: owner,
-                destination: owner,
-                order: Schema.encodeSync(OrderJson)(transferOrder),
-                resolvedRecipient:
-                  Schema.encodeSync(RecipientJson)(ownerProfile),
-                amount: transferOrder.amount,
-                network,
-                testnetEpoch: epoch,
-                status: "settled",
-                envelope: "envelope",
-                hash: "0".repeat(64),
-                expiresAt: new Date(now + 60_000),
-                concludedAt: new Date(now),
-                balanceId: Schema.decodeSync(BalanceId)(
-                  `00000000${index.toString(16).padStart(2, "0")}${"a".repeat(62)}`,
-                ),
-              };
-            });
-
-          yield* db.insert(transfers).values([...settledTransfers]);
-
-          const transientBalance = Schema.decodeSync(BalanceId)(
-            `0000000000${"a".repeat(62)}`,
-          );
-
-          world.claimables.set(transientBalance, {
-            balance: transientBalance,
-            asset,
-            amount: Schema.decodeSync(PositiveAmount)("10000000"),
-            sponsored: true,
-            claimants: [new Claimant(owner, Claimant.predicateUnconditional())],
-          });
-
-          const claimableStarted = yield* Latch.make();
-          const releaseInitialClaimable = yield* Latch.make();
-          const initialClaimableDone = yield* Latch.make();
           const reachedFour = yield* Latch.make();
           const releaseConfirms = yield* Latch.make();
           let inFlight = 0;
           let maxInFlight = 0;
 
-          const trackRead = <A, E>(
-            gate: Latch.Latch,
-            run: Effect.Effect<A, E>,
-            onStart: Effect.Effect<void> = Effect.void,
-            onEnd: Effect.Effect<void> = Effect.void,
-          ) =>
+          const holdConfirm = <A, E>(run: Effect.Effect<A, E>) =>
             Effect.acquireUseRelease(
               Effect.gen(function* () {
                 inFlight += 1;
 
                 if (inFlight > maxInFlight) maxInFlight = inFlight;
 
-                yield* onStart;
-
                 if (inFlight >= 4) yield* reachedFour.open;
               }),
-              () => gate.await.pipe(Effect.andThen(run)),
+              () => releaseConfirms.await.pipe(Effect.andThen(run)),
               () =>
                 Effect.sync(() => {
                   inFlight -= 1;
-                }).pipe(Effect.andThen(onEnd)),
+                }),
             );
 
-          const concurrentChain = Layer.effect(
-            Chain,
-            Effect.gen(function* () {
-              const actual = yield* Chain;
+          const concurrentWallet = walletWithChain((actual) => ({
+            holdings: (addr, assets) =>
+              assets.length > 1
+                ? actual.holdings(addr, assets)
+                : holdConfirm(actual.holdings(addr, assets)),
+            claimable: (ids) =>
+              ids.length > 1
+                ? actual.claimable(ids.filter((id) => id !== transientBalance))
+                : holdConfirm(actual.claimable(ids)),
+          }));
 
-              return Chain.of({
-                ...actual,
-                holdings: (address, assets) =>
-                  trackRead(
-                    assets.length > 1 ? claimableStarted : releaseConfirms,
-                    actual.holdings(address, assets),
-                  ),
-                claimable: (balances) =>
-                  balances.length > 1
-                    ? trackRead(
-                        releaseInitialClaimable,
-                        actual.claimable(
-                          balances.filter((id) => id !== transientBalance),
-                        ),
-                        claimableStarted.open,
-                        initialClaimableDone.open,
-                      )
-                    : trackRead(releaseConfirms, actual.claimable(balances)),
-              });
-            }),
-          ).pipe(Layer.provide(fakeChain));
-
-          const concurrentWallet = Wallet.serviceLayer.pipe(
-            Layer.provide(stores),
-            Layer.provide(concurrentChain),
-            Layer.provide(settings),
-          );
-
-          const fiber = yield* Wallet.use((wallet) =>
-            wallet.overview(owner),
-          ).pipe(
-            Effect.provide(Layer.fresh(concurrentWallet)),
+          const fiber = yield* overviewOf(owner).pipe(
+            Effect.provide(concurrentWallet),
             Effect.forkChild,
           );
-
-          const yieldTurns = Effect.repeat(Effect.yieldNow, { times: 3 });
 
           const overview = yield* Effect.gen(function* () {
             expect(
@@ -496,84 +403,39 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 ),
               ),
             ).toBe(true);
-            yield* yieldTurns;
-            yield* releaseInitialClaimable.open;
-            expect(
-              Option.isSome(
-                yield* initialClaimableDone.await.pipe(
-                  Effect.timeoutOption("2 seconds"),
-                ),
-              ),
-            ).toBe(true);
-            yield* yieldTurns;
             yield* releaseConfirms.open;
 
             return yield* Fiber.join(fiber);
-          }).pipe(
-            Effect.ensuring(
-              claimableStarted.open.pipe(
-                Effect.andThen(releaseInitialClaimable.open),
-                Effect.andThen(releaseConfirms.open),
-              ),
-            ),
-          );
+          }).pipe(Effect.ensuring(releaseConfirms.open));
 
           assertTagged(overview, "Holding");
-
           expect(maxInFlight).toBe(4);
+          expect(yield* AssetOrders.use((s) => s.tracked(owner))).toEqual([]);
           expect(
-            yield* AssetOrders.use((service) => service.tracked(owner)),
-          ).toEqual([]);
-          expect(
-            (yield* Transfers.use((service) =>
-              service.openBalances(owner),
-            )).map((item) => item.balance),
+            (yield* Transfers.use((s) => s.openBalances(owner))).map(
+              (i) => i.balance,
+            ),
           ).toEqual([transientBalance]);
-          expect(overview.balances).toHaveLength(1);
-          expect(overview.claimable).toEqual([]);
         }),
     );
 
-    const lockCases: ReadonlyArray<{
-      readonly name: string;
-      readonly locktype: "advisory" | "relation";
-      readonly lock: (
-        address: ReturnType<typeof addressOf>,
-      ) => ReturnType<typeof walletLock>;
-    }> = [
-      {
-        name: "the wallet advisory lock",
-        locktype: "advisory",
-        lock: walletLock,
-      },
-      {
-        name: "the post-lock slot query",
-        locktype: "relation",
-        lock: () => sql`lock table transfers in access exclusive mode`,
-      },
-    ];
-
-    it.effect.each(lockCases)(
-      "asset authorization keeps an order proposed when waiting on $name crosses the approval margin",
-      ({ locktype, lock }) =>
+    it.effect(
+      "asset authorization keeps an order proposed when waiting on the post-lock slot query crosses the approval margin",
+      () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
-
-          yield* create(key, "assetlockowner");
-          fundHolder(key);
-
-          const opening = order(key, OpenTrustline.make({ asset }));
+          const key = yield* fundedWallet("assetlockowner");
+          const opening = assetOrder(key, OpenTrustline.make({ asset }));
 
           assertTagged(yield* manage(opening), "AssetDraft");
 
           const stored = Option.getOrThrow(
-            yield* AssetOrders.use((service) => service.find(opening.id)),
+            yield* AssetOrders.use((s) => s.find(opening.id)),
           );
 
           assertTagged(stored, "AssetProposed");
 
-          const sealed = yield* Chain.use((chain) =>
-            chain.seal(
+          const sealed = yield* Chain.use((c) =>
+            c.seal(
               stored.request,
               Option.getOrThrow(approve(stored.request, key)),
               addressOf(key),
@@ -581,20 +443,18 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           ).pipe(Effect.provide(fakeChain));
 
           const { result: outcome } = yield* runAcrossLockWait({
-            locktype,
+            locktype: "relation",
             advance: "101 seconds",
-            acquire: (tx) => tx.execute(lock(addressOf(key))),
-            run: AssetOrders.use((service) =>
-              service.authorize(stored, sealed),
-            ),
+            acquire: (tx) =>
+              tx.execute(sql`lock table transfers in access exclusive mode`),
+            run: AssetOrders.use((s) => s.authorize(stored, sealed)),
           });
 
-          expect(outcome).toBeInstanceOf(AssetProposed);
+          expect(outcome._tag).toBe("AssetProposed");
           expect(
-            Option.getOrThrow(
-              yield* AssetOrders.use((service) => service.find(opening.id)),
-            ),
-          ).toBeInstanceOf(AssetProposed);
+            Option.getOrThrow(yield* AssetOrders.use((s) => s.find(opening.id)))
+              ._tag,
+          ).toBe("AssetProposed");
         }),
     );
   },

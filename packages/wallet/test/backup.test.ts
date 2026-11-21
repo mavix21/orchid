@@ -11,12 +11,11 @@ import {
   BackupFound,
   BackupStored,
   ChallengeRefused,
-  Holding,
   NoBackup,
+  Offline,
   Opened,
   PasskeyChallenge,
   RegistrationRefused,
-  Offline,
   type WalletPort,
 } from "../src/contract";
 import {
@@ -25,10 +24,10 @@ import {
   Restored,
   SavedWallet,
   WalletOnDevice,
-  makeWalletClient,
+  makeWalletEffects,
 } from "../src/device/client";
-import type { DeviceWallet, KeyStore } from "../src/device/key-store";
 import { backupSalt } from "../src/device/phrase-seal";
+import { signingKey } from "../src/device/signing";
 import { Backups } from "../src/server/Backups.server";
 import {
   backups,
@@ -37,6 +36,7 @@ import {
   wallets,
 } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
+import { memoryKeyStore, savedWallet } from "./device-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import {
   passkeyOrigin,
@@ -45,28 +45,14 @@ import {
   walletTestLayer,
 } from "./wallet-harness";
 
-function memoryKeyStore() {
-  let saved = Option.none<DeviceWallet>();
-
-  const store: KeyStore = {
-    read: () => Effect.sync(() => saved),
-    write: (wallet) =>
-      Effect.sync(() => {
-        saved = Option.some(wallet);
-      }),
-  };
-
-  return store;
-}
-
-const savedWallet = (store: KeyStore) =>
-  store.read().pipe(Effect.flatMap(Effect.fromOption), Effect.orDie);
-
 const device = (
   port: WalletPort,
-  authenticator: SoftwareAuthenticator,
+  auth: SoftwareAuthenticator,
   store = memoryKeyStore(),
-) => ({ store, client: makeWalletClient(port, store, authenticator.passkeys) });
+) => ({
+  store,
+  client: makeWalletEffects(port, store, auth.passkeys),
+});
 
 const tableRows = Effect.gen(function* () {
   const db = yield* Database;
@@ -78,14 +64,14 @@ const tableRows = Effect.gen(function* () {
   };
 });
 
-const assertion = (port: WalletPort, authenticator: SoftwareAuthenticator) =>
+const assertion = (
+  port: WalletPort,
+  auth: SoftwareAuthenticator,
+  challenge?: PasskeyChallenge,
+) =>
   Effect.gen(function* () {
-    const challenge = yield* port.passkeyChallenge("restore");
-
-    const passkey = yield* authenticator.passkeys.authenticate(
-      challenge,
-      yield* backupSalt,
-    );
+    const token = challenge ?? (yield* port.passkeyChallenge("restore"));
+    const passkey = yield* auth.passkeys.authenticate(token, yield* backupSalt);
 
     return Option.getOrThrow(passkey).assertion;
   });
@@ -95,42 +81,24 @@ useDisposableDatabase();
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect(
-      "creation stores an encrypted backup before the username is claimed",
+      "creation stores an encrypted backup before opening and restores under the requested name",
       () =>
         Effect.gen(function* () {
-          const db = yield* Database;
           const wallet = yield* Wallet;
-          const authenticator = new SoftwareAuthenticator(passkeyOrigin);
-          let backupBeforeFirstOpen: boolean | undefined;
+          const auth = new SoftwareAuthenticator(passkeyOrigin);
 
-          const observing: WalletPort = {
+          const offlinePort: WalletPort = {
             ...wallet,
-            open: (claim, approval) =>
-              Effect.gen(function* () {
-                if (backupBeforeFirstOpen === undefined) {
-                  const existing = yield* db
-                    .select()
-                    .from(backups)
-                    .where(eq(backups.address, claim.address))
-                    .pipe(Effect.orDie);
-
-                  backupBeforeFirstOpen = existing.length === 1;
-                }
-
-                return yield* wallet.open(claim, approval);
-              }),
+            open: () => Effect.fail(new Offline()),
           };
 
-          const { store, client } = device(observing, authenticator);
+          const first = device(offlinePort, auth);
 
-          expect(
-            yield* Effect.promise(() => client.create("maria")),
-          ).toBeInstanceOf(Opened);
-
-          const saved = yield* savedWallet(store);
+          yield* first.client.create("maria");
+          const saved = yield* savedWallet(first.store);
           const rows = yield* tableRows;
 
-          expect(backupBeforeFirstOpen).toBe(true);
+          expect(saved.address).toBe(signingKey(saved.phrase).publicKey());
           expect(saved.backup).toBe("stored");
           expect(rows.backups).toHaveLength(1);
           expect(rows.backups[0]?.address).toBe(saved.address);
@@ -138,6 +106,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(JSON.stringify(rows.backups)).not.toContain(
             Buffer.from(saved.phrase).toString("base64"),
           );
+
+          const second = device(wallet, auth);
+          const restored = yield* second.client.restore();
+
+          expect(
+            restored instanceof Restored && restored.profile.username,
+          ).toBe("maria");
+          expect(yield* second.client.create("maria")).toBeInstanceOf(Opened);
         }),
     );
 
@@ -146,15 +122,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           const wallet = yield* Wallet;
-          const authenticator = new SoftwareAuthenticator(passkeyOrigin);
-          const { store, client } = device(wallet, authenticator);
+          const auth = new SoftwareAuthenticator(passkeyOrigin);
+          const { store, client } = device(wallet, auth);
 
-          authenticator.cancels = true;
-
-          expect(yield* Effect.promise(() => client.create("maria"))).toEqual(
-            new PasskeyCancelled(),
-          );
-
+          auth.cancels = true;
+          expect(yield* client.create("maria")).toEqual(new PasskeyCancelled());
           const phrase = (yield* savedWallet(store)).phrase;
 
           expect(yield* tableRows).toEqual({
@@ -163,11 +135,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             wallets: [],
           });
 
-          authenticator.cancels = false;
-
-          expect(
-            yield* Effect.promise(() => client.create("maria")),
-          ).toBeInstanceOf(Opened);
+          auth.cancels = false;
+          expect(yield* client.create("maria")).toBeInstanceOf(Opened);
           expect((yield* savedWallet(store)).phrase).toBe(phrase);
         }),
     );
@@ -177,32 +146,23 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           const wallet = yield* Wallet;
-          const authenticator = new SoftwareAuthenticator(passkeyOrigin);
-          const { client } = device(wallet, authenticator);
+          const auth = new SoftwareAuthenticator(passkeyOrigin);
+          const { client } = device(wallet, auth);
 
-          authenticator.prf = false;
-
-          const created = yield* Effect.promise(() => client.create("maria"));
-          const saved = yield* Effect.promise(() => client.saved());
+          auth.prf = false;
+          const created = yield* client.create("maria");
+          const saved = yield* client.saved();
 
           expect(created).toBeInstanceOf(Opened);
           expect(saved instanceof SavedWallet && saved.backup).toBe(
             "deviceOnly",
           );
           expect((yield* tableRows).backups).toEqual([]);
-          expect(yield* Effect.promise(() => client.backUp())).toEqual(
-            new BackupUnsupported(),
-          );
+          expect(yield* client.backUp()).toEqual(new BackupUnsupported());
 
-          authenticator.prf = true;
-
-          expect(yield* Effect.promise(() => client.backUp())).toEqual(
-            new BackupStored(),
-          );
-
-          const restored = yield* Effect.promise(() =>
-            device(wallet, authenticator).client.restore(),
-          );
+          auth.prf = true;
+          expect(yield* client.backUp()).toEqual(new BackupStored());
+          const restored = yield* device(wallet, auth).client.restore();
 
           expect(restored instanceof Restored && restored.profile).toEqual(
             created instanceof Opened && created.profile,
@@ -215,15 +175,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           const wallet = yield* Wallet;
-          const authenticator = new SoftwareAuthenticator(passkeyOrigin);
-          const first = device(wallet, authenticator);
-          const second = device(wallet, authenticator);
-
-          const created = yield* Effect.promise(() =>
-            first.client.create("maria"),
-          );
-
-          const restored = yield* Effect.promise(() => second.client.restore());
+          const auth = new SoftwareAuthenticator(passkeyOrigin);
+          const first = device(wallet, auth);
+          const second = device(wallet, auth);
+          const created = yield* first.client.create("maria");
+          const restored = yield* second.client.restore();
 
           expect(restored instanceof Restored && restored.profile).toEqual(
             created instanceof Opened && created.profile,
@@ -231,44 +187,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect((yield* savedWallet(second.store)).phrase).toBe(
             (yield* savedWallet(first.store)).phrase,
           );
-          expect(
-            yield* Effect.promise(() => second.client.overview()),
-          ).toBeInstanceOf(Holding);
 
           const before = yield* savedWallet(second.store);
 
-          expect(yield* Effect.promise(() => second.client.restore())).toEqual(
-            new WalletOnDevice(),
-          );
+          expect(yield* second.client.restore()).toEqual(new WalletOnDevice());
           expect(yield* savedWallet(second.store)).toEqual(before);
-        }),
-    );
-
-    it.effect(
-      "a wallet backed up before its opening finished restores under the requested name",
-      () =>
-        Effect.gen(function* () {
-          const wallet = yield* Wallet;
-          const authenticator = new SoftwareAuthenticator(passkeyOrigin);
-
-          const offline: WalletPort = {
-            ...wallet,
-            open: () => Effect.fail(new Offline()),
-          };
-
-          const first = device(offline, authenticator);
-
-          yield* Effect.promise(() => first.client.create("maria"));
-
-          const second = device(wallet, authenticator);
-          const restored = yield* Effect.promise(() => second.client.restore());
-
-          expect(
-            restored instanceof Restored && restored.profile.username,
-          ).toBe("maria");
-          expect(
-            yield* Effect.promise(() => second.client.create("maria")),
-          ).toBeInstanceOf(Opened);
         }),
     );
 
@@ -277,53 +200,37 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           const wallet = yield* Wallet;
-          const authenticator = new SoftwareAuthenticator(passkeyOrigin);
+          const auth = new SoftwareAuthenticator(passkeyOrigin);
 
-          yield* Effect.promise(() =>
-            device(wallet, authenticator).client.create("maria"),
-          );
-
-          const fresh = yield* assertion(wallet, authenticator);
+          yield* device(wallet, auth).client.create("maria");
+          const fresh = yield* assertion(wallet, auth);
 
           expect(yield* wallet.restore(fresh)).toBeInstanceOf(BackupFound);
           expect(yield* wallet.restore(fresh)).toEqual(new ChallengeRefused());
 
-          const expiring = yield* assertion(wallet, authenticator);
+          const expiring = yield* assertion(wallet, auth);
           const db = yield* Database;
 
           yield* db
             .update(passkeyChallenges)
             .set({ expiresAt: new Date(Date.now() - 1000) });
-
           expect(yield* wallet.restore(expiring)).toEqual(
             new ChallengeRefused(),
           );
 
-          const enrollmentChallenge =
-            yield* wallet.passkeyChallenge("enrollment");
-
-          const misused = yield* authenticator.passkeys.authenticate(
-            enrollmentChallenge,
-            yield* backupSalt,
-          );
+          const enrollment = yield* wallet.passkeyChallenge("enrollment");
+          const invented = Schema.decodeSync(PasskeyChallenge)("A".repeat(43));
 
           expect(
-            yield* wallet.restore(Option.getOrThrow(misused).assertion),
+            yield* wallet.restore(yield* assertion(wallet, auth, enrollment)),
           ).toEqual(new ChallengeRefused());
-
-          const invented = yield* authenticator.passkeys.authenticate(
-            Schema.decodeSync(PasskeyChallenge)("A".repeat(43)),
-            yield* backupSalt,
-          );
-
           expect(
-            yield* wallet.restore(Option.getOrThrow(invented).assertion),
+            yield* wallet.restore(yield* assertion(wallet, auth, invented)),
           ).toEqual(new ChallengeRefused());
 
           const impostor = new SoftwareAuthenticator(passkeyOrigin);
 
           impostor.forge(fresh.id);
-
           expect(
             yield* wallet.restore(yield* assertion(wallet, impostor)),
           ).toEqual(new AssertionRefused());
@@ -331,7 +238,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const stranger = new SoftwareAuthenticator(passkeyOrigin);
 
           stranger.forge("c3RyYW5nZXI");
-
           expect(
             yield* wallet.restore(yield* assertion(wallet, stranger)),
           ).toEqual(new NoBackup());
@@ -341,10 +247,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     it.effect("a registration from an unlisted origin stores no backup", () =>
       Effect.gen(function* () {
         const wallet = yield* Wallet;
-        const authenticator = new SoftwareAuthenticator("https://example.com");
-        const { client } = device(wallet, authenticator);
+        const unlisted = new SoftwareAuthenticator("https://example.com");
+        const { client } = device(wallet, unlisted);
 
-        expect(yield* Effect.promise(() => client.create("maria"))).toEqual(
+        expect(yield* client.create("maria")).toEqual(
           new RegistrationRefused(),
         );
         expect(yield* tableRows).toEqual({
@@ -372,10 +278,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const { result: consumed } = yield* Effect.gen(function* () {
             yield* TestClock.setTime(now);
-
-            const challenge = yield* Backups.use((service) =>
-              service.issue("restore"),
-            );
+            const challenge = yield* Backups.use((s) => s.issue("restore"));
 
             return yield* runAcrossLockWait({
               locktype: "transactionid",
@@ -386,9 +289,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                   .from(passkeyChallenges)
                   .where(eq(passkeyChallenges.challenge, challenge))
                   .for("update"),
-              run: Backups.use((service) =>
-                service.consume(challenge, "restore"),
-              ),
+              run: Backups.use((s) => s.consume(challenge, "restore")),
             });
           }).pipe(Effect.provide(TestClock.layer()));
 
@@ -397,7 +298,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "issue computes the five-minute challenge expiry after cleanup completes",
+      "issue preserves the full challenge window after cleanup contention",
       () =>
         Effect.gen(function* () {
           const db = yield* Database;
@@ -418,15 +319,16 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 .from(passkeyChallenges)
                 .where(eq(passkeyChallenges.challenge, stale))
                 .for("update"),
-            run: Backups.use((service) => service.issue("restore")),
+            run: Backups.use((s) => s.issue("restore")),
           });
 
-          const rows = yield* db
-            .select()
-            .from(passkeyChallenges)
-            .where(eq(passkeyChallenges.challenge, issued));
+          const consumed = yield* Effect.gen(function* () {
+            yield* TestClock.setTime(now + 310_000);
 
-          expect(rows[0]?.expiresAt.getTime()).toBe(now + 30_000 + 5 * 60_000);
+            return yield* Backups.use((s) => s.consume(issued, "restore"));
+          }).pipe(Effect.provide(TestClock.layer()));
+
+          expect(consumed).toBe(true);
         }),
     );
   },

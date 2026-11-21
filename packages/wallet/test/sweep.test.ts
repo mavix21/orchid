@@ -1,36 +1,50 @@
-import { assertTagged } from "./tagged";
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import { Database } from "@workspace/db";
-import { sql } from "drizzle-orm";
-import * as DateTime from "effect/DateTime";
+import { eq, sql } from "drizzle-orm";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import {
-  AccountAddress,
-  AddressRecipient,
-  TransferId,
-  Amount,
-} from "../src/contract";
-import { Applied } from "../src/server/Chain.server";
+import { ExternalRecipient, ResolvedRecipient } from "../src/contract";
 import { Directory } from "../src/server/Directory.server";
-import { Transfers } from "../src/server/Transfers.server";
-import { Wallet } from "../src/server/Wallet.server";
-import { sweepBatchSize } from "../src/stellar/network";
+import { transfers, wallets } from "../src/server/tables.server";
+import { OrderJson, Transfers } from "../src/server/Transfers.server";
+import { epochAt, network, sweepBatchSize } from "../src/stellar/network";
 import {
-  dbLayer,
-  world,
+  accountState,
   addressOf,
-  approve,
+  amount,
   create,
-  orderFor,
-  send,
+  findWallet,
+  selfOrder,
+  settleHash,
+  sweep,
   useDisposableDatabase,
   walletTestLayer,
+  world,
 } from "./wallet-harness";
 
 useDisposableDatabase();
+
+const RecipientJson = Schema.fromJsonString(ResolvedRecipient);
+
+const activeRow = (
+  address: string,
+  now: number,
+  minMs: number,
+  maxMs: number,
+) => ({
+  address,
+  status: "active" as const,
+  network,
+  testnetEpoch: epochAt(now),
+  recoveryEnvelope: "envelope",
+  recoveryHash: "0".repeat(64),
+  recoverySequence: "1001",
+  recoveryMinTime: new Date(now + minMs),
+  recoveryMaxTime: new Date(now + maxMs),
+});
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
@@ -38,73 +52,43 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "recovery sweep checks time, balance and sequence before submitting",
       () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
-          const claim = yield* create(key, "maria");
+          const claim = yield* create(Keypair.random(), "maria");
           const initial = world.submitted.length;
 
-          yield* Wallet.use((wallet) => wallet.sweep);
+          yield* sweep;
           expect(world.submitted).toHaveLength(initial);
-          yield* Effect.gen(function* () {
-            const db = yield* Database;
-
-            yield* db.execute(
+          yield* Database.use((db) =>
+            db.execute(
               sql`update wallets set "recoveryMinTime" = now() - interval '1 second' where address = ${claim.address}`,
-            );
-          }).pipe(Effect.provide(dbLayer));
-          world.accounts.set(claim.address, {
-            sequence: "1000",
-            ledger: 100,
-            accountSponsored: true,
-            sponsored: true,
-            nativeBalance: 0n,
-            balance: Option.some(Schema.decodeSync(Amount)("1")),
-          });
-          yield* Wallet.use((wallet) => wallet.sweep);
-          expect(world.submitted).toHaveLength(initial);
-          world.accounts.set(claim.address, {
-            sequence: "1001",
-            ledger: 100,
-            accountSponsored: true,
-            sponsored: true,
-            nativeBalance: 0n,
-            balance: Option.some(Schema.decodeSync(Amount)("0")),
-          });
-          yield* Wallet.use((wallet) => wallet.sweep);
-          expect(world.submitted).toHaveLength(initial);
-          world.accounts.set(claim.address, {
-            sequence: "1000",
-            ledger: 100,
-            accountSponsored: true,
-            sponsored: true,
-            nativeBalance: 1n,
-            balance: Option.some(Schema.decodeSync(Amount)("0")),
-          });
-          yield* Wallet.use((wallet) => wallet.sweep);
-          expect(world.submitted).toHaveLength(initial);
-          world.accounts.set(claim.address, {
-            sequence: "1000",
-            ledger: 100,
-            accountSponsored: true,
-            sponsored: true,
-            nativeBalance: 0n,
-            balance: Option.some(Schema.decodeSync(Amount)("0")),
-          });
-          yield* Wallet.use((wallet) => wallet.sweep);
+            ),
+          );
+
+          const zero = Option.some(amount("0"));
+
+          for (const state of [
+            accountState({ balance: Option.some(amount("1")) }),
+            accountState({ sequence: "1001", balance: zero }),
+            accountState({ nativeBalance: 1n, balance: zero }),
+          ]) {
+            world.accounts.set(claim.address, state);
+            yield* sweep;
+            expect(world.submitted).toHaveLength(initial);
+          }
+
+          world.accounts.set(claim.address, accountState({ balance: zero }));
+          yield* sweep;
           expect(world.submitted).toHaveLength(initial + 1);
 
           const submitted = world.submitted.at(-1);
 
           if (!submitted) throw new Error("Expected recovery submission");
 
-          world.evidence.set(
-            submitted.hash,
-            new Applied({ at: DateTime.nowUnsafe() }),
-          );
-          yield* Wallet.use((wallet) => wallet.sweep);
+          settleHash(submitted.hash);
+          yield* sweep;
           expect(
-            (yield* Directory.use((directory) =>
-              directory.byAddress(claim.address),
-            )).pipe(Option.map((row) => row.status)),
+            (yield* findWallet(claim.address)).pipe(
+              Option.map((r) => r.status),
+            ),
           ).toEqual(Option.some("recovered"));
         }),
     );
@@ -113,54 +97,51 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "recovery queue excludes future and expired windows, caps and rotates eligible work",
       () =>
         Effect.gen(function* () {
-          const addresses = new Array<AccountAddress>();
+          const db = yield* Database;
+          const now = yield* Clock.currentTimeMillis;
 
-          for (let index = 0; index < sweepBatchSize + 2; index++) {
-            const key = Keypair.random();
-            const claim = yield* create(key, `user_${index}`);
+          const windows: ReadonlyArray<readonly [number, number]> = [
+            [3_600_000, 7_200_000],
+            [-60_000, -1_000],
+            ...Array.from(
+              { length: sweepBatchSize },
+              () => [-60_000, 3_600_000] as const,
+            ),
+          ];
 
-            addresses.push(claim.address);
-          }
+          const addresses = windows.map(() => addressOf(Keypair.random()));
+          const future = addresses[0];
+          const expired = addresses[1];
 
-          yield* Effect.gen(function* () {
-            const db = yield* Database;
+          if (!future || !expired) throw new Error("Expected addresses");
 
-            yield* db.execute(
-              sql`update wallets set "recoveryMinTime" = now() - interval '1 minute', "recoveryMaxTime" = now() + interval '1 hour'`,
+          yield* db
+            .insert(wallets)
+            .values(
+              windows.map(([minMs, maxMs], i) =>
+                activeRow(addresses[i] ?? future, now, minMs, maxMs),
+              ),
             );
-            yield* db.execute(
-              sql`update wallets set "recoveryMinTime" = now() + interval '1 hour', "recoveryMaxTime" = now() + interval '2 hours' where address = ${addresses[0]}`,
-            );
-            yield* db.execute(
-              sql`update wallets set "recoveryMaxTime" = now() - interval '1 second' where address = ${addresses[1]}`,
-            );
-          }).pipe(Effect.provide(dbLayer));
 
-          const first = yield* Directory.use(
-            (directory) => directory.recoverable,
-          );
+          const first = yield* Directory.use((d) => d.recoverable);
 
           expect(first).toHaveLength(sweepBatchSize);
           expect(
-            first.some(
-              (row) =>
-                row.address === addresses[0] || row.address === addresses[1],
-            ),
+            first.some((r) => r.address === future || r.address === expired),
           ).toBe(false);
-          yield* Effect.gen(function* () {
-            const db = yield* Database;
 
-            yield* db.execute(
-              sql`update wallets set "recoveryMinTime" = now() - interval '1 minute', "recoveryMaxTime" = now() + interval '1 hour' where address = ${addresses[0]}`,
-            );
-          }).pipe(Effect.provide(dbLayer));
+          yield* db
+            .update(wallets)
+            .set({
+              recoveryMinTime: new Date(now - 60_000),
+              recoveryMaxTime: new Date(now + 3_600_000),
+            })
+            .where(eq(wallets.address, future));
 
-          const second = yield* Directory.use(
-            (directory) => directory.recoverable,
-          );
+          const second = yield* Directory.use((d) => d.recoverable);
 
           expect(second).toHaveLength(sweepBatchSize);
-          expect(second.some((row) => row.address === addresses[0])).toBe(true);
+          expect(second.some((r) => r.address === future)).toBe(true);
         }),
     );
 
@@ -168,44 +149,49 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "transfer sweep queue caps and rotates signed work across senders",
       () =>
         Effect.gen(function* () {
-          const ids = new Array<TransferId>();
+          const db = yield* Database;
+          const now = yield* Clock.currentTimeMillis;
 
-          for (let index = 0; index < sweepBatchSize + 1; index++) {
-            const key = Keypair.random();
-
-            yield* create(key, `sender_${index}`);
-            world.accounts.set(addressOf(key), {
-              sequence: "1000",
-              nativeBalance: 0n,
-              balance: Option.some(Schema.decodeSync(Amount)("50000000")),
-              ledger: 100,
-              accountSponsored: true,
-              sponsored: true,
-            });
-
-            const order = orderFor(
-              key,
-              AddressRecipient.make({ value: addressOf(key) }),
-            );
-
-            const draft = yield* send(order);
-
-            assertTagged(draft, "TransferDraft");
-
-            yield* send(order, approve(draft.request, key));
-            ids.push(order.id);
-          }
-
-          const first = yield* Transfers.use((service) => service.inFlight);
-          const next = yield* Transfers.use((service) => service.inFlight);
-
-          const seen = new Set(
-            [...first, ...next].map((transfer) => transfer.order.id),
+          const senders = Array.from({ length: sweepBatchSize + 1 }, () =>
+            Keypair.random(),
           );
+
+          yield* db
+            .insert(wallets)
+            .values(
+              senders.map((s) =>
+                activeRow(addressOf(s), now, 60_000, 3_600_000),
+              ),
+            );
+          const orders = senders.map((s) => selfOrder(s));
+
+          yield* db.insert(transfers).values(
+            orders.map((order) => ({
+              id: order.id,
+              sender: order.from,
+              recipient: order.from,
+              destination: order.from,
+              order: Schema.encodeSync(OrderJson)(order),
+              resolvedRecipient: Schema.encodeSync(RecipientJson)(
+                new ExternalRecipient({ address: order.from }),
+              ),
+              amount: order.amount,
+              network,
+              testnetEpoch: epochAt(now),
+              status: "authorized" as const,
+              envelope: "envelope",
+              hash: "0".repeat(64),
+              expiresAt: new Date(now + 60_000),
+            })),
+          );
+
+          const first = yield* Transfers.use((s) => s.inFlight);
+          const next = yield* Transfers.use((s) => s.inFlight);
+          const seen = new Set([...first, ...next].map((t) => t.order.id));
 
           expect(first).toHaveLength(sweepBatchSize);
           expect(next).toHaveLength(sweepBatchSize);
-          expect(seen.size).toBe(ids.length);
+          expect(seen.size).toBe(orders.length);
         }),
     );
   },

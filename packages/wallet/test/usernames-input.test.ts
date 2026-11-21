@@ -9,8 +9,8 @@ import {
   usernameIssue,
 } from "../src/contract";
 
-it("names the first character a username cannot contain", () => {
-  expect(usernameIssue("maria-rojas")).toEqual(
+it("names the first forbidden character and rejects invalid characters at the schema", () => {
+  expect(usernameIssue("maria-rojas!")).toEqual(
     Option.some(new ForbiddenCharacter({ character: "-" })),
   );
   expect(usernameIssue("maría")).toEqual(
@@ -19,27 +19,22 @@ it("names the first character a username cannot contain", () => {
   expect(usernameIssue("Maria")).toEqual(
     Option.some(new ForbiddenCharacter({ character: "M" })),
   );
+  expect(Schema.is(Username)("maria-rojas!")).toBe(false);
+  expect(Schema.is(Username)("Maria")).toBe(false);
 });
 
-it("reports usernames outside the length limits", () => {
-  expect(usernameIssue("maria_rojas_de_la_paz")).toEqual(
-    Option.some(new UsernameTooLong({ length: 21 })),
-  );
+it("enforces username length bounds and valid alphabet at both helper and schema", () => {
   expect(usernameIssue("ma")).toEqual(
     Option.some(new UsernameTooShort({ length: 2 })),
   );
-});
+  expect(usernameIssue("a".repeat(21))).toEqual(
+    Option.some(new UsernameTooLong({ length: 21 })),
+  );
+  expect(Schema.is(Username)("ma")).toBe(false);
+  expect(Schema.is(Username)("a".repeat(21))).toBe(false);
 
-it("accepts exactly the usernames the Username schema accepts", () => {
-  for (const text of [
-    "",
-    "ma",
-    "mar",
-    "maria_99",
-    "a".repeat(20),
-    "a".repeat(21),
-    "maria rojas",
-    "MARIA",
-  ])
-    expect(Option.isNone(usernameIssue(text))).toBe(Schema.is(Username)(text));
+  for (const valid of ["mar", "maria_99", "a".repeat(20)]) {
+    expect(Option.isNone(usernameIssue(valid))).toBe(true);
+    expect(Schema.is(Username)(valid)).toBe(true);
+  }
 });

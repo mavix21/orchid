@@ -1,49 +1,40 @@
-import { createCipheriv, hkdfSync, randomBytes } from "node:crypto";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { SealedPhrase } from "../src/contract";
 import { openPhrase, sealPhrase } from "../src/device/phrase-seal";
-import { generateSecretPhrase } from "../src/device/secret-phrase";
+import { knownPhrase } from "./device-fixtures";
 
-const sealedByVersionOne = (prf: Buffer, phrase: string) => {
-  const key = Buffer.from(
-    hkdfSync("sha256", prf, Buffer.alloc(0), "orchid-secret-phrase-backup", 32),
-  );
+const versionOnePrf = Uint8Array.from(
+  Buffer.from(
+    "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "hex",
+  ),
+);
 
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-
-  return new SealedPhrase({
-    iv: Uint8Array.from(iv),
-    ciphertext: Uint8Array.from(
-      Buffer.concat([
-        cipher.update(phrase),
-        cipher.final(),
-        cipher.getAuthTag(),
-      ]),
+const versionOneSealed = new SealedPhrase({
+  iv: Uint8Array.from(Buffer.from("a0a1a2a3a4a5a6a7a8a9aaab", "hex")),
+  ciphertext: Uint8Array.from(
+    Buffer.from(
+      "iK2Fw8c4dUxnJEs2uBU+uySW4Nd2MXN6Pu4B531/anFMzEL+Sj3l++bCRxWzjLtVDWjqUujE1DrCun3R7Y+RYaIPot5pA3uTnmXp9mPStPfvR3dRttxY3Q==",
+      "base64",
     ),
-  });
-};
+  ),
+});
 
 it.effect("opens a phrase sealed with the version 1 backup format", () =>
   Effect.gen(function* () {
-    const prf = randomBytes(32);
-    const phrase = generateSecretPhrase();
-
-    expect(
-      yield* openPhrase(Uint8Array.from(prf), sealedByVersionOne(prf, phrase)),
-    ).toEqual(Option.some(phrase));
+    expect(yield* openPhrase(versionOnePrf, versionOneSealed)).toEqual(
+      Option.some(knownPhrase),
+    );
   }),
 );
 
 it.effect("a different passkey output cannot open a sealed phrase", () =>
   Effect.gen(function* () {
-    const phrase = generateSecretPhrase();
-    const sealed = yield* sealPhrase(Uint8Array.from(randomBytes(32)), phrase);
+    const sealed = yield* sealPhrase(versionOnePrf, knownPhrase);
+    const other = new Uint8Array(32).fill(9);
 
-    expect(yield* openPhrase(Uint8Array.from(randomBytes(32)), sealed)).toEqual(
-      Option.none(),
-    );
+    expect(yield* openPhrase(other, sealed)).toEqual(Option.none());
   }),
 );

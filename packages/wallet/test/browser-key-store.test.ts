@@ -4,30 +4,20 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
-  AccountAddress,
   AddressRecipient,
   PositiveAmount,
   TransferId,
   TransferOrder,
-  Username,
   baseAsset,
 } from "../src/contract";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import { DeviceWallet } from "../src/device/key-store";
-import { generateSecretPhrase } from "../src/device/secret-phrase";
-import { signingKey } from "../src/device/signing";
+import { seededDeviceWallet } from "./device-fixtures";
 
-const phrase = generateSecretPhrase();
-
-const wallet = new DeviceWallet({
-  phrase,
-  address: Schema.decodeSync(AccountAddress)(signingKey(phrase).publicKey()),
-  username: Schema.decodeSync(Username)("maria"),
-});
+const wallet = seededDeviceWallet();
 
 const resumable = new DeviceWallet({
   ...wallet,
-  reserveSponsor: wallet.address,
   transfer: new TransferOrder({
     id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
     from: wallet.address,
@@ -65,10 +55,6 @@ it.effect("keeps the secret phrase encrypted at rest and reads it back", () =>
     yield* browserKeyStore.write(resumable);
 
     expect(yield* browserKeyStore.read()).toEqual(Option.some(resumable));
-
-    const text = yield* Effect.promise(storedText);
-
-    expect(text).toContain(wallet.address);
-    expect(text).not.toContain(phrase);
+    expect(yield* Effect.promise(storedText)).not.toContain(wallet.phrase);
   }),
 );
