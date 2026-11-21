@@ -24,11 +24,13 @@ import {
 
 export function RecoverDrawer({
   link,
+  created,
   open,
   onOpenChange,
   onRecover,
 }: {
   link: RecoverableLink;
+  created?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRecover: (link: RecoverableLink) => void;
@@ -41,6 +43,7 @@ export function RecoverDrawer({
             ¿Recuperar {amountLabel(link.amount, link.asset)}?
           </DrawerTitle>
           <DrawerDescription>
+            {created === undefined ? "" : `Es el link creado el ${created}. `}
             El link dejará de funcionar. Si nadie lo usó, el dinero vuelve a tu
             cuenta.
           </DrawerDescription>

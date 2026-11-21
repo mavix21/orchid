@@ -32,14 +32,22 @@ export const Route = createFileRoute("/links")({
   ssr: false,
   pendingMs: 0,
   pendingComponent: () => <LinksFrame loading />,
-  loader: async ({ context }) => {
-    const latest = await context.walletClient.resolvePaymentLink();
+  loader: async ({ context, preload }) => {
+    const latest = preload
+      ? Option.none<ResolvePaymentLinkOutcome>()
+      : Option.some(await context.walletClient.resolvePaymentLink());
+
     const links = await context.walletClient.paymentLinks();
 
     return { latest, links };
   },
   component: PaymentLinks,
 });
+
+interface ChosenLink {
+  readonly link: RecoverableLink;
+  readonly created?: string;
+}
 
 class LatestNotice {
   constructor(
@@ -113,9 +121,12 @@ const listProblem = (
   });
 
 const createdOn = (link: OpenPaymentLink) =>
-  DateTime.toDate(link.createdAt).toLocaleDateString("es-PE", {
+  DateTime.toDate(link.createdAt).toLocaleString("es-PE", {
     day: "numeric",
     month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
   });
 
 function LinksFrame({
@@ -154,7 +165,7 @@ function PaymentLinks() {
   const router = useRouter();
   const recovery = useWalletRun(walletEffects.cancelPaymentLink);
 
-  const [chosen, setChosen] = useState<Option.Option<RecoverableLink>>(
+  const [chosen, setChosen] = useState<Option.Option<ChosenLink>>(
     Option.none(),
   );
 
@@ -164,8 +175,8 @@ function PaymentLinks() {
     Option.none(),
   );
 
-  const choose = (link: RecoverableLink) => {
-    setChosen(Option.some(link));
+  const choose = (link: RecoverableLink, created?: string) => {
+    setChosen(Option.some({ link, created }));
     setConfirming(true);
   };
 
@@ -196,7 +207,7 @@ function PaymentLinks() {
         Match.tag("OpenPaymentLinks", (open) => (
           <LinkList
             links={open.links}
-            notice={latestNotice(latest)}
+            notice={Option.flatMap(latest, latestNotice)}
             onChoose={choose}
           />
         )),
@@ -206,7 +217,8 @@ function PaymentLinks() {
       )}
       {Option.isSome(chosen) ? (
         <RecoverDrawer
-          link={chosen.value}
+          link={chosen.value.link}
+          created={chosen.value.created}
           open={confirming}
           onOpenChange={setConfirming}
           onRecover={recover}
@@ -223,7 +235,7 @@ function LinkList({
 }: {
   links: ReadonlyArray<OpenPaymentLink>;
   notice: Option.Option<LatestNotice>;
-  onChoose: (link: RecoverableLink) => void;
+  onChoose: (link: RecoverableLink, created?: string) => void;
 }) {
   const latest = Option.flatMap(notice, (found) => found.link);
 
@@ -279,14 +291,14 @@ function LinkList({
                   <ItemTitle className="whitespace-nowrap">
                     {amountLabel(link.amount, link.asset)}
                   </ItemTitle>
-                  <ItemDescription>Creado el {createdOn(link)}</ItemDescription>
+                  <ItemDescription>{createdOn(link)}</ItemDescription>
                 </ItemContent>
                 <ItemActions>
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() => onChoose(link)}
-                    aria-label={`Recuperar ${amountLabel(link.amount, link.asset)}`}
+                    onClick={() => onChoose(link, createdOn(link))}
+                    aria-label={`Recuperar ${amountLabel(link.amount, link.asset)}, creado el ${createdOn(link)}`}
                     data-testid="recover-link"
                   >
                     Recuperar

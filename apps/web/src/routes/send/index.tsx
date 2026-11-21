@@ -1,11 +1,12 @@
 import { XIcon } from "lucide-react";
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { Button } from "@workspace/ui/components/button";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { type Holding, assetKey } from "@workspace/wallet";
 import * as Match from "effect/Match";
 
 import { OptionRow } from "@/components/option-row";
-import { Screen } from "@/components/screen";
+import { Screen, ScreenActions } from "@/components/screen";
 import { TokenIcon } from "@/components/token-icon";
 import { TopNav } from "@/components/top-nav";
 import { amountLabel, assetCode } from "@/send/money";
@@ -90,32 +91,44 @@ function AssetChoices({ holding }: { holding: Holding }) {
   const held = holding.balances.filter((balance) => balance.amount > 0n);
 
   return (
-    <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-      <h1 className="font-display text-h1">¿Qué quieres enviar?</h1>
-      {held.length === 0 ? (
-        <p className="text-body text-muted-foreground">
-          Aún no tienes saldo para enviar.
-        </p>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {held.map((balance) => (
-            <OptionRow
-              key={assetKey(balance.asset)}
-              title={assetCode(balance.asset)}
-              description={amountLabel(balance.amount, balance.asset)}
-              media={<TokenIcon asset={balance.asset} />}
-              mediaVariant="muted"
-              render={
-                <Link
-                  data-testid={`send-asset-${assetKey(balance.asset)}`}
-                  to="/send/$asset"
-                  params={{ asset: assetKey(balance.asset) }}
-                />
-              }
-            />
-          ))}
-        </div>
-      )}
-    </main>
+    <>
+      <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
+        <h1 className="font-display text-h1">¿Qué quieres enviar?</h1>
+        {held.length === 0 ? (
+          <p className="text-body text-muted-foreground">
+            Aún no tienes saldo para enviar.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {held.map((balance) => (
+              <OptionRow
+                key={assetKey(balance.asset)}
+                title={assetCode(balance.asset)}
+                description={amountLabel(balance.amount, balance.asset)}
+                media={<TokenIcon asset={balance.asset} />}
+                mediaVariant="muted"
+                render={
+                  <Link
+                    data-testid={`send-asset-${assetKey(balance.asset)}`}
+                    to="/send/$asset"
+                    params={{ asset: assetKey(balance.asset) }}
+                  />
+                }
+              />
+            ))}
+          </div>
+        )}
+      </main>
+      <ScreenActions>
+        <Button
+          className="w-full"
+          variant="secondary"
+          nativeButton={false}
+          render={<Link to="/links" data-testid="open-links" />}
+        >
+          Ver mis links de pago
+        </Button>
+      </ScreenActions>
+    </>
   );
 }

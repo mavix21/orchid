@@ -375,7 +375,7 @@ export function LinkFlow({
     const result = await shareLink(link);
 
     setDelivery((current) =>
-      delivered(current) && result === "dismissed" ? current : result,
+      delivered(current) && !delivered(result) ? current : result,
     );
     setSharing(false);
   };

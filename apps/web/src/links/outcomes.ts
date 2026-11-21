@@ -358,9 +358,9 @@ export const cancelLinkResult = (
           Match.exhaustive,
         ),
       ),
-    TrustlineLimitReached: () =>
+    TrustlineLimitReached: ({ limit }) =>
       cannotRecover(
-        `Tu cuenta no puede recibir tanto ${code} por ahora. Envía parte de tu saldo y vuelve a intentarlo.`,
+        `Tu cuenta ya guarda el máximo de ${limit} activos y ${code} ya no está entre ellos. Quita un activo que no uses y vuelve a intentarlo.`,
       ),
     AssetUnsupported: () =>
       cannotRecover(`Tu cuenta no puede recibir ${code} ahora.`),
@@ -390,11 +390,7 @@ export const cancelLinkResult = (
     Unchanged: () => recoverAgain,
     TrustlineNotEmpty: () => recoverAgain,
     DraftRejected: () =>
-      new LinkScreen(
-        "No firmamos esta operación",
-        `No coincide con el link que elegiste o ya venció. ${nothingChanged}`,
-        "again",
-      ),
+      new LinkScreen("No pudimos confirmar la operación", recheck, "check"),
     NotOpened: () =>
       new LinkScreen(
         "Aún no puedes recuperar dinero",

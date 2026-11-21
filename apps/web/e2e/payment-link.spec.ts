@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { fundWithUsdc, usdc } from "@workspace/wallet/testnet";
 
-import { freshUsername, openWallet, serverFunction } from "./device";
+import { freshUsername, openWallet } from "./device";
 
 const linkPath = /\/l\/G[A-Z2-7]{55}#(S[A-Z2-7]{55})$/;
 
@@ -14,8 +14,7 @@ test("shares a payment link only once it holds the funds, never sends its secret
   const shared: Array<string> = [];
 
   page.on("request", (request) => {
-    if (request.url().includes(serverFunction))
-      requests.push(`${request.url()}\n${request.postData() ?? ""}`);
+    requests.push(`${request.url()}\n${request.postData() ?? ""}`);
   });
 
   await page.exposeFunction("recordShare", (url: string) => {
@@ -50,9 +49,10 @@ test("shares a payment link only once it holds the funds, never sends its secret
   const [, secret = ""] = linkPath.exec(`${link.pathname}${link.hash}`) ?? [];
 
   expect(link.origin).toBe(new URL(page.url()).origin);
-  expect(secret).toMatch(/^S[A-Z2-7]{55}$/);
+  expect(secret.length).toBe(56);
 
-  await page.goto("/links");
+  await page.goto("/send");
+  await page.getByTestId("open-links").click();
   await expect(page.getByTestId("recover-link")).toHaveCount(1, {
     timeout: 30_000,
   });
@@ -65,5 +65,5 @@ test("shares a payment link only once it holds the funds, never sends its secret
     { timeout: 120_000 },
   );
 
-  expect(requests.filter((sent) => sent.includes(secret))).toEqual([]);
+  expect(requests.some((sent) => sent.includes(secret))).toBe(false);
 });
