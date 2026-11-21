@@ -59,6 +59,16 @@ export const AccountAddress = Schema.String.check(
 
 export type AccountAddress = typeof AccountAddress.Type;
 
+export const MuxedAddress = Schema.String.check(
+  Schema.isPattern(/^M[A-Z2-7]{68}$/),
+).pipe(Schema.brand("MuxedAddress"));
+
+export type MuxedAddress = typeof MuxedAddress.Type;
+
+export const DestinationAddress = Schema.Union([AccountAddress, MuxedAddress]);
+
+export type DestinationAddress = typeof DestinationAddress.Type;
+
 export class Profile extends Schema.Class<Profile>("@workspace/wallet/Profile")(
   {
     username: Username,

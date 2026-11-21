@@ -25,7 +25,12 @@ import type {
   PasskeyChallenge,
   RestoreStep,
 } from "./backup";
-import { AccountAddress, Profile, Username } from "./identity";
+import {
+  AccountAddress,
+  DestinationAddress,
+  Profile,
+  Username,
+} from "./identity";
 
 export * from "./approval";
 
@@ -40,7 +45,7 @@ export * from "./identity";
 export class InvalidAddress extends Schema.TaggedClass<InvalidAddress>()(
   "InvalidAddress",
   {
-    address: AccountAddress,
+    address: DestinationAddress,
   },
 ) {}
 
@@ -146,7 +151,7 @@ export type PaymentMemo = typeof PaymentMemo.Type;
 
 export class MemoNotAllowed extends Schema.TaggedClass<MemoNotAllowed>()(
   "MemoNotAllowed",
-  {},
+  { reason: Schema.Literals(["orchid", "muxed"]) },
 ) {}
 
 export const TransferId = Schema.String.check(Schema.isUUID(4)).pipe(
@@ -164,7 +169,7 @@ export const PhoneRecipient = Schema.TaggedStruct("Phone", {
 });
 
 export const AddressRecipient = Schema.TaggedStruct("Address", {
-  value: AccountAddress,
+  value: DestinationAddress,
 });
 
 export const Recipient = Schema.Union([
@@ -188,7 +193,7 @@ export class TransferOrder extends Schema.Class<TransferOrder>(
 
 export class ExternalRecipient extends Schema.Class<ExternalRecipient>(
   "@workspace/wallet/ExternalRecipient",
-)({ address: AccountAddress }) {}
+)({ address: DestinationAddress }) {}
 
 export const ResolvedRecipient = Schema.Union([Profile, ExternalRecipient]);
 

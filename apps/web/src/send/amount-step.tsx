@@ -5,12 +5,14 @@ import { FieldError } from "@workspace/ui/components/field";
 import {
   type Amount,
   type Asset,
+  MuxedAddress,
   type TransferIntent,
   formatAmount,
   parseAmount,
 } from "@workspace/wallet";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
 import { ScreenActions } from "@/components/screen";
 import { TokenIcon } from "@/components/token-icon";
@@ -181,7 +183,8 @@ export function AmountStep({
         </main>
         <ScreenActions>
           <div className="flex w-full gap-2">
-            {destination === "address" ? (
+            {destination === "address" &&
+            !Schema.is(MuxedAddress)(recipient) ? (
               <Button
                 type="button"
                 variant="secondary"

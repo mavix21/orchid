@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 import {
-  AccountAddress,
   Asset,
+  DestinationAddress,
   type AddressBound,
   type AssertionRefused,
   type BackupStored,
@@ -160,7 +160,7 @@ export class PaymentReview extends Schema.TaggedClass<PaymentReview>()(
   "PaymentReview",
   {
     order: TransferOrder,
-    to: AccountAddress,
+    to: DestinationAddress,
     username: Schema.optional(Username),
     asset: Asset,
     amount: PositiveAmount,

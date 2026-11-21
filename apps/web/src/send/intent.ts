@@ -1,6 +1,7 @@
 import {
-  AccountAddress,
+  DestinationAddress,
   AddressRecipient,
+  MuxedAddress,
   type Asset,
   PaymentMemo,
   type Recipient,
@@ -54,12 +55,12 @@ export const recipientOf = (
       }),
     ),
     Match.when("address", () =>
-      Option.match(Schema.decodeOption(AccountAddress)(typed), {
+      Option.match(Schema.decodeOption(DestinationAddress)(typed), {
         onNone: () =>
           Result.fail(
             new FieldProblem(
               "recipient",
-              "Una dirección Stellar empieza con G y tiene 56 caracteres",
+              "Una dirección Stellar empieza con G o M",
             ),
           ),
         onSome: (value) => Result.succeed(AddressRecipient.make({ value })),
@@ -102,7 +103,11 @@ export function intentOf(
 
   const memo = form.memo.trim();
 
-  if (destination === "username" || memo === "")
+  if (
+    destination === "username" ||
+    memo === "" ||
+    Schema.is(MuxedAddress)(to.success.value)
+  )
     return Result.succeed(
       new TransferIntent({ to: to.success, asset, amount: amount.value }),
     );

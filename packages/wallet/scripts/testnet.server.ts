@@ -6,6 +6,7 @@ import {
   Asset,
   Horizon,
   Keypair,
+  MuxedAccount,
   Operation,
   TransactionBuilder,
   rpc,
@@ -23,7 +24,10 @@ import {
   AccountAddress,
   AddressRecipient,
   Approval,
+  type DestinationAddress,
   ExternalMemoRequired,
+  MemoNotAllowed,
+  MuxedAddress,
   NativeAsset,
   PaymentMemo,
   PositiveAmount,
@@ -117,6 +121,11 @@ const approve = (request: SigningRequest, key: Keypair) =>
     new Approval({ signature: key.sign(signingPayload(request.envelope)) }),
   );
 
+const hexHash = (transaction: { hash(): Uint8Array }) =>
+  Array.from(transaction.hash(), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+
 const hashes: Array<{ label: string; hash: string }> = [];
 
 const remember = (label: string, hash: string) => {
@@ -141,6 +150,21 @@ const opening = (
   claim: WalletClaim,
   approval: Option.Option<Approval> = Option.none(),
 ) => run(Wallet.use((wallet) => wallet.open(claim, approval)));
+
+const untilRecoveryDraft = async (claim: WalletClaim) => {
+  let step = await opening(claim);
+
+  for (
+    let attempt = 0;
+    attempt < 60 && !(step instanceof RecoveryDraft);
+    attempt++
+  ) {
+    await Bun.sleep(1000);
+    step = await opening(claim);
+  }
+
+  return step;
+};
 
 const waitApplied = async (sealed: Sealed) => {
   for (let attempt = 0; attempt < 60; attempt++) {
@@ -357,16 +381,7 @@ const reopenedHash = (await walletRow(first.claim.address)).attemptHash;
 
 assert.ok(reopenedHash);
 
-let step = await opening(first.claim);
-
-for (
-  let attempt = 0;
-  attempt < 60 && !(step instanceof RecoveryDraft);
-  attempt++
-) {
-  await Bun.sleep(1000);
-  step = await opening(first.claim);
-}
+const step = await untilRecoveryDraft(first.claim);
 
 assert.ok(step instanceof RecoveryDraft);
 
@@ -399,9 +414,7 @@ removeOuter.sign(feePayer);
 
 const removal = new Sealed({
   envelope: removeOuter.toXDR(),
-  hash: Array.from(removeOuter.hash(), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join(""),
+  hash: hexHash(removeOuter),
   expiresAt: DateTime.makeUnsafe(Date.now() + 120000),
 });
 
@@ -431,16 +444,7 @@ const repairHash = (await walletRow(first.claim.address)).attemptHash;
 
 assert.ok(repairHash);
 
-let repairStep = await opening(first.claim);
-
-for (
-  let attempt = 0;
-  attempt < 60 && !(repairStep instanceof RecoveryDraft);
-  attempt++
-) {
-  await Bun.sleep(1000);
-  repairStep = await opening(first.claim);
-}
+const repairStep = await untilRecoveryDraft(first.claim);
 
 assert.ok(repairStep instanceof RecoveryDraft);
 
@@ -476,9 +480,7 @@ feeBump.sign(feePayer);
 
 const activity = new Sealed({
   envelope: feeBump.toXDR(),
-  hash: Array.from(feeBump.hash(), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join(""),
+  hash: hexHash(feeBump),
   expiresAt: DateTime.makeUnsafe(Date.now() + 120000),
 });
 
@@ -493,9 +495,7 @@ alternate.sign(sponsor);
 
 const replacement = new Sealed({
   envelope: alternate.toXDR(),
-  hash: Array.from(alternate.hash(), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join(""),
+  hash: hexHash(alternate),
   expiresAt: activity.expiresAt,
 });
 
@@ -550,11 +550,14 @@ assert.equal((await walletRow(second.claim.address)).status, "active");
 
 console.log("Sweep skipped recovery after the device advanced its sequence.");
 
-const toExchange = (memo?: PaymentMemo) =>
+const toExchange = (
+  memo?: PaymentMemo,
+  destination: DestinationAddress = exchange,
+) =>
   new TransferOrder({
     id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
     from: second.claim.address,
-    to: AddressRecipient.make({ value: exchange }),
+    to: AddressRecipient.make({ value: destination }),
     asset: NativeAsset.make({}),
     amount: Schema.decodeSync(PositiveAmount)("10000000"),
     memo,
@@ -564,6 +567,21 @@ const transfer = (
   order: TransferOrder,
   approval: Option.Option<Approval> = Option.none(),
 ) => run(Wallet.use((wallet) => wallet.transfer(order, approval)));
+
+const untilSettled = async (order: TransferOrder) => {
+  let receipt = await transfer(order);
+
+  for (
+    let attempt = 0;
+    attempt < 60 && !(receipt instanceof Settled);
+    attempt++
+  ) {
+    await Bun.sleep(1000);
+    receipt = await transfer(order);
+  }
+
+  return receipt;
+};
 
 assert.deepEqual(
   await transfer(toExchange()),
@@ -621,16 +639,7 @@ const memoTransfer = Option.getOrThrow(
 
 assert.ok(memoTransfer instanceof Authorized);
 
-let memoReceipt = await transfer(memoOrder);
-
-for (
-  let attempt = 0;
-  attempt < 60 && !(memoReceipt instanceof Settled);
-  attempt++
-) {
-  await Bun.sleep(1000);
-  memoReceipt = await transfer(memoOrder);
-}
+const memoReceipt = await untilSettled(memoOrder);
 
 assert.ok(memoReceipt instanceof Settled);
 
@@ -640,6 +649,62 @@ remember("memo payment to the test exchange", memoTransfer.sealed.hash);
 
 console.log(
   "PASS a payment with a memo to the test exchange drafts with memoRequired and settles.",
+);
+
+const muxedExchange = Schema.decodeSync(MuxedAddress)(
+  new MuxedAccount(new Account(exchange, "0"), "1234567890").accountId(),
+);
+
+assert.deepEqual(
+  await transfer(
+    toExchange(
+      Schema.decodeSync(PaymentMemo)({ type: "text", value: "orchid-muxed" }),
+      muxedExchange,
+    ),
+  ),
+  new MemoNotAllowed({ reason: "muxed" }),
+);
+
+const muxedOrder = toExchange(undefined, muxedExchange);
+
+const muxedDraft = await transfer(muxedOrder);
+
+assert.ok(muxedDraft instanceof TransferDraft);
+
+assert.equal(muxedDraft.memoRequired, false);
+
+await transfer(muxedOrder, approve(muxedDraft.request, activityUser));
+
+const muxedTransfer = Option.getOrThrow(
+  await run(Transfers.use((store) => store.find(muxedOrder.id))),
+);
+
+assert.ok(muxedTransfer instanceof Authorized);
+
+const muxedReceipt = await untilSettled(muxedOrder);
+
+assert.ok(muxedReceipt instanceof Settled);
+
+remember("muxed payment to the test exchange", muxedTransfer.sealed.hash);
+
+const [muxedPayment] = (
+  await horizon.payments().forTransaction(muxedTransfer.sealed.hash).call()
+).records;
+
+assert.ok(muxedPayment && muxedPayment.type === "payment");
+
+assert.equal(muxedPayment.to, exchange);
+
+assert.equal(muxedPayment.to_muxed, muxedExchange);
+
+assert.equal(
+  (await horizon.transactions().transaction(muxedTransfer.sealed.hash).call())
+    .memo_type,
+  "none",
+);
+
+console.log(
+  "PASS a muxed payment to the test exchange settles to the muxed destination without a memo, and a memo is refused with MemoNotAllowed.",
 );
 
 const result = {
@@ -664,6 +729,7 @@ const result = {
     "consumed sequence plus complete inner absence evidence concludes sequence_consumed",
     "config.memo_required = 1 refuses a memoless payment with SEP-29 evidence",
     "memo payment to a config.memo_required account drafts with memoRequired and settles",
+    "muxed payment to a config.memo_required account settles to the muxed destination with no memo; a memo with a muxed recipient is refused with MemoNotAllowed",
   ],
   deferred: [
     "Live USDC payment and nonzero-USDC recovery guard require Circle testnet USDC funding; covered by local behavioral tests.",

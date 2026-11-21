@@ -21,6 +21,7 @@ import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
 import {
   AccountAddress,
+  DestinationAddress,
   Approval,
   type Asset,
   PaymentMemo,
@@ -251,7 +252,7 @@ export function settlementFromResponse(
 export class Chain extends Context.Service<
   Chain,
   AssetChain & {
-    validAddress(address: AccountAddress): boolean;
+    validAddress(address: DestinationAddress): boolean;
     memoRequiredFor(
       address: AccountAddress,
     ): Effect.Effect<Option.Option<KnownExchangeMemo>, ChainUnreachable>;
@@ -267,7 +268,7 @@ export class Chain extends Context.Service<
     ): Effect.Effect<SigningRequest, ChainUnreachable>;
     draftPayment(
       from: AccountAddress,
-      to: AccountAddress,
+      to: DestinationAddress,
       asset: Asset,
       amount: PositiveAmount,
       memo?: PaymentMemo,
@@ -373,7 +374,7 @@ export class Chain extends Context.Service<
 
       const draftPay = Effect.fn("Chain.draftPayment")(function* (
         from: AccountAddress,
-        to: AccountAddress,
+        to: DestinationAddress,
         asset: Asset,
         amount: PositiveAmount,
         memo?: PaymentMemo,
@@ -567,7 +568,9 @@ export class Chain extends Context.Service<
 
       return Chain.of({
         ...assets,
-        validAddress: StrKey.isValidEd25519PublicKey,
+        validAddress: (address) =>
+          StrKey.isValidEd25519PublicKey(address) ||
+          StrKey.isValidMed25519PublicKey(address),
         memoRequiredFor: (address) => memoRequirementFor(rpc, address),
         pastOpeningWindow,
         account,

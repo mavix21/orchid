@@ -98,7 +98,7 @@ export function RecipientStep({
           <FieldDescription>
             {destination === "username"
               ? "Alguien que tenga Orchid"
-              : "Empieza con G y tiene 56 caracteres"}
+              : "Empieza con G o M"}
           </FieldDescription>
           {Option.isSome(message) ? (
             <FieldError id="recipient-error">{message.value}</FieldError>
