@@ -2,6 +2,7 @@ import { expect, layer } from "@effect/vitest";
 import { Database } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import * as Clock from "effect/Clock";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -368,6 +369,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         Effect.gen(function* () {
           const db = yield* Database;
           const now = yield* Clock.currentTimeMillis;
+          const BackendPid = Schema.Struct({ pid: Schema.Number });
 
           const consumed = yield* Effect.gen(function* () {
             yield* TestClock.setTime(now);
@@ -376,24 +378,29 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               service.issue("restore"),
             );
 
-            const lockHeld = yield* Latch.make();
+            const blockerPid = yield* Deferred.make<number>();
             const releaseLock = yield* Latch.make();
 
             const holder = yield* db
               .transaction((tx) =>
                 Effect.gen(function* () {
+                  const pid = Schema.decodeUnknownSync(BackendPid)(
+                    (yield* tx.execute(sql`select pg_backend_pid() as pid`))
+                      .rows[0],
+                  ).pid;
+
                   yield* tx
                     .select()
                     .from(passkeyChallenges)
                     .where(eq(passkeyChallenges.challenge, challenge))
                     .for("update");
-                  yield* lockHeld.open;
+                  yield* Deferred.succeed(blockerPid, pid);
                   yield* releaseLock.await;
                 }),
               )
               .pipe(Effect.forkChild);
 
-            yield* lockHeld.await;
+            const pid = yield* Deferred.await(blockerPid);
 
             const attempt = yield* Backups.use((service) =>
               service.consume(challenge, "restore"),
@@ -401,7 +408,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
             while (
               (yield* db.execute(
-                sql`select 1 from pg_locks where locktype = 'transactionid' and not granted`,
+                sql`select 1 from pg_locks where locktype = 'transactionid' and not granted and ${pid} = any(pg_blocking_pids(pid))`,
               )).rows.length === 0
             )
               yield* Effect.yieldNow;
@@ -423,6 +430,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         Effect.gen(function* () {
           const db = yield* Database;
           const now = yield* Clock.currentTimeMillis;
+          const BackendPid = Schema.Struct({ pid: Schema.Number });
 
           const stale = Schema.decodeSync(PasskeyChallenge)("B".repeat(43));
 
@@ -435,24 +443,29 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const issued = yield* Effect.gen(function* () {
             yield* TestClock.setTime(now);
 
-            const lockHeld = yield* Latch.make();
+            const blockerPid = yield* Deferred.make<number>();
             const releaseLock = yield* Latch.make();
 
             const holder = yield* db
               .transaction((tx) =>
                 Effect.gen(function* () {
+                  const pid = Schema.decodeUnknownSync(BackendPid)(
+                    (yield* tx.execute(sql`select pg_backend_pid() as pid`))
+                      .rows[0],
+                  ).pid;
+
                   yield* tx
                     .select()
                     .from(passkeyChallenges)
                     .where(eq(passkeyChallenges.challenge, stale))
                     .for("update");
-                  yield* lockHeld.open;
+                  yield* Deferred.succeed(blockerPid, pid);
                   yield* releaseLock.await;
                 }),
               )
               .pipe(Effect.forkChild);
 
-            yield* lockHeld.await;
+            const pid = yield* Deferred.await(blockerPid);
 
             const attempt = yield* Backups.use((service) =>
               service.issue("restore"),
@@ -460,7 +473,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
             while (
               (yield* db.execute(
-                sql`select 1 from pg_locks where locktype = 'transactionid' and not granted`,
+                sql`select 1 from pg_locks where locktype = 'transactionid' and not granted and ${pid} = any(pg_blocking_pids(pid))`,
               )).rows.length === 0
             )
               yield* Effect.yieldNow;

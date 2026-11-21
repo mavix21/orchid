@@ -7,6 +7,7 @@ import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -262,9 +263,20 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       }),
     );
 
-    it.effect(
-      "authorization keeps a transfer Proposed when waiting on the wallet lock crosses the approval margin",
-      () =>
+    it.effect.each([
+      {
+        name: "the wallet advisory lock",
+        locktype: "advisory",
+        acquire: (address: ReturnType<typeof addressOf>) => walletLock(address),
+      },
+      {
+        name: "the post-lock slot query",
+        locktype: "relation",
+        acquire: () => sql`lock table asset_orders in access exclusive mode`,
+      },
+    ])(
+      "authorization keeps a transfer Proposed when waiting on $name crosses the approval margin",
+      ({ locktype, acquire }) =>
         Effect.gen(function* () {
           const key = Keypair.random();
 
@@ -303,24 +315,30 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const db = yield* Database;
           const now = yield* Clock.currentTimeMillis;
+          const BackendPid = Schema.Struct({ pid: Schema.Number });
 
           const outcome = yield* Effect.gen(function* () {
             yield* TestClock.setTime(now);
 
-            const lockHeld = yield* Latch.make();
+            const blockerPid = yield* Deferred.make<number>();
             const releaseLock = yield* Latch.make();
 
             const holder = yield* db
               .transaction((tx) =>
                 Effect.gen(function* () {
-                  yield* tx.execute(walletLock(addressOf(key)));
-                  yield* lockHeld.open;
+                  const pid = Schema.decodeUnknownSync(BackendPid)(
+                    (yield* tx.execute(sql`select pg_backend_pid() as pid`))
+                      .rows[0],
+                  ).pid;
+
+                  yield* tx.execute(acquire(addressOf(key)));
+                  yield* Deferred.succeed(blockerPid, pid);
                   yield* releaseLock.await;
                 }),
               )
               .pipe(Effect.forkChild);
 
-            yield* lockHeld.await;
+            const pid = yield* Deferred.await(blockerPid);
 
             const attempt = yield* Transfers.use((service) =>
               service.authorize(stored, sealed),
@@ -328,7 +346,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
             while (
               (yield* db.execute(
-                sql`select 1 from pg_locks where locktype = 'advisory' and not granted`,
+                sql`select 1 from pg_locks where locktype = ${locktype} and not granted and ${pid} = any(pg_blocking_pids(pid))`,
               )).rows.length === 0
             )
               yield* Effect.yieldNow;
