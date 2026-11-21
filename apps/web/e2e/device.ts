@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { type Page, expect } from "@playwright/test";
 
 export const addAuthenticator = async (
   page: Page,
@@ -29,3 +29,26 @@ export const usernameInput = (page: Page) => page.getByRole("textbox");
 export const submitButton = (page: Page) => page.getByTestId("create-submit");
 
 export const topNavLink = (page: Page) => page.getByTestId("top-nav-action");
+
+export const serverFunction = "/_serverFn/";
+
+export const openWallet = async (page: Page, username: string) => {
+  const claimed: Array<string> = [];
+
+  page.on("request", (request) => {
+    if (request.url().includes(serverFunction))
+      claimed.push(...(request.postData()?.match(/G[A-Z2-7]{55}/g) ?? []));
+  });
+
+  await addAuthenticator(page, false);
+  await page.goto("/create-account");
+  await usernameInput(page).fill(username);
+  await submitButton(page).click();
+  await expect(page).toHaveURL("/home", { timeout: 90_000 });
+
+  const [address] = claimed;
+
+  if (address === undefined) throw new Error("No wallet address was claimed");
+
+  return address;
+};

@@ -198,7 +198,7 @@ function DestinationChoice({
           />
           <OptionRow
             title="Con un link de pago"
-            description="Para alguien sin Orchid. Puedes recuperarlo si no lo usa"
+            description="Alguien sin Orchid"
             media={<LinkIcon />}
             render={
               <button

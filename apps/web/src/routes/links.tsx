@@ -1,4 +1,4 @@
-import { ChevronLeftIcon, LinkIcon } from "lucide-react";
+import { ChevronLeftIcon } from "lucide-react";
 import { useState } from "react";
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
@@ -7,7 +7,6 @@ import {
   ItemActions,
   ItemContent,
   ItemDescription,
-  ItemMedia,
   ItemTitle,
 } from "@workspace/ui/components/item";
 import { Skeleton } from "@workspace/ui/components/skeleton";
@@ -116,7 +115,7 @@ const listProblem = (
 const createdOn = (link: OpenPaymentLink) =>
   DateTime.toDate(link.createdAt).toLocaleDateString("es-PE", {
     day: "numeric",
-    month: "long",
+    month: "short",
   });
 
 function LinksFrame({
@@ -268,17 +267,18 @@ function LinkList({
         ) : null}
         {listed.length === 0 ? (
           <p className="text-body text-muted-foreground">
-            No tienes otros links abiertos.
+            {Option.isSome(latest)
+              ? "No tienes otros links abiertos."
+              : "No tienes links abiertos."}
           </p>
         ) : (
           <div role="list" className="flex flex-col gap-3">
             {listed.map((link) => (
               <Item key={link.balance} variant="outline" role="listitem">
-                <ItemMedia variant="icon">
-                  <LinkIcon absoluteStrokeWidth />
-                </ItemMedia>
                 <ItemContent>
-                  <ItemTitle>{amountLabel(link.amount, link.asset)}</ItemTitle>
+                  <ItemTitle className="whitespace-nowrap">
+                    {amountLabel(link.amount, link.asset)}
+                  </ItemTitle>
                   <ItemDescription>Creado el {createdOn(link)}</ItemDescription>
                 </ItemContent>
                 <ItemActions>
