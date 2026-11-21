@@ -78,7 +78,7 @@
       {
         "patterns": [
           {
-            "group": ["**/packages/**", "**/apps/**"],
+            "regex": "^\\.{1,2}/(.*/)?(packages|apps)/|^(\\.\\./)+(db|ui|wallet|web)/(src|scripts|e2e|test)(/|$)",
             "message": "Import another package by its name and exports, never by a relative path."
           }
         ]
