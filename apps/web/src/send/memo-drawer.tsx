@@ -8,13 +8,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@workspace/ui/components/drawer";
-import {
-  Field,
-  FieldError,
-  FieldLabel,
-  FieldLegend,
-  FieldSet,
-} from "@workspace/ui/components/field";
+import { Field, FieldError, FieldLabel } from "@workspace/ui/components/field";
 import {
   InputGroup,
   InputGroupAddon,
@@ -22,43 +16,29 @@ import {
 } from "@workspace/ui/components/input-group";
 import * as Option from "effect/Option";
 
-import { type MemoType, memoByteLimit, memoBytes } from "./intent";
-
-const memoTypes: ReadonlyArray<{
-  readonly type: MemoType;
-  readonly label: string;
-}> = [
-  { type: "text", label: "Texto" },
-  { type: "id", label: "ID numérico" },
-];
+import { memoByteLimit, memoBytes } from "./intent";
 
 export function MemoDrawer({
   open,
   memo,
-  memoType,
   problem,
   onOpenChange,
   onSave,
 }: {
   open: boolean;
   memo: string;
-  memoType: Option.Option<MemoType>;
   problem: Option.Option<string>;
   onOpenChange: (open: boolean) => void;
-  onSave: (memo: string, memoType: Option.Option<MemoType>) => void;
+  onSave: (memo: string) => void;
 }) {
   const [draft, setDraft] = useState(memo);
-  const [draftType, setDraftType] = useState(memoType);
 
   useEffect(() => {
-    if (open) {
-      setDraft(memo);
-      setDraftType(memoType);
-    }
-  }, [open, memo, memoType]);
+    if (open) setDraft(memo);
+  }, [open, memo]);
 
-  const save = (value: string, type: Option.Option<MemoType>) => {
-    onSave(value, type);
+  const save = (value: string) => {
+    onSave(value);
     onOpenChange(false);
   };
 
@@ -70,7 +50,7 @@ export function MemoDrawer({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            save(draft, draftType);
+            save(draft);
           }}
         >
           <DrawerHeader>
@@ -108,28 +88,6 @@ export function MemoDrawer({
                 <FieldError id="memo-error">{problem.value}</FieldError>
               ) : null}
             </Field>
-            <FieldSet className="mt-4">
-              <FieldLegend variant="label">
-                ¿Cómo aparece el memo en tu exchange?
-              </FieldLegend>
-              <div className="flex gap-2">
-                {memoTypes.map(({ type, label }) => (
-                  <Button
-                    key={type}
-                    type="button"
-                    className="flex-1"
-                    variant={
-                      Option.contains(draftType, type) ? "default" : "secondary"
-                    }
-                    aria-pressed={Option.contains(draftType, type)}
-                    data-testid={`memo-type-${type}`}
-                    onClick={() => setDraftType(Option.some(type))}
-                  >
-                    {label}
-                  </Button>
-                ))}
-              </div>
-            </FieldSet>
           </div>
           <DrawerFooter>
             <Button className="w-full" type="submit" data-testid="save-memo">
@@ -140,7 +98,7 @@ export function MemoDrawer({
                 className="w-full"
                 type="button"
                 variant="secondary"
-                onClick={() => save("", Option.none())}
+                onClick={() => save("")}
               >
                 Quitar memo
               </Button>
