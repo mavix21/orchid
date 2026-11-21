@@ -10,13 +10,14 @@ import {
   type Approval,
   AssetOrder,
   AssetOrderId,
-  type BalanceId,
   ClaimBalance,
   LinkSecret,
   PaymentLinkNotFound,
   PaymentLinkRecipient,
+  type Pending,
   type WalletPort,
   type WalletUnavailable,
+  assetKey,
 } from "../contract";
 import { readEnvelope } from "../stellar/envelopes";
 import { approvalMargin, network, paymentLifetime } from "../stellar/network";
@@ -33,6 +34,7 @@ import {
   NoWallet,
   PaymentLinkCreated,
   type PaymentLinkIntent,
+  type PaymentLinkTarget,
   type PaymentLinksOutcome,
   type ResolvePaymentLinkOutcome,
   TransferIntent,
@@ -128,6 +130,7 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
       if (receipt === undefined) return new PaymentLinkNotFound();
 
       let concluded = false;
+      let pendingStatus: Pending | undefined;
 
       if (
         wallet.transfer !== undefined &&
@@ -136,7 +139,7 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
       ) {
         const status = yield* port.transfer(wallet.transfer, Option.none());
 
-        if (Predicate.isTagged(status, "Pending")) return status;
+        if (Predicate.isTagged(status, "Pending")) pendingStatus = status;
 
         concluded =
           Predicate.isTagged(status, "Settled") ||
@@ -153,6 +156,8 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
       }
 
       if (Predicate.isTagged(resolved, "PaymentLinkNotFound")) {
+        if (pendingStatus !== undefined) return pendingStatus;
+
         const now = yield* nowSeconds;
 
         if (
@@ -171,7 +176,7 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
   );
 
   const cancelPaymentLink = Effect.fn("Device.cancelPaymentLink")(function* (
-    balance: BalanceId,
+    target: PaymentLinkTarget,
   ): Effect.fn.Return<
     CancelPaymentLinkOutcome,
     WalletUnavailable | KeyStoreUnavailable
@@ -181,6 +186,7 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
     if (Option.isNone(stored)) return new NoWallet();
 
     const wallet = stored.value;
+    const { balance, asset } = target;
 
     const order = new AssetOrder({
       id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
@@ -211,6 +217,16 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
             const facts = readEnvelope(draft.request.envelope);
             const now = yield* nowSeconds;
 
+            const validOpens =
+              Option.isSome(facts) &&
+              Predicate.isTagged(facts.value, "ClaimFacts") &&
+              (facts.value.opens === undefined
+                ? facts.value.reserveSponsor === undefined
+                : Predicate.isTagged(asset, "Issued") &&
+                  assetKey(facts.value.opens) === assetKey(asset) &&
+                  wallet.reserveSponsor !== undefined &&
+                  facts.value.reserveSponsor === wallet.reserveSponsor);
+
             if (
               attempts >= pendingSteps ||
               signed ||
@@ -218,10 +234,7 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
               !Predicate.isTagged(facts.value, "ClaimFacts") ||
               facts.value.address !== wallet.address ||
               facts.value.balance !== balance ||
-              (facts.value.opens === undefined
-                ? facts.value.reserveSponsor !== undefined
-                : wallet.reserveSponsor === undefined ||
-                  facts.value.reserveSponsor !== wallet.reserveSponsor) ||
+              !validOpens ||
               facts.value.maxTime > now + paymentLifetime + clockAllowance
             )
               return { done: Option.some(new DraftRejected()), pause: false };

@@ -196,6 +196,11 @@ export class PaymentLinkIntent extends Schema.Class<PaymentLinkIntent>(
   amount: PositiveAmount,
 }) {}
 
+export interface PaymentLinkTarget {
+  readonly balance: BalanceId;
+  readonly asset: Asset;
+}
+
 export class PaymentLinkCreated extends Schema.TaggedClass<PaymentLinkCreated>()(
   "PaymentLinkCreated",
   {

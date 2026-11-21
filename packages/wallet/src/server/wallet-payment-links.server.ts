@@ -13,6 +13,7 @@ import {
   type PaymentLinksStep,
   type ResolveReceiptStep,
   ResolvedPaymentLink,
+  assetKey,
 } from "../contract";
 import { network } from "../stellar/network";
 import { Chain, type ChainUnreachable } from "./Chain.server";
@@ -101,7 +102,13 @@ export const paymentLinksFlow = Effect.gen(function* () {
 
     const candidates = [...new Set([receipt.balance, ...receipt.attempts])];
     const entries = yield* chain.claimable(candidates);
-    const matches = selectRecoverablePaymentLinks(entries, sender);
+
+    const matches = selectRecoverablePaymentLinks(entries, sender).filter(
+      (entry) =>
+        entry.address === receipt.address &&
+        assetKey(entry.asset) === assetKey(receipt.asset) &&
+        entry.amount === receipt.amount,
+    );
 
     if (matches.length === 0) return new PaymentLinkNotFound();
 

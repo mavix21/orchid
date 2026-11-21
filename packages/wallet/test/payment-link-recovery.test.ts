@@ -16,6 +16,7 @@ import {
   BalanceId,
   IssuedAsset,
   Offline,
+  PaymentLinkNotFound,
   PaymentLinkReceipt,
   PaymentLinkReceiptInvalid,
   PaymentLinkRecipient,
@@ -27,6 +28,7 @@ import {
 } from "../src/contract";
 import { TransferIntent, makeWalletEffects } from "../src/device/client";
 import { type KeyStore } from "../src/device/key-store";
+import { signingKey } from "../src/device/signing";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { networkPassphrase } from "../src/stellar/network";
@@ -37,10 +39,12 @@ import {
   accountState,
   addressOf,
   amount,
+  approve,
   holdingsFor,
   orderFor,
   passkeyOrigin,
   settleHash,
+  sweep,
   useDisposableDatabase,
   walletTestLayer,
   world,
@@ -243,6 +247,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             sender.address,
             new PaymentLinkReceipt({
               network: "public",
+              address: linkAddr,
+              asset: baseAsset,
+              amount: linkAmount,
               balance: resolved.balance,
               attempts: [resolved.balance],
             }),
@@ -251,11 +258,89 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(wrongNetwork).toEqual(
             new PaymentLinkReceiptInvalid({ reason: "wrong_network" }),
           );
+
+          const competingLink = addressOf(Keypair.random());
+
+          const competingMiss = yield* wallet.resolvePaymentLink(
+            sender.address,
+            new PaymentLinkReceipt({
+              network: "testnet",
+              address: competingLink,
+              asset: baseAsset,
+              amount: linkAmount,
+              balance: resolved.balance,
+              attempts: [resolved.balance],
+            }),
+          );
+
+          expect(competingMiss).toEqual(new PaymentLinkNotFound());
         }),
     );
 
     it.effect(
-      "cancel checks sender receive capacity and marks disappeared balance without evidence as unresolved",
+      "restarted device resolves a live balance while transfer reconciliation stays Pending, and preserves Pending when absent",
+      () =>
+        Effect.gen(function* () {
+          const store = memoryKeyStore();
+          const { wallet, sender } = yield* openSender(store, "pendinglink");
+          const linkAddr = addressOf(Keypair.random());
+
+          const pendingPort: WalletPort = {
+            ...wallet,
+            transfer: (nextOrder, approval) =>
+              Option.isSome(approval)
+                ? wallet
+                    .transfer(nextOrder, approval)
+                    .pipe(Effect.andThen(Effect.fail(new Offline())))
+                : wallet.transfer(nextOrder, approval),
+          };
+
+          const firstDevice = makeWalletEffects(pendingPort, store, passkeys);
+
+          expect(
+            yield* firstDevice.send(
+              new TransferIntent({
+                to: PaymentLinkRecipient.make({ value: linkAddr }),
+                asset: baseAsset,
+                amount: linkAmount,
+              }),
+            ),
+          ).toEqual(new Offline());
+
+          const saved = yield* savedWallet(store);
+
+          const receipt = Option.getOrThrow(
+            Option.fromNullishOr(saved.linkReceipt),
+          );
+
+          const restarted = makeWalletEffects(wallet, store, passkeys);
+
+          assertTagged(yield* restarted.resolvePaymentLink(), "Pending");
+          expect((yield* savedWallet(store)).linkReceipt?.balance).toBe(
+            receipt.balance,
+          );
+
+          world.claimables.set(receipt.balance, {
+            balance: receipt.balance,
+            asset: baseAsset,
+            amount: linkAmount,
+            sponsored: true,
+            claimants: [
+              new Claimant(linkAddr, Claimant.predicateUnconditional()),
+              new Claimant(sender.address, Claimant.predicateUnconditional()),
+            ],
+          });
+
+          const resolved = yield* restarted.resolvePaymentLink();
+
+          assertTagged(resolved, "ResolvedPaymentLink");
+          expect(resolved.balance).toBe(receipt.balance);
+          expect(resolved.address).toBe(linkAddr);
+        }),
+    );
+
+    it.effect(
+      "cancel checks sender receive capacity, marks absent balance unresolved, and never hides an unsettled link",
       () =>
         Effect.gen(function* () {
           const store = memoryKeyStore();
@@ -286,7 +371,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const client = makeWalletEffects(wallet, store, passkeys);
 
-          expect(yield* client.cancelPaymentLink(balance)).toEqual(
+          expect(
+            yield* client.cancelPaymentLink({ balance, asset: euro }),
+          ).toEqual(
             new RecipientCannotReceive({
               address: sender.address,
               reason: "no_capacity",
@@ -300,7 +387,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             }),
           );
 
-          expect(yield* client.cancelPaymentLink(balance)).toEqual(
+          expect(
+            yield* client.cancelPaymentLink({ balance, asset: euro }),
+          ).toEqual(
             new RecipientCannotReceive({
               address: sender.address,
               reason: "not_authorized",
@@ -309,9 +398,78 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           world.claimables.delete(balance);
 
-          expect(yield* client.cancelPaymentLink(balance)).toEqual(
-            new BalanceGone({ status: "unresolved" }),
+          expect(
+            yield* client.cancelPaymentLink({ balance, asset: euro }),
+          ).toEqual(new BalanceGone({ status: "unresolved" }));
+
+          world.holdings.delete(sender.address);
+
+          const inflightLink = addressOf(Keypair.random());
+
+          const inflightOrder = new TransferOrder({
+            ...orderFor(
+              Keypair.random(),
+              PaymentLinkRecipient.make({ value: inflightLink }),
+            ),
+            from: sender.address,
+          });
+
+          const draft = yield* wallet.transfer(inflightOrder, Option.none());
+
+          assertTagged(draft, "TransferDraft");
+
+          const inflightBalance = Option.getOrThrow(
+            Option.fromNullishOr(draft.claimable),
           );
+
+          expect(
+            yield* client.cancelPaymentLink({
+              balance: inflightBalance,
+              asset: baseAsset,
+            }),
+          ).toEqual(new BalanceGone({ status: "unresolved" }));
+
+          const senderKey = signingKey(sender.phrase);
+
+          assertTagged(
+            yield* wallet.transfer(
+              inflightOrder,
+              approve(draft.request, senderKey),
+            ),
+            "Pending",
+          );
+
+          yield* Transfers.use((t) => t.closeBalance(inflightBalance));
+
+          const submitted = Option.getOrThrow(
+            Option.fromNullishOr(world.submitted.at(-1)),
+          );
+
+          world.claimables.set(inflightBalance, {
+            balance: inflightBalance,
+            asset: baseAsset,
+            amount: linkAmount,
+            sponsored: true,
+            claimants: [
+              new Claimant(inflightLink, Claimant.predicateUnconditional()),
+              new Claimant(sender.address, Claimant.predicateUnconditional()),
+            ],
+          });
+          settleHash(submitted.hash);
+          yield* sweep;
+
+          expect(
+            yield* Transfers.use((t) =>
+              t.openClaimables(sender.address, "paymentLink"),
+            ),
+          ).toBe(1);
+
+          const open = yield* wallet.paymentLinks(sender.address);
+
+          assertTagged(open, "OpenPaymentLinks");
+          expect(open.links.map((item) => item.balance)).toEqual([
+            inflightBalance,
+          ]);
         }),
     );
   },

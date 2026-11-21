@@ -82,7 +82,14 @@ const nextLinkReceipt = (
   current: PaymentLinkReceipt | undefined,
   facts: PaymentLinkFacts,
 ) => {
-  const prior = current && current.network === network ? current.attempts : [];
+  const sameOrder =
+    current !== undefined &&
+    current.network === network &&
+    current.address === facts.to &&
+    assetKey(current.asset) === assetKey(facts.asset) &&
+    current.amount === facts.amount;
+
+  const prior = sameOrder ? current.attempts : [];
 
   const attempts = prior.includes(facts.balance)
     ? prior
@@ -90,6 +97,9 @@ const nextLinkReceipt = (
 
   return new PaymentLinkReceipt({
     network,
+    address: facts.to,
+    asset: facts.asset,
+    amount: facts.amount,
     balance: facts.balance,
     attempts,
   });

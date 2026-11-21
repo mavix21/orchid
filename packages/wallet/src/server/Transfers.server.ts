@@ -553,6 +553,7 @@ export class Transfers extends Context.Service<
                   .where(
                     and(
                       unclaimedAt(DateTime.toEpochMillis(now)),
+                      eq(transfers.status, "settled"),
                       eq(transfers.balanceId, balance),
                     ),
                   ),
