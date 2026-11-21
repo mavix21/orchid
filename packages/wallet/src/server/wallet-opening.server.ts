@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  AddressBound,
   Approval,
   InvalidAddress,
   NotSponsored,
@@ -38,14 +39,26 @@ export const openingFlow = Effect.gen(function* () {
   const directory = yield* Directory;
   const { readAccount } = yield* confirmedReads;
 
+  const openedOrBound = Effect.fn("Wallet.openedOrBound")(function* (
+    row: WalletRow,
+    claim: WalletClaim,
+  ): Effect.fn.Return<OpenStep, StoreFailure> {
+    const profile = yield* directory.profile(row);
+
+    return profile.username === claim.username
+      ? new Opened({ profile })
+      : new AddressBound({ profile });
+  });
+
   const saveRecoveryDraft = Effect.fn("Wallet.saveRecoveryDraft")(function* (
     row: WalletRow,
     request: SigningRequest,
+    claim: WalletClaim,
   ): Effect.fn.Return<OpenStep, StoreFailure> {
     const written = yield* directory.recoveryDraft(row, request);
 
     if (written.status === "active")
-      return new Opened({ profile: yield* directory.profile(written) });
+      return yield* openedOrBound(written, claim);
 
     if (!written.recoveryDraft || !written.recoveryMaxTime)
       return new OpeningPending();
@@ -91,7 +104,7 @@ export const openingFlow = Effect.gen(function* () {
     ) {
       const request = yield* chain.draftRecovery(address);
 
-      return yield* saveRecoveryDraft(row, request);
+      return yield* saveRecoveryDraft(row, request, claim);
     }
 
     if (Option.isNone(approval)) return new RecoveryDraft({ request: stored });
@@ -158,12 +171,11 @@ export const openingFlow = Effect.gen(function* () {
         const request = yield* chain.draftRecovery(claim.address);
         const row = yield* directory.start(claim.address);
 
-        if (row.status === "active")
-          return new Opened({ profile: yield* directory.profile(row) });
+        if (row.status === "active") return yield* openedOrBound(row, claim);
 
         return row.recoveryDraft && row.recoveryMaxTime
           ? yield* recoveryStage(row, state.value, approval, claim)
-          : yield* saveRecoveryDraft(row, request);
+          : yield* saveRecoveryDraft(row, request, claim);
       }
 
       const request = yield* chain.draftOpening(claim.address);
@@ -190,7 +202,7 @@ export const openingFlow = Effect.gen(function* () {
     const row = existing.value;
 
     if (row.status === "active") {
-      if (usable) return new Opened({ profile: yield* directory.profile(row) });
+      if (usable) return yield* openedOrBound(row, claim);
 
       yield* directory.recover(row);
 

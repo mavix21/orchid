@@ -413,18 +413,16 @@ it.effect.each([
     ),
   },
 ])(
-  "fails with ChainUnreachable when $name stall past the RPC timeout",
+  "fails with ChainUnreachable when $name stall past the default 10s RPC timeout",
   ({ http }) =>
     Effect.gen(function* () {
-      const attempt = yield* fetchEntries(testRpcUrl, [account]).pipe(
-        Effect.provide(http),
+      const attempt = yield* Chain.use((chain) => chain.account(address)).pipe(
+        Effect.provide(chainFor(testRpcUrl, http)),
         Effect.flip,
         Effect.forkChild,
       );
 
-      yield* TestClock.adjust(
-        Duration.subtract(defaultRpcTimeout, Duration.millis(1)),
-      );
+      yield* TestClock.adjust(Duration.millis(9_999));
 
       expect(attempt.pollUnsafe()).toBeUndefined();
 
