@@ -51,11 +51,10 @@ const randomAddress = () =>
   Schema.decodeSync(AccountAddress)(Keypair.random().publicKey());
 
 it.effect(
-  "registered addresses require a memo with their registry evidence when the ledger publishes nothing",
+  "registered addresses answer from the registry without the ledger, and other addresses fail while it is unreachable",
   () =>
     Effect.gen(function* () {
       const address = randomAddress();
-      const other = randomAddress();
 
       const entry = new KnownExchangeMemo({
         network,
@@ -64,21 +63,6 @@ it.effect(
         source: "https://example.com/fixtures/stellar-testnet-memo-required",
       });
 
-      const rpcUrl = yield* ledgerPublishing(address, Option.none());
-
-      expect(yield* memoRequirementFor(rpcUrl, address, [entry])).toEqual(
-        Option.some(entry),
-      );
-      expect(
-        Option.isNone(yield* memoRequirementFor(rpcUrl, other, [entry])),
-      ).toBe(true);
-    }).pipe(Effect.scoped),
-);
-
-it.effect(
-  "an unreachable ledger fails the memo check instead of skipping it",
-  () =>
-    Effect.gen(function* () {
       const rpcUrl = yield* rpcAnswering(() =>
         JSON.stringify({
           jsonrpc: "2.0",
@@ -87,8 +71,13 @@ it.effect(
         }),
       );
 
+      expect(yield* memoRequirementFor(rpcUrl, address, [entry])).toEqual(
+        Option.some(entry),
+      );
       expect(
-        yield* Effect.flip(memoRequirementFor(rpcUrl, randomAddress(), [])),
+        yield* Effect.flip(
+          memoRequirementFor(rpcUrl, randomAddress(), [entry]),
+        ),
       ).toBeInstanceOf(ChainUnreachable);
     }).pipe(Effect.scoped),
 );

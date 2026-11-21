@@ -128,7 +128,9 @@ export const fakeChain = Layer.effect(
     return Chain.of({
       ...real,
       memoRequiredFor: (address) =>
-        Effect.succeed(exchangeMemoFor(address, world.exchangeMemos)),
+        world.ledgerDown
+          ? Effect.fail(new ChainUnreachable({ cause: new Error("RPC down") }))
+          : Effect.succeed(exchangeMemoFor(address, world.exchangeMemos)),
       account,
       holdings: (address, assets) =>
         world.holdings.has(address)
