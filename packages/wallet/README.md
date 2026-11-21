@@ -90,23 +90,18 @@ bun run --cwd packages/wallet db:generate
 
 The generated SQL and snapshot are in `drizzle/`. From the repository root, `bun run db:migrate` applies these migrations using `DATABASE_URL_UNPOOLED` from the gitignored `.env.local` pulled by Neon. Check the selected Neon branch before migrating.
 
-## Live device verification
+## Live testnet verification
 
-`testnet:device` runs the device client against the real `Wallet`, live testnet and the `wallet_live` database, using the reserve sponsor and fee payer from `apps/web/.dev.vars`. Each run creates a new wallet with a fresh secret phrase and a software passkey, checks the opening, sponsorship, signed recovery and overview, then opens a second username, funds the first wallet with 1 testnet USDC from `USDC_FUNDER_SECRET` in `apps/web/.dev.vars` (a testnet account holding Circle testnet USDC; Circle's faucet or a testnet path payment from XLM can fund one), pays 0.5 USDC between the two usernames through `send`, and restores the wallet on a second in-memory device. It prints public evidence, including the payment's transaction hash, as JSON to stdout; put it in the pull request, not in a file.
+Both scripts keep no state between runs: no `.dev.vars` file, no fixed keys and no setup step. Each run generates fresh keys for the reserve sponsor, fee payer and every test account, funds them through Friendbot, and recreates the `wallet_live` database (dropped, created and migrated) on the verification container above, which must be running. The driver verifies the RPC testnet passphrase before submitting anything. Both print their public evidence (addresses, transaction hashes and the checks performed) as JSON to stdout; put it in the pull request, not in a file.
+
+`testnet:device` runs the device client against the real `Wallet` and live testnet. It creates a wallet with a fresh secret phrase and a software passkey, checks the opening, sponsorship, signed recovery and overview, opens a second username, funds the first wallet with 1 USDC (Friendbot plus a testnet path payment from XLM, the same helper the end-to-end tests use in [`testnet-funding.ts`](./scripts/testnet-funding.ts)), pays 0.5 USDC between the two usernames through `send`, and restores the wallet on a second in-memory device.
 
 ```sh
-docker exec orchid-wallet-verification createdb -U orchid wallet_live
 bun run --cwd packages/wallet testnet:device
 ```
 
-## Live testnet verification
-
-The one-shot driver uses a different local database and fresh keys. Preparation refuses to replace an existing `.dev.vars` file. Keys are saved only in `packages/wallet/.dev.vars` with mode `0600`, never printed. Build-cache outputs exclude `.dev.vars`. The driver verifies the RPC testnet passphrase before funding or submission.
+`testnet:verify` is the one-shot driver. It funds a test exchange account with Friendbot and sets its `config.memo_required` data entry to `1`; an outsider account verifies the sponsorship refusal. Wallet users are created with 0 XLM, under usernames with a random per-run suffix. It checks raw `extXdr` sponsorship identities, alternate fee-payer inclusion via the inner hash, rejection of an absent transaction whose sequence another transaction consumed, that a second key cannot bind a username the first key already bound, and that payments to the test exchange return `ExternalMemoRequired` without a memo, settle with one, and settle to a muxed destination without one after the reserve sponsor sends the sender 5 XLM. It uses a short recovery time through the internal builder and store; the public request path keeps the one-day testnet delay.
 
 ```sh
-docker exec orchid-wallet-verification createdb -U orchid wallet_live
-bun run --cwd packages/wallet testnet:prepare
 bun run --cwd packages/wallet testnet:verify
 ```
-
-Preparation also funds a test exchange account with Friendbot and sets its `config.memo_required` data entry to `1`. Friendbot funds separate reserve-sponsor and fee-payer accounts, plus an outsider used to verify the sponsorship refusal. Wallet users are created with 0 XLM. The driver checks raw `extXdr` sponsorship identities, alternate fee-payer inclusion via the inner hash, rejection of an absent transaction whose sequence another transaction consumed, that a second key cannot bind a username the first key already bound, and that a payment to the test exchange returns `ExternalMemoRequired` without a memo and settles with one after the reserve sponsor sends the sender 5 XLM. It uses a short recovery time through the internal builder and store; the public request path keeps the one-day testnet delay. It prints the public evidence (account addresses, transaction hashes and the checks performed) as JSON to stdout; put it in the pull request, not in a file.

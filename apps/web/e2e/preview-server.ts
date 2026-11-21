@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { fundWithFriendbot } from "./testnet";
+import { fundWithFriendbot } from "../../../packages/wallet/scripts/testnet-funding";
 
 const developerSecrets = fileURLToPath(
   new URL("../.dev.vars", import.meta.url),

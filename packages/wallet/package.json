@@ -12,9 +12,8 @@
     "test": "vitest run && bun ../../tools/wallet/check-boundary.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun scripts/migrate.server.ts",
-    "testnet:prepare": "bun scripts/prepare-testnet.server.ts",
-    "testnet:verify": "bun --env-file=.dev.vars scripts/testnet.server.ts",
-    "testnet:device": "bun --env-file=../../apps/web/.dev.vars scripts/testnet-device.server.ts"
+    "testnet:verify": "bun scripts/testnet.server.ts",
+    "testnet:device": "bun scripts/testnet-device.server.ts"
   },
   "dependencies": {
     "@effect/sql-pg": "4.1.5",
