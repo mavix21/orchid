@@ -55,6 +55,19 @@ export class ClaimableFacts extends Schema.TaggedClass<ClaimableFacts>()(
   },
 ) {}
 
+export class PaymentLinkFacts extends Schema.TaggedClass<PaymentLinkFacts>()(
+  "PaymentLinkFacts",
+  {
+    ...bounds,
+    from: AccountAddress,
+    to: AccountAddress,
+    asset: Asset,
+    amount: PositiveAmount,
+    reserveSponsor: AccountAddress,
+    balance: BalanceId,
+  },
+) {}
+
 export class ClaimFacts extends Schema.TaggedClass<ClaimFacts>()("ClaimFacts", {
   ...bounds,
   address: AccountAddress,
@@ -67,6 +80,7 @@ export type AssetFacts =
   | TrustlineFacts
   | TrustlineRemovalFacts
   | ClaimableFacts
+  | PaymentLinkFacts
   | ClaimFacts;
 
 interface Drafting {
@@ -172,6 +186,27 @@ export function draftClaimable(input: ClaimableInput): UnsignedEnvelope {
   );
 }
 
+export function draftPaymentLink(input: ClaimableInput): UnsignedEnvelope {
+  return finish(
+    sponsored(
+      start(input),
+      input.reserveSponsor,
+      Operation.createClaimableBalance({
+        asset: toStellarAsset(input.asset),
+        amount: formatAmount(input.amount),
+        claimants: [
+          new Claimant(input.to, Claimant.predicateUnconditional()),
+          new Claimant(
+            input.source.accountId(),
+            Claimant.predicateUnconditional(),
+          ),
+        ],
+      }),
+    ),
+    input,
+  );
+}
+
 export function draftClaim(input: ClaimInput): UnsignedEnvelope {
   const claim = Operation.claimClaimableBalance({ balanceId: input.balance });
 
@@ -263,6 +298,7 @@ export function readAssetEnvelope(
 
       if (
         Option.isSome(amount) &&
+        to !== address &&
         draftClaimable({
           ...drafting(),
           reserveSponsor,
@@ -273,6 +309,29 @@ export function readAssetEnvelope(
       )
         return Option.some(
           new ClaimableFacts({
+            ...fields,
+            from: address,
+            to,
+            asset,
+            amount: amount.value,
+            reserveSponsor,
+            balance: Schema.decodeSync(BalanceId)(tx.getClaimableBalanceId(1)),
+          }),
+        );
+
+      if (
+        Option.isSome(amount) &&
+        to !== address &&
+        draftPaymentLink({
+          ...drafting(),
+          reserveSponsor,
+          to,
+          asset,
+          amount: amount.value,
+        }) === envelope
+      )
+        return Option.some(
+          new PaymentLinkFacts({
             ...fields,
             from: address,
             to,

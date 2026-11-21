@@ -134,6 +134,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                   spendable: held,
                   capacity: held,
                   authorized: true,
+                  clawbackEnabled: false,
                   sponsored: true,
                 },
               ],

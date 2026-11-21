@@ -2,6 +2,7 @@ import * as Option from "effect/Option";
 import {
   ExternalMemoRequired,
   ExternalRecipient,
+  LinkRecipient,
   MemoNotAllowed,
   type ResolvedRecipient,
   type TransferOrder,
@@ -14,6 +15,11 @@ export const memoRefusal = (
   recipient: ResolvedRecipient,
   requirement: Option.Option<KnownExchangeMemo>,
 ): Option.Option<ExternalMemoRequired | MemoNotAllowed> => {
+  if (recipient instanceof LinkRecipient)
+    return order.memo
+      ? Option.some(new MemoNotAllowed({ reason: "payment_link" }))
+      : Option.none();
+
   if (!(recipient instanceof ExternalRecipient))
     return order.memo
       ? Option.some(new MemoNotAllowed({ reason: "orchid" }))

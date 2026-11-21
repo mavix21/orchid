@@ -1,4 +1,5 @@
 import { balancesToCheck } from "./balance-sweep.server";
+import { openBalancesFor, openPaymentLinksFor } from "./open-claimables.server";
 import { Database } from "@workspace/db";
 import {
   and,
@@ -23,22 +24,17 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
-  AccountAddress,
-  BalanceId,
-  Failed,
-  Pending,
+  type AccountAddress,
+  type BalanceId,
   Profile,
-  ResolvedRecipient,
-  Settled,
-  SigningRequest,
-  TransferId,
-  TransferOrder,
-  Username,
+  type ResolvedRecipient,
+  type SigningRequest,
+  type TransferId,
+  type TransferOrder,
 } from "../contract";
 import { claimableBalanceOf } from "../stellar/asset-envelopes";
 import {
   approvalMargin,
-  claimableReadLimit,
   epochAt,
   claimableQuota,
   network,
@@ -47,135 +43,40 @@ import {
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import { SlotOccupied, walletLock } from "./slot.server";
-import { assetOrders, transfers, usernames } from "./tables.server";
+import { assetOrders, transfers } from "./tables.server";
+import {
+  AttemptsJson,
+  type Authorized,
+  ClaimableKind,
+  ClaimablesFull,
+  type Concluded,
+  type ConclusionColumns,
+  OpenBalance,
+  OpenLinkRecord,
+  OrderJson,
+  type Proposed,
+  RecipientJson,
+  SlotTaken,
+  type Transfer,
+  type TransferRow,
+  appendAttempt,
+  claimableKindOf,
+  readTransferRow,
+} from "./transfer-records.server";
 
-export class Proposed extends Schema.TaggedClass<Proposed>()("Proposed", {
-  order: TransferOrder,
-  recipient: ResolvedRecipient,
-  request: SigningRequest,
-  claimable: Schema.optional(BalanceId),
-}) {}
-
-export class Authorized extends Schema.TaggedClass<Authorized>()("Authorized", {
-  order: TransferOrder,
-  recipient: ResolvedRecipient,
-  sealed: Sealed,
-  claimable: Schema.optional(BalanceId),
-}) {}
-
-export class Concluded extends Schema.TaggedClass<Concluded>()("Concluded", {
-  order: TransferOrder,
-  recipient: ResolvedRecipient,
-  receipt: Schema.Union([Settled, Failed]),
-}) {}
-
-export class SlotTaken extends Schema.TaggedClass<SlotTaken>()("SlotTaken", {
-  holder: Authorized,
-}) {}
-
-export class ClaimablesFull extends Schema.TaggedClass<ClaimablesFull>()(
-  "ClaimablesFull",
-  {},
-) {}
-
-export class OpenBalance extends Schema.Class<OpenBalance>("OpenBalance")({
-  balance: BalanceId,
-  from: Profile,
-  to: Profile,
-}) {}
-
-export type Transfer = Proposed | Authorized | Concluded;
-
-type TransferRow = typeof transfers.$inferSelect;
-
-interface ConclusionColumns {
-  readonly status: "settled" | "failed";
-  readonly concludedAt: Date;
-  readonly failure: "expired" | "rejected" | null;
-}
-
-export const OrderJson = Schema.fromJsonString(TransferOrder);
-const RecipientJson = Schema.fromJsonString(ResolvedRecipient);
-
-export function pending(transfer: Authorized): Pending {
-  return new Pending({
-    ...transfer.order,
-    recipient: transfer.recipient,
-    claimable: transfer.claimable,
-    expiresAt: transfer.sealed.expiresAt,
-  });
-}
-
-function readRow(row: TransferRow): Transfer {
-  const order = Schema.decodeSync(OrderJson)(row.order);
-  const recipient = Schema.decodeSync(RecipientJson)(row.resolvedRecipient);
-  const expiresAt = DateTime.makeUnsafe(row.expiresAt);
-
-  const claimable =
-    row.balanceId === null
-      ? undefined
-      : Schema.decodeSync(BalanceId)(row.balanceId);
-
-  const fields = { order, recipient, claimable };
-
-  return Match.value(row.status).pipe(
-    Match.when(
-      "proposed",
-      () =>
-        new Proposed({
-          ...fields,
-          request: new SigningRequest({
-            envelope: Schema.decodeSync(SigningRequest.fields.envelope)(
-              row.envelope,
-            ),
-            expiresAt,
-          }),
-        }),
-    ),
-    Match.when("authorized", () => {
-      if (!row.hash) throw new Error("Authorized transfer missing hash");
-
-      return new Authorized({
-        ...fields,
-        sealed: new Sealed({
-          envelope: row.envelope,
-          hash: row.hash,
-          expiresAt,
-        }),
-      });
-    }),
-    Match.when("settled", () => {
-      if (!row.concludedAt)
-        throw new Error("Settled transfer missing ledger time");
-
-      return new Concluded({
-        order,
-        recipient,
-        receipt: new Settled({
-          ...order,
-          recipient,
-          claimable,
-          settledAt: DateTime.makeUnsafe(row.concludedAt),
-        }),
-      });
-    }),
-    Match.when("failed", () => {
-      if (!row.failure) throw new Error("Failed transfer missing reason");
-
-      return new Concluded({
-        order,
-        recipient,
-        receipt: new Failed({
-          ...order,
-          recipient,
-          claimable,
-          reason: row.failure,
-        }),
-      });
-    }),
-    Match.exhaustive,
-  );
-}
+export {
+  Authorized,
+  ClaimableKind,
+  ClaimablesFull,
+  Concluded,
+  OpenBalance,
+  OpenLinkRecord,
+  OrderJson,
+  Proposed,
+  SlotTaken,
+  type Transfer,
+  pending,
+} from "./transfer-records.server";
 
 export class Transfers extends Context.Service<
   Transfers,
@@ -210,11 +111,18 @@ export class Transfers extends Context.Service<
       ReadonlyArray<BalanceId>,
       StoreFailure
     >;
-    openClaimables(sender: AccountAddress): Effect.Effect<number, StoreFailure>;
+    openClaimables(
+      sender: AccountAddress,
+      kind?: ClaimableKind,
+    ): Effect.Effect<number, StoreFailure>;
 
     openBalances(
       address: AccountAddress,
     ): Effect.Effect<ReadonlyArray<OpenBalance>, StoreFailure>;
+
+    openPaymentLinks(
+      sender: AccountAddress,
+    ): Effect.Effect<ReadonlyArray<OpenLinkRecord>, StoreFailure>;
 
     closeBalance(balance: BalanceId): Effect.Effect<void, StoreFailure>;
   }
@@ -232,7 +140,7 @@ export class Transfers extends Context.Service<
 
       const decode = (row: TransferRow) =>
         Effect.try({
-          try: () => readRow(row),
+          try: () => readTransferRow(row),
           catch: (cause) => new StoreFailure({ cause }),
         });
 
@@ -243,63 +151,22 @@ export class Transfers extends Context.Service<
           isNull(transfers.balanceClosedAt),
         );
 
-      const openFromAt = (sender: AccountAddress, now: number) =>
+      const openFromAt = (
+        sender: AccountAddress,
+        kind: ClaimableKind,
+        now: number,
+      ) =>
         and(
           unclaimedAt(now),
           eq(transfers.sender, sender),
+          kind === "username"
+            ? or(
+                eq(transfers.claimableKind, "username"),
+                isNull(transfers.claimableKind),
+              )
+            : eq(transfers.claimableKind, "paymentLink"),
           inArray(transfers.status, ["authorized", "settled"]),
         );
-
-      const openBalances = Effect.fn("Transfers.openBalances")(function* (
-        address: AccountAddress,
-      ) {
-        const now = yield* Clock.currentTimeMillis;
-
-        const rows = yield* db
-          .select({
-            balance: transfers.balanceId,
-            sender: transfers.sender,
-            username: usernames.username,
-            resolvedRecipient: transfers.resolvedRecipient,
-          })
-          .from(transfers)
-          .innerJoin(usernames, eq(usernames.address, transfers.sender))
-          .where(
-            and(
-              unclaimedAt(now),
-              eq(transfers.status, "settled"),
-              or(
-                eq(transfers.sender, address),
-                eq(transfers.recipient, address),
-              ),
-            ),
-          )
-          .orderBy(desc(transfers.createdAt))
-          .limit(claimableReadLimit);
-
-        return yield* Effect.try({
-          try: () =>
-            rows.flatMap((row) => {
-              const to = Schema.decodeSync(RecipientJson)(
-                row.resolvedRecipient,
-              );
-
-              return to instanceof Profile
-                ? [
-                    new OpenBalance({
-                      balance: Schema.decodeUnknownSync(BalanceId)(row.balance),
-                      from: new Profile({
-                        address: Schema.decodeSync(AccountAddress)(row.sender),
-                        username: Schema.decodeSync(Username)(row.username),
-                      }),
-                      to,
-                    }),
-                  ]
-                : [];
-            }),
-          catch: (cause) => new StoreFailure({ cause }),
-        });
-      });
 
       const find = Effect.fn("Transfers.find")(function* (id: TransferId) {
         const now = yield* Clock.currentTimeMillis;
@@ -342,6 +209,13 @@ export class Transfers extends Context.Service<
         request: SigningRequest,
       ) {
         const now = yield* Clock.currentTimeMillis;
+        const balance = claimableBalanceOf(request.envelope);
+        const balanceId = Option.getOrNull(balance);
+        const claimableKind = claimableKindOf(order, balance);
+
+        const singleAttempt = Option.map(balance, (id) =>
+          Schema.encodeSync(AttemptsJson)([id]),
+        );
 
         const value = {
           id: order.id,
@@ -355,7 +229,9 @@ export class Transfers extends Context.Service<
           testnetEpoch: epochAt(now),
           envelope: request.envelope,
           expiresAt: DateTime.toDateUtc(request.expiresAt),
-          balanceId: Option.getOrNull(claimableBalanceOf(request.envelope)),
+          balanceId,
+          claimableKind,
+          attemptBalanceIds: Option.getOrNull(singleAttempt),
         };
 
         const rows = yield* db
@@ -367,6 +243,12 @@ export class Transfers extends Context.Service<
               envelope: request.envelope,
               expiresAt: value.expiresAt,
               balanceId: value.balanceId,
+              claimableKind: value.claimableKind,
+              attemptBalanceIds: Option.match(singleAttempt, {
+                onNone: () => transfers.attemptBalanceIds,
+                onSome: (encoded) =>
+                  sql`case when ${transfers.attemptBalanceIds} is null then ${encoded} when (${transfers.attemptBalanceIds})::jsonb @> (${encoded})::jsonb then ${transfers.attemptBalanceIds} else ((${transfers.attemptBalanceIds})::jsonb || (${encoded})::jsonb)::text end`,
+              }),
             },
             setWhere: and(
               scopeAt(now),
@@ -399,14 +281,20 @@ export class Transfers extends Context.Service<
         request: SigningRequest,
       ) {
         const now = yield* Clock.currentTimeMillis;
+        const balance = claimableBalanceOf(request.envelope);
+        const attempts = appendAttempt(proposed.attemptBalances, balance);
 
         const rows = yield* db
           .update(transfers)
           .set({
             envelope: request.envelope,
             expiresAt: DateTime.toDateUtc(request.expiresAt),
-
-            balanceId: Option.getOrNull(claimableBalanceOf(request.envelope)),
+            balanceId: Option.getOrNull(balance),
+            claimableKind: claimableKindOf(proposed.order, balance),
+            attemptBalanceIds:
+              attempts.length > 0
+                ? Schema.encodeSync(AttemptsJson)(attempts)
+                : null,
           })
           .where(
             and(
@@ -474,13 +362,16 @@ export class Transfers extends Context.Service<
             if (elsewhere[0]) return new SlotOccupied();
 
             if (proposed.claimable) {
+              const kind = proposed.claimableKind ?? "username";
+              const limit = claimableQuota[kind];
+
               const open = yield* tx
                 .select({ total: count() })
                 .from(transfers)
-                .where(openFromAt(proposed.order.from, lockedAt));
+                .where(openFromAt(proposed.order.from, kind, lockedAt));
 
-              if ((open[0]?.total ?? 0) >= claimableQuota.username)
-                return new ClaimablesFull();
+              if ((open[0]?.total ?? 0) >= limit)
+                return new ClaimablesFull({ limit });
             }
 
             const commitAt = yield* Clock.currentTimeMillis;
@@ -630,19 +521,28 @@ export class Transfers extends Context.Service<
         balancesToCheck: wrap(
           balancesToCheck.pipe(Effect.provideService(Database, db)),
         ),
-        openClaimables: (sender) =>
+        openClaimables: (sender, kind = "username") =>
           wrap(
             Clock.currentTimeMillis.pipe(
               Effect.flatMap((now) =>
                 db
                   .select({ total: count() })
                   .from(transfers)
-                  .where(openFromAt(sender, now)),
+                  .where(openFromAt(sender, kind, now)),
               ),
               Effect.map((rows) => rows[0]?.total ?? 0),
             ),
           ),
-        openBalances: (address) => wrap(openBalances(address)),
+        openBalances: (address) =>
+          wrap(
+            openBalancesFor(address).pipe(Effect.provideService(Database, db)),
+          ),
+        openPaymentLinks: (sender) =>
+          wrap(
+            openPaymentLinksFor(sender).pipe(
+              Effect.provideService(Database, db),
+            ),
+          ),
         closeBalance: (balance) =>
           wrap(
             DateTime.now.pipe(

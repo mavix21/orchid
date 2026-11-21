@@ -11,7 +11,7 @@ import {
   type PositiveAmount,
   SigningRequest,
 } from "../contract";
-import { draftClaimable } from "../stellar/asset-envelopes";
+import { draftClaimable, draftPaymentLink } from "../stellar/asset-envelopes";
 import { type AssetPlan, draftPlan } from "../stellar/asset-plans";
 import { toStellarAsset } from "../stellar/assets";
 import { paymentLifetime, usdc } from "../stellar/network";
@@ -42,6 +42,12 @@ export interface AssetChain {
     balances: ReadonlyArray<BalanceId>,
   ): Effect.Effect<ReadonlyArray<ClaimableEntry>, ChainUnreachable>;
   draftClaimable(
+    from: AccountAddress,
+    to: AccountAddress,
+    asset: Asset,
+    amount: PositiveAmount,
+  ): Effect.Effect<SigningRequest, ChainUnreachable>;
+  draftPaymentLink(
     from: AccountAddress,
     to: AccountAddress,
     asset: Asset,
@@ -112,6 +118,27 @@ export const assetChain = (
 
       return new SigningRequest({
         envelope: draftClaimable({
+          ...bounds,
+          source: holder,
+          reserveSponsor,
+          to,
+          asset,
+          amount,
+        }),
+        expiresAt,
+      });
+    }),
+    draftPaymentLink: Effect.fn("Chain.draftPaymentLink")(function* (
+      from: AccountAddress,
+      to: AccountAddress,
+      asset: Asset,
+      amount: PositiveAmount,
+    ) {
+      const holder = yield* source(from);
+      const { expiresAt, ...bounds } = yield* window;
+
+      return new SigningRequest({
+        envelope: draftPaymentLink({
           ...bounds,
           source: holder,
           reserveSponsor,

@@ -76,6 +76,8 @@ export const transfers = pgTable(
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 
     balanceId: text(),
+    claimableKind: text({ enum: ["username", "paymentLink"] }),
+    attemptBalanceIds: text(),
     balanceClosedAt: timestamp({ withTimezone: true }),
   },
   (table) => [
@@ -105,6 +107,7 @@ export const assetOrders = pgTable(
     order: text().notNull(),
 
     opens: text(),
+    balanceId: text(),
     network: text().notNull(),
     testnetEpoch: text().notNull(),
     status: text({

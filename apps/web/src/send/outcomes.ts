@@ -139,6 +139,7 @@ export const sendResult = (
         `Tienes ${limit} pagos esperando ser aceptados`,
         "home",
       ),
+    AssetUnsupported: () => new SendScreen("No se envió", untouched, "home"),
     SenderBusy: () =>
       new SendScreen(
         "Espera un momento",
@@ -218,6 +219,7 @@ export const outstandingLabel = (order: TransferOrder) =>
     {
       Username: ({ value }) => `@${value}`,
       Address: ({ value }) => shortAddress(value),
+      PaymentLink: ({ value }) => shortAddress(value),
       Phone: ({ value }) => value,
     },
   )}`;

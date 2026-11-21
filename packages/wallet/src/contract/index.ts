@@ -31,6 +31,14 @@ import {
   Profile,
   Username,
 } from "./identity";
+import {
+  OpenPaymentLinks,
+  PaymentLinkNotFound,
+  PaymentLinkReceipt,
+  PaymentLinkReceiptInvalid,
+  ResolvedPaymentLink,
+  TransferId,
+} from "./payment-links";
 
 export * from "./approval";
 
@@ -43,6 +51,8 @@ export * from "./backup";
 export * from "./identity";
 
 export * from "./network-addresses";
+
+export * from "./payment-links";
 
 export class InvalidAddress extends Schema.TaggedClass<InvalidAddress>()(
   "InvalidAddress",
@@ -153,14 +163,8 @@ export type PaymentMemo = typeof PaymentMemo.Type;
 
 export class MemoNotAllowed extends Schema.TaggedClass<MemoNotAllowed>()(
   "MemoNotAllowed",
-  { reason: Schema.Literals(["orchid", "muxed"]) },
+  { reason: Schema.Literals(["orchid", "muxed", "payment_link"]) },
 ) {}
-
-export const TransferId = Schema.String.check(Schema.isUUID(4)).pipe(
-  Schema.brand("TransferId"),
-);
-
-export type TransferId = typeof TransferId.Type;
 
 export const UsernameRecipient = Schema.TaggedStruct("Username", {
   value: Username,
@@ -174,10 +178,15 @@ export const AddressRecipient = Schema.TaggedStruct("Address", {
   value: DestinationAddress,
 });
 
+export const PaymentLinkRecipient = Schema.TaggedStruct("PaymentLink", {
+  value: AccountAddress,
+});
+
 export const Recipient = Schema.Union([
   UsernameRecipient,
   PhoneRecipient,
   AddressRecipient,
+  PaymentLinkRecipient,
 ]);
 
 export type Recipient = typeof Recipient.Type;
@@ -193,11 +202,22 @@ export class TransferOrder extends Schema.Class<TransferOrder>(
   memo: Schema.optional(PaymentMemo),
 }) {}
 
+export class LinkRecipient extends Schema.Class<LinkRecipient>(
+  "@workspace/wallet/LinkRecipient",
+)({
+  kind: Schema.Literal("paymentLink"),
+  address: AccountAddress,
+}) {}
+
 export class ExternalRecipient extends Schema.Class<ExternalRecipient>(
   "@workspace/wallet/ExternalRecipient",
 )({ address: DestinationAddress }) {}
 
-export const ResolvedRecipient = Schema.Union([Profile, ExternalRecipient]);
+export const ResolvedRecipient = Schema.Union([
+  Profile,
+  LinkRecipient,
+  ExternalRecipient,
+]);
 
 export type ResolvedRecipient = typeof ResolvedRecipient.Type;
 
@@ -323,6 +343,7 @@ export const TransferStep = Schema.Union([
   MemoNotAllowed,
   RecipientCannotReceive,
   ClaimableLimitReached,
+  AssetUnsupported,
   AssetBusy,
 ]);
 
@@ -341,11 +362,29 @@ export const AssetStep = Schema.Union([
   TrustlineLimitReached,
   TrustlineNotEmpty,
   AssetUnsupported,
+  RecipientCannotReceive,
   NotClaimable,
   BalanceGone,
 ]);
 
 export type AssetStep = typeof AssetStep.Type;
+
+export const PaymentLinksStep = Schema.Union([
+  OpenPaymentLinks,
+  NotOpened,
+  InvalidAddress,
+]);
+
+export type PaymentLinksStep = typeof PaymentLinksStep.Type;
+
+export const ResolveReceiptStep = Schema.Union([
+  ResolvedPaymentLink,
+  PaymentLinkNotFound,
+  PaymentLinkReceiptInvalid,
+  InvalidAddress,
+]);
+
+export type ResolveReceiptStep = typeof ResolveReceiptStep.Type;
 
 export class Balance extends Schema.Class<Balance>("@workspace/wallet/Balance")(
   {
@@ -442,6 +481,11 @@ export interface WalletPort<E = WalletUnavailable> {
     order: AssetOrder,
     approval: Option.Option<Approval>,
   ): Effect.Effect<AssetStep, E>;
+  paymentLinks(address: AccountAddress): Effect.Effect<PaymentLinksStep, E>;
+  resolvePaymentLink(
+    sender: AccountAddress,
+    receipt: PaymentLinkReceipt,
+  ): Effect.Effect<ResolveReceiptStep, E>;
   passkeyChallenge(
     purpose: ChallengePurpose,
   ): Effect.Effect<PasskeyChallenge, E>;

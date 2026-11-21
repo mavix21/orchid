@@ -16,6 +16,7 @@ import {
   InvalidAddress,
   NotClaimable,
   NotOpened,
+  RecipientCannotReceive,
   SenderBusy,
   TrustlineLimitReached,
   TrustlineNotEmpty,
@@ -117,10 +118,22 @@ export const assetFlow = Effect.gen(function* () {
     const action = order.action;
 
     if (Predicate.isTagged(action, "ClaimBalance")) {
-      const entries = yield* chain.claimable([action.balance]);
-      const entry = entries[0];
+      const first = yield* chain.claimable([action.balance]);
 
-      if (!entry) return new BalanceGone();
+      const entry = first[0] ?? (yield* chain.claimable([action.balance]))[0];
+
+      if (!entry) {
+        yield* transfers.closeBalance(action.balance);
+
+        const reclaimed = yield* orders.settledClaim(
+          order.wallet,
+          action.balance,
+        );
+
+        return new BalanceGone({
+          status: reclaimed ? "reclaimed" : "unresolved",
+        });
+      }
 
       const claimant = entry.claimants.find(
         (item) => item.destination === order.wallet,
@@ -130,6 +143,7 @@ export const assetFlow = Effect.gen(function* () {
 
       if (!claimant || !claimableAt(claimant.predicate, BigInt(now)))
         return new NotClaimable({ claimableAt: Option.none() });
+
       plan = ClaimPlan.make({ balance: action.balance });
 
       if (Predicate.isTagged(entry.asset, "Issued")) {
@@ -137,10 +151,22 @@ export const assetFlow = Effect.gen(function* () {
 
         if (Option.isNone(state)) return new NotOpened();
 
-        if (!state.value.lines[0])
+        const line = state.value.lines[0];
+
+        if (!line)
           plan = ClaimPlan.make({
             balance: action.balance,
             opens: entry.asset,
+          });
+        else if (!line.authorized)
+          return new RecipientCannotReceive({
+            address: order.wallet,
+            reason: "not_authorized",
+          });
+        else if (line.capacity < entry.amount)
+          return new RecipientCannotReceive({
+            address: order.wallet,
+            reason: "no_capacity",
           });
       }
     } else {

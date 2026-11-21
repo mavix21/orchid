@@ -31,6 +31,7 @@ export interface Line {
   readonly spendable: Amount;
   readonly capacity: Amount;
   readonly authorized: boolean;
+  readonly clawbackEnabled: boolean;
 
   readonly sponsored: boolean;
 }
@@ -179,6 +180,10 @@ export function holdingsFromEntries(
           ),
           authorized:
             (entry.flags & xdr.TrustLineFlags.authorizedFlag.value) !== 0,
+          clawbackEnabled:
+            (entry.flags &
+              xdr.TrustLineFlags.trustlineClawbackEnabledFlag.value) !==
+            0,
           sponsored: sponsoredBy(line.raw, sponsor),
         },
       ];
@@ -255,4 +260,60 @@ export function opensAt(predicate: xdr.ClaimPredicate): Option.Option<bigint> {
     predicate.notPredicate?.type === "claimPredicateBeforeAbsoluteTime"
     ? Option.some(predicate.notPredicate.absBefore)
     : Option.none();
+}
+
+export interface RecoverablePaymentLink {
+  readonly balance: BalanceId;
+  readonly address: AccountAddress;
+  readonly asset: Asset;
+  readonly amount: PositiveAmount;
+}
+
+export function paymentLinkAddressOf(
+  claimants: ReadonlyArray<StellarClaimant>,
+  sender: AccountAddress,
+): Option.Option<AccountAddress> {
+  if (claimants.length !== 2) return Option.none();
+
+  const [first, second] = claimants;
+
+  if (
+    !first ||
+    !second ||
+    first.predicate.type !== "claimPredicateUnconditional" ||
+    second.predicate.type !== "claimPredicateUnconditional" ||
+    first.destination === second.destination
+  )
+    return Option.none();
+
+  const other =
+    first.destination === sender
+      ? second.destination
+      : second.destination === sender
+        ? first.destination
+        : undefined;
+
+  return other ? Schema.decodeOption(AccountAddress)(other) : Option.none();
+}
+
+export function selectRecoverablePaymentLinks(
+  entries: ReadonlyArray<ClaimableEntry>,
+  sender: AccountAddress,
+): ReadonlyArray<RecoverablePaymentLink> {
+  return entries.flatMap((entry) => {
+    if (!entry.sponsored) return [];
+
+    const address = paymentLinkAddressOf(entry.claimants, sender);
+
+    return Option.isSome(address)
+      ? [
+          {
+            balance: entry.balance,
+            address: address.value,
+            asset: entry.asset,
+            amount: entry.amount,
+          },
+        ]
+      : [];
+  });
 }

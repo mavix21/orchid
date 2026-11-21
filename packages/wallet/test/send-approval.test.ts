@@ -13,6 +13,7 @@ import {
   type Approval,
   ExternalMemoRequired,
   ExternalRecipient,
+  LinkRecipient,
   NativeAsset,
   PaymentMemo,
   Pending,
@@ -96,6 +97,8 @@ const deviceWith = (
     Match.valueTags(order.to, {
       Username: (): ResolvedRecipient => actors.pedroProfile,
       Address: ({ value }) => new ExternalRecipient({ address: value }),
+      PaymentLink: ({ value }) =>
+        new LinkRecipient({ kind: "paymentLink", address: value }),
       Phone: () => new ExternalRecipient({ address: actors.exchange }),
     });
 
