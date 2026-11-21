@@ -32,11 +32,9 @@ export const Route = createFileRoute("/links")({
   ssr: false,
   pendingMs: 0,
   pendingComponent: () => <LinksFrame loading />,
-  loader: async ({ context, preload }) => {
-    const latest = preload
-      ? Option.none<ResolvePaymentLinkOutcome>()
-      : Option.some(await context.walletClient.resolvePaymentLink());
-
+  preload: false,
+  loader: async ({ context }) => {
+    const latest = await context.walletClient.resolvePaymentLink();
     const links = await context.walletClient.paymentLinks();
 
     return { latest, links };
@@ -224,7 +222,7 @@ function PaymentLinks() {
         Match.tag("OpenPaymentLinks", (open) => (
           <LinkList
             links={open.links}
-            notice={Option.flatMap(latest, latestNotice)}
+            notice={latestNotice(latest)}
             onChoose={choose}
           />
         )),

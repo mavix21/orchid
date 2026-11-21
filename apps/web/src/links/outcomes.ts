@@ -104,6 +104,18 @@ const unsupportedReason = (
     Match.exhaustive,
   );
 
+const busyCreating = new LinkScreen(
+  "Espera un momento",
+  "Tienes otra operación en curso. Espera su resultado antes de crear un link.",
+  "again",
+);
+
+const busyRecovering = new LinkScreen(
+  "Espera un momento",
+  "Tienes una operación en curso. Espera su resultado y revisa de nuevo.",
+  "check",
+);
+
 const notCreated = new LinkScreen(
   "No se creó el link",
   `Algo no cuadró al preparar tu link. ${untouched}`,
@@ -161,18 +173,8 @@ export const createLinkResult = (
         `${unsupportedReason(reason, assetCode(asset))} ${untouched}`,
         "assets",
       ),
-    SenderBusy: () =>
-      new LinkScreen(
-        "Espera un momento",
-        `Tienes otra operación en curso. ${untouched}`,
-        "again",
-      ),
-    AssetBusy: () =>
-      new LinkScreen(
-        "Espera un momento",
-        `Tienes otra operación en curso. ${untouched}`,
-        "again",
-      ),
+    SenderBusy: () => busyCreating,
+    AssetBusy: () => busyCreating,
     NotOpened: () =>
       new LinkScreen(
         "Aún no puedes crear links",
@@ -375,18 +377,8 @@ export const cancelLinkResult = (
             )}.`,
           ),
       }),
-    SenderBusy: () =>
-      new LinkScreen(
-        "Espera un momento",
-        `Tienes otra operación en curso. ${nothingChanged}`,
-        "again",
-      ),
-    AssetBusy: () =>
-      new LinkScreen(
-        "Espera un momento",
-        `Tienes otra operación en curso. ${nothingChanged}`,
-        "again",
-      ),
+    SenderBusy: () => busyRecovering,
+    AssetBusy: () => busyRecovering,
     Unchanged: () => recoverAgain,
     TrustlineNotEmpty: () => recoverAgain,
     DraftRejected: () =>
