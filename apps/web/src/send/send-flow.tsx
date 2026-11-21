@@ -1,5 +1,6 @@
-import { PhoneIcon, UserRoundIcon, WalletIcon } from "lucide-react";
+import { LinkIcon, PhoneIcon, UserRoundIcon, WalletIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import type {
   Amount,
@@ -17,6 +18,7 @@ import * as Predicate from "effect/Predicate";
 
 import { OptionRow } from "@/components/option-row";
 import { ScreenActions } from "@/components/screen";
+import { LinkFlow } from "@/links/link-flow";
 import { walletEffects } from "@/wallet";
 
 import { AmountStep } from "./amount-step";
@@ -28,6 +30,8 @@ import { SendResultScreen } from "./send-result";
 import { type WalletRun, useWalletRun } from "./use-wallet-run";
 
 type Answer = WalletRun<ReviewOutcome | ResumeOutcome>;
+
+type Choice = Destination | "link";
 
 const emptyForm: SendForm = { recipient: "", amount: "", memo: "" };
 
@@ -161,44 +165,68 @@ function TransferStatus({
 function DestinationChoice({
   onChoose,
 }: {
-  onChoose: (destination: Destination) => void;
+  onChoose: (choice: Choice) => void;
 }) {
   return (
-    <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-      <h1 className="font-display text-h1">¿A dónde lo envías?</h1>
-      <div className="flex flex-col gap-3">
-        <OptionRow
-          title="A un @usuario"
-          description="Alguien que tenga Orchid"
-          media={<UserRoundIcon />}
-          render={
-            <button
-              type="button"
-              onClick={() => onChoose("username")}
-              data-testid="choose-username"
-            />
-          }
-        />
-        <OptionRow
-          title="A una dirección Stellar"
-          description="Otra wallet o un exchange"
-          media={<WalletIcon />}
-          render={
-            <button
-              type="button"
-              onClick={() => onChoose("address")}
-              data-testid="choose-address"
-            />
-          }
-        />
-        <OptionRow
-          title="A un teléfono"
-          description="Los envíos por teléfono llegan pronto"
-          media={<PhoneIcon />}
-          disabled
-        />
-      </div>
-    </main>
+    <>
+      <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
+        <h1 className="font-display text-h1">¿A dónde lo envías?</h1>
+        <div className="flex flex-col gap-3">
+          <OptionRow
+            title="A un @usuario"
+            description="Alguien que tenga Orchid"
+            media={<UserRoundIcon />}
+            render={
+              <button
+                type="button"
+                onClick={() => onChoose("username")}
+                data-testid="choose-username"
+              />
+            }
+          />
+          <OptionRow
+            title="A una dirección Stellar"
+            description="Otra wallet o un exchange"
+            media={<WalletIcon />}
+            render={
+              <button
+                type="button"
+                onClick={() => onChoose("address")}
+                data-testid="choose-address"
+              />
+            }
+          />
+          <OptionRow
+            title="Con un link de pago"
+            description="Para alguien sin Orchid. Puedes recuperarlo si no lo usa"
+            media={<LinkIcon />}
+            render={
+              <button
+                type="button"
+                onClick={() => onChoose("link")}
+                data-testid="choose-link"
+              />
+            }
+          />
+          <OptionRow
+            title="A un teléfono"
+            description="Los envíos por teléfono llegan pronto"
+            media={<PhoneIcon />}
+            disabled
+          />
+        </div>
+      </main>
+      <ScreenActions>
+        <Button
+          className="w-full"
+          variant="secondary"
+          nativeButton={false}
+          render={<Link to="/links" data-testid="open-links" />}
+        >
+          Ver mis links de pago
+        </Button>
+      </ScreenActions>
+    </>
   );
 }
 
@@ -207,11 +235,13 @@ export function SendFlow({
   available,
   transfer,
   onTransfer,
+  onLock,
 }: {
   asset: Asset;
   available: Amount;
   transfer: Option.Option<TransferId>;
   onTransfer: (id: Option.Option<TransferId>) => void;
+  onLock: (locked: boolean) => void;
 }) {
   const review = useWalletRun(walletEffects.review);
   const confirmation = useWalletRun(walletEffects.confirm);
@@ -222,6 +252,8 @@ export function SendFlow({
   const [destination, setDestination] = useState<Option.Option<Destination>>(
     Option.none(),
   );
+
+  const [linking, setLinking] = useState(false);
 
   const [intent, setIntent] = useState<Option.Option<TransferIntent>>(
     Option.none(),
@@ -269,10 +301,26 @@ export function SendFlow({
           onSome: reviewIntent,
         });
 
+  if (editing && linking)
+    return (
+      <LinkFlow
+        asset={asset}
+        available={available}
+        onLock={onLock}
+        onChangeDestination={() => setLinking(false)}
+      />
+    );
+
   if (editing && Option.isNone(destination))
     return (
       <DestinationChoice
         onChoose={(chosen) => {
+          if (chosen === "link") {
+            setLinking(true);
+
+            return;
+          }
+
           setForm(emptyForm);
           setProblem(Option.none());
           setEntering("recipient");

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from "./routes/__root";
 import { Route as IndexRouteImport } from "./routes/index";
 import { Route as AppRouteImport } from "./routes/_app";
 import { Route as CreateAccountRouteImport } from "./routes/create-account";
+import { Route as LinksRouteImport } from "./routes/links";
 import { Route as RestoreRouteImport } from "./routes/restore";
 import { Route as AppHomeRouteImport } from "./routes/_app/home";
 import { Route as SendIndexRouteImport } from "./routes/send/index";
@@ -29,6 +30,11 @@ const AppRoute = AppRouteImport.update({
 const CreateAccountRoute = CreateAccountRouteImport.update({
   id: "/create-account",
   path: "/create-account",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const LinksRoute = LinksRouteImport.update({
+  id: "/links",
+  path: "/links",
   getParentRoute: () => rootRouteImport,
 } as any);
 const RestoreRoute = RestoreRouteImport.update({
@@ -55,6 +61,7 @@ const SendAssetRoute = SendAssetRouteImport.update({
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/create-account": typeof CreateAccountRoute;
+  "/links": typeof LinksRoute;
   "/restore": typeof RestoreRoute;
   "/home": typeof AppHomeRoute;
   "/send/$asset": typeof SendAssetRoute;
@@ -63,6 +70,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/create-account": typeof CreateAccountRoute;
+  "/links": typeof LinksRoute;
   "/restore": typeof RestoreRoute;
   "/home": typeof AppHomeRoute;
   "/send/$asset": typeof SendAssetRoute;
@@ -73,6 +81,7 @@ export interface FileRoutesById {
   "/": typeof IndexRoute;
   "/_app": typeof AppRouteWithChildren;
   "/create-account": typeof CreateAccountRoute;
+  "/links": typeof LinksRoute;
   "/restore": typeof RestoreRoute;
   "/_app/home": typeof AppHomeRoute;
   "/send/$asset": typeof SendAssetRoute;
@@ -81,14 +90,28 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
   fullPaths:
-    "/" | "/create-account" | "/restore" | "/home" | "/send/$asset" | "/send/";
+    | "/"
+    | "/create-account"
+    | "/links"
+    | "/restore"
+    | "/home"
+    | "/send/$asset"
+    | "/send/";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/create-account" | "/restore" | "/home" | "/send/$asset" | "/send";
+  to:
+    | "/"
+    | "/create-account"
+    | "/links"
+    | "/restore"
+    | "/home"
+    | "/send/$asset"
+    | "/send";
   id:
     | "__root__"
     | "/"
     | "/_app"
     | "/create-account"
+    | "/links"
     | "/restore"
     | "/_app/home"
     | "/send/$asset"
@@ -99,6 +122,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
   AppRoute: typeof AppRouteWithChildren;
   CreateAccountRoute: typeof CreateAccountRoute;
+  LinksRoute: typeof LinksRoute;
   RestoreRoute: typeof RestoreRoute;
   SendAssetRoute: typeof SendAssetRoute;
   SendIndexRoute: typeof SendIndexRoute;
@@ -125,6 +149,13 @@ declare module "@tanstack/react-router" {
       path: "/create-account";
       fullPath: "/create-account";
       preLoaderRoute: typeof CreateAccountRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/links": {
+      id: "/links";
+      path: "/links";
+      fullPath: "/links";
+      preLoaderRoute: typeof LinksRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/restore": {
@@ -172,6 +203,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   CreateAccountRoute: CreateAccountRoute,
+  LinksRoute: LinksRoute,
   RestoreRoute: RestoreRoute,
   SendAssetRoute: SendAssetRoute,
   SendIndexRoute: SendIndexRoute,

@@ -1,13 +1,10 @@
-import { DeleteIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
-import { FieldError } from "@workspace/ui/components/field";
 import {
   type Amount,
   type Asset,
   MuxedAddress,
   type TransferIntent,
-  formatAmount,
   parseAmount,
 } from "@workspace/wallet";
 import * as Option from "effect/Option";
@@ -15,7 +12,6 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import { ScreenActions } from "@/components/screen";
-import { TokenIcon } from "@/components/token-icon";
 
 import {
   type Destination,
@@ -24,21 +20,9 @@ import {
   type SendForm,
   intentOf,
 } from "./intent";
+import { AmountPad } from "./amount-pad";
 import { MemoDrawer } from "./memo-drawer";
-import { amountLabel, assetCode, shortAddress } from "./money";
-
-const amountPattern = /^(0|[1-9][0-9]*)?(\.[0-9]{0,7})?$/;
-
-const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"];
-
-const typedAmount = (current: string, typed: string) => {
-  const next = typed.replace(",", ".");
-  const normalized = next.startsWith(".") ? `0${next}` : next;
-
-  return normalized.length <= 20 && amountPattern.test(normalized)
-    ? normalized
-    : current;
-};
+import { shortAddress } from "./money";
 
 const messageFor = (problem: Option.Option<FieldProblem>, field: SendField) =>
   problem.pipe(
@@ -80,9 +64,6 @@ export function AmountStep({
 
   const entered = Option.isSome(parseAmount(form.amount));
 
-  const type = (typed: string) =>
-    onEdit("amount", typedAmount(form.amount, typed));
-
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -112,74 +93,14 @@ export function AmountStep({
                 : shortAddress(recipient)}
             </span>
           </button>
-          <div className="flex flex-1 flex-col items-center justify-center gap-2">
-            <div className="flex w-full items-baseline justify-center gap-2">
-              <input
-                id="amount"
-                name="amount"
-                ref={amountField}
-                value={form.amount}
-                onChange={(event) => type(event.target.value)}
-                inputMode="none"
-                autoComplete="off"
-                autoFocus
-                placeholder="0"
-                size={Math.max(form.amount.length, 1)}
-                aria-invalid={Option.isSome(amountProblem) ? true : undefined}
-                aria-describedby={
-                  Option.isSome(amountProblem) ? "amount-error" : undefined
-                }
-                className="max-w-full min-w-0 field-sizing-content bg-transparent text-right font-display text-display tracking-normal caret-muted-foreground outline-none placeholder:text-muted-foreground"
-              />
-              <label
-                htmlFor="amount"
-                className="font-display text-h1 text-muted-foreground"
-              >
-                <span className="sr-only">Monto en </span>
-                {assetCode(asset)}
-              </label>
-            </div>
-            {Option.isSome(amountProblem) ? (
-              <FieldError id="amount-error">{amountProblem.value}</FieldError>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
-            <TokenIcon asset={asset} />
-            <div className="flex flex-1 flex-col">
-              <span className="text-label-lg">{assetCode(asset)}</span>
-              <span className="text-body text-muted-foreground">
-                {amountLabel(available, asset)} disponibles
-              </span>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={() => onEdit("amount", formatAmount(available))}
-            >
-              Usar todo
-            </Button>
-          </div>
-          <div className="grid grid-cols-3 gap-1">
-            {keys.map((key) => (
-              <Button
-                key={key}
-                type="button"
-                variant="ghost"
-                onClick={() => type(`${form.amount}${key}`)}
-              >
-                {key}
-              </Button>
-            ))}
-            <Button
-              type="button"
-              variant="ghost"
-              aria-label="Borrar"
-              onClick={() => type(form.amount.slice(0, -1))}
-            >
-              <DeleteIcon />
-            </Button>
-          </div>
+          <AmountPad
+            amount={form.amount}
+            problem={amountProblem}
+            asset={asset}
+            available={available}
+            field={amountField}
+            onAmount={(amount) => onEdit("amount", amount)}
+          />
         </main>
         <ScreenActions>
           <div className="flex w-full gap-2">

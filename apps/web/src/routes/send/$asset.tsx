@@ -1,4 +1,5 @@
 import { ChevronLeftIcon } from "lucide-react";
+import { useState } from "react";
 import {
   Link,
   createFileRoute,
@@ -45,6 +46,7 @@ function SendAsset() {
   const { overview, balance } = Route.useLoaderData();
   const { transfer } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
+  const [locked, setLocked] = useState(false);
 
   return (
     <Screen>
@@ -53,6 +55,7 @@ function SendAsset() {
         label="Atrás"
         icon={<ChevronLeftIcon absoluteStrokeWidth />}
         link={<Link to="/send" />}
+        disabled={locked}
       />
       {Match.valueTags(overview, {
         Holding: () =>
@@ -61,6 +64,7 @@ function SendAsset() {
               asset={balance.asset}
               available={balance.amount}
               transfer={Option.fromNullishOr(transfer)}
+              onLock={setLocked}
               onTransfer={(id) => {
                 if (Option.getOrUndefined(id) !== transfer)
                   void navigate({
