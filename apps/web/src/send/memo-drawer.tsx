@@ -50,7 +50,7 @@ export function MemoDrawer({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            save(draft);
+            save(draft.trim());
           }}
         >
           <DrawerHeader>
