@@ -34,6 +34,8 @@ Recovery signing and submission require matching reserve-sponsor identities on b
 
 The server issues single-use enrollment and restore challenges that expire after five minutes; a challenge is consumed before its signature is checked. It verifies registrations and assertions with `@passwordless-id/webauthn`, which documents Cloudflare Workers support, against the origins in `WalletSettings.passkeyOrigins`; the relying party ID is the origin's hostname. Backups are insert-only rows keyed by credential ID, so an enrollment cannot change what another passkey restores. Restore returns the username bound to the address, or the name requested at enrollment if the opening never finished.
 
+Local passkey assertion verification is described in [`passkey-assertions.md`](./passkey-assertions.md).
+
 ### Scheduled sweep
 
 Each scheduled run selects up to four transfers and four currently eligible recovery wallets. Queue selection is a conditional write that rotates least-recently checked records. Two independent negative reads protect against demotion from one transient missing response.
