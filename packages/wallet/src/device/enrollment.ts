@@ -30,6 +30,7 @@ import {
 } from "./assertion";
 import {
   type CorruptDeviceWallet,
+  type KeyStoreUnavailable,
   PublicDeviceWallet,
   SealedDeviceWallet,
   type SealedKeyStore,
@@ -111,7 +112,9 @@ export type PendingEnrollmentRecord = typeof PendingEnrollmentRecord.Type;
 
 export interface PendingEnrollmentStorage {
   read(): Effect.Effect<Option.Option<PendingEnrollmentRecord>>;
-  write(record: PendingEnrollmentRecord): Effect.Effect<void>;
+  write(
+    record: PendingEnrollmentRecord,
+  ): Effect.Effect<void, KeyStoreUnavailable>;
   clear(): Effect.Effect<void>;
 }
 
@@ -289,12 +292,16 @@ export function makeEnrollmentEffects(
     enrollment: BackupEnrollment,
     candidate: PendingReopenCandidate,
   ): Effect.fn.Return<EnrollWalletOutcome> {
-    state = PendingState.AwaitingBackupStore({ enrollment, candidate });
+    if (deps.pending !== undefined) {
+      const persisted = yield* deps.pending
+        .write(new PendingBackupSubmission({ enrollment, candidate }))
+        .pipe(Effect.result);
 
-    if (deps.pending !== undefined)
-      yield* deps.pending.write(
-        new PendingBackupSubmission({ enrollment, candidate }),
-      );
+      if (Result.isFailure(persisted))
+        return yield* clearPending.pipe(Effect.as(new UnsupportedDevice()));
+    }
+
+    state = PendingState.AwaitingBackupStore({ enrollment, candidate });
 
     const enrolled = yield* deps.port.enroll(enrollment).pipe(Effect.result);
 
@@ -310,7 +317,9 @@ export function makeEnrollmentEffects(
           state = PendingState.AwaitingReopenProof({ candidate });
 
           if (deps.pending !== undefined)
-            yield* deps.pending.write(new PendingReopenProof({ candidate }));
+            yield* deps.pending
+              .write(new PendingReopenProof({ candidate }))
+              .pipe(Effect.ignore);
 
           return new EnrollmentPending({
             stage: "reopen",

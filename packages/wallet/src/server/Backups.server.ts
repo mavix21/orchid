@@ -2,6 +2,7 @@ import { Database } from "@workspace/db";
 import { and, eq, lte } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -52,6 +53,15 @@ const storedBackup = (
 
 export type NewBackup = Omit<typeof backups.$inferInsert, "enrolledAt">;
 
+export type CommitEnrollmentResult = Data.TaggedEnum<{
+  Committed: {};
+  Existing: { readonly backup: StoredBackup };
+  Conflict: {};
+  ChallengeRejected: {};
+}>;
+
+export const CommitEnrollmentResult = Data.taggedEnum<CommitEnrollmentResult>();
+
 export class Backups extends Context.Service<
   Backups,
   {
@@ -65,6 +75,11 @@ export class Backups extends Context.Service<
     ): Effect.Effect<boolean, StoreFailure>;
 
     enroll(backup: NewBackup): Effect.Effect<boolean, StoreFailure>;
+
+    commitEnrollment(
+      challenge: PasskeyChallenge,
+      backup: NewBackup,
+    ): Effect.Effect<CommitEnrollmentResult, StoreFailure>;
 
     byCredential(
       credentialId: CredentialId,
@@ -140,6 +155,53 @@ export class Backups extends Context.Service<
         return inserted.length > 0;
       });
 
+      const commitEnrollment = Effect.fn("Backups.commitEnrollment")(function* (
+        challenge: PasskeyChallenge,
+        backup: NewBackup,
+      ) {
+        return yield* db.transaction((tx) =>
+          Effect.gen(function* () {
+            const removed = yield* tx
+              .delete(passkeyChallenges)
+              .where(
+                and(
+                  eq(passkeyChallenges.challenge, challenge),
+                  eq(passkeyChallenges.purpose, "enrollment"),
+                ),
+              )
+              .returning();
+
+            const now = yield* Clock.currentTimeMillis;
+
+            if (removed.some((row) => row.expiresAt.getTime() > now)) {
+              const inserted = yield* tx
+                .insert(backups)
+                .values(backup)
+                .onConflictDoNothing()
+                .returning();
+
+              return inserted.length > 0
+                ? CommitEnrollmentResult.Committed()
+                : CommitEnrollmentResult.Conflict();
+            }
+
+            const found = yield* tx
+              .select({ backup: backups, boundUsername: usernames.username })
+              .from(backups)
+              .leftJoin(usernames, eq(usernames.address, backups.address))
+              .where(eq(backups.credentialId, backup.credentialId));
+
+            return Option.match(Option.fromNullishOr(found[0]), {
+              onNone: () => CommitEnrollmentResult.ChallengeRejected(),
+              onSome: (row) =>
+                CommitEnrollmentResult.Existing({
+                  backup: storedBackup(row.backup, row.boundUsername),
+                }),
+            });
+          }),
+        );
+      });
+
       const byCredential = Effect.fn("Backups.byCredential")(function* (
         credentialId: CredentialId,
       ) {
@@ -168,6 +230,8 @@ export class Backups extends Context.Service<
         issue: (purpose) => wrap(issue(purpose)),
         consume: (challenge, purpose) => wrap(consume(challenge, purpose)),
         enroll: (backup) => wrap(enroll(backup)),
+        commitEnrollment: (challenge, backup) =>
+          wrap(commitEnrollment(challenge, backup)),
         byCredential: (credentialId) => wrap(byCredential(credentialId)),
         advance: (credentialId, counter) =>
           wrap(advance(credentialId, counter)),
