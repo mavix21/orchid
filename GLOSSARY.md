@@ -56,4 +56,7 @@ _Avoid_: Submission acknowledgement.
 **Reserve recovery**: Returning eligible sponsored reserves to the sponsor using the user's pre-signed recovery transaction.
 _Avoid_: Key recovery, passkey recovery.
 
+**Embedded browser**: The in-app browser of an app such as Instagram, Facebook, TikTok or WhatsApp. It cannot evaluate a passkey's PRF, so Orchid hands the user off to their own browser before any passkey ceremony.
+_Avoid_: Webview when talking to users.
+
 **Sweep**: Scheduled reconciliation of pending operations and eligible reserve recovery.

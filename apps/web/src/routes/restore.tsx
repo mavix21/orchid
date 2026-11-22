@@ -5,13 +5,18 @@ import { Button } from "@workspace/ui/components/button";
 import type { RestoreOutcome } from "@workspace/wallet";
 import * as Match from "effect/Match";
 
+import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
 import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { useHomeForSavedWallet } from "@/wallet/use-home-for-saved-wallet";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/restore")({
-  component: RestoreAccount,
+  component: () => (
+    <PasskeyBrowserGate>
+      <RestoreAccount />
+    </PasskeyBrowserGate>
+  ),
 });
 
 const refusal = (

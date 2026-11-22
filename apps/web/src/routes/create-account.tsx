@@ -19,6 +19,7 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
+import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
 import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { UserAvatar } from "@/components/user-avatar";
@@ -26,7 +27,11 @@ import { me } from "@/fixtures/account";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/create-account")({
-  component: ChooseUsername,
+  component: () => (
+    <PasskeyBrowserGate>
+      <ChooseUsername />
+    </PasskeyBrowserGate>
+  ),
 });
 
 const refusal = (outcome: Exclude<CreateOutcome, { _tag: "Opened" }>) =>
