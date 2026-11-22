@@ -49,6 +49,18 @@ const approval = (first: string, second?: string) =>
     },
   });
 
+const withoutSecondOutput = (
+  ceremony: AssertionCeremony,
+): AssertionCeremony => ({
+  assert: (request) =>
+    ceremony.assert(request).pipe(
+      Effect.map((platform) => ({
+        ...platform,
+        prf: { ...platform.prf, second: Option.none() },
+      })),
+    ),
+});
+
 const rejectedCeremonies = [
   [
     "a replayed assertion",
@@ -89,7 +101,7 @@ const rejectedCeremonies = [
     "another origin",
     (auth: SoftwareAuthenticator) =>
       Effect.sync(() => {
-        auth.origin = "https://evil.example";
+        auth.origin = "http://localhost:4000";
 
         return auth.assertions;
       }),
@@ -202,8 +214,18 @@ it.effect(
         approval("wallet"),
       );
 
+      const partial = yield* enrolled;
+
+      const missingSecondOutput = yield* verifyPinnedAssertion(
+        withoutSecondOutput(partial.auth.assertions),
+        relyingParty,
+        partial.credential,
+        approval("wallet", "link"),
+      );
+
       expect(cancelled._tag).toBe("PasskeyCancelled");
       expect(wrongCredential._tag).toBe("WrongCredential");
       expect(missingOutput._tag).toBe("PrfOutputMissing");
+      expect(missingSecondOutput._tag).toBe("PrfOutputMissing");
     }),
 );
