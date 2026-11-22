@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import * as Match from "effect/Match";
 
-import { ScreenActions } from "@/components/screen";
+import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
 
 import { type SendScreen, outstandingLabel } from "./outcomes";
 
@@ -33,20 +33,18 @@ export function SendResultScreen({
 
   return (
     <>
-      <main
-        role="status"
+      <ScreenStatus
+        title={screen.title}
         data-testid="send-outcome"
         data-outcome={outcome}
-        className="flex flex-1 flex-col justify-end gap-2 px-5"
       >
-        <h1 className="font-display text-h1">{screen.title}</h1>
-        <p className="text-body text-muted-foreground">{screen.message}</p>
+        <ScreenNote>{screen.message}</ScreenNote>
         {screen.outstanding === undefined ? null : (
           <p className="text-label-lg">
             {outstandingLabel(screen.outstanding)}
           </p>
         )}
-      </main>
+      </ScreenStatus>
       <ScreenActions>
         {Match.value(screen.action).pipe(
           Match.when("done", () => home("Listo")),

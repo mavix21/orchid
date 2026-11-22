@@ -3,7 +3,7 @@ import { formatAmount } from "@workspace/wallet";
 
 import { assetCode, shortAddress } from "./money";
 
-function ReviewRow({
+export function ReviewRow({
   label,
   children,
 }: {

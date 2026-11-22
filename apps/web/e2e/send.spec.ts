@@ -9,36 +9,8 @@ import {
 } from "@workspace/wallet";
 import * as Schema from "effect/Schema";
 
-import {
-  addAuthenticator,
-  freshUsername,
-  submitButton,
-  usernameInput,
-} from "./device";
+import { freshUsername, openWallet, serverFunction } from "./device";
 import { fundWithUsdc, usdc } from "@workspace/wallet/testnet";
-
-const serverFunction = "/_serverFn/";
-
-const openWallet = async (page: Page, username: string) => {
-  const claimed: Array<string> = [];
-
-  page.on("request", (request) => {
-    if (request.url().includes(serverFunction))
-      claimed.push(...(request.postData()?.match(/G[A-Z2-7]{55}/g) ?? []));
-  });
-
-  await addAuthenticator(page, false);
-  await page.goto("/create-account");
-  await usernameInput(page).fill(username);
-  await submitButton(page).click();
-  await expect(page).toHaveURL("/home", { timeout: 90_000 });
-
-  const [address] = claimed;
-
-  if (address === undefined) throw new Error("No wallet address was claimed");
-
-  return address;
-};
 
 const choose = (page: Page, destination: "address" | "username") =>
   page.getByTestId(`choose-${destination}`).click();
