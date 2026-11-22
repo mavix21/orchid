@@ -7,15 +7,21 @@ const instagramOnAndroid =
 
 test.use({ userAgent: instagramOnAndroid });
 
-test("an embedded browser is handed off before the account form mounts", async ({
+test("an embedded browser is handed off before the account form mounts and the copied link keeps the fragment", async ({
   page,
+  context,
 }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/create-account#kept");
 
   await expect(page.getByTestId("embedded-browser")).toBeVisible();
+  await expect(page.getByTestId("open-in-browser")).toBeVisible();
   await expect(submitButton(page)).toBeHidden();
-  await expect(page.getByTestId("open-in-browser")).toHaveAttribute(
-    "href",
-    /^intent:\/\/.+\/create-account#kept#Intent;scheme=https?;end$/,
-  );
+
+  await page.getByTestId("copy-link").click();
+
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+
+  expect(copied).toBe(page.url());
+  expect(new URL(copied).hash).toBe("#kept");
 });

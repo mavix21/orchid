@@ -13,6 +13,8 @@ const subscribeToNothing = () => () => {};
 
 const readUserAgent = () => navigator.userAgent;
 
+const readMaxTouchPoints = () => navigator.maxTouchPoints;
+
 const unclassifiedOnServer = () => undefined;
 
 export function PasskeyBrowserGate({
@@ -26,9 +28,15 @@ export function PasskeyBrowserGate({
     unclassifiedOnServer,
   );
 
-  if (userAgent === undefined) return null;
+  const maxTouchPoints = useSyncExternalStore(
+    subscribeToNothing,
+    readMaxTouchPoints,
+    unclassifiedOnServer,
+  );
 
-  return Match.valueTags(classifyBrowser(userAgent), {
+  if (userAgent === undefined || maxTouchPoints === undefined) return null;
+
+  return Match.valueTags(classifyBrowser(userAgent, maxTouchPoints), {
     Supported: () => children,
     OutdatedIos: () => <OutdatedIosScreen />,
     EmbeddedBrowser: ({ app, platform }) => (
