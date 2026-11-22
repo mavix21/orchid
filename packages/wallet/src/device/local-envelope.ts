@@ -278,58 +278,56 @@ export const sealLocalEnvelope = Effect.fn("Device.sealLocalEnvelope")(
   },
 );
 
-export const openLocalEnvelope = Effect.fn("Device.openLocalEnvelope")(
-  function* (
-    envelope: LocalPhraseEnvelope,
-    expected: LocalEnvelopeContext,
-    prf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
-  ): Effect.fn.Return<PhraseOpened | CorruptEnvelope> {
-    if (
-      !matchesEnvelopeContext(envelope, expected) ||
-      Redacted.value(prf).byteLength === 0
-    )
-      return new CorruptEnvelope();
+const openLocalEnvelope = Effect.fn("Device.openLocalEnvelope")(function* (
+  envelope: LocalPhraseEnvelope,
+  expected: LocalEnvelopeContext,
+  prf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
+): Effect.fn.Return<PhraseOpened | CorruptEnvelope> {
+  if (
+    !matchesEnvelopeContext(envelope, expected) ||
+    Redacted.value(prf).byteLength === 0
+  )
+    return new CorruptEnvelope();
 
-    const context = { ...expected, salt: envelope.salt };
-    const key = yield* deriveEnvelopeKey(prf, context, "decrypt");
+  const context = { ...expected, salt: envelope.salt };
+  const key = yield* deriveEnvelopeKey(prf, context, "decrypt");
 
-    if (Option.isNone(key)) return new CorruptEnvelope();
+  if (Option.isNone(key)) return new CorruptEnvelope();
 
-    const additionalData = envelopeAad(context);
+  const additionalData = envelopeAad(context);
 
-    const decodedText = yield* Effect.tryPromise(async () => {
-      const decrypted = await crypto.subtle.decrypt(
-        {
-          name: "AES-GCM",
-          iv: Uint8Array.from(envelope.iv),
-          additionalData,
-        },
-        key.value,
-        Uint8Array.from(envelope.ciphertext),
-      );
+  const decodedText = yield* Effect.tryPromise(async () => {
+    const decrypted = await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: Uint8Array.from(envelope.iv),
+        additionalData,
+      },
+      key.value,
+      Uint8Array.from(envelope.ciphertext),
+    );
 
-      const plaintext = new Uint8Array(decrypted);
+    const plaintext = new Uint8Array(decrypted);
 
-      try {
-        return decoder.decode(plaintext);
-      } finally {
-        plaintext.fill(0);
-      }
-    }).pipe(Effect.option);
+    try {
+      return decoder.decode(plaintext);
+    } finally {
+      plaintext.fill(0);
+    }
+  }).pipe(Effect.option);
 
-    if (Option.isNone(decodedText)) return new CorruptEnvelope();
+  if (Option.isNone(decodedText)) return new CorruptEnvelope();
 
-    const phrase = Schema.decodeUnknownOption(SecretPhrase)(decodedText.value);
+  const phrase = Schema.decodeUnknownOption(SecretPhrase)(decodedText.value);
 
-    if (
-      Option.isNone(phrase) ||
-      signingKey(phrase.value).publicKey() !== expected.address
-    )
-      return new CorruptEnvelope();
+  if (
+    Option.isNone(phrase) ||
+    signingKey(phrase.value).publicKey() !== expected.address
+  )
+    return new CorruptEnvelope();
 
-    return new PhraseOpened({ phrase: Redacted.make(phrase.value) });
-  },
-);
+  return new PhraseOpened({ phrase: Redacted.make(phrase.value) });
+});
 
 export const reopenLocalEnvelope = Effect.fn("Device.reopenLocalEnvelope")(
   function* (

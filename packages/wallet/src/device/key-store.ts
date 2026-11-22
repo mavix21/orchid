@@ -66,6 +66,11 @@ export class KeyStoreUnavailable extends Schema.TaggedError<KeyStoreUnavailable>
   { cause: Schema.Defect() },
 ) {}
 
+export class CorruptDeviceWallet extends Schema.TaggedError<CorruptDeviceWallet>()(
+  "CorruptDeviceWallet",
+  {},
+) {}
+
 export interface LinkClearTarget {
   readonly address: AccountAddress;
   readonly transferId: TransferId | undefined;
@@ -81,14 +86,17 @@ export interface PublicWalletUpdate {
 export interface SealedKeyStore {
   readPublic(): Effect.Effect<
     Option.Option<PublicDeviceWallet>,
-    KeyStoreUnavailable
+    KeyStoreUnavailable | CorruptDeviceWallet
   >;
   updatePublic(
     update: (current: PublicDeviceWallet) => Option.Option<PublicDeviceWallet>,
-  ): Effect.Effect<Option.Option<PublicWalletUpdate>, KeyStoreUnavailable>;
+  ): Effect.Effect<
+    Option.Option<PublicWalletUpdate>,
+    KeyStoreUnavailable | CorruptDeviceWallet
+  >;
   readSealed(): Effect.Effect<
     Option.Option<SealedDeviceWallet>,
-    KeyStoreUnavailable
+    KeyStoreUnavailable | CorruptDeviceWallet
   >;
   writeSealed(
     wallet: SealedDeviceWallet,
@@ -123,8 +131,16 @@ export const sameLinkState = (
   wallet.approvedUntil === expected.approvedUntil &&
   receiptJson(wallet.linkReceipt ?? null) === receiptJson(expected.receipt);
 
-export const clearStoredLink = Effect.fn("Device.clearStoredLink")(function* (
-  store: Pick<KeyStore, "updatePublic">,
+export const clearStoredLink = Effect.fn("Device.clearStoredLink")(function* <
+  E,
+>(
+  store: {
+    updatePublic(
+      update: (
+        current: PublicDeviceWallet,
+      ) => Option.Option<PublicDeviceWallet>,
+    ): Effect.Effect<Option.Option<PublicWalletUpdate>, E>;
+  },
   expected: LinkClearTarget,
 ) {
   yield* store.updatePublic((current) =>

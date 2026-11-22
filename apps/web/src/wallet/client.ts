@@ -1,4 +1,5 @@
 import {
+  type CorruptDeviceWallet,
   type KeyStore,
   KeyStoreUnavailable,
   browserKeyStore,
@@ -9,6 +10,15 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { port } from "./port.functions";
 import { markWalletOnDevice } from "./wallet-cookie";
+
+const failClosed = <A>(
+  effect: Effect.Effect<A, KeyStoreUnavailable | CorruptDeviceWallet>,
+) =>
+  effect.pipe(
+    Effect.catchTag("CorruptDeviceWallet", (cause) =>
+      Effect.fail(new KeyStoreUnavailable({ cause })),
+    ),
+  );
 
 const deviceKeyStore: KeyStore = {
   read: () =>
@@ -24,15 +34,13 @@ const deviceKeyStore: KeyStore = {
       }),
     ),
   readPublic: () =>
-    browserKeyStore
-      .readPublic()
-      .pipe(
-        Effect.tap((stored) =>
-          Effect.sync(() => markWalletOnDevice(Option.isSome(stored))),
-        ),
+    failClosed(browserKeyStore.readPublic()).pipe(
+      Effect.tap((stored) =>
+        Effect.sync(() => markWalletOnDevice(Option.isSome(stored))),
       ),
+    ),
   updatePublic: (update) =>
-    browserKeyStore.updatePublic(update).pipe(
+    failClosed(browserKeyStore.updatePublic(update)).pipe(
       Effect.tap((result) =>
         Effect.sync(() => {
           if (Option.isSome(result)) markWalletOnDevice(true);
