@@ -211,7 +211,9 @@ function PaymentLinks() {
           onRecover={recover}
           done={
             <ResultButton
-              onClick={() => void router.invalidate().finally(reset)}
+              onClick={() =>
+                void router.invalidate({ forcePending: true }).finally(reset)
+              }
             >
               Listo
             </ResultButton>

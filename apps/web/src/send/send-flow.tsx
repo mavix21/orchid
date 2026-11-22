@@ -320,7 +320,13 @@ function TransferStatus({
     Corrected: ({ outcome, problem }) => (
       <SendResultScreen
         outcome={outcome}
-        screen={new SendScreen("No se envió", problem.message, "retry")}
+        screen={
+          new SendScreen(
+            "Revisa los datos de tu pago",
+            problem.message,
+            "retry",
+          )
+        }
         onAgain={onStartOver}
       />
     ),
