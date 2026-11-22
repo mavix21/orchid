@@ -1,6 +1,6 @@
 import {
+  PendingEnrollmentRecord,
   type PendingEnrollmentStorage,
-  PendingReopenCandidate,
   type SealedKeyStore,
   browserAssertions,
   browserKeyStore,
@@ -16,9 +16,9 @@ import { markWalletOnDevice } from "./wallet-cookie";
 
 const pendingStorageKey = "orchid-pending-enrollment";
 
-const pendingCandidateJson = Schema.fromJsonString(PendingReopenCandidate);
-const decodePending = Schema.decodeUnknownOption(pendingCandidateJson);
-const encodePending = Schema.encodeSync(pendingCandidateJson);
+const pendingRecordJson = Schema.fromJsonString(PendingEnrollmentRecord);
+const decodePending = Schema.decodeUnknownOption(pendingRecordJson);
+const encodePending = Schema.encodeSync(pendingRecordJson);
 
 const sessionPendingEnrollment: PendingEnrollmentStorage = {
   read: () =>
@@ -38,10 +38,10 @@ const sessionPendingEnrollment: PendingEnrollmentStorage = {
         return Option.none();
       }
     }),
-  write: (candidate) =>
+  write: (record) =>
     Effect.sync(() => {
       try {
-        sessionStorage.setItem(pendingStorageKey, encodePending(candidate));
+        sessionStorage.setItem(pendingStorageKey, encodePending(record));
       } catch {}
     }),
   clear: () =>
@@ -73,6 +73,10 @@ const webSealedKeyStore: SealedKeyStore = {
   writeSealed: (wallet) =>
     browserKeyStore
       .writeSealed(wallet)
+      .pipe(Effect.tap(() => Effect.sync(() => markWalletOnDevice(true)))),
+  installSealed: (wallet) =>
+    browserKeyStore
+      .installSealed(wallet)
       .pipe(Effect.tap(() => Effect.sync(() => markWalletOnDevice(true)))),
 };
 

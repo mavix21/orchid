@@ -28,7 +28,10 @@ import {
   KeyStoreUnavailable,
   publicWalletOf,
 } from "../src/device/key-store";
-import { SecretPhrase } from "../src/device/secret-phrase";
+import {
+  SecretPhrase,
+  generateSecretPhrase,
+} from "../src/device/secret-phrase";
 import { signingKey } from "../src/device/signing";
 import {
   draftClaimable,
@@ -114,6 +117,17 @@ export const unusedPort = (overrides: Partial<WalletPort> = {}): WalletPort => {
     restore: unused,
     ...overrides,
   };
+};
+
+export const enrolledDeviceWallet = (name = "maria") => {
+  const phrase = generateSecretPhrase();
+
+  return new DeviceWallet({
+    phrase,
+    address: addressOf(signingKey(phrase)),
+    username: Schema.decodeSync(Username)(name),
+    backup: "stored",
+  });
 };
 
 export const seededDeviceWallet = (

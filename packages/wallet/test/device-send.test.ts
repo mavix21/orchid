@@ -17,7 +17,11 @@ import {
 import { TransferIntent, makeWalletEffects } from "../src/device/client";
 import { DeviceWallet, type KeyStore } from "../src/device/key-store";
 import { Wallet } from "../src/server/Wallet.server";
-import { memoryKeyStore, savedWallet } from "./device-fixtures";
+import {
+  enrolledDeviceWallet,
+  memoryKeyStore,
+  savedWallet,
+} from "./device-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import {
   accountState,
@@ -49,6 +53,7 @@ const toPedro = new TransferIntent({
 const openSender = Effect.fn(function* (store: KeyStore) {
   const wallet = yield* Wallet;
 
+  yield* store.write(enrolledDeviceWallet("maria"));
   yield* makeWalletEffects(wallet, store, passkeys).create("maria");
   const sender = yield* savedWallet(store);
 

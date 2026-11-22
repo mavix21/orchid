@@ -140,6 +140,7 @@ export type CreateOutcome =
   | UsernameTaken
   | AddressBound
   | InvalidUsername
+  | NoWallet
   | UnsupportedDevice
   | DraftRejected
   | EnrollmentRefusal

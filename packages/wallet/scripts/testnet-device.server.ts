@@ -11,7 +11,9 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
+  AccountAddress,
   type CreateOutcome,
+  DeviceWallet,
   Holding,
   Opened,
   PositiveAmount,
@@ -25,6 +27,7 @@ import {
   baseAsset,
   makeWalletClient,
 } from "@workspace/wallet";
+import { generateSecretPhrase } from "../src/device/secret-phrase";
 import { signingKey } from "../src/device/signing";
 import { SoftwareAuthenticator } from "../test/software-authenticator";
 import { Chain } from "../src/server/Chain.server";
@@ -59,9 +62,25 @@ const run = <A, E>(program: Effect.Effect<A, E, Wallet | Chain | Directory>) =>
 const device = memoryKeyStore();
 
 const openWallet = async (
+  store: ReturnType<typeof memoryKeyStore>,
   client: ReturnType<typeof makeWalletClient>,
   username: string,
 ) => {
+  const phrase = generateSecretPhrase();
+
+  await Effect.runPromise(
+    store.store.write(
+      new DeviceWallet({
+        phrase,
+        address: Schema.decodeSync(AccountAddress)(
+          signingKey(phrase).publicKey(),
+        ),
+        username: Schema.decodeSync(Username)(username),
+        backup: "stored",
+      }),
+    ),
+  );
+
   let opened: CreateOutcome = await client.create(username);
 
   for (
@@ -92,7 +111,7 @@ const freshUsername = () =>
   `device_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 
 const username = freshUsername();
-const outcome = await openWallet(client, username);
+const outcome = await openWallet(device, client, username);
 const wallet = Option.getOrThrow(device.saved());
 const key = signingKey(wallet.phrase);
 
@@ -203,11 +222,13 @@ assert.equal(
 console.log("PASS overview reads the opened wallet with a zero USDC balance.");
 
 const recipientName = freshUsername();
+const recipientDevice = memoryKeyStore();
 
 await openWallet(
+  recipientDevice,
   makeWalletClient(
     await run(Wallet),
-    memoryKeyStore().store,
+    recipientDevice.store,
     new SoftwareAuthenticator(passkeyOrigin).passkeys,
   ),
   recipientName,
