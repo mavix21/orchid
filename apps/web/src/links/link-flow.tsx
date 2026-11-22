@@ -17,7 +17,7 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
-import { ScreenActions } from "@/components/screen";
+import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
 import { AmountPad } from "@/send/amount-pad";
 import { amountLabel, assetCode } from "@/send/money";
 import { ReviewRow } from "@/send/payment-review";
@@ -143,9 +143,9 @@ function LinkReview({
           className="flex flex-col divide-y divide-border rounded-lg border border-border px-4"
         >
           <ReviewRow label="Monto">{formatAmount(intent.amount)}</ReviewRow>
-          <ReviewRow label="Activo">{assetCode(intent.asset)}</ReviewRow>
+          <ReviewRow label="Moneda">{assetCode(intent.asset)}</ReviewRow>
           <ReviewRow label="Quién lo recibe">Quien abra el link</ReviewRow>
-          <ReviewRow label="Comisión">Orchid paga la comisión</ReviewRow>
+          <ReviewRow label="Comisión">Gratis</ReviewRow>
         </dl>
         <p className="text-body text-muted-foreground">
           Cualquiera que tenga el link puede recibir el dinero. Compártelo solo
@@ -197,31 +197,27 @@ function LinkCreated({
 
   return (
     <>
-      <main
+      <ScreenStatus
+        title="Tu link está listo"
         data-testid="link-created"
-        className="flex flex-1 flex-col justify-end gap-4 px-5"
+        media={
+          <span className="flex size-14 items-center justify-center rounded-full bg-accent text-icon-accent [&_svg]:size-7">
+            <LinkIcon absoluteStrokeWidth />
+          </span>
+        }
       >
-        <span className="flex size-14 items-center justify-center rounded-full bg-accent text-icon-accent [&_svg]:size-7">
-          <LinkIcon absoluteStrokeWidth />
-        </span>
-        <div className="flex flex-col gap-2">
-          <h1 className="font-display text-h1">Tu link está listo</h1>
-          <p className="font-display text-h1 text-muted-foreground">
-            {amountLabel(created.amount, created.asset)}
-          </p>
-        </div>
-        <p className="text-body text-muted-foreground">
+        <p className="font-display text-h1 text-muted-foreground">
+          {amountLabel(created.amount, created.asset)}
+        </p>
+        <ScreenNote>
           Compártelo con quien quieres pagarle. Quien abra el link podrá recibir
           el dinero.
-        </p>
-        <p
-          role="status"
-          className="flex min-h-6 items-center gap-2 text-label text-accent-foreground"
-        >
+        </ScreenNote>
+        <p className="flex min-h-6 items-center gap-2 text-label text-accent-foreground">
           {delivered(delivery) ? <CheckIcon className="size-5" /> : null}
           {Option.getOrUndefined(note)}
         </p>
-      </main>
+      </ScreenStatus>
       <ScreenActions>
         <Button
           className="w-full"
@@ -268,14 +264,12 @@ function LostLink({
 
   return (
     <>
-      <main
-        role="status"
+      <ScreenStatus
+        title="Ya no puedes compartir este link"
         data-testid="link-lost"
-        className="flex flex-1 flex-col justify-end gap-2 px-5"
       >
-        <h1 className="font-display text-h1">Tu link no se compartió</h1>
-        <p className="text-body text-muted-foreground">{lostLinkMessage}</p>
-      </main>
+        <ScreenNote>{lostLinkMessage}</ScreenNote>
+      </ScreenStatus>
       <ScreenActions>
         <Button
           className="w-full"
@@ -290,7 +284,7 @@ function LostLink({
           nativeButton={false}
           render={<Link to="/links" />}
         >
-          Ver mis links
+          Recuperarlo después
         </Button>
       </ScreenActions>
       <RecoverDrawer
@@ -451,6 +445,7 @@ export function LinkFlow({
           <LinkResultScreen
             outcome={outcome._tag}
             screen={createLinkResult(outcome, asset)}
+            onElsewhere={onChangeDestination}
             onAgain={() => creation.reset()}
             onEdit={startOver}
             onCheck={() => check.start()}

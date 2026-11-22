@@ -24,7 +24,8 @@ export type LinkAction =
   | "edit"
   | "check"
   | "links"
-  | "assets";
+  | "assets"
+  | "elsewhere";
 
 export class LinkScreen {
   constructor(
@@ -39,13 +40,13 @@ export interface RecoverableLink extends PaymentLinkTarget {
 }
 
 export const lostLinkMessage =
-  "El link se creó. Puedes recuperar el dinero y crear otro.";
+  "Por seguridad, un link solo se puede compartir justo después de crearlo. Tu dinero sigue a salvo: recupéralo y crea uno nuevo.";
 
 const untouched = "Tu dinero no se movió.";
 
 const checkFirst = "Revisa si tu link se creó antes de crear otro.";
 
-const nothingChanged = "No se hizo ningún cambio.";
+const stillInLink = "El dinero sigue en el link.";
 
 const unavailableTitle = (failure: WalletUnavailable) =>
   Match.valueTags(failure, {
@@ -75,7 +76,9 @@ export const recoveryDeviceFailure = new LinkScreen(
   "check",
 );
 
-const unsupportedReason = (
+const notByLink = "Esta moneda no se puede enviar con un link de pago.";
+
+const unsupportedScreen = (
   reason:
     | "issuer_missing"
     | "self_issued"
@@ -84,25 +87,23 @@ const unsupportedReason = (
     | "clawback_enabled",
   code: string,
 ) =>
-  Match.value(reason).pipe(
-    Match.when(
-      "authorization_required",
-      () =>
-        `El emisor de ${code} tiene que aprobar a cada persona que lo recibe, y quien abra el link no estaría aprobado.`,
-    ),
-    Match.when(
-      "clawback_enabled",
-      () =>
-        `El emisor de ${code} puede retirar ese dinero de un link antes de que lo reciban.`,
-    ),
-    Match.when(
-      "issuer_missing",
-      () => `El emisor de ${code} ya no existe en la red.`,
-    ),
-    Match.when("self_issued", () => `${code} no se puede enviar por link.`),
-    Match.when("base_asset", () => `${code} no se puede enviar por link.`),
-    Match.exhaustive,
-  );
+  reason === "clawback_enabled"
+    ? new LinkScreen(
+        `No puedes enviar ${code} con un link`,
+        `${notByLink} Puedes enviarla a un @usuario o a una dirección, o elegir otra moneda. ${untouched}`,
+        "elsewhere",
+      )
+    : new LinkScreen(
+        `No puedes enviar ${code} con un link`,
+        `${notByLink} Elige otra moneda. ${untouched}`,
+        "assets",
+      );
+
+const stillCreating = new LinkScreen(
+  "Tu link aún se está creando",
+  "Este link ya no se podrá compartir. Cuando termine de crearse, recupera el dinero y crea uno nuevo.",
+  "check",
+);
 
 const busyCreating = new LinkScreen(
   "Espera un momento",
@@ -127,16 +128,11 @@ export const createLinkResult = (
   asset: Asset,
 ): LinkScreen =>
   Match.valueTags(outcome, {
-    Pending: () =>
-      new LinkScreen(
-        "Tu link sigue en proceso",
-        "Cuando termine, podrás recuperar el dinero y crear otro link.",
-        "check",
-      ),
+    Pending: () => stillCreating,
     ApprovalOutstanding: ({ order }) =>
       Predicate.isTagged(order.to, "PaymentLink")
         ? new LinkScreen(
-            "Tu último link sigue en proceso",
+            "Tu último link aún se está creando",
             "Espera a que termine antes de crear otro.",
             "check",
           )
@@ -168,11 +164,7 @@ export const createLinkResult = (
         "links",
       ),
     AssetUnsupported: ({ reason }) =>
-      new LinkScreen(
-        `No puedes crear links con ${assetCode(asset)}`,
-        `${unsupportedReason(reason, assetCode(asset))} ${untouched}`,
-        "assets",
-      ),
+      unsupportedScreen(reason, assetCode(asset)),
     SenderBusy: () => busyCreating,
     AssetBusy: () => busyCreating,
     NotOpened: () =>
@@ -210,22 +202,12 @@ export const resolveLinkResult = (
   outcome: Exclude<ResolvePaymentLinkOutcome, ResolvedPaymentLink>,
 ): LinkScreen =>
   Match.valueTags(outcome, {
-    Pending: () =>
-      new LinkScreen(
-        "Tu link sigue en proceso",
-        "Cuando termine, podrás recuperar el dinero y crear otro link.",
-        "check",
-      ),
-    ApprovalOutstanding: () =>
-      new LinkScreen(
-        "Tu link sigue en proceso",
-        "Cuando termine, podrás recuperar el dinero y crear otro link.",
-        "check",
-      ),
+    Pending: () => stillCreating,
+    ApprovalOutstanding: () => stillCreating,
     PaymentLinkNotFound: () =>
       new LinkScreen(
-        "No hay un link abierto",
-        "No encontramos dinero en un link de este intento. Revisa tu saldo antes de crear otro.",
+        "No encontramos tu link",
+        "No hay dinero en un link de este intento. Revisa tu saldo antes de crear otro.",
         "home",
       ),
     PaymentLinkReceiptInvalid: () =>
@@ -261,14 +243,14 @@ export const resolveLinkResult = (
 
 const cannotRecover = (reason: string) =>
   new LinkScreen(
-    "No puedes recuperar este dinero ahora",
-    `${reason} ${nothingChanged}`,
+    "No podemos devolverte este dinero",
+    `${reason} ${stillInLink}`,
     "done",
   );
 
 const recoverAgain = new LinkScreen(
   "No pudimos recuperar el dinero",
-  `Inténtalo de nuevo. ${nothingChanged}`,
+  `Inténtalo de nuevo. ${stillInLink}`,
   "again",
 );
 
@@ -297,7 +279,7 @@ export const cancelLinkResult = (
     AssetFailed: () =>
       new LinkScreen(
         "No se recuperó el dinero",
-        `La red no confirmó la operación. ${nothingChanged}`,
+        `La red no confirmó la operación. ${stillInLink}`,
         "again",
       ),
     BalanceGone: ({ status }) =>
@@ -324,8 +306,8 @@ export const cancelLinkResult = (
           "clawed_back",
           () =>
             new LinkScreen(
-              "El emisor retiró este dinero",
-              `El emisor de ${code} retiró ${amount} de este link. No volverá a tu cuenta.`,
+              "Este dinero ya no está en el link",
+              `La empresa que emite ${code} retiró ${amount} de este link. No volverá a tu cuenta.`,
               "done",
             ),
         ),
@@ -334,7 +316,7 @@ export const cancelLinkResult = (
           () =>
             new LinkScreen(
               "No pudimos confirmar qué pasó",
-              "Este link ya no tiene dinero, pero la red no nos dice si alguien lo recibió o si volvió a ti. Revisa tu saldo.",
+              "Este link ya no tiene dinero, pero no podemos saber si alguien lo recibió o si volvió a ti. Revisa tu saldo.",
               "done",
             ),
         ),
@@ -343,38 +325,41 @@ export const cancelLinkResult = (
     RecipientCannotReceive: ({ reason }) =>
       cannotRecover(
         Match.value(reason).pipe(
-          Match.when("no_account", () => "Tu cuenta no está activa en la red."),
+          Match.when("no_account", () => "Tu cuenta no está activa."),
           Match.when(
             "no_trustline",
-            () => `Tu cuenta no puede recibir ${code} ahora.`,
+            () => `Tu cuenta no puede recibir ${code} en este momento.`,
           ),
           Match.when(
             "not_authorized",
-            () => `El emisor de ${code} no autoriza tu cuenta ahora.`,
+            () =>
+              `${code} no permite que tu cuenta reciba dinero en este momento.`,
           ),
           Match.when(
             "no_capacity",
             () =>
-              `Tu cuenta no puede recibir tanto ${code} por ahora. Envía parte de tu saldo y vuelve a intentarlo.`,
+              `Tu cuenta no puede recibir esta cantidad de ${code} en este momento.`,
           ),
           Match.exhaustive,
         ),
       ),
     TrustlineLimitReached: ({ limit }) =>
       cannotRecover(
-        `Tu cuenta ya guarda el máximo de ${limit} activos y ${code} ya no está entre ellos. Quita un activo que no uses y vuelve a intentarlo.`,
+        `Tu cuenta ya tiene el máximo de ${limit} monedas y ${code} no está entre ellas.`,
       ),
     AssetUnsupported: () =>
-      cannotRecover(`Tu cuenta no puede recibir ${code} ahora.`),
+      cannotRecover(`Tu cuenta no puede recibir ${code} en este momento.`),
     NotClaimable: ({ claimableAt }) =>
       Option.match(claimableAt, {
         onNone: () => recoverAgain,
         onSome: (at) =>
-          cannotRecover(
+          new LinkScreen(
+            "Aún no puedes recuperar este dinero",
             `Podrás recuperarlo desde el ${DateTime.toDate(at).toLocaleString(
               "es-PE",
               { dateStyle: "long", timeStyle: "short" },
-            )}.`,
+            )}. ${stillInLink}`,
+            "done",
           ),
       }),
     SenderBusy: () => busyRecovering,

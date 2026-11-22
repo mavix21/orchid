@@ -38,35 +38,37 @@ export function RecoverDrawer({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} showSwipeHandle>
       <DrawerContent>
-        <DrawerHeader>
-          <DrawerTitle>
-            ¿Recuperar {amountLabel(link.amount, link.asset)}?
-          </DrawerTitle>
-          <DrawerDescription>
-            {created === undefined ? "" : `Es el link creado el ${created}. `}
-            El link dejará de funcionar. Si nadie lo usó, el dinero vuelve a tu
-            cuenta.
-          </DrawerDescription>
-        </DrawerHeader>
-        <DrawerFooter>
-          <Button
-            className="w-full"
-            onClick={() => {
-              onOpenChange(false);
-              onRecover(link);
-            }}
-            data-testid="confirm-recover"
-          >
-            Recuperar dinero
-          </Button>
-          <Button
-            className="w-full"
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-          >
-            Mantener el link
-          </Button>
-        </DrawerFooter>
+        <div className="flex flex-col gap-6">
+          <DrawerHeader>
+            <DrawerTitle>
+              ¿Recuperar {amountLabel(link.amount, link.asset)}?
+            </DrawerTitle>
+            <DrawerDescription>
+              {created === undefined ? "" : `Es el link creado el ${created}. `}
+              El link dejará de funcionar. Si nadie lo usó, el dinero vuelve a
+              tu cuenta.
+            </DrawerDescription>
+          </DrawerHeader>
+          <DrawerFooter>
+            <Button
+              className="w-full"
+              onClick={() => {
+                onOpenChange(false);
+                onRecover(link);
+              }}
+              data-testid="confirm-recover"
+            >
+              Recuperar dinero
+            </Button>
+            <Button
+              className="w-full"
+              variant="secondary"
+              onClick={() => onOpenChange(false)}
+            >
+              Mantener el link
+            </Button>
+          </DrawerFooter>
+        </div>
       </DrawerContent>
     </Drawer>
   );

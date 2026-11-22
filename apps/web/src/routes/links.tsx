@@ -19,7 +19,12 @@ import * as DateTime from "effect/DateTime";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 
-import { Screen, ScreenActions } from "@/components/screen";
+import {
+  Screen,
+  ScreenActions,
+  ScreenNote,
+  ScreenStatus,
+} from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { type RecoverableLink, lostLinkMessage } from "@/links/outcomes";
 import { RecoverDrawer, RecoveryAnswer } from "@/links/recovery";
@@ -62,7 +67,7 @@ const latestNotice = (
     ResolvedPaymentLink: (resolved) =>
       Option.some(
         new LatestNotice(
-          "Tu último link no se compartió",
+          "Tu último link ya no se puede compartir",
           lostLinkMessage,
           Option.some(resolved),
         ),
@@ -70,8 +75,8 @@ const latestNotice = (
     Pending: () =>
       Option.some(
         new LatestNotice(
-          "Tu último link sigue en proceso",
-          "Cuando termine, aparecerá aquí y podrás recuperar el dinero.",
+          "Tu último link aún se está creando",
+          "Ya no se podrá compartir. Cuando termine, aparecerá aquí y podrás recuperar el dinero.",
           Option.none(),
         ),
       ),
@@ -344,13 +349,9 @@ function ListProblem({ message }: { message: string }) {
 
   return (
     <>
-      <main
-        role="status"
-        className="flex flex-1 flex-col justify-end gap-2 px-5"
-      >
-        <h1 className="font-display text-h1">No pudimos cargar tus links</h1>
-        <p className="text-body text-muted-foreground">{message}</p>
-      </main>
+      <ScreenStatus title="No pudimos cargar tus links">
+        <ScreenNote>{message}</ScreenNote>
+      </ScreenStatus>
       <ScreenActions>
         <Button className="w-full" onClick={() => void router.invalidate()}>
           Reintentar

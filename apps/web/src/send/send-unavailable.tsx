@@ -8,7 +8,7 @@ import type {
 } from "@workspace/wallet";
 import * as Match from "effect/Match";
 
-import { ScreenActions } from "@/components/screen";
+import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
 import { UnavailableNotice, unavailableNotice } from "@/wallet/unavailable";
 
 export type UnavailableOverview =
@@ -49,13 +49,9 @@ export function SendUnavailable({
 
   return (
     <>
-      <main
-        role="status"
-        className="flex flex-1 flex-col justify-end gap-2 px-5"
-      >
-        <h1 className="font-display text-h1">No puedes enviar ahora</h1>
-        <p className="text-body text-muted-foreground">{notice.message}</p>
-      </main>
+      <ScreenStatus title="No puedes enviar ahora">
+        <ScreenNote>{notice.message}</ScreenNote>
+      </ScreenStatus>
       <ScreenActions>
         {notice.actionable ? (
           <Button className="w-full" onClick={() => void router.invalidate()}>

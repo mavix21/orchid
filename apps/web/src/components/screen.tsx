@@ -13,3 +13,32 @@ export function ScreenActions({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+export function ScreenStatus({
+  title,
+  media,
+  children,
+  ...props
+}: {
+  title: React.ReactNode;
+  media?: React.ReactNode;
+  children?: React.ReactNode;
+} & Omit<React.ComponentProps<"main">, "className" | "role" | "title">) {
+  return (
+    <main
+      role="status"
+      className="flex flex-1 flex-col justify-center gap-4 px-5 py-8"
+      {...props}
+    >
+      {media}
+      <div className="flex flex-col gap-2">
+        <h1 className="font-display text-h1">{title}</h1>
+        {children}
+      </div>
+    </main>
+  );
+}
+
+export function ScreenNote({ children }: { children: React.ReactNode }) {
+  return <p className="text-body text-muted-foreground">{children}</p>;
+}

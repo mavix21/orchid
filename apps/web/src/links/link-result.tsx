@@ -2,21 +2,15 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import * as Match from "effect/Match";
 
-import { ScreenActions } from "@/components/screen";
+import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
 
 import type { LinkScreen } from "./outcomes";
 
 export function LinkWorking({ label, note }: { label: string; note?: string }) {
   return (
-    <main
-      role="status"
-      className="flex flex-1 flex-col justify-end gap-2 px-5 pb-30"
-    >
-      <h1 className="font-display text-h1">{label}</h1>
-      {note === undefined ? null : (
-        <p className="text-body text-muted-foreground">{note}</p>
-      )}
-    </main>
+    <ScreenStatus title={label}>
+      {note === undefined ? null : <ScreenNote>{note}</ScreenNote>}
+    </ScreenStatus>
   );
 }
 
@@ -26,6 +20,7 @@ export function LinkResultScreen({
   onAgain,
   onEdit,
   onCheck,
+  onElsewhere,
   onDone,
 }: {
   outcome: string;
@@ -33,6 +28,7 @@ export function LinkResultScreen({
   onAgain: () => void;
   onEdit: () => void;
   onCheck: () => void;
+  onElsewhere?: () => void;
   onDone?: () => void;
 }) {
   const go = (label: string, link: React.ReactElement) => (
@@ -58,15 +54,13 @@ export function LinkResultScreen({
 
   return (
     <>
-      <main
-        role="status"
+      <ScreenStatus
+        title={screen.title}
         data-testid="link-outcome"
         data-outcome={outcome}
-        className="flex flex-1 flex-col justify-end gap-2 px-5"
       >
-        <h1 className="font-display text-h1">{screen.title}</h1>
-        <p className="text-body text-muted-foreground">{screen.message}</p>
-      </main>
+        <ScreenNote>{screen.message}</ScreenNote>
+      </ScreenStatus>
       <ScreenActions>
         {Match.value(screen.action).pipe(
           Match.when("done", () =>
@@ -80,8 +74,23 @@ export function LinkResultScreen({
           Match.when("check", () => act("Revisar de nuevo", onCheck)),
           Match.when("links", () => go("Ver mis links", <Link to="/links" />)),
           Match.when("assets", () =>
-            go("Elegir otro activo", <Link to="/send" />),
+            go("Elegir otra moneda", <Link to="/send" />),
           ),
+          Match.when("elsewhere", () => (
+            <>
+              {onElsewhere === undefined
+                ? null
+                : act("Enviar de otra forma", onElsewhere)}
+              <Button
+                className="w-full"
+                variant="secondary"
+                nativeButton={false}
+                render={<Link to="/send" />}
+              >
+                Elegir otra moneda
+              </Button>
+            </>
+          )),
           Match.exhaustive,
         )}
       </ScreenActions>

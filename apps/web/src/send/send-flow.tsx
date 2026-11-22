@@ -17,7 +17,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
 import { OptionRow } from "@/components/option-row";
-import { ScreenActions } from "@/components/screen";
+import { ScreenActions, ScreenStatus } from "@/components/screen";
 import { LinkFlow } from "@/links/link-flow";
 import { walletEffects } from "@/wallet";
 
@@ -58,14 +58,7 @@ const fieldProblemOf = (answer: Answer, asset: Asset) =>
   );
 
 function Working({ label }: { label: string }) {
-  return (
-    <main
-      role="status"
-      className="flex flex-1 flex-col justify-end gap-2 px-5 pb-30"
-    >
-      <h1 className="font-display text-h1">{label}</h1>
-    </main>
-  );
+  return <ScreenStatus title={label} />;
 }
 
 function AnswerScreen({
