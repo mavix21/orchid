@@ -19,7 +19,11 @@ import {
   RegistrationRefused,
   SealedPhrase,
 } from "../contract";
-import { Backups } from "./Backups.server";
+import {
+  Backups,
+  CommitEnrollmentResult,
+  type StoredBackup,
+} from "./Backups.server";
 import { WalletSettings } from "./settings.server";
 
 const ClientData = Schema.fromJsonString(
@@ -102,62 +106,43 @@ export const backupFlow = Effect.gen(function* () {
     );
   };
 
-  const confirmCommittedRetry = Effect.fn("Wallet.confirmCommittedBackup")(
-    function* (enrollment: BackupEnrollment) {
-      const parsedChallenge = clientChallenge(
-        enrollment.registration.clientDataJSON,
-      );
+  const matchesCommittedBackup = (
+    existing: StoredBackup,
+    enrollment: BackupEnrollment,
+    publicKey: string,
+    algorithm: StoredBackup["algorithm"],
+    submittedSealed: typeof SealedPhrase.Encoded,
+  ) => {
+    const storedSealed = Schema.encodeSync(SealedPhrase)(existing.sealed);
 
-      if (Option.isNone(parsedChallenge)) return false;
-
-      const existing = yield* backups.byCredential(enrollment.registration.id);
-
-      if (Option.isNone(existing)) return false;
-
-      const verified = yield* verifyEnrollment(
-        enrollment,
-        parsedChallenge.value,
-      );
-
-      if (Option.isNone(verified)) return false;
-
-      const storedSealed = Schema.encodeSync(SealedPhrase)(
-        existing.value.sealed,
-      );
-
-      const submittedSealed = Schema.encodeSync(SealedPhrase)(
-        enrollment.sealed,
-      );
-
-      return (
-        existing.value.profile.address === enrollment.address &&
-        existing.value.profile.username === enrollment.username &&
-        existing.value.publicKey === verified.value.publicKey &&
-        existing.value.algorithm === verified.value.algorithm &&
-        storedSealed.iv === submittedSealed.iv &&
-        storedSealed.ciphertext === submittedSealed.ciphertext
-      );
-    },
-  );
+    return (
+      existing.profile.address === enrollment.address &&
+      existing.profile.username === enrollment.username &&
+      existing.publicKey === publicKey &&
+      existing.algorithm === algorithm &&
+      storedSealed.iv === submittedSealed.iv &&
+      storedSealed.ciphertext === submittedSealed.ciphertext
+    );
+  };
 
   const enroll = Effect.fn("Wallet.enroll")(function* (
     enrollment: BackupEnrollment,
   ) {
     const { registration } = enrollment;
-    const challenge = yield* redeem(registration.clientDataJSON, "enrollment");
+    const parsedChallenge = clientChallenge(registration.clientDataJSON);
 
-    if (Option.isNone(challenge))
-      return (yield* confirmCommittedRetry(enrollment))
-        ? new BackupStored()
+    if (Option.isNone(parsedChallenge)) return new ChallengeRefused();
+
+    const verified = yield* verifyEnrollment(enrollment, parsedChallenge.value);
+
+    if (Option.isNone(verified))
+      return (yield* backups.consume(parsedChallenge.value, "enrollment"))
+        ? new RegistrationRefused()
         : new ChallengeRefused();
-
-    const verified = yield* verifyEnrollment(enrollment, challenge.value);
-
-    if (Option.isNone(verified)) return new RegistrationRefused();
 
     const sealed = Schema.encodeSync(SealedPhrase)(enrollment.sealed);
 
-    const stored = yield* backups.enroll({
+    const committed = yield* backups.commitEnrollment(parsedChallenge.value, {
       credentialId: registration.id,
       address: enrollment.address,
       username: enrollment.username,
@@ -168,7 +153,21 @@ export const backupFlow = Effect.gen(function* () {
       ciphertext: sealed.ciphertext,
     });
 
-    return stored ? new BackupStored() : new RegistrationRefused();
+    return CommitEnrollmentResult.$match(committed, {
+      Committed: () => new BackupStored(),
+      Conflict: () => new RegistrationRefused(),
+      ChallengeRejected: () => new ChallengeRefused(),
+      Existing: ({ backup }) =>
+        matchesCommittedBackup(
+          backup,
+          enrollment,
+          verified.value.publicKey,
+          verified.value.algorithm,
+          sealed,
+        )
+          ? new BackupStored()
+          : new ChallengeRefused(),
+    });
   });
 
   const restore = Effect.fn("Wallet.restore")(function* (

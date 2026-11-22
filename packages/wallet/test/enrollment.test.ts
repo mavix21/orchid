@@ -21,6 +21,7 @@ import {
   PendingReopenProof,
   makeEnrollmentEffects,
 } from "../src/device/enrollment";
+import { KeyStoreUnavailable } from "../src/device/key-store";
 import {
   LocalPhraseEnvelope,
   localEnvelopeVersion,
@@ -62,6 +63,20 @@ const memoryPendingStorage = (): PendingEnrollmentStorage & {
     },
   };
 };
+
+const enrollmentFor = (
+  port: WalletPort,
+  auth: SoftwareAuthenticator,
+  pending?: PendingEnrollmentStorage,
+) =>
+  makeEnrollmentEffects({
+    port,
+    store: browserKeyStore,
+    registration: auth.registration,
+    assertions: auth.assertions,
+    relyingParty,
+    pending,
+  });
 
 const tableRows = Effect.gen(function* () {
   const db = yield* Database;
@@ -110,14 +125,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const auth = new SoftwareAuthenticator(passkeyOrigin);
           const pending = memoryPendingStorage();
 
-          const firstTab = makeEnrollmentEffects({
-            port: wallet,
-            store: browserKeyStore,
-            registration: auth.registration,
-            assertions: auth.assertions,
-            relyingParty,
-            pending,
-          });
+          const firstTab = enrollmentFor(wallet, auth, pending);
 
           const started = yield* firstTab.start("maria");
 
@@ -143,14 +151,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           auth.cancels = false;
 
-          const reloadedTab = makeEnrollmentEffects({
-            port: wallet,
-            store: browserKeyStore,
-            registration: auth.registration,
-            assertions: auth.assertions,
-            relyingParty,
-            pending,
-          });
+          const reloadedTab = enrollmentFor(wallet, auth, pending);
 
           expect(yield* reloadedTab.pending()).toEqual(Option.some(started));
           expect(yield* reloadedTab.start("pedro")).toEqual(started);
@@ -216,21 +217,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const firstAuth = new SoftwareAuthenticator(passkeyOrigin);
           const secondAuth = new SoftwareAuthenticator(passkeyOrigin);
 
-          const firstTab = makeEnrollmentEffects({
-            port: wallet,
-            store: browserKeyStore,
-            registration: firstAuth.registration,
-            assertions: firstAuth.assertions,
-            relyingParty,
-          });
-
-          const secondTab = makeEnrollmentEffects({
-            port: wallet,
-            store: browserKeyStore,
-            registration: secondAuth.registration,
-            assertions: secondAuth.assertions,
-            relyingParty,
-          });
+          const firstTab = enrollmentFor(wallet, firstAuth);
+          const secondTab = enrollmentFor(wallet, secondAuth);
 
           assertTagged(yield* firstTab.start("maria"), "EnrollmentPending");
           assertTagged(yield* secondTab.start("pedro"), "EnrollmentPending");
@@ -284,20 +272,22 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ...wallet,
             enroll: (enrollment) =>
               dropCommittedResponse
-                ? wallet
-                    .enroll(enrollment)
-                    .pipe(Effect.andThen(Effect.fail(new Offline())))
+                ? Effect.all(
+                    [wallet.enroll(enrollment), wallet.enroll(enrollment)],
+                    { concurrency: "unbounded" },
+                  ).pipe(
+                    Effect.tap(([firstResult, secondResult]) =>
+                      Effect.sync(() => {
+                        expect(firstResult._tag).toBe("BackupStored");
+                        expect(secondResult._tag).toBe("BackupStored");
+                      }),
+                    ),
+                    Effect.andThen(Effect.fail(new Offline())),
+                  )
                 : wallet.enroll(enrollment),
           };
 
-          const firstTab = makeEnrollmentEffects({
-            port: flakyPort,
-            store: browserKeyStore,
-            registration: auth.registration,
-            assertions: auth.assertions,
-            relyingParty,
-            pending,
-          });
+          const firstTab = enrollmentFor(flakyPort, auth, pending);
 
           const started = yield* firstTab.start("maria");
 
@@ -338,14 +328,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           dropCommittedResponse = false;
 
-          const reloadedTab = makeEnrollmentEffects({
-            port: wallet,
-            store: browserKeyStore,
-            registration: auth.registration,
-            assertions: auth.assertions,
-            relyingParty,
-            pending,
-          });
+          const reloadedTab = enrollmentFor(wallet, auth, pending);
 
           expect(yield* reloadedTab.pending()).toEqual(
             Option.some(
@@ -410,13 +393,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
             auth.webAuthnAvailable = false;
 
-            const enrollment = makeEnrollmentEffects({
-              port: wallet,
-              store: browserKeyStore,
-              registration: auth.registration,
-              assertions: auth.assertions,
-              relyingParty,
-            });
+            const enrollment = enrollmentFor(wallet, auth);
 
             return {
               outcome: yield* enrollment.start("maria"),
@@ -435,13 +412,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             auth.prfOnCreate = false;
             auth.prf = false;
 
-            const enrollment = makeEnrollmentEffects({
-              port: wallet,
-              store: browserKeyStore,
-              registration: auth.registration,
-              assertions: auth.assertions,
-              relyingParty,
-            });
+            const enrollment = enrollmentFor(wallet, auth);
 
             const started = yield* enrollment.start("maria");
 
@@ -462,17 +433,36 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           Effect.gen(function* () {
             const auth = new SoftwareAuthenticator("https://example.com");
 
-            const enrollment = makeEnrollmentEffects({
-              port: wallet,
-              store: browserKeyStore,
-              registration: auth.registration,
-              assertions: auth.assertions,
-              relyingParty,
-            });
+            const enrollment = enrollmentFor(wallet, auth);
 
             return {
               outcome: yield* enrollment.start("maria"),
               expectedTag: "RegistrationRefused",
+              enrollment,
+              expectZeroBackups: true,
+            };
+          }),
+      ],
+      [
+        "persisting the pending submission fails before backup upload",
+        (wallet: WalletPort) =>
+          Effect.gen(function* () {
+            const auth = new SoftwareAuthenticator(passkeyOrigin);
+
+            const failingPending: PendingEnrollmentStorage = {
+              read: () => Effect.succeed(Option.none()),
+              write: () =>
+                Effect.fail(
+                  new KeyStoreUnavailable({ cause: new Error("quota") }),
+                ),
+              clear: () => Effect.void,
+            };
+
+            const enrollment = enrollmentFor(wallet, auth, failingPending);
+
+            return {
+              outcome: yield* enrollment.start("maria"),
+              expectedTag: "UnsupportedDevice",
               enrollment,
               expectZeroBackups: true,
             };
@@ -485,14 +475,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             const auth = new SoftwareAuthenticator(passkeyOrigin);
             const pending = memoryPendingStorage();
 
-            const first = makeEnrollmentEffects({
-              port: wallet,
-              store: browserKeyStore,
-              registration: auth.registration,
-              assertions: auth.assertions,
-              relyingParty,
-              pending,
-            });
+            const first = enrollmentFor(wallet, auth, pending);
 
             const started = yield* first.start("maria");
 
@@ -521,14 +504,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               }),
             );
 
-            const second = makeEnrollmentEffects({
-              port: wallet,
-              store: browserKeyStore,
-              registration: auth.registration,
-              assertions: auth.assertions,
-              relyingParty,
-              pending,
-            });
+            const second = enrollmentFor(wallet, auth, pending);
 
             return {
               outcome: yield* second.advance(),

@@ -1,4 +1,5 @@
 import {
+  KeyStoreUnavailable,
   PendingEnrollmentRecord,
   type PendingEnrollmentStorage,
   type SealedKeyStore,
@@ -39,10 +40,11 @@ const sessionPendingEnrollment: PendingEnrollmentStorage = {
       }
     }),
   write: (record) =>
-    Effect.sync(() => {
-      try {
+    Effect.try({
+      try: () => {
         sessionStorage.setItem(pendingStorageKey, encodePending(record));
-      } catch {}
+      },
+      catch: (cause) => new KeyStoreUnavailable({ cause }),
     }),
   clear: () =>
     Effect.sync(() => {
