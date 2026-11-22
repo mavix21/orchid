@@ -8,6 +8,8 @@ import {
   TransferOrder,
   Username,
 } from "../contract";
+import { PinnedCredential } from "./assertion";
+import { LocalPhraseEnvelope, localEnvelopeVersion } from "./local-envelope";
 import { SecretPhrase } from "./secret-phrase";
 
 export const BackupState = Schema.Literals(["stored", "deviceOnly"]);
@@ -32,6 +34,15 @@ export class DeviceWallet extends Schema.Class<DeviceWallet>(
 )({
   ...publicWalletFields,
   phrase: SecretPhrase,
+}) {}
+
+export class SealedDeviceWallet extends Schema.Class<SealedDeviceWallet>(
+  "@workspace/wallet/SealedDeviceWallet",
+)({
+  version: Schema.Literal(localEnvelopeVersion),
+  public: PublicDeviceWallet,
+  credential: PinnedCredential,
+  envelope: LocalPhraseEnvelope,
 }) {}
 
 export const publicWalletOf = (
@@ -67,6 +78,23 @@ export interface PublicWalletUpdate {
   readonly updated: boolean;
 }
 
+export interface SealedKeyStore {
+  readPublic(): Effect.Effect<
+    Option.Option<PublicDeviceWallet>,
+    KeyStoreUnavailable
+  >;
+  updatePublic(
+    update: (current: PublicDeviceWallet) => Option.Option<PublicDeviceWallet>,
+  ): Effect.Effect<Option.Option<PublicWalletUpdate>, KeyStoreUnavailable>;
+  readSealed(): Effect.Effect<
+    Option.Option<SealedDeviceWallet>,
+    KeyStoreUnavailable
+  >;
+  writeSealed(
+    wallet: SealedDeviceWallet,
+  ): Effect.Effect<void, KeyStoreUnavailable>;
+}
+
 export interface KeyStore {
   read(): Effect.Effect<Option.Option<DeviceWallet>, KeyStoreUnavailable>;
   write(wallet: DeviceWallet): Effect.Effect<void, KeyStoreUnavailable>;
@@ -96,7 +124,7 @@ export const sameLinkState = (
   receiptJson(wallet.linkReceipt ?? null) === receiptJson(expected.receipt);
 
 export const clearStoredLink = Effect.fn("Device.clearStoredLink")(function* (
-  store: KeyStore,
+  store: Pick<KeyStore, "updatePublic">,
   expected: LinkClearTarget,
 ) {
   yield* store.updatePublic((current) =>

@@ -8,6 +8,8 @@ export { browserKeyStore } from "./device/browser-key-store";
 
 export * from "./device/assertion";
 
+export * from "./device/local-envelope";
+
 export {
   browserAssertions,
   browserPasskeys,
