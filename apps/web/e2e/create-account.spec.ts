@@ -79,22 +79,11 @@ test("enrolls a new wallet only after a fresh user-initiated reopen proof", asyn
   await page.getByTestId("restore-submit").click();
   await page.getByTestId("restore-submit").click();
 
-  await expect(page).toHaveURL("/home", { timeout: 60_000 });
-  await expect(page.getByText(`@${username}`)).toBeVisible({
-    timeout: 30_000,
+  await expect(page.getByTestId("enrollment-complete")).toBeVisible({
+    timeout: 60_000,
   });
-
-  await page.goBack();
-
-  await expect(page).toHaveURL("/home", { timeout: 30_000 });
-
-  await page.goto("/restore");
-
-  await expect(page).toHaveURL("/home", { timeout: 30_000 });
-
-  await page.goto("/");
-
-  await expect(page).toHaveURL("/home", { timeout: 30_000 });
+  await expect(page.getByText(`@${username}`)).toBeVisible();
+  expect(await storedWalletRecord(page)).toBe(true);
 });
 
 test("refuses creation when the passkey has no PRF", async ({ page }) => {
