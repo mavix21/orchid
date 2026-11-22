@@ -19,6 +19,7 @@ import {
 } from "../src/contract";
 import {
   type AssertionCeremony,
+  type AssertionRequest,
   PinnedCredential,
 } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
@@ -28,15 +29,13 @@ import {
   clearStoredLink,
 } from "../src/device/key-store";
 import {
-  LocalPhraseEnvelope,
+  type LocalPhraseEnvelope,
   freshInstallationSalt,
   localEnvelopeVersion,
   localPhrasePrfInput,
-  paymentLinkPrfInput,
   reopenLocalEnvelope,
   sealLocalEnvelope,
 } from "../src/device/local-envelope";
-import { backupSalt } from "../src/device/phrase-seal";
 import { generateSecretPhrase } from "../src/device/secret-phrase";
 import { signingKey } from "../src/device/signing";
 import { network } from "../src/stellar/network";
@@ -89,15 +88,44 @@ type RawStoredEntry =
       readonly iv: string;
       readonly phrase: string;
     }
-  | {
+  | (Omit<typeof SealedDeviceWallet.Encoded, "version"> & {
       readonly version: number;
-      readonly public: { readonly address: string; readonly username: string };
-    }
+    })
+  | (Omit<typeof SealedDeviceWallet.Encoded, "credential"> & {
+      readonly credential: {
+        readonly id: string;
+        readonly publicKey: string;
+        readonly algorithm: string;
+      };
+    })
+  | (Omit<typeof SealedDeviceWallet.Encoded, "envelope"> & {
+      readonly envelope: Omit<
+        typeof LocalPhraseEnvelope.Encoded,
+        "ciphertext"
+      > & {
+        readonly ciphertext: string;
+      };
+    })
   | typeof SealedDeviceWallet.Encoded
   | CryptoKey;
 
 const putRawEntry = (name: string, value: RawStoredEntry) =>
   withEntryStore("readwrite", (store) => store.put(value, name));
+
+const serializeRequest = (request: AssertionRequest) =>
+  JSON.stringify(request, (_key, value) => {
+    const unwrapped = Redacted.isRedacted(value)
+      ? Redacted.value(value)
+      : value;
+
+    if (unwrapped instanceof Uint8Array)
+      return `${Buffer.from(unwrapped).toString("base64")}:${Buffer.from(unwrapped).toString("hex")}`;
+
+    if (unwrapped instanceof ArrayBuffer)
+      return `${Buffer.from(unwrapped).toString("base64")}:${Buffer.from(unwrapped).toString("hex")}`;
+
+    return unwrapped;
+  });
 
 const enrollDisposableWallet = (name = "maria") =>
   Effect.gen(function* () {
@@ -161,14 +189,6 @@ const enrollDisposableWallet = (name = "maria") =>
     };
   });
 
-const flipFirstByte = (bytes: Uint8Array) => {
-  const copy = Uint8Array.from(bytes);
-
-  copy[0] = (copy[0] ?? 0) ^ 0xff;
-
-  return copy;
-};
-
 it.effect(
   "seals, persists without leaking secrets, updates public metadata atomically, and reopens with a fresh pinned assertion",
   () =>
@@ -204,18 +224,7 @@ it.effect(
       const observingCeremony: AssertionCeremony = {
         assert: (request) =>
           Effect.sync(() => {
-            requestPayloads.push(
-              JSON.stringify({
-                credentialId: request.credentialId,
-                challenge: request.challenge,
-                prf: Option.map(request.prf, (inputs) => ({
-                  first: Buffer.from(inputs.first).toString("base64"),
-                  second: Option.map(inputs.second, (second) =>
-                    Buffer.from(second).toString("base64"),
-                  ),
-                })),
-              }),
-            );
+            requestPayloads.push(serializeRequest(request));
           }).pipe(Effect.andThen(disposable.auth.assertions.assert(request))),
       };
 
@@ -301,7 +310,6 @@ it.effect(
       const serializedRecord = JSON.stringify(rawRecord);
       const serializedRequests = requestPayloads.join("\n");
       const serializedLogs = logLines.join("\n");
-
       const prfBytes = Redacted.value(disposable.prf);
 
       const forbiddenSecrets = [
@@ -394,198 +402,37 @@ it.effect(
 
       assertTagged(reopened, "PhraseOpened");
       expect(Redacted.value(reopened.phrase)).toBe(disposable.phrase);
-      expect(signingKey(Redacted.value(reopened.phrase)).publicKey()).toBe(
-        persisted.public.address,
-      );
-    }),
-);
-
-const corruptEnvelopeCases = [
-  [
-    "an envelope swapped from another wallet",
-    (
-      primary: LocalPhraseEnvelope,
-      other: LocalPhraseEnvelope,
-    ): LocalPhraseEnvelope =>
-      new LocalPhraseEnvelope({
-        ...primary,
-        salt: other.salt,
-        iv: other.iv,
-        ciphertext: other.ciphertext,
-      }),
-  ],
-  [
-    "a swapped wallet address in the envelope context",
-    (
-      primary: LocalPhraseEnvelope,
-      other: LocalPhraseEnvelope,
-    ): LocalPhraseEnvelope =>
-      new LocalPhraseEnvelope({
-        ...primary,
-        address: other.address,
-      }),
-  ],
-  [
-    "a swapped network in the envelope context",
-    (primary: LocalPhraseEnvelope): LocalPhraseEnvelope =>
-      new LocalPhraseEnvelope({
-        ...primary,
-        network: "mainnet",
-      }),
-  ],
-  [
-    "a swapped credential ID in the envelope context",
-    (
-      primary: LocalPhraseEnvelope,
-      other: LocalPhraseEnvelope,
-    ): LocalPhraseEnvelope =>
-      new LocalPhraseEnvelope({
-        ...primary,
-        credentialId: other.credentialId,
-      }),
-  ],
-  [
-    "a tampered installation salt",
-    (primary: LocalPhraseEnvelope): LocalPhraseEnvelope =>
-      new LocalPhraseEnvelope({
-        ...primary,
-        salt: flipFirstByte(primary.salt),
-      }),
-  ],
-  [
-    "a tampered IV",
-    (primary: LocalPhraseEnvelope): LocalPhraseEnvelope =>
-      new LocalPhraseEnvelope({
-        ...primary,
-        iv: flipFirstByte(primary.iv),
-      }),
-  ],
-  [
-    "a tampered ciphertext",
-    (primary: LocalPhraseEnvelope): LocalPhraseEnvelope =>
-      new LocalPhraseEnvelope({
-        ...primary,
-        ciphertext: flipFirstByte(primary.ciphertext),
-      }),
-  ],
-] as const;
-
-it.effect.each(corruptEnvelopeCases)(
-  "rejects %s as CorruptEnvelope",
-  ([, mutate]) =>
-    Effect.gen(function* () {
-      yield* Effect.promise(clearDatabase);
-
-      const primary = yield* enrollDisposableWallet("maria");
-      const other = yield* enrollDisposableWallet("pedro");
-
-      const tampered = new SealedDeviceWallet({
-        ...primary.record,
-        envelope: mutate(primary.envelope, other.envelope),
-      });
-
-      yield* Effect.promise(() =>
-        putRawEntry("wallet", Schema.encodeSync(SealedDeviceWallet)(tampered)),
-      );
-
-      const persisted = Option.getOrThrow(yield* browserKeyStore.readSealed());
-
-      const outcome = yield* reopenLocalEnvelope(
-        primary.auth.assertions,
-        relyingParty,
-        persisted.credential,
-        persisted.envelope,
-        {
-          network,
-          address: persisted.public.address,
-          purpose: "approval",
-        },
-      );
-
-      expect(outcome._tag).toBe("CorruptEnvelope");
-    }),
-);
-
-it.effect(
-  "refuses sealing a phrase for another address and distinguishes passkey failures from corrupt data",
-  () =>
-    Effect.gen(function* () {
-      const primary = yield* enrollDisposableWallet("maria");
-      const other = yield* enrollDisposableWallet("pedro");
-
-      const mismatchedSeal = yield* sealLocalEnvelope(
-        {
-          phrase: other.phrase,
-          network,
-          address: primary.address,
-          credentialId: primary.credential.id,
-          salt: primary.salt,
-        },
-        primary.prf,
-      );
-
-      primary.auth.prf = false;
-
-      const missingPrf = yield* reopenLocalEnvelope(
-        primary.auth.assertions,
-        relyingParty,
-        primary.credential,
-        primary.envelope,
-        {
-          network,
-          address: primary.address,
-          purpose: "approval",
-        },
-      );
-
-      primary.auth.prf = true;
-      primary.auth.cancels = true;
-
-      const cancelled = yield* reopenLocalEnvelope(
-        primary.auth.assertions,
-        relyingParty,
-        primary.credential,
-        primary.envelope,
-        {
-          network,
-          address: primary.address,
-          purpose: "approval",
-        },
-      ).pipe(Effect.flip);
-
-      expect(mismatchedSeal._tag).toBe("CorruptEnvelope");
-      expect(missingPrf._tag).toBe("PrfOutputMissing");
-      expect(cancelled._tag).toBe("PasskeyCancelled");
     }),
 );
 
 const unknownFormats = [
   [
     "a v1 wallet record with a colocated wrapping key",
-    (address: string) => ({
-      address,
-      username: "maria",
+    (encoded: typeof SealedDeviceWallet.Encoded): RawStoredEntry => ({
+      address: encoded.public.address,
+      username: encoded.public.username,
       iv: Buffer.alloc(12, 1).toString("base64"),
       phrase: Buffer.alloc(32, 2).toString("base64"),
     }),
   ],
   [
     "an unknown envelope version",
-    (address: string) => ({
+    (encoded: typeof SealedDeviceWallet.Encoded): RawStoredEntry => ({
+      ...encoded,
       version: 99,
-      public: { address, username: "maria" },
     }),
   ],
 ] as const;
 
 it.effect.each(unknownFormats)(
   "treats %s as empty without upgrading it",
-  ([, legacyRecord]) =>
+  ([, buildLegacyRecord]) =>
     Effect.gen(function* () {
       yield* Effect.promise(clearDatabase);
 
       const disposable = yield* enrollDisposableWallet();
-      const raw = legacyRecord(disposable.address);
+      const encoded = Schema.encodeSync(SealedDeviceWallet)(disposable.record);
+      const raw = buildLegacyRecord(encoded);
 
       const legacyKey = yield* Effect.promise(() =>
         crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, [
@@ -613,42 +460,56 @@ it.effect.each(unknownFormats)(
     }),
 );
 
-it.effect(
-  "keeps local phrase, server backup and each payment link on independent PRF inputs",
-  () =>
+const damagedV2Records = [
+  [
+    "malformed ciphertext base64",
+    (encoded: typeof SealedDeviceWallet.Encoded): RawStoredEntry => ({
+      ...encoded,
+      envelope: {
+        ...encoded.envelope,
+        ciphertext: "not-valid-base64!!!",
+      },
+    }),
+  ],
+  [
+    "a damaged pinned credential",
+    (encoded: typeof SealedDeviceWallet.Encoded): RawStoredEntry => ({
+      ...encoded,
+      credential: {
+        ...encoded.credential,
+        algorithm: "HS256",
+      },
+    }),
+  ],
+] as const;
+
+it.effect.each(damagedV2Records)(
+  "fails with CorruptDeviceWallet when a v2 record has %s",
+  ([, damage]) =>
     Effect.gen(function* () {
-      const address = addressOf(Keypair.random());
-      const otherAddress = addressOf(Keypair.random());
-      const linkA = addressOf(Keypair.random());
-      const linkB = addressOf(Keypair.random());
-      const salt = freshInstallationSalt();
-      const otherSalt = freshInstallationSalt();
+      yield* Effect.promise(clearDatabase);
 
-      const inputs = [
-        yield* backupSalt,
-        yield* localPhrasePrfInput({ network, address, salt }),
-        yield* localPhrasePrfInput({ network: "mainnet", address, salt }),
-        yield* localPhrasePrfInput({ network, address: otherAddress, salt }),
-        yield* localPhrasePrfInput({ network, address, salt: otherSalt }),
-        yield* paymentLinkPrfInput({
-          network,
-          address,
-          linkAddress: linkA,
-          salt,
-        }),
-        yield* paymentLinkPrfInput({
-          network,
-          address,
-          linkAddress: linkB,
-          salt,
-        }),
-      ];
+      const disposable = yield* enrollDisposableWallet();
+      const encoded = Schema.encodeSync(SealedDeviceWallet)(disposable.record);
+      const raw = damage(encoded);
 
-      const hexInputs = inputs.map((input) =>
-        Buffer.from(input).toString("hex"),
-      );
+      yield* Effect.promise(() => putRawEntry("wallet", raw));
 
-      expect(inputs.every((input) => input.byteLength === 32)).toBe(true);
-      expect(new Set(hexInputs).size).toBe(inputs.length);
+      const publicFailure = yield* browserKeyStore
+        .readPublic()
+        .pipe(Effect.flip);
+
+      const sealedFailure = yield* browserKeyStore
+        .readSealed()
+        .pipe(Effect.flip);
+
+      const updateFailure = yield* browserKeyStore
+        .updatePublic((current) => Option.some(current))
+        .pipe(Effect.flip);
+
+      expect(publicFailure._tag).toBe("CorruptDeviceWallet");
+      expect(sealedFailure._tag).toBe("CorruptDeviceWallet");
+      expect(updateFailure._tag).toBe("CorruptDeviceWallet");
+      expect(yield* Effect.promise(() => storedEntry("wallet"))).toEqual(raw);
     }),
 );

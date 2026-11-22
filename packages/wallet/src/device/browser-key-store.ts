@@ -3,18 +3,24 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { network } from "../stellar/network";
 import {
+  CorruptDeviceWallet,
   KeyStoreUnavailable,
   type PublicDeviceWallet,
   type PublicWalletUpdate,
   SealedDeviceWallet,
   type SealedKeyStore,
 } from "./key-store";
-import { matchesEnvelopeContext } from "./local-envelope";
+import { localEnvelopeVersion, matchesEnvelopeContext } from "./local-envelope";
 
 const databaseName = "orchid-device";
 const entries = "entries";
 const walletEntry = "wallet";
 
+const StoredVersion = Schema.Struct({
+  version: Schema.Literal(localEnvelopeVersion),
+});
+
+const isCurrentVersion = Schema.is(StoredVersion);
 const decodeStoredWallet = Schema.decodeUnknownOption(SealedDeviceWallet);
 
 function settle<A>(request: IDBRequest<A>): Promise<A> {
@@ -43,7 +49,13 @@ async function readSealedWallet(): Promise<Option.Option<SealedDeviceWallet>> {
       database.transaction(entries).objectStore(entries).get(walletEntry),
     );
 
-    return decodeStoredWallet(raw);
+    if (!isCurrentVersion(raw)) return Option.none();
+
+    const decoded = decodeStoredWallet(raw);
+
+    if (Option.isNone(decoded)) throw new CorruptDeviceWallet();
+
+    return decoded;
   } finally {
     database.close();
   }
@@ -100,9 +112,11 @@ async function updatePublicWallet(
         request.addEventListener("error", () => reject(request.error));
         request.addEventListener("success", () => {
           try {
+            if (!isCurrentVersion(request.result)) return;
+
             const stored = decodeStoredWallet(request.result);
 
-            if (Option.isNone(stored)) return;
+            if (Option.isNone(stored)) throw new CorruptDeviceWallet();
 
             const current = stored.value.public;
             const next = update(current);
@@ -148,17 +162,26 @@ export const browserKeyStore: SealedKeyStore = {
   readPublic: () =>
     Effect.tryPromise({
       try: readPublicWallet,
-      catch: (cause) => new KeyStoreUnavailable({ cause }),
+      catch: (cause) =>
+        cause instanceof CorruptDeviceWallet
+          ? cause
+          : new KeyStoreUnavailable({ cause }),
     }),
   updatePublic: (update) =>
     Effect.tryPromise({
       try: () => updatePublicWallet(update),
-      catch: (cause) => new KeyStoreUnavailable({ cause }),
+      catch: (cause) =>
+        cause instanceof CorruptDeviceWallet
+          ? cause
+          : new KeyStoreUnavailable({ cause }),
     }),
   readSealed: () =>
     Effect.tryPromise({
       try: readSealedWallet,
-      catch: (cause) => new KeyStoreUnavailable({ cause }),
+      catch: (cause) =>
+        cause instanceof CorruptDeviceWallet
+          ? cause
+          : new KeyStoreUnavailable({ cause }),
     }),
   writeSealed: (wallet) =>
     Effect.tryPromise({
