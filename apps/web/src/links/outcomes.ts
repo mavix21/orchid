@@ -340,7 +340,7 @@ export const cancelLinkResult = (
           Match.when(
             "not_authorized",
             () =>
-              `${code} no permite que tu cuenta reciba dinero en este momento.`,
+              "El emisor de esta moneda no permite que tu cuenta reciba dinero.",
           ),
           Match.when(
             "no_capacity",
