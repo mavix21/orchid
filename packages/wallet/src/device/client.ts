@@ -55,6 +55,7 @@ export interface WalletClient {
   create(usernameText: string): Promise<CreateOutcome>;
   backUp(): Promise<BackUpOutcome>;
   restore(): Promise<RestoreOutcome>;
+  cancelRestore(): Promise<void>;
   send(intent: TransferIntent): Promise<SendOutcome>;
   review(intent: TransferIntent): Promise<ReviewOutcome>;
   confirm(review: PaymentReview): Promise<ResumeOutcome>;
@@ -75,6 +76,7 @@ export interface WalletEffects {
   create(usernameText: string): Effect.Effect<CreateOutcome>;
   backUp(): Effect.Effect<BackUpOutcome>;
   restore(): Effect.Effect<RestoreOutcome>;
+  cancelRestore(): Effect.Effect<void>;
   send(intent: TransferIntent): Effect.Effect<SendOutcome>;
   review(intent: TransferIntent): Effect.Effect<ReviewOutcome>;
   confirm(review: PaymentReview): Effect.Effect<ResumeOutcome>;
@@ -272,6 +274,10 @@ export function makeWalletEffects(
           ),
         ),
       ),
+    cancelRestore: () =>
+      restoreProgress.lock.withPermits(1)(
+        Ref.set(restoreProgress.pending, Option.none()),
+      ),
     send: (intent) =>
       transfer(sending.pipe(Effect.flatMap(({ send }) => send(intent)))),
     review: (intent) =>
@@ -319,6 +325,7 @@ export function makeWalletClient(
     create: (usernameText) => Effect.runPromise(effects.create(usernameText)),
     backUp: () => Effect.runPromise(effects.backUp()),
     restore: () => Effect.runPromise(effects.restore()),
+    cancelRestore: () => Effect.runPromise(effects.cancelRestore()),
     send: (intent) => Effect.runPromise(effects.send(intent)),
     review: (intent) => Effect.runPromise(effects.review(intent)),
     confirm: (shown) => Effect.runPromise(effects.confirm(shown)),

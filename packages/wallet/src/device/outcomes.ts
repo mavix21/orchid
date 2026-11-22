@@ -81,6 +81,11 @@ export class BackupUnsupported extends Schema.TaggedClass<BackupUnsupported>()(
   {},
 ) {}
 
+export class RestoreUnverified extends Schema.TaggedClass<RestoreUnverified>()(
+  "RestoreUnverified",
+  {},
+) {}
+
 export class BackupMismatch extends Schema.TaggedClass<BackupMismatch>()(
   "BackupMismatch",
   {},
@@ -125,6 +130,7 @@ export type RestoreOutcome =
   | NoBackup
   | AssertionRefused
   | BackupMismatch
+  | RestoreUnverified
   | UnsupportedDevice
   | CorruptDeviceWallet
   | WalletUnavailable;

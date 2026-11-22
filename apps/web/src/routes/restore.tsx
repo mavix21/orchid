@@ -1,5 +1,5 @@
 import { ChevronLeftIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import type {
@@ -41,6 +41,8 @@ const refusal = (outcome: Refusal) =>
       "No pudimos verificar esa passkey. Inténtalo de nuevo.",
     BackupMismatch: () =>
       "El respaldo no coincide con la cuenta. No lo guardamos.",
+    RestoreUnverified: () =>
+      "No pudimos comprobar la copia en este dispositivo. Tu respaldo sigue intacto. Inténtalo de nuevo.",
     UnsupportedDevice: () =>
       "Este navegador no puede guardar tu llave de forma segura.",
     CorruptDeviceWallet: () =>
@@ -80,6 +82,13 @@ function RestoreAccount() {
   const copy = stageCopy(progress);
 
   useHomeForSavedWallet();
+
+  useEffect(
+    () => () => {
+      void walletClient.cancelRestore();
+    },
+    [walletClient],
+  );
 
   const restore = async () => {
     setRestoring(true);

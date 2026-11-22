@@ -463,5 +463,17 @@ it.effect(
         Option.map(installed, (wallet) => wallet.public.reserveSponsor),
       ).toEqual(Option.some(reserveSponsor));
       expect(yield* browserKeyStore.readSealed()).toEqual(installed);
+
+      const spliced = Schema.encodeSync(SealedDeviceWallet)(
+        new SealedDeviceWallet({ ...first.record, envelope: other.envelope }),
+      );
+
+      yield* Effect.promise(() => putRawEntry("wallet", spliced));
+      expect(
+        yield* Effect.flip(browserKeyStore.installSealed(candidate)),
+      ).toBeInstanceOf(CorruptDeviceWallet);
+      expect(yield* Effect.promise(() => storedEntry("wallet"))).toEqual(
+        spliced,
+      );
     }),
 );

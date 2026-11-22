@@ -40,6 +40,7 @@ import {
   BackupUnsupported,
   type RestoreOutcome,
   RestoreSealed,
+  RestoreUnverified,
   Restored,
   UnsupportedDevice,
 } from "./outcomes";
@@ -263,7 +264,7 @@ export function deviceRestore(
                 : new BackupMismatch(),
             ),
           ),
-      CorruptEnvelope: () => Effect.succeed(new UnsupportedDevice()),
+      CorruptEnvelope: () => Effect.succeed(new RestoreUnverified()),
       WrongCredential: () => Effect.succeed(new AssertionRefused()),
       AssertionRejected: () => Effect.succeed(new AssertionRefused()),
       PrfOutputMissing: () => Effect.succeed(new BackupUnsupported()),

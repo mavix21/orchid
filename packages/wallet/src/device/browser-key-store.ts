@@ -164,6 +164,15 @@ function installable(
 ): Option.Option<SealedDeviceWallet> {
   if (Option.isNone(current)) return Option.some(candidate);
 
+  if (
+    !matchesEnvelopeContext(current.value.envelope, {
+      network,
+      address: current.value.public.address,
+      credentialId: current.value.credential.id,
+    })
+  )
+    throw new CorruptDeviceWallet();
+
   if (current.value.public.address !== candidate.public.address)
     return Option.none();
 
