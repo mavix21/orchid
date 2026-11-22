@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import type {
-  RestoreOpened,
+  BackupLocated,
   RestoreOutcome,
   RestoreSealed,
 } from "@workspace/wallet";
@@ -26,7 +26,7 @@ export const Route = createFileRoute("/restore")({
 
 type Refusal = Exclude<
   RestoreOutcome,
-  { _tag: "Restored" | "WalletOnDevice" | "RestoreOpened" | "RestoreSealed" }
+  { _tag: "Restored" | "BackupLocated" | "RestoreSealed" }
 >;
 
 const refusal = (outcome: Refusal) =>
@@ -43,6 +43,8 @@ const refusal = (outcome: Refusal) =>
       "El respaldo no coincide con la cuenta. No lo guardamos.",
     UnsupportedDevice: () =>
       "Este navegador no puede guardar tu llave de forma segura.",
+    CorruptDeviceWallet: () =>
+      "Los datos guardados en este dispositivo están dañados. No los reemplazamos.",
     Offline: unavailableMessage,
     ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
@@ -50,16 +52,16 @@ const refusal = (outcome: Refusal) =>
     InvalidResponse: unavailableMessage,
   });
 
-const stageCopy = (progress: RestoreOpened | RestoreSealed | undefined) =>
+const stageCopy = (progress: BackupLocated | RestoreSealed | undefined) =>
   Match.value(progress).pipe(
-    Match.tag("RestoreOpened", ({ profile }) => ({
-      description: `Abrimos el respaldo de @${profile.username}. Ahora guardamos tu cuenta en este dispositivo con otra confirmación de tu passkey.`,
-      action: "Guardar en este dispositivo",
+    Match.tag("BackupLocated", ({ profile }) => ({
+      description: `Encontramos el respaldo de @${profile.username}. Confirma con tu passkey para prepararlo en este dispositivo.`,
+      action: "Preparar en este dispositivo",
     })),
     Match.tag("RestoreSealed", () => ({
       description:
-        "Guardamos tu cuenta en este dispositivo. Confirma una vez más con tu passkey para comprobar que se abre.",
-      action: "Comprobar con passkey",
+        "Tu cuenta está lista para guardarse en este dispositivo. Una última confirmación con tu passkey comprueba que se abre y termina la restauración.",
+      action: "Terminar con passkey",
     })),
     Match.orElse(() => ({
       description:
@@ -74,7 +76,7 @@ function RestoreAccount() {
   const [restoring, setRestoring] = useState(false);
   const [problem, setProblem] = useState<string>();
   const [stopped, setStopped] = useState(false);
-  const [progress, setProgress] = useState<RestoreOpened | RestoreSealed>();
+  const [progress, setProgress] = useState<BackupLocated | RestoreSealed>();
   const copy = stageCopy(progress);
 
   useHomeForSavedWallet();
@@ -86,10 +88,8 @@ function RestoreAccount() {
     const outcome = await walletClient.restore();
 
     await Match.value(outcome).pipe(
-      Match.tag("Restored", "WalletOnDevice", () =>
-        navigate({ to: "/home", replace: true }),
-      ),
-      Match.tag("RestoreOpened", "RestoreSealed", (next) => {
+      Match.tag("Restored", () => navigate({ to: "/home", replace: true })),
+      Match.tag("BackupLocated", "RestoreSealed", (next) => {
         setProgress(next);
         setRestoring(false);
       }),

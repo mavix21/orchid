@@ -37,7 +37,7 @@ import {
   type UsernameTaken,
   type WalletUnavailable,
 } from "../contract";
-import { BackupState } from "./key-store";
+import { BackupState, type CorruptDeviceWallet } from "./key-store";
 import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";
 
 export class NoWallet extends Schema.TaggedClass<NoWallet>()("NoWallet", {}) {}
@@ -81,11 +81,6 @@ export class BackupUnsupported extends Schema.TaggedClass<BackupUnsupported>()(
   {},
 ) {}
 
-export class WalletOnDevice extends Schema.TaggedClass<WalletOnDevice>()(
-  "WalletOnDevice",
-  {},
-) {}
-
 export class BackupMismatch extends Schema.TaggedClass<BackupMismatch>()(
   "BackupMismatch",
   {},
@@ -95,8 +90,8 @@ export class Restored extends Schema.TaggedClass<Restored>()("Restored", {
   profile: Profile,
 }) {}
 
-export class RestoreOpened extends Schema.TaggedClass<RestoreOpened>()(
-  "RestoreOpened",
+export class BackupLocated extends Schema.TaggedClass<BackupLocated>()(
+  "BackupLocated",
   { profile: Profile },
 ) {}
 
@@ -121,9 +116,8 @@ export type BackUpOutcome =
 
 export type RestoreOutcome =
   | Restored
-  | RestoreOpened
+  | BackupLocated
   | RestoreSealed
-  | WalletOnDevice
   | BackupUnsupported
   | PasskeyCancelled
   | PasskeyFailed
@@ -132,6 +126,7 @@ export type RestoreOutcome =
   | AssertionRefused
   | BackupMismatch
   | UnsupportedDevice
+  | CorruptDeviceWallet
   | WalletUnavailable;
 
 export type DeviceOverview =

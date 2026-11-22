@@ -267,11 +267,11 @@ const restoringClient = makeWalletClient(
   },
 );
 
-const opened = await restoringClient.restore();
+const located = await restoringClient.restore();
 const sealed = await restoringClient.restore();
 const restored = await restoringClient.restore();
 
-assert.equal(opened._tag, "RestoreOpened");
+assert.equal(located._tag, "BackupLocated");
 
 assert.equal(sealed._tag, "RestoreSealed");
 

@@ -3,6 +3,7 @@ import * as Predicate from "effect/Predicate";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import {
   BackupStored,
   type TransferId,
@@ -40,7 +41,7 @@ import {
 } from "./outcomes";
 import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
 import { loadFromServer } from "./reaching";
-import type { PendingRestore, RestoreDevice } from "./restore";
+import type { RestoreDevice, RestoreProgress } from "./restore";
 
 export * from "./outcomes";
 
@@ -94,9 +95,10 @@ export function makeWalletEffects(
   passkeys: Passkeys,
   restoration?: RestoreDevice,
 ): WalletEffects {
-  const pendingRestore = Ref.makeUnsafe<Option.Option<PendingRestore>>(
-    Option.none(),
-  );
+  const restoreProgress: RestoreProgress = {
+    pending: Ref.makeUnsafe(Option.none()),
+    lock: Semaphore.makeUnsafe(1),
+  };
 
   const backups = loadFromServer(() => import("./backup")).pipe(
     Effect.map(({ deviceBackup }) => deviceBackup(port, passkeys, store)),
@@ -150,7 +152,7 @@ export function makeWalletEffects(
       port,
       passkeys,
       restoration,
-      pendingRestore,
+      restoreProgress,
     ).restore();
   });
 
@@ -262,7 +264,14 @@ export function makeWalletEffects(
       ),
     create: (usernameText) => settle(create(usernameText)),
     backUp: () => settle(backUp()),
-    restore: () => settle(restore()),
+    restore: () =>
+      settle(
+        restore().pipe(
+          Effect.catchTag("CorruptDeviceWallet", (damaged) =>
+            Effect.succeed(damaged),
+          ),
+        ),
+      ),
     send: (intent) =>
       transfer(sending.pipe(Effect.flatMap(({ send }) => send(intent)))),
     review: (intent) =>

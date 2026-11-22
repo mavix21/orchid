@@ -27,11 +27,10 @@ import {
   BackupMismatch,
   BackupUnsupported,
   PasskeyCancelled,
-  RestoreOpened,
+  BackupLocated,
   RestoreSealed,
   Restored,
   SavedWallet,
-  WalletOnDevice,
   type WalletEffects,
   makeWalletEffects,
 } from "../src/device/client";
@@ -40,6 +39,7 @@ import {
   SealedDeviceWallet,
 } from "../src/device/key-store";
 import {
+  LocalPhraseEnvelope,
   localPhrasePrfInput,
   reopenLocalEnvelope,
   sealLocalEnvelope,
@@ -89,11 +89,11 @@ const restoringDevice = (port: WalletPort, auth: SoftwareAuthenticator) =>
 
 const restoreOnFreshTaps = (client: WalletEffects) =>
   Effect.gen(function* () {
-    const opened = yield* client.restore();
+    const located = yield* client.restore();
     const sealed = yield* client.restore();
     const restored = yield* client.restore();
 
-    return { opened, sealed, restored };
+    return { located, sealed, restored };
   });
 
 const restoredPhrase = (auth: SoftwareAuthenticator) =>
@@ -251,7 +251,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const restoring = restoringDevice(wallet, auth);
           const steps = yield* restoreOnFreshTaps(restoring);
 
-          expect(steps.opened).toBeInstanceOf(RestoreOpened);
+          expect(steps.located).toBeInstanceOf(BackupLocated);
           expect(steps.sealed).toBeInstanceOf(RestoreSealed);
           expect(
             steps.restored instanceof Restored && steps.restored.profile,
@@ -266,10 +266,23 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(installed.public.username).toBe("maria");
           expect(installed.public.backup).toBe("stored");
           expect(yield* restoredPhrase(auth)).toBe(phrase);
-          expect(yield* restoring.restore()).toEqual(new WalletOnDevice());
-          expect(yield* browserKeyStore.readSealed()).toEqual(
-            Option.some(installed),
+
+          yield* browserKeyStore.writeSealed(
+            new SealedDeviceWallet({
+              ...installed,
+              envelope: new LocalPhraseEnvelope({
+                ...installed.envelope,
+                ciphertext: Uint8Array.from(
+                  installed.envelope.ciphertext,
+                  (byte) => byte ^ 1,
+                ),
+              }),
+            }),
           );
+          expect(
+            (yield* restoreOnFreshTaps(restoring)).restored,
+          ).toBeInstanceOf(Restored);
+          expect(yield* restoredPhrase(auth)).toBe(phrase);
 
           yield* Effect.promise(clearDatabase);
           const stranger = yield* enrollDisposableWallet("otro");
@@ -286,15 +299,17 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const db = yield* Database;
 
           yield* db.update(backups).set({ address: stranger.address });
-          expect(yield* restoringDevice(wallet, auth).restore()).toEqual(
-            new BackupMismatch(),
-          );
+
+          const tampered = restoringDevice(wallet, auth);
+
+          expect(yield* tampered.restore()).toBeInstanceOf(BackupLocated);
+          expect(yield* tampered.restore()).toEqual(new BackupMismatch());
           expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
         }),
     );
 
     it.effect(
-      "restore over the same address under another credential keeps the device's public state and a cancelled proof installs nothing",
+      "restore over the same address under another credential replaces the credential only after the proof tap, which can be cancelled and retried",
       () =>
         Effect.gen(function* () {
           yield* Effect.promise(clearDatabase);
@@ -345,11 +360,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           yield* browserKeyStore.writeSealed(
             new SealedDeviceWallet({
               version: 2,
-              public: new PublicDeviceWallet({
-                address,
-                username,
-                reserveSponsor: address,
-              }),
+              public: new PublicDeviceWallet({ address, username }),
               credential: oldCredential,
               envelope: oldSeal.envelope,
             }),
@@ -374,7 +385,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           expect(installed.credential.id).toBe(profile?.credentialId);
-          expect(installed.public.reserveSponsor).toBe(address);
           expect(installed.public.backup).toBe("stored");
           expect(yield* restoredPhrase(auth)).toBe(phrase);
         }),

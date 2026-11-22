@@ -208,7 +208,10 @@ async function installSealedWallet(
           try {
             let current = Option.none<SealedDeviceWallet>();
 
-            if (isCurrentVersion(request.result)) {
+            if (request.result !== undefined) {
+              if (!isCurrentVersion(request.result))
+                throw new CorruptDeviceWallet();
+
               current = decodeStoredWallet(request.result);
 
               if (Option.isNone(current)) throw new CorruptDeviceWallet();

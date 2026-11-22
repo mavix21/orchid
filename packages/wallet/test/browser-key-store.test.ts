@@ -20,6 +20,7 @@ import {
 import type { AssertionCeremony } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
+  CorruptDeviceWallet,
   PublicDeviceWallet,
   SealedDeviceWallet,
   clearStoredLink,
@@ -314,7 +315,7 @@ const unknownFormats = [
 ] as const;
 
 it.effect.each(unknownFormats)(
-  "treats %s as empty without upgrading it",
+  "treats %s as empty to read but never installs over it",
   ([, buildLegacyRecord]) =>
     Effect.gen(function* () {
       yield* Effect.promise(clearDatabase);
@@ -338,6 +339,11 @@ it.effect.each(unknownFormats)(
       expect(
         yield* browserKeyStore.updatePublic((current) => Option.some(current)),
       ).toEqual(Option.none());
+      expect(yield* Effect.promise(() => storedEntry("wallet"))).toEqual(raw);
+
+      expect(
+        yield* Effect.flip(browserKeyStore.installSealed(disposable.record)),
+      ).toBeInstanceOf(CorruptDeviceWallet);
       expect(yield* Effect.promise(() => storedEntry("wallet"))).toEqual(raw);
 
       yield* browserKeyStore.writeSealed(disposable.record);
