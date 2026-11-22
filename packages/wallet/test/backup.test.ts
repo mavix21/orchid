@@ -9,7 +9,6 @@ import * as TestClock from "effect/testing/TestClock";
 import {
   AssertionRefused,
   BackupFound,
-  BackupStored,
   ChallengeRefused,
   NoBackup,
   Offline,
@@ -22,7 +21,6 @@ import {
   BackupUnsupported,
   PasskeyCancelled,
   Restored,
-  SavedWallet,
   WalletOnDevice,
   makeWalletEffects,
 } from "../src/device/client";
@@ -118,7 +116,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "a cancelled passkey stops creation, claims nothing and can be retried",
+      "a cancelled passkey stops creation without storing a local wallet, claims nothing and can be retried",
       () =>
         Effect.gen(function* () {
           const wallet = yield* Wallet;
@@ -127,7 +125,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           auth.cancels = true;
           expect(yield* client.create("maria")).toEqual(new PasskeyCancelled());
-          const phrase = (yield* savedWallet(store)).phrase;
+          expect(yield* store.readPublic()).toEqual(Option.none());
 
           expect(yield* tableRows).toEqual({
             backups: [],
@@ -137,36 +135,28 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           auth.cancels = false;
           expect(yield* client.create("maria")).toBeInstanceOf(Opened);
-          expect((yield* savedWallet(store)).phrase).toBe(phrase);
+          expect((yield* savedWallet(store)).backup).toBe("stored");
         }),
     );
 
     it.effect(
-      "a passkey without PRF creates a device-only wallet that can back up later",
+      "a passkey without PRF refuses creation and stores neither a local wallet nor a backup",
       () =>
         Effect.gen(function* () {
           const wallet = yield* Wallet;
           const auth = new SoftwareAuthenticator(passkeyOrigin);
-          const { client } = device(wallet, auth);
+          const { store, client } = device(wallet, auth);
 
           auth.prf = false;
-          const created = yield* client.create("maria");
-          const saved = yield* client.saved();
-
-          expect(created).toBeInstanceOf(Opened);
-          expect(saved instanceof SavedWallet && saved.backup).toBe(
-            "deviceOnly",
+          expect(yield* client.create("maria")).toEqual(
+            new BackupUnsupported(),
           );
-          expect((yield* tableRows).backups).toEqual([]);
-          expect(yield* client.backUp()).toEqual(new BackupUnsupported());
-
-          auth.prf = true;
-          expect(yield* client.backUp()).toEqual(new BackupStored());
-          const restored = yield* device(wallet, auth).client.restore();
-
-          expect(restored instanceof Restored && restored.profile).toEqual(
-            created instanceof Opened && created.profile,
-          );
+          expect(yield* store.readPublic()).toEqual(Option.none());
+          expect(yield* tableRows).toEqual({
+            backups: [],
+            usernames: [],
+            wallets: [],
+          });
         }),
     );
 

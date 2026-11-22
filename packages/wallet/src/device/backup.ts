@@ -2,17 +2,11 @@ import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import {
-  type AccountAddress,
   BackupEnrollment,
   type BackupFound,
   type WalletPort,
 } from "../contract";
-import {
-  DeviceWallet,
-  type KeyStore,
-  PublicDeviceWallet,
-  remember,
-} from "./key-store";
+import { DeviceWallet, type KeyStore, remember } from "./key-store";
 import {
   BackupMismatch,
   BackupUnsupported,
@@ -29,30 +23,9 @@ export function deviceBackup(
   passkeys: Passkeys,
   store: KeyStore,
 ) {
-  const rememberBackup = (
-    address: AccountAddress,
-    backup: NonNullable<DeviceWallet["backup"]>,
-  ) =>
-    store
-      .updatePublic((current) =>
-        current.address === address &&
-        current.backup !== "stored" &&
-        current.backup !== backup
-          ? Option.some(new PublicDeviceWallet({ ...current, backup }))
-          : Option.none(),
-      )
-      .pipe(
-        Effect.map((result) =>
-          Option.isSome(result) &&
-          result.value.wallet.address === address &&
-          (result.value.wallet.backup === backup ||
-            result.value.wallet.backup === "stored")
-            ? result.value.wallet
-            : new UnsupportedDevice(),
-        ),
-      );
-
-  const enroll = Effect.fn("Device.enroll")(function* (wallet: DeviceWallet) {
+  const enroll = Effect.fn("Device.enroll")(function* (
+    wallet: Pick<DeviceWallet, "address" | "username" | "phrase">,
+  ) {
     const challenge = yield* port.passkeyChallenge("enrollment");
 
     const registered = yield* passkeys.register(
@@ -61,10 +34,9 @@ export function deviceBackup(
       yield* backupSalt,
     );
 
-    if (Option.isNone(registered))
-      return yield* rememberBackup(wallet.address, "deviceOnly");
+    if (Option.isNone(registered)) return new BackupUnsupported();
 
-    const step = yield* port.enroll(
+    return yield* port.enroll(
       new BackupEnrollment({
         address: wallet.address,
         username: wallet.username,
@@ -72,12 +44,6 @@ export function deviceBackup(
         sealed: yield* sealPhrase(registered.value.prf, wallet.phrase),
       }),
     );
-
-    return yield* Match.valueTags(step, {
-      BackupStored: () => rememberBackup(wallet.address, "stored"),
-      ChallengeRefused: Effect.succeed,
-      RegistrationRefused: Effect.succeed,
-    });
   });
 
   const keepRestored = Effect.fn("Device.keepRestored")(function* (

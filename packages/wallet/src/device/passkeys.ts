@@ -7,6 +7,7 @@ import type {
   PasskeyRegistration,
   Username,
 } from "../contract";
+import type { PrfInputs } from "./assertion";
 
 export class PasskeyCancelled extends Schema.TaggedError<PasskeyCancelled>()(
   "PasskeyCancelled",
@@ -26,6 +27,29 @@ export interface RegisteredPasskey {
 export interface AuthenticatedPasskey {
   readonly assertion: PasskeyAssertion;
   readonly prf: Uint8Array<ArrayBuffer>;
+}
+
+export interface RegistrationRequest {
+  readonly challenge: PasskeyChallenge;
+  readonly username: Username;
+  readonly prf: PrfInputs;
+}
+
+export interface PlatformRegistration {
+  readonly registration: PasskeyRegistration;
+  readonly prf: {
+    readonly first: Option.Option<Uint8Array<ArrayBuffer>>;
+    readonly second: Option.Option<Uint8Array<ArrayBuffer>>;
+  };
+}
+
+export interface RegistrationCeremony {
+  register(
+    request: RegistrationRequest,
+  ): Effect.Effect<
+    Option.Option<PlatformRegistration>,
+    PasskeyCancelled | PasskeyFailed
+  >;
 }
 
 export interface Passkeys {

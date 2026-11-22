@@ -96,6 +96,7 @@ export class Restored extends Schema.TaggedClass<Restored>()("Restored", {
 }) {}
 
 export type EnrollmentRefusal =
+  | BackupUnsupported
   | PasskeyCancelled
   | PasskeyFailed
   | ChallengeRefused

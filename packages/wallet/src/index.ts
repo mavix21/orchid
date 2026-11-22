@@ -10,8 +10,11 @@ export * from "./device/assertion";
 
 export * from "./device/local-envelope";
 
+export * from "./device/enrollment";
+
 export {
   browserAssertions,
   browserPasskeys,
+  browserRegistration,
   browserRelyingParty,
 } from "./device/browser-passkeys";

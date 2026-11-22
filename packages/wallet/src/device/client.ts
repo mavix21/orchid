@@ -16,7 +16,6 @@ import {
 } from "./key-store";
 import {
   type BackUpOutcome,
-  BackupUnsupported,
   type CancelPaymentLinkOutcome,
   type CreateOutcome,
   type CreatePaymentLinkOutcome,
@@ -127,11 +126,19 @@ export function makeWalletEffects(
 
     const enrolled = yield* (yield* backups).enroll(secret.value);
 
-    return enrolled instanceof PublicDeviceWallet
-      ? enrolled.backup === "stored"
-        ? new BackupStored()
-        : new BackupUnsupported()
-      : enrolled;
+    if (!Predicate.isTagged(enrolled, "BackupStored")) return enrolled;
+
+    const saved = yield* store.updatePublic((current) =>
+      current.address === stored.value.address && current.backup !== "stored"
+        ? Option.some(new PublicDeviceWallet({ ...current, backup: "stored" }))
+        : Option.none(),
+    );
+
+    return Option.isSome(saved) &&
+      saved.value.wallet.address === stored.value.address &&
+      saved.value.wallet.backup === "stored"
+      ? new BackupStored()
+      : new UnsupportedDevice();
   });
 
   const restore = Effect.fn("Device.restore")(function* () {
