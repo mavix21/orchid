@@ -5,13 +5,8 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import { PasskeyChallenge, Username } from "../src/contract";
-import { PinnedCredential } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
-import {
-  PublicDeviceWallet,
-  SealedDeviceWallet,
-} from "../src/device/key-store";
+import { SealedDeviceWallet } from "../src/device/key-store";
 import {
   LocalPhraseEnvelope,
   freshInstallationSalt,
@@ -22,51 +17,18 @@ import {
   sealLocalEnvelope,
 } from "../src/device/local-envelope";
 import { backupSalt } from "../src/device/phrase-seal";
-import {
-  type SecretPhrase,
-  generateSecretPhrase,
-} from "../src/device/secret-phrase";
-import { signingKey } from "../src/device/signing";
+import type { SecretPhrase } from "../src/device/secret-phrase";
 import { network } from "../src/stellar/network";
 import { addressOf } from "./device-fixtures";
-import { SoftwareAuthenticator } from "./software-authenticator";
+import {
+  clearDatabase,
+  enrollDisposableWallet,
+  putRawEntry,
+  relyingParty,
+} from "./sealed-wallet-fixtures";
 import { assertTagged } from "./tagged";
 
-const relyingParty = { origin: "http://localhost:3000", rpId: "localhost" };
-const dummyChallenge = Schema.decodeSync(PasskeyChallenge)("A".repeat(43));
 const encoder = new TextEncoder();
-
-const withEntryStore = <A>(
-  mode: IDBTransactionMode,
-  run: (store: IDBObjectStore) => IDBRequest<A>,
-) =>
-  new Promise<A>((resolve, reject) => {
-    const request = indexedDB.open("orchid-device", 1);
-
-    request.addEventListener("upgradeneeded", () => {
-      if (!request.result.objectStoreNames.contains("entries"))
-        request.result.createObjectStore("entries");
-    });
-    request.addEventListener("error", () => reject(request.error));
-    request.addEventListener("success", () => {
-      const transaction = request.result.transaction("entries", mode);
-      const op = run(transaction.objectStore("entries"));
-
-      op.addEventListener("error", () => reject(op.error));
-      transaction.addEventListener("error", () => reject(transaction.error));
-      transaction.addEventListener("abort", () => reject(transaction.error));
-      transaction.addEventListener("complete", () => {
-        request.result.close();
-        resolve(op.result);
-      });
-    });
-  });
-
-const clearDatabase = () =>
-  withEntryStore("readwrite", (store) => store.clear());
-
-const putEncodedRecord = (value: typeof SealedDeviceWallet.Encoded) =>
-  withEntryStore("readwrite", (store) => store.put(value, "wallet"));
 
 const canonicalTuple = (
   parts: ReadonlyArray<Uint8Array>,
@@ -155,63 +117,6 @@ const forgeAuthenticatedEnvelope = (
       iv,
       ciphertext,
     });
-  });
-
-const enrollDisposableWallet = (name = "maria") =>
-  Effect.gen(function* () {
-    const phrase = generateSecretPhrase();
-    const address = addressOf(signingKey(phrase));
-    const username = Schema.decodeSync(Username)(name);
-    const auth = new SoftwareAuthenticator(relyingParty.origin);
-    const salt = freshInstallationSalt();
-    const prfInput = yield* localPhrasePrfInput({ network, address, salt });
-
-    const registered = Option.getOrThrow(
-      yield* auth.passkeys.register(dummyChallenge, username, prfInput),
-    );
-
-    const credential = new PinnedCredential({
-      id: registered.registration.id,
-      publicKey: registered.registration.publicKey,
-      algorithm: "ES256",
-    });
-
-    const prf = Redacted.make(Uint8Array.from(registered.prf));
-
-    const sealed = yield* sealLocalEnvelope(
-      {
-        phrase,
-        network,
-        address,
-        credentialId: credential.id,
-        salt,
-      },
-      prf,
-    );
-
-    assertTagged(sealed, "EnvelopeSealed");
-
-    const record = new SealedDeviceWallet({
-      version: localEnvelopeVersion,
-      public: new PublicDeviceWallet({
-        address,
-        username,
-        backup: "stored",
-      }),
-      credential,
-      envelope: sealed.envelope,
-    });
-
-    return {
-      phrase,
-      address,
-      auth,
-      salt,
-      prf,
-      credential,
-      envelope: sealed.envelope,
-      record,
-    };
   });
 
 const flipFirstByte = (bytes: Uint8Array) => {
@@ -307,7 +212,7 @@ it.effect.each(corruptEnvelopeCases)(
       });
 
       yield* Effect.promise(() =>
-        putEncodedRecord(Schema.encodeSync(SealedDeviceWallet)(tampered)),
+        putRawEntry("wallet", Schema.encodeSync(SealedDeviceWallet)(tampered)),
       );
 
       const persisted = Option.getOrThrow(yield* browserKeyStore.readSealed());

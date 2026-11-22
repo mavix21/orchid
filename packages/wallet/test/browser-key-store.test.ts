@@ -4,11 +4,11 @@ import { Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
   BalanceId,
-  PasskeyChallenge,
   PaymentLinkReceipt,
   PaymentLinkRecipient,
   PositiveAmount,
@@ -17,11 +17,7 @@ import {
   Username,
   baseAsset,
 } from "../src/contract";
-import {
-  type AssertionCeremony,
-  type AssertionRequest,
-  PinnedCredential,
-} from "../src/device/assertion";
+import type { AssertionCeremony } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
   PublicDeviceWallet,
@@ -29,165 +25,58 @@ import {
   clearStoredLink,
 } from "../src/device/key-store";
 import {
-  type LocalPhraseEnvelope,
-  freshInstallationSalt,
-  localEnvelopeVersion,
-  localPhrasePrfInput,
   reopenLocalEnvelope,
   sealLocalEnvelope,
 } from "../src/device/local-envelope";
-import { generateSecretPhrase } from "../src/device/secret-phrase";
-import { signingKey } from "../src/device/signing";
 import { network } from "../src/stellar/network";
 import { addressOf } from "./device-fixtures";
-import { SoftwareAuthenticator } from "./software-authenticator";
+import {
+  type RawStoredEntry,
+  clearDatabase,
+  enrollDisposableWallet,
+  putRawEntry,
+  relyingParty,
+  storedEntry,
+  storedKeys,
+} from "./sealed-wallet-fixtures";
 import { assertTagged } from "./tagged";
 
-const relyingParty = { origin: "http://localhost:3000", rpId: "localhost" };
-const dummyChallenge = Schema.decodeSync(PasskeyChallenge)("A".repeat(43));
+const normalizeBytes = (bytes: Uint8Array) =>
+  `${Buffer.from(bytes).toString("base64")}:${Buffer.from(bytes).toString("hex")}`;
 
-const withEntryStore = <A>(
-  mode: IDBTransactionMode,
-  run: (store: IDBObjectStore) => IDBRequest<A>,
-) =>
-  new Promise<A>((resolve, reject) => {
-    const request = indexedDB.open("orchid-device", 1);
+const unwrapValue = <A>(value: A): Schema.Json => {
+  if (Redacted.isRedacted(value)) return unwrapValue(Redacted.value(value));
 
-    request.addEventListener("upgradeneeded", () => {
-      if (!request.result.objectStoreNames.contains("entries"))
-        request.result.createObjectStore("entries");
-    });
-    request.addEventListener("error", () => reject(request.error));
-    request.addEventListener("success", () => {
-      const transaction = request.result.transaction("entries", mode);
-      const op = run(transaction.objectStore("entries"));
+  if (value instanceof Uint8Array) return normalizeBytes(value);
 
-      op.addEventListener("error", () => reject(op.error));
-      transaction.addEventListener("error", () => reject(transaction.error));
-      transaction.addEventListener("abort", () => reject(transaction.error));
-      transaction.addEventListener("complete", () => {
-        request.result.close();
-        resolve(op.result);
-      });
-    });
-  });
+  if (value instanceof ArrayBuffer)
+    return normalizeBytes(new Uint8Array(value));
 
-const clearDatabase = () =>
-  withEntryStore("readwrite", (store) => store.clear());
-
-const storedEntry = (name: string) =>
-  withEntryStore("readonly", (store) => store.get(name));
-
-const storedKeys = () =>
-  withEntryStore("readonly", (store) => store.getAllKeys());
-
-type RawStoredEntry =
-  | {
-      readonly address: string;
-      readonly username: string;
-      readonly iv: string;
-      readonly phrase: string;
-    }
-  | (Omit<typeof SealedDeviceWallet.Encoded, "version"> & {
-      readonly version: number;
-    })
-  | (Omit<typeof SealedDeviceWallet.Encoded, "credential"> & {
-      readonly credential: {
-        readonly id: string;
-        readonly publicKey: string;
-        readonly algorithm: string;
-      };
-    })
-  | (Omit<typeof SealedDeviceWallet.Encoded, "envelope"> & {
-      readonly envelope: Omit<
-        typeof LocalPhraseEnvelope.Encoded,
-        "ciphertext"
-      > & {
-        readonly ciphertext: string;
-      };
-    })
-  | typeof SealedDeviceWallet.Encoded
-  | CryptoKey;
-
-const putRawEntry = (name: string, value: RawStoredEntry) =>
-  withEntryStore("readwrite", (store) => store.put(value, name));
-
-const serializeRequest = (request: AssertionRequest) =>
-  JSON.stringify(request, (_key, value) => {
-    const unwrapped = Redacted.isRedacted(value)
-      ? Redacted.value(value)
-      : value;
-
-    if (unwrapped instanceof Uint8Array)
-      return `${Buffer.from(unwrapped).toString("base64")}:${Buffer.from(unwrapped).toString("hex")}`;
-
-    if (unwrapped instanceof ArrayBuffer)
-      return `${Buffer.from(unwrapped).toString("base64")}:${Buffer.from(unwrapped).toString("hex")}`;
-
-    return unwrapped;
-  });
-
-const enrollDisposableWallet = (name = "maria") =>
-  Effect.gen(function* () {
-    const phrase = generateSecretPhrase();
-    const key = signingKey(phrase);
-    const address = addressOf(key);
-    const username = Schema.decodeSync(Username)(name);
-    const auth = new SoftwareAuthenticator(relyingParty.origin);
-    const salt = freshInstallationSalt();
-    const prfInput = yield* localPhrasePrfInput({ network, address, salt });
-
-    const registered = Option.getOrThrow(
-      yield* auth.passkeys.register(dummyChallenge, username, prfInput),
+  if (ArrayBuffer.isView(value))
+    return normalizeBytes(
+      new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
     );
 
-    const credential = new PinnedCredential({
-      id: registered.registration.id,
-      publicKey: registered.registration.publicKey,
-      algorithm: "ES256",
-    });
+  if (Array.isArray(value)) return value.map((item) => unwrapValue(item));
 
-    const prf = Redacted.make(Uint8Array.from(registered.prf));
-
-    const sealed = yield* sealLocalEnvelope(
-      {
-        phrase,
-        network,
-        address,
-        credentialId: credential.id,
-        salt,
-      },
-      prf,
+  if (Predicate.isObject(value))
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, unwrapValue(entry)]),
     );
 
-    assertTagged(sealed, "EnvelopeSealed");
+  if (Predicate.isString(value)) return value;
 
-    const publicWallet = new PublicDeviceWallet({
-      address,
-      username,
-      backup: "stored",
-    });
+  if (Predicate.isNumber(value)) return value;
 
-    const record = new SealedDeviceWallet({
-      version: localEnvelopeVersion,
-      public: publicWallet,
-      credential,
-      envelope: sealed.envelope,
-    });
+  if (Predicate.isBoolean(value)) return value;
 
-    return {
-      phrase,
-      key,
-      address,
-      auth,
-      salt,
-      prf,
-      credential,
-      publicWallet,
-      envelope: sealed.envelope,
-      record,
-    };
-  });
+  if (value === null) return null;
+
+  return String(value);
+};
+
+const serializeForLeakCheck = <A>(value: A) =>
+  JSON.stringify(unwrapValue(value));
 
 it.effect(
   "seals, persists without leaking secrets, updates public metadata atomically, and reopens with a fresh pinned assertion",
@@ -224,7 +113,7 @@ it.effect(
       const observingCeremony: AssertionCeremony = {
         assert: (request) =>
           Effect.sync(() => {
-            requestPayloads.push(serializeRequest(request));
+            requestPayloads.push(serializeForLeakCheck(request));
           }).pipe(Effect.andThen(disposable.auth.assertions.assert(request))),
       };
 
@@ -307,7 +196,7 @@ it.effect(
 
       const keys = yield* Effect.promise(storedKeys);
       const rawRecord = yield* Effect.promise(() => storedEntry("wallet"));
-      const serializedRecord = JSON.stringify(rawRecord);
+      const serializedRecord = serializeForLeakCheck(rawRecord);
       const serializedRequests = requestPayloads.join("\n");
       const serializedLogs = logLines.join("\n");
       const prfBytes = Redacted.value(disposable.prf);
