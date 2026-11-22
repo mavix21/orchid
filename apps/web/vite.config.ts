@@ -33,7 +33,7 @@ function walletBoundaryProbe(): Plugin {
   };
 }
 
-const config = defineConfig(({ command, mode }) => {
+const config = defineConfig(({ command, mode, isPreview }) => {
   if (command === "serve" && mode === "neon") {
     const { DATABASE_URL_UNPOOLED } = loadEnv(
       mode,
@@ -50,11 +50,31 @@ const config = defineConfig(({ command, mode }) => {
     }
   }
 
+  const phoneOrigin =
+    command === "serve" && !isPreview && process.env.ORCHID_PHONE_ORIGIN
+      ? new URL(process.env.ORCHID_PHONE_ORIGIN)
+      : undefined;
+
   return {
     resolve: { tsconfigPaths: true },
+    ...(phoneOrigin && {
+      server: {
+        allowedHosts: [phoneOrigin.hostname],
+        hmr: { protocol: "wss", clientPort: Number(phoneOrigin.port) },
+      },
+    }),
     plugins: [
       walletBoundaryProbe(),
-      cloudflare({ viteEnvironment: { name: "ssr" } }),
+      cloudflare({
+        viteEnvironment: { name: "ssr" },
+        ...(phoneOrigin && {
+          config: {
+            vars: {
+              PASSKEY_ORIGINS: `http://localhost:3000,${phoneOrigin.origin}`,
+            },
+          },
+        }),
+      }),
       tailwindcss(),
       tanstackStart({
         importProtection: { include: ["src/**", "**/packages/wallet/src/**"] },
