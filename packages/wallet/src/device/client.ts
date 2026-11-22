@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import {
   BackupStored,
@@ -39,6 +40,7 @@ import {
 } from "./outcomes";
 import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
 import { loadFromServer } from "./reaching";
+import type { PendingRestore, RestoreDevice } from "./restore";
 
 export * from "./outcomes";
 
@@ -90,7 +92,12 @@ export function makeWalletEffects(
   port: WalletPort,
   store: KeyStore,
   passkeys: Passkeys,
+  restoration?: RestoreDevice,
 ): WalletEffects {
+  const pendingRestore = Ref.makeUnsafe<Option.Option<PendingRestore>>(
+    Option.none(),
+  );
+
   const backups = loadFromServer(() => import("./backup")).pipe(
     Effect.map(({ deviceBackup }) => deviceBackup(port, passkeys, store)),
   );
@@ -135,7 +142,16 @@ export function makeWalletEffects(
   });
 
   const restore = Effect.fn("Device.restore")(function* () {
-    return yield* (yield* backups).restore();
+    if (restoration === undefined) return new UnsupportedDevice();
+
+    const { deviceRestore } = yield* loadFromServer(() => import("./restore"));
+
+    return yield* deviceRestore(
+      port,
+      passkeys,
+      restoration,
+      pendingRestore,
+    ).restore();
   });
 
   const overview = Effect.fn("Device.overview")(function* () {
@@ -284,8 +300,9 @@ export function makeWalletClient(
   port: WalletPort,
   store: KeyStore,
   passkeys: Passkeys,
+  restoration?: RestoreDevice,
 ): WalletClient {
-  const effects = makeWalletEffects(port, store, passkeys);
+  const effects = makeWalletEffects(port, store, passkeys, restoration);
 
   return {
     overview: () => Effect.runPromise(effects.overview()),

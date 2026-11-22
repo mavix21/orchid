@@ -1,3 +1,4 @@
+import "fake-indexeddb/auto";
 import assert from "node:assert/strict";
 import {
   FeeBumpTransaction,
@@ -23,6 +24,7 @@ import {
   UsernameRecipient,
   assetKey,
   baseAsset,
+  browserKeyStore,
   makeWalletClient,
 } from "@workspace/wallet";
 import { signingKey } from "../src/device/signing";
@@ -251,15 +253,27 @@ console.log(
   `PASS device client paid 0.5 USDC from ${username} to ${recipientName} in ${paymentRecord.hash}.`,
 );
 
-const restoredDevice = memoryKeyStore();
-
 const restoringClient = makeWalletClient(
   await run(Wallet),
-  restoredDevice.store,
+  memoryKeyStore().store,
   authenticator.passkeys,
+  {
+    store: browserKeyStore,
+    ceremony: authenticator.assertions,
+    relyingParty: () => ({
+      origin: passkeyOrigin,
+      rpId: new URL(passkeyOrigin).hostname,
+    }),
+  },
 );
 
+const opened = await restoringClient.restore();
+const sealed = await restoringClient.restore();
 const restored = await restoringClient.restore();
+
+assert.equal(opened._tag, "RestoreOpened");
+
+assert.equal(sealed._tag, "RestoreSealed");
 
 assert.ok(
   restored instanceof Restored,
@@ -268,9 +282,11 @@ assert.ok(
 
 assert.equal(restored.profile.username, username);
 
-assert.equal(Option.getOrThrow(restoredDevice.saved()).phrase, wallet.phrase);
-
-assert.ok((await restoringClient.overview()) instanceof Holding);
+assert.equal(
+  Option.getOrThrow(await Effect.runPromise(browserKeyStore.readSealed()))
+    .public.address,
+  wallet.address,
+);
 
 console.log(
   "PASS a second device restores the same wallet from its passkey backup.",

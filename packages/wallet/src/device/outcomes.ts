@@ -95,6 +95,16 @@ export class Restored extends Schema.TaggedClass<Restored>()("Restored", {
   profile: Profile,
 }) {}
 
+export class RestoreOpened extends Schema.TaggedClass<RestoreOpened>()(
+  "RestoreOpened",
+  { profile: Profile },
+) {}
+
+export class RestoreSealed extends Schema.TaggedClass<RestoreSealed>()(
+  "RestoreSealed",
+  { profile: Profile },
+) {}
+
 export type EnrollmentRefusal =
   | PasskeyCancelled
   | PasskeyFailed
@@ -111,6 +121,8 @@ export type BackUpOutcome =
 
 export type RestoreOutcome =
   | Restored
+  | RestoreOpened
+  | RestoreSealed
   | WalletOnDevice
   | BackupUnsupported
   | PasskeyCancelled

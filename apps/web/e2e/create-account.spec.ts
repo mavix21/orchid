@@ -73,6 +73,8 @@ test("creates a backed-up testnet wallet and restores it after the device forget
   await page.getByTestId("start-restore").click();
   await expect(page).toHaveURL("/restore");
   await page.getByTestId("restore-submit").click();
+  await page.getByTestId("restore-submit").click();
+  await page.getByTestId("restore-submit").click();
 
   await expect(page).toHaveURL("/home", { timeout: 60_000 });
   await expect(page.getByText(`@${username}`)).toBeVisible({

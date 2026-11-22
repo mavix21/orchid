@@ -2,8 +2,11 @@ import {
   type CorruptDeviceWallet,
   type KeyStore,
   KeyStoreUnavailable,
+  type SealedKeyStore,
+  browserAssertions,
   browserKeyStore,
   browserPasskeys,
+  browserRelyingParty,
   makeWalletEffects,
 } from "@workspace/wallet";
 import * as Effect from "effect/Effect";
@@ -49,8 +52,25 @@ const deviceKeyStore: KeyStore = {
     ),
 };
 
+const restoreKeyStore: SealedKeyStore = {
+  ...browserKeyStore,
+  installSealed: (candidate) =>
+    browserKeyStore.installSealed(candidate).pipe(
+      Effect.tap((installed) =>
+        Effect.sync(() => {
+          if (Option.isSome(installed)) markWalletOnDevice(true);
+        }),
+      ),
+    ),
+};
+
 export const walletEffects = makeWalletEffects(
   port,
   deviceKeyStore,
   browserPasskeys,
+  {
+    store: restoreKeyStore,
+    ceremony: browserAssertions,
+    relyingParty: browserRelyingParty,
+  },
 );

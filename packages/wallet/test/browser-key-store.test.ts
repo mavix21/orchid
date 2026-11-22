@@ -402,3 +402,60 @@ it.effect.each(damagedV2Records)(
       expect(yield* Effect.promise(() => storedEntry("wallet"))).toEqual(raw);
     }),
 );
+
+it.effect(
+  "installs a candidate only over no wallet or the same address and never replaces a different wallet",
+  () =>
+    Effect.gen(function* () {
+      yield* Effect.promise(clearDatabase);
+
+      const first = yield* enrollDisposableWallet("maria");
+      const other = yield* enrollDisposableWallet("otro");
+
+      expect(yield* browserKeyStore.installSealed(first.record)).toEqual(
+        Option.some(first.record),
+      );
+
+      expect(yield* browserKeyStore.installSealed(other.record)).toEqual(
+        Option.none(),
+      );
+      expect(yield* browserKeyStore.readSealed()).toEqual(
+        Option.some(first.record),
+      );
+
+      const reserveSponsor = other.address;
+
+      yield* browserKeyStore.updatePublic((current) =>
+        Option.some(new PublicDeviceWallet({ ...current, reserveSponsor })),
+      );
+
+      const reinstalled = yield* sealLocalEnvelope(
+        {
+          phrase: first.phrase,
+          network,
+          address: first.address,
+          credentialId: other.credential.id,
+          salt: other.salt,
+        },
+        other.prf,
+      );
+
+      assertTagged(reinstalled, "EnvelopeSealed");
+
+      const candidate = new SealedDeviceWallet({
+        ...first.record,
+        credential: other.credential,
+        envelope: reinstalled.envelope,
+      });
+
+      const installed = yield* browserKeyStore.installSealed(candidate);
+
+      expect(Option.map(installed, (wallet) => wallet.credential.id)).toEqual(
+        Option.some(other.credential.id),
+      );
+      expect(
+        Option.map(installed, (wallet) => wallet.public.reserveSponsor),
+      ).toEqual(Option.some(reserveSponsor));
+      expect(yield* browserKeyStore.readSealed()).toEqual(installed);
+    }),
+);

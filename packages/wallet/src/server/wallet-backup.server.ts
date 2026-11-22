@@ -159,7 +159,12 @@ export const backupFlow = Effect.gen(function* () {
 
     yield* backups.advance(backup.credentialId, verified.value.counter);
 
-    return new BackupFound({ profile: backup.profile, sealed: backup.sealed });
+    return new BackupFound({
+      profile: backup.profile,
+      sealed: backup.sealed,
+      publicKey: backup.publicKey,
+      algorithm: backup.algorithm,
+    });
   });
 
   return {
