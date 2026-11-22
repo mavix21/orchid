@@ -24,6 +24,8 @@ import {
   PasskeyCancelled,
   PasskeyFailed,
   type Passkeys,
+  type PlatformRegistration,
+  type RegistrationCeremony,
 } from "../src/device/passkeys";
 
 interface SoftwareCredential {
@@ -91,10 +93,13 @@ const makeCredential = (id: Buffer): SoftwareCredential => {
 export class SoftwareAuthenticator {
   private current: SoftwareCredential | undefined;
   prf = true;
+  prfOnCreate = true;
+  webAuthnAvailable = true;
   cancels = false;
   userVerified = true;
   readonly issued: Array<PasskeyAssertion> = [];
   readonly requested: Array<Option.Option<PrfInputs>> = [];
+  readonly registered: Array<PasskeyRegistration> = [];
 
   constructor(public origin: string) {}
 
@@ -146,50 +151,93 @@ export class SoftwareAuthenticator {
     this.current = makeCredential(Buffer.from(id, "base64url"));
   }
 
+  private createRegistration(challenge: PasskeyChallenge) {
+    const credential = makeCredential(randomBytes(16));
+
+    this.current = credential;
+    const idLength = Buffer.alloc(2);
+
+    idLength.writeUInt16BE(credential.id.length);
+
+    const authenticatorData = Buffer.concat([
+      this.rpIdHash(),
+      Buffer.from([userPresentAndVerified | attestedCredentialData]),
+      counterBytes(credential.signCount),
+      Buffer.alloc(16),
+      idLength,
+      credential.id,
+      coseKey(credential.publicKey),
+    ]);
+
+    const registration = new PasskeyRegistration({
+      id: Schema.decodeSync(CredentialId)(credential.id.toString("base64url")),
+      clientDataJSON: this.clientData("webauthn.create", challenge).toString(
+        "base64url",
+      ),
+      authenticatorData: authenticatorData.toString("base64url"),
+      attestationObject:
+        noneAttestation(authenticatorData).toString("base64url"),
+      publicKey: credential.publicKey
+        .export({ type: "spki", format: "der" })
+        .toString("base64url"),
+      publicKeyAlgorithm: -7,
+      transports: ["internal"],
+    });
+
+    this.registered.push(registration);
+
+    return { credential, registration };
+  }
+
+  readonly registration: RegistrationCeremony = {
+    register: (request) =>
+      Effect.suspend(
+        (): Effect.Effect<
+          Option.Option<PlatformRegistration>,
+          PasskeyCancelled | PasskeyFailed
+        > => {
+          if (!this.webAuthnAvailable) return Effect.succeed(Option.none());
+
+          if (this.cancels) return Effect.fail(new PasskeyCancelled());
+
+          const { credential, registration } = this.createRegistration(
+            request.challenge,
+          );
+
+          const evaluateOnCreate = this.prf && this.prfOnCreate;
+
+          return Effect.succeed(
+            Option.some({
+              registration,
+              prf: {
+                first: evaluateOnCreate
+                  ? Option.some(this.evaluate(credential, request.prf.first))
+                  : Option.none(),
+                second: evaluateOnCreate
+                  ? Option.map(request.prf.second, (salt) =>
+                      this.evaluate(credential, salt),
+                    )
+                  : Option.none(),
+              },
+            }),
+          );
+        },
+      ),
+  };
+
   readonly passkeys: Passkeys = {
     register: (challenge, _username, salt) =>
       Effect.suspend(() => {
         if (this.cancels) return Effect.fail(new PasskeyCancelled());
 
-        const credential = makeCredential(randomBytes(16));
-
-        this.current = credential;
-        const idLength = Buffer.alloc(2);
-
-        idLength.writeUInt16BE(credential.id.length);
-
-        const authenticatorData = Buffer.concat([
-          this.rpIdHash(),
-          Buffer.from([userPresentAndVerified | attestedCredentialData]),
-          counterBytes(credential.signCount),
-          Buffer.alloc(16),
-          idLength,
-          credential.id,
-          coseKey(credential.publicKey),
-        ]);
+        const { credential, registration } = this.createRegistration(challenge);
 
         if (!this.prf) return Effect.succeed(Option.none());
 
         return Effect.succeed(
           Option.some({
             prf: this.evaluate(credential, salt),
-            registration: new PasskeyRegistration({
-              id: Schema.decodeSync(CredentialId)(
-                credential.id.toString("base64url"),
-              ),
-              clientDataJSON: this.clientData(
-                "webauthn.create",
-                challenge,
-              ).toString("base64url"),
-              authenticatorData: authenticatorData.toString("base64url"),
-              attestationObject:
-                noneAttestation(authenticatorData).toString("base64url"),
-              publicKey: credential.publicKey
-                .export({ type: "spki", format: "der" })
-                .toString("base64url"),
-              publicKeyAlgorithm: -7,
-              transports: ["internal"],
-            }),
+            registration,
           }),
         );
       }),

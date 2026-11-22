@@ -54,11 +54,11 @@ const deviceKeyStore: KeyStore = {
 
 const restoreKeyStore: SealedKeyStore = {
   ...browserKeyStore,
-  installSealed: (candidate) =>
-    browserKeyStore.installSealed(candidate).pipe(
+  installSealed: (candidate, replacing) =>
+    browserKeyStore.installSealed(candidate, replacing).pipe(
       Effect.tap((installed) =>
         Effect.sync(() => {
-          if (Option.isSome(installed)) markWalletOnDevice(true);
+          if (installed) markWalletOnDevice(true);
         }),
       ),
     ),

@@ -315,7 +315,7 @@ const unknownFormats = [
 ] as const;
 
 it.effect.each(unknownFormats)(
-  "treats %s as empty to read but never installs over it",
+  "treats %s as empty without upgrading it",
   ([, buildLegacyRecord]) =>
     Effect.gen(function* () {
       yield* Effect.promise(clearDatabase);
@@ -339,11 +339,6 @@ it.effect.each(unknownFormats)(
       expect(
         yield* browserKeyStore.updatePublic((current) => Option.some(current)),
       ).toEqual(Option.none());
-      expect(yield* Effect.promise(() => storedEntry("wallet"))).toEqual(raw);
-
-      expect(
-        yield* Effect.flip(browserKeyStore.installSealed(disposable.record)),
-      ).toBeInstanceOf(CorruptDeviceWallet);
       expect(yield* Effect.promise(() => storedEntry("wallet"))).toEqual(raw);
 
       yield* browserKeyStore.writeSealed(disposable.record);
@@ -410,7 +405,7 @@ it.effect.each(damagedV2Records)(
 );
 
 it.effect(
-  "installs a candidate only over no wallet or the same address and never replaces a different wallet",
+  "replaces an installed wallet only for the same address and never a different wallet",
   () =>
     Effect.gen(function* () {
       yield* Effect.promise(clearDatabase);
@@ -418,13 +413,10 @@ it.effect(
       const first = yield* enrollDisposableWallet("maria");
       const other = yield* enrollDisposableWallet("otro");
 
-      expect(yield* browserKeyStore.installSealed(first.record)).toEqual(
-        Option.some(first.record),
-      );
-
-      expect(yield* browserKeyStore.installSealed(other.record)).toEqual(
-        Option.none(),
-      );
+      expect(yield* browserKeyStore.installSealed(first.record)).toBe(true);
+      expect(
+        yield* browserKeyStore.installSealed(other.record, "same-address"),
+      ).toBe(false);
       expect(yield* browserKeyStore.readSealed()).toEqual(
         Option.some(first.record),
       );
@@ -454,15 +446,15 @@ it.effect(
         envelope: reinstalled.envelope,
       });
 
-      const installed = yield* browserKeyStore.installSealed(candidate);
-
-      expect(Option.map(installed, (wallet) => wallet.credential.id)).toEqual(
-        Option.some(other.credential.id),
-      );
+      expect(yield* browserKeyStore.installSealed(candidate)).toBe(false);
       expect(
-        Option.map(installed, (wallet) => wallet.public.reserveSponsor),
-      ).toEqual(Option.some(reserveSponsor));
-      expect(yield* browserKeyStore.readSealed()).toEqual(installed);
+        yield* browserKeyStore.installSealed(candidate, "same-address"),
+      ).toBe(true);
+
+      const installed = Option.getOrThrow(yield* browserKeyStore.readSealed());
+
+      expect(installed.credential.id).toBe(other.credential.id);
+      expect(installed.public.reserveSponsor).toBe(reserveSponsor);
 
       const spliced = Schema.encodeSync(SealedDeviceWallet)(
         new SealedDeviceWallet({ ...first.record, envelope: other.envelope }),
@@ -470,7 +462,9 @@ it.effect(
 
       yield* Effect.promise(() => putRawEntry("wallet", spliced));
       expect(
-        yield* Effect.flip(browserKeyStore.installSealed(candidate)),
+        yield* Effect.flip(
+          browserKeyStore.installSealed(candidate, "same-address"),
+        ),
       ).toBeInstanceOf(CorruptDeviceWallet);
       expect(yield* Effect.promise(() => storedEntry("wallet"))).toEqual(
         spliced,

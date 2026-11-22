@@ -1,4 +1,3 @@
-import "fake-indexeddb/auto";
 import assert from "node:assert/strict";
 import {
   FeeBumpTransaction,
@@ -10,29 +9,35 @@ import * as Effect from "effect/Effect";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
   type CreateOutcome,
+  DeviceWallet,
   Holding,
   Opened,
   PositiveAmount,
   Restored,
+  type SealedDeviceWallet,
+  type SealedKeyStore,
   type SendOutcome,
   Settled,
   TransferIntent,
   Username,
   UsernameRecipient,
+  type WalletPort,
   assetKey,
   baseAsset,
-  browserKeyStore,
+  makeEnrollmentEffects,
   makeWalletClient,
+  reopenLocalEnvelope,
 } from "@workspace/wallet";
 import { signingKey } from "../src/device/signing";
 import { SoftwareAuthenticator } from "../test/software-authenticator";
 import { Chain } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
 import { Wallet } from "../src/server/Wallet.server";
-import { networkPassphrase, usdc } from "../src/stellar/network";
+import { network, networkPassphrase, usdc } from "../src/stellar/network";
 import {
   freshDatabase,
   memoryKeyStore,
@@ -60,10 +65,98 @@ const run = <A, E>(program: Effect.Effect<A, E, Wallet | Chain | Directory>) =>
 
 const device = memoryKeyStore();
 
+const memorySealedKeyStore = (): SealedKeyStore => {
+  let saved = Option.none<SealedDeviceWallet>();
+
+  return {
+    readPublic: () => Effect.sync(() => Option.map(saved, (s) => s.public)),
+    updatePublic: () => Effect.sync(() => Option.none()),
+    readSealed: () => Effect.sync(() => saved),
+    writeSealed: (wallet) =>
+      Effect.sync(() => {
+        saved = Option.some(wallet);
+      }),
+    installSealed: (wallet) =>
+      Effect.sync(() => {
+        if (Option.isSome(saved)) return false;
+
+        saved = Option.some(wallet);
+
+        return true;
+      }),
+  };
+};
+
+const relyingParty = {
+  origin: passkeyOrigin,
+  rpId: new URL(passkeyOrigin).hostname,
+};
+
 const openWallet = async (
+  port: WalletPort,
+  auth: SoftwareAuthenticator,
+  store: ReturnType<typeof memoryKeyStore>,
   client: ReturnType<typeof makeWalletClient>,
   username: string,
 ) => {
+  const sealedStore = memorySealedKeyStore();
+
+  const enrollment = makeEnrollmentEffects({
+    port,
+    store: sealedStore,
+    registration: auth.registration,
+    assertions: auth.assertions,
+    relyingParty,
+  });
+
+  const started = await Effect.runPromise(enrollment.start(username));
+
+  assert.ok(
+    Predicate.isTagged(started, "EnrollmentPending"),
+    `Expected EnrollmentPending, got ${started._tag}`,
+  );
+
+  const enrolled = await Effect.runPromise(enrollment.advance());
+
+  assert.ok(
+    Predicate.isTagged(enrolled, "WalletEnrolled"),
+    `Expected WalletEnrolled, got ${enrolled._tag}`,
+  );
+
+  const sealed = Option.getOrThrow(
+    await Effect.runPromise(sealedStore.readSealed()),
+  );
+
+  const reopened = await Effect.runPromise(
+    reopenLocalEnvelope(
+      auth.assertions,
+      relyingParty,
+      sealed.credential,
+      sealed.envelope,
+      {
+        network,
+        address: sealed.public.address,
+        purpose: "approval",
+      },
+    ),
+  );
+
+  assert.ok(
+    Predicate.isTagged(reopened, "PhraseOpened"),
+    `Expected PhraseOpened, got ${reopened._tag}`,
+  );
+
+  await Effect.runPromise(
+    store.store.write(
+      new DeviceWallet({
+        phrase: Redacted.value(reopened.phrase),
+        address: sealed.public.address,
+        username: sealed.public.username,
+        backup: "stored",
+      }),
+    ),
+  );
+
   let opened: CreateOutcome = await client.create(username);
 
   for (
@@ -84,8 +177,10 @@ await Promise.all(
   [sponsor, feePayer].map((key) => fundWithFriendbot(key.publicKey())),
 );
 
+const walletPort = await run(Wallet);
+
 const client = makeWalletClient(
-  await run(Wallet),
+  walletPort,
   device.store,
   authenticator.passkeys,
 );
@@ -94,7 +189,15 @@ const freshUsername = () =>
   `device_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 
 const username = freshUsername();
-const outcome = await openWallet(client, username);
+
+const outcome = await openWallet(
+  walletPort,
+  authenticator,
+  device,
+  client,
+  username,
+);
+
 const wallet = Option.getOrThrow(device.saved());
 const key = signingKey(wallet.phrase);
 
@@ -205,13 +308,14 @@ assert.equal(
 console.log("PASS overview reads the opened wallet with a zero USDC balance.");
 
 const recipientName = freshUsername();
+const recipientDevice = memoryKeyStore();
+const recipientAuth = new SoftwareAuthenticator(passkeyOrigin);
 
 await openWallet(
-  makeWalletClient(
-    await run(Wallet),
-    memoryKeyStore().store,
-    new SoftwareAuthenticator(passkeyOrigin).passkeys,
-  ),
+  walletPort,
+  recipientAuth,
+  recipientDevice,
+  makeWalletClient(walletPort, recipientDevice.store, recipientAuth.passkeys),
   recipientName,
 );
 
@@ -253,17 +357,16 @@ console.log(
   `PASS device client paid 0.5 USDC from ${username} to ${recipientName} in ${paymentRecord.hash}.`,
 );
 
+const restoredStore = memorySealedKeyStore();
+
 const restoringClient = makeWalletClient(
   await run(Wallet),
   memoryKeyStore().store,
   authenticator.passkeys,
   {
-    store: browserKeyStore,
+    store: restoredStore,
     ceremony: authenticator.assertions,
-    relyingParty: () => ({
-      origin: passkeyOrigin,
-      rpId: new URL(passkeyOrigin).hostname,
-    }),
+    relyingParty: () => relyingParty,
   },
 );
 
@@ -283,8 +386,8 @@ assert.ok(
 assert.equal(restored.profile.username, username);
 
 assert.equal(
-  Option.getOrThrow(await Effect.runPromise(browserKeyStore.readSealed()))
-    .public.address,
+  Option.getOrThrow(await Effect.runPromise(restoredStore.readSealed())).public
+    .address,
   wallet.address,
 );
 

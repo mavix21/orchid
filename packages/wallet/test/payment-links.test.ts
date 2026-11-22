@@ -39,7 +39,11 @@ import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { networkPassphrase, usdc } from "../src/stellar/network";
-import { memoryKeyStore, savedWallet } from "./device-fixtures";
+import {
+  enrolledDeviceWallet,
+  memoryKeyStore,
+  savedWallet,
+} from "./device-fixtures";
 import { accountEntryXdr } from "./rpc-answering";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
@@ -97,6 +101,7 @@ const euroLine = (
 const openSender = Effect.fn(function* (store: KeyStore, name = "maria") {
   const wallet = yield* Wallet;
 
+  yield* store.write(enrolledDeviceWallet(name));
   yield* makeWalletEffects(wallet, store, passkeys).create(name);
 
   const sender = yield* savedWallet(store);

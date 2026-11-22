@@ -12,7 +12,7 @@ import { PinnedCredential } from "./assertion";
 import { LocalPhraseEnvelope, localEnvelopeVersion } from "./local-envelope";
 import { SecretPhrase } from "./secret-phrase";
 
-export const BackupState = Schema.Literals(["stored", "deviceOnly"]);
+export const BackupState = Schema.Literals(["stored"]);
 
 const publicWalletFields = {
   address: AccountAddress,
@@ -102,11 +102,9 @@ export interface SealedKeyStore {
     wallet: SealedDeviceWallet,
   ): Effect.Effect<void, KeyStoreUnavailable>;
   installSealed(
-    candidate: SealedDeviceWallet,
-  ): Effect.Effect<
-    Option.Option<SealedDeviceWallet>,
-    KeyStoreUnavailable | CorruptDeviceWallet
-  >;
+    wallet: SealedDeviceWallet,
+    replacing?: "same-address",
+  ): Effect.Effect<boolean, KeyStoreUnavailable | CorruptDeviceWallet>;
 }
 
 export interface KeyStore {

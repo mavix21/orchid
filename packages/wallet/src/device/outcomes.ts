@@ -81,6 +81,11 @@ export class BackupUnsupported extends Schema.TaggedClass<BackupUnsupported>()(
   {},
 ) {}
 
+export class WalletOnDevice extends Schema.TaggedClass<WalletOnDevice>()(
+  "WalletOnDevice",
+  {},
+) {}
+
 export class RestoreUnverified extends Schema.TaggedClass<RestoreUnverified>()(
   "RestoreUnverified",
   {},
@@ -106,6 +111,7 @@ export class RestoreSealed extends Schema.TaggedClass<RestoreSealed>()(
 ) {}
 
 export type EnrollmentRefusal =
+  | BackupUnsupported
   | PasskeyCancelled
   | PasskeyFailed
   | ChallengeRefused
@@ -152,6 +158,7 @@ export type CreateOutcome =
   | UsernameTaken
   | AddressBound
   | InvalidUsername
+  | NoWallet
   | UnsupportedDevice
   | DraftRejected
   | EnrollmentRefusal

@@ -36,9 +36,19 @@ export const sealPhrase = Effect.fn("Device.sealPhrase")(function* (
   const key = yield* backupKey(prf);
   const iv = crypto.getRandomValues(new Uint8Array(12));
 
-  const ciphertext = yield* Effect.promise(() =>
-    crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode(phrase)),
-  );
+  const ciphertext = yield* Effect.promise(async () => {
+    const plaintext = encoder.encode(phrase);
+
+    try {
+      return await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        key,
+        plaintext,
+      );
+    } finally {
+      plaintext.fill(0);
+    }
+  });
 
   return new SealedPhrase({ iv, ciphertext: new Uint8Array(ciphertext) });
 });

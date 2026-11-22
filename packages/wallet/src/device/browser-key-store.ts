@@ -95,6 +95,98 @@ async function writeSealedWallet(wallet: SealedDeviceWallet): Promise<void> {
   }
 }
 
+function resealed(
+  existing: SealedDeviceWallet,
+  candidate: SealedDeviceWallet,
+): Option.Option<SealedDeviceWallet> {
+  if (
+    !matchesEnvelopeContext(existing.envelope, {
+      network,
+      address: existing.public.address,
+      credentialId: existing.credential.id,
+    })
+  )
+    throw new CorruptDeviceWallet();
+
+  if (existing.public.address !== candidate.public.address)
+    return Option.none();
+
+  return Option.some(
+    new SealedDeviceWallet({
+      version: candidate.version,
+      public: new PublicDeviceWallet({ ...existing.public, backup: "stored" }),
+      credential: candidate.credential,
+      envelope: candidate.envelope,
+    }),
+  );
+}
+
+async function installSealedWallet(
+  wallet: SealedDeviceWallet,
+  replacing: "same-address" | undefined,
+): Promise<boolean> {
+  if (
+    !matchesEnvelopeContext(wallet.envelope, {
+      network,
+      address: wallet.public.address,
+      credentialId: wallet.credential.id,
+    })
+  )
+    throw new Error("Sealed wallet envelope does not match wallet context");
+
+  const encoded = Schema.encodeSync(SealedDeviceWallet)(wallet);
+  const database = await openDatabase();
+
+  try {
+    const transaction = database.transaction(entries, "readwrite");
+    const objectStore = transaction.objectStore(entries);
+
+    return await new Promise<boolean>((resolve, reject) => {
+      let installed = false;
+      const request = objectStore.get(walletEntry);
+
+      request.addEventListener("error", () => reject(request.error));
+      request.addEventListener("success", () => {
+        try {
+          if (isCurrentVersion(request.result)) {
+            const existing = decodeStoredWallet(request.result);
+
+            if (Option.isNone(existing)) throw new CorruptDeviceWallet();
+
+            const replacement =
+              replacing === "same-address"
+                ? resealed(existing.value, wallet)
+                : Option.none();
+
+            if (Option.isSome(replacement)) {
+              objectStore.put(
+                Schema.encodeSync(SealedDeviceWallet)(replacement.value),
+                walletEntry,
+              );
+              installed = true;
+            }
+
+            return;
+          }
+
+          objectStore.clear();
+          objectStore.put(encoded, walletEntry);
+          installed = true;
+        } catch (error) {
+          transaction.abort();
+          reject(error);
+        }
+      });
+
+      transaction.addEventListener("complete", () => resolve(installed));
+      transaction.addEventListener("error", () => reject(transaction.error));
+      transaction.addEventListener("abort", () => reject(transaction.error));
+    });
+  } finally {
+    database.close();
+  }
+}
+
 async function updatePublicWallet(
   update: (current: PublicDeviceWallet) => Option.Option<PublicDeviceWallet>,
 ): Promise<Option.Option<PublicWalletUpdate>> {
@@ -158,100 +250,6 @@ async function updatePublicWallet(
   }
 }
 
-function installable(
-  current: Option.Option<SealedDeviceWallet>,
-  candidate: SealedDeviceWallet,
-): Option.Option<SealedDeviceWallet> {
-  if (Option.isNone(current)) return Option.some(candidate);
-
-  if (
-    !matchesEnvelopeContext(current.value.envelope, {
-      network,
-      address: current.value.public.address,
-      credentialId: current.value.credential.id,
-    })
-  )
-    throw new CorruptDeviceWallet();
-
-  if (current.value.public.address !== candidate.public.address)
-    return Option.none();
-
-  return Option.some(
-    new SealedDeviceWallet({
-      version: candidate.version,
-      public: new PublicDeviceWallet({
-        ...current.value.public,
-        backup: "stored",
-      }),
-      credential: candidate.credential,
-      envelope: candidate.envelope,
-    }),
-  );
-}
-
-async function installSealedWallet(
-  candidate: SealedDeviceWallet,
-): Promise<Option.Option<SealedDeviceWallet>> {
-  if (
-    !matchesEnvelopeContext(candidate.envelope, {
-      network,
-      address: candidate.public.address,
-      credentialId: candidate.credential.id,
-    })
-  )
-    throw new Error("Sealed wallet envelope does not match wallet context");
-
-  const database = await openDatabase();
-
-  try {
-    const transaction = database.transaction(entries, "readwrite");
-    const objectStore = transaction.objectStore(entries);
-
-    return await new Promise<Option.Option<SealedDeviceWallet>>(
-      (resolve, reject) => {
-        let result: Option.Option<SealedDeviceWallet> = Option.none();
-        const request = objectStore.get(walletEntry);
-
-        request.addEventListener("error", () => reject(request.error));
-        request.addEventListener("success", () => {
-          try {
-            let current = Option.none<SealedDeviceWallet>();
-
-            if (request.result !== undefined) {
-              if (!isCurrentVersion(request.result))
-                throw new CorruptDeviceWallet();
-
-              current = decodeStoredWallet(request.result);
-
-              if (Option.isNone(current)) throw new CorruptDeviceWallet();
-            }
-
-            const next = installable(current, candidate);
-
-            if (Option.isNone(next)) return;
-
-            objectStore.clear();
-            objectStore.put(
-              Schema.encodeSync(SealedDeviceWallet)(next.value),
-              walletEntry,
-            );
-            result = next;
-          } catch (error) {
-            transaction.abort();
-            reject(error);
-          }
-        });
-
-        transaction.addEventListener("complete", () => resolve(result));
-        transaction.addEventListener("error", () => reject(transaction.error));
-        transaction.addEventListener("abort", () => reject(transaction.error));
-      },
-    );
-  } finally {
-    database.close();
-  }
-}
-
 export const browserKeyStore: SealedKeyStore = {
   readPublic: () =>
     Effect.tryPromise({
@@ -282,9 +280,9 @@ export const browserKeyStore: SealedKeyStore = {
       try: () => writeSealedWallet(wallet),
       catch: (cause) => new KeyStoreUnavailable({ cause }),
     }),
-  installSealed: (candidate) =>
+  installSealed: (wallet, replacing) =>
     Effect.tryPromise({
-      try: () => installSealedWallet(candidate),
+      try: () => installSealedWallet(wallet, replacing),
       catch: (cause) =>
         cause instanceof CorruptDeviceWallet
           ? cause

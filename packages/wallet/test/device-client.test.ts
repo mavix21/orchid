@@ -22,6 +22,7 @@ import {
 } from "../src/contract";
 import {
   DraftRejected,
+  NoWallet,
   SavedWallet,
   makeWalletEffects,
 } from "../src/device/client";
@@ -34,6 +35,7 @@ import {
 } from "../src/stellar/envelopes";
 import {
   addressOf,
+  enrolledDeviceWallet,
   knownPhrase,
   memoryKeyStore,
   savedWallet,
@@ -220,7 +222,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           const wallet = yield* Wallet;
-          const store = memoryKeyStore();
+
+          expect(
+            yield* makeWalletEffects(wallet, memoryKeyStore(), passkeys).create(
+              "maria",
+            ),
+          ).toEqual(new NoWallet());
+
+          const store = memoryKeyStore(Option.some(enrolledDeviceWallet()));
           let calls = 0;
 
           const interrupted: WalletPort = {

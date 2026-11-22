@@ -2,9 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
 import {
-  AccountAddress,
   type Approval,
   OpeningPending,
   type Username,
@@ -12,21 +10,17 @@ import {
   type WalletPort,
   type WalletUnavailable,
 } from "../contract";
-import { deviceBackup } from "./backup";
 import {
-  DeviceWallet,
   type KeyStore,
   type KeyStoreUnavailable,
   PublicDeviceWallet,
-  remember,
 } from "./key-store";
 import {
   type CreateOutcome,
   DraftRejected,
+  NoWallet,
   UnsupportedDevice,
 } from "./outcomes";
-import type { Passkeys } from "./passkeys";
-import { generateSecretPhrase } from "./secret-phrase";
 import { pollSchedule } from "./polling";
 import { approve, liveFacts, signingKey } from "./signing";
 
@@ -35,13 +29,7 @@ interface OpeningTurn {
   readonly pause: boolean;
 }
 
-export function openWallet(
-  port: WalletPort,
-  store: KeyStore,
-  passkeys: Passkeys,
-) {
-  const { enroll } = deviceBackup(port, passkeys, store);
-
+export function openWallet(port: WalletPort, store: KeyStore) {
   const advance = Effect.fn("Device.advanceOpening")(function* (
     initial: PublicDeviceWallet,
   ): Effect.fn.Return<CreateOutcome, WalletUnavailable | KeyStoreUnavailable> {
@@ -206,28 +194,9 @@ export function openWallet(
   return Effect.fn("Device.open")(function* (username: Username) {
     const existing = yield* store.readPublic();
 
-    if (Option.isNone(existing)) {
-      const phrase = generateSecretPhrase();
+    if (Option.isNone(existing)) return new NoWallet();
 
-      const created = yield* remember(
-        store,
-        new DeviceWallet({
-          phrase,
-          address: Schema.decodeSync(AccountAddress)(
-            signingKey(phrase).publicKey(),
-          ),
-          username,
-        }),
-      );
-
-      if (Option.isNone(created)) return new UnsupportedDevice();
-
-      const enrolled = yield* enroll(created.value);
-
-      if (!(enrolled instanceof PublicDeviceWallet)) return enrolled;
-
-      return yield* advance(enrolled);
-    }
+    if (existing.value.backup !== "stored") return new UnsupportedDevice();
 
     const prepared = yield* store.updatePublic((current) =>
       current.address === existing.value.address &&
@@ -243,21 +212,6 @@ export function openWallet(
     )
       return new UnsupportedDevice();
 
-    let wallet = prepared.value.wallet;
-
-    if (wallet.backup === undefined && wallet.reserveSponsor === undefined) {
-      const secret = yield* store.read();
-
-      if (Option.isNone(secret) || secret.value.address !== wallet.address)
-        return new UnsupportedDevice();
-
-      const enrolled = yield* enroll(secret.value);
-
-      if (!(enrolled instanceof PublicDeviceWallet)) return enrolled;
-
-      wallet = enrolled;
-    }
-
-    return yield* advance(wallet);
+    return yield* advance(prepared.value.wallet);
   });
 }

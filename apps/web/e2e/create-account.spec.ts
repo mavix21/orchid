@@ -3,6 +3,8 @@ import { type Page, expect, test } from "@playwright/test";
 import {
   addAuthenticator,
   freshUsername,
+  openWallet,
+  storedWalletRecord,
   submitButton,
   topNavLink,
   usernameInput,
@@ -35,7 +37,7 @@ test("redirects on the server by whether the device holds a wallet", async ({
   expect(withWallet.headers().location).toBe("/home");
 });
 
-test("creates a backed-up testnet wallet and restores it after the device forgets it", async ({
+test("enrolls a new wallet only after a fresh user-initiated reopen proof", async ({
   page,
 }) => {
   await addAuthenticator(page, true);
@@ -48,24 +50,25 @@ test("creates a backed-up testnet wallet and restores it after the device forget
   await usernameInput(page).fill(username);
   await submitButton(page).click();
 
-  await expect(usernameInput(page)).toBeDisabled();
+  const step = page.getByTestId("enrollment-step");
 
-  const back = topNavLink(page);
+  await expect(step).toBeVisible({ timeout: 30_000 });
+  await expect(step).toHaveAttribute("data-stage", "reopen");
+  expect(await storedWalletRecord(page)).toBe(false);
 
-  await expect(back).toHaveAttribute("aria-disabled", "true");
+  await page.getByTestId("enrollment-continue").click();
 
-  await expect(page).toHaveURL("/home", { timeout: 90_000 });
+  await expect(page.getByTestId("enrollment-complete")).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(page.getByText(`@${username}`)).toBeVisible();
+  expect(await storedWalletRecord(page)).toBe(true);
 
   await page.reload();
 
-  await expect(page.getByText(`@${username}`)).toBeVisible({
+  await expect(page.getByTestId("enrollment-complete")).toBeVisible({
     timeout: 30_000,
   });
-
-  await page.goto("/create-account");
-
-  await expect(page).toHaveURL("/home", { timeout: 60_000 });
   await expect(page.getByText(`@${username}`)).toBeVisible();
 
   await forgetDevice(page);
@@ -94,9 +97,7 @@ test("creates a backed-up testnet wallet and restores it after the device forget
   await expect(page).toHaveURL("/home", { timeout: 30_000 });
 });
 
-test("creates a device-only wallet when the passkey has no PRF", async ({
-  page,
-}) => {
+test("refuses creation when the passkey has no PRF", async ({ page }) => {
   await addAuthenticator(page, false);
 
   const username = freshUsername();
@@ -105,20 +106,26 @@ test("creates a device-only wallet when the passkey has no PRF", async ({
   await usernameInput(page).fill(username);
   await submitButton(page).click();
 
-  await expect(page).toHaveURL("/home", { timeout: 90_000 });
-  await expect(page.getByText(`@${username}`)).toBeVisible();
+  const step = page.getByTestId("enrollment-step");
+
+  await expect(step).toBeVisible({ timeout: 30_000 });
+  await expect(step).toHaveAttribute("data-stage", "prf");
+  expect(await storedWalletRecord(page)).toBe(false);
+
+  await page.getByTestId("enrollment-continue").click();
+
+  await expect(page.getByTestId("prf-unsupported")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("enrollment-continue")).toBeHidden();
+  await expect(page).toHaveURL("/create-account");
+  expect(await storedWalletRecord(page)).toBe(false);
 });
 
 test("returns to the loaded home without the skeleton", async ({ page }) => {
-  await addAuthenticator(page, false);
-
   const username = freshUsername();
 
-  await page.goto("/create-account");
-  await usernameInput(page).fill(username);
-  await submitButton(page).click();
-
-  await expect(page).toHaveURL("/home", { timeout: 90_000 });
+  await openWallet(page, username);
   await expect(page.getByText(`@${username}`)).toBeVisible();
 
   await page.evaluate(() => {
@@ -163,4 +170,5 @@ test("stops creation with a retry when the passkey prompt is cancelled", async (
   await expect(page.getByRole("alert")).toBeVisible({ timeout: 30_000 });
   await expect(page).toHaveURL("/create-account");
   await expect(submitButton(page)).toBeEnabled();
+  expect(await storedWalletRecord(page)).toBe(false);
 });

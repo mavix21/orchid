@@ -110,7 +110,7 @@ function Home({
       <main className="flex flex-1 flex-col gap-10 px-5 pt-2 pb-30">
         <BalanceHeader username={holding.profile.username} dollars={dollars} />
         {Option.isSome(backup) && backup.value !== "stored" ? (
-          <BackupNotice backup={backup.value} />
+          <BackupNotice />
         ) : null}
         <section className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
@@ -133,7 +133,7 @@ function Home({
   );
 }
 
-function BackupNotice({ backup }: { backup: Exclude<SavedBackup, "stored"> }) {
+function BackupNotice() {
   const router = useRouter();
   const { walletClient } = Route.useRouteContext();
   const [backingUp, setBackingUp] = useState(false);
@@ -166,9 +166,8 @@ function BackupNotice({ backup }: { backup: Exclude<SavedBackup, "stored"> }) {
         Tu cuenta no tiene respaldo
       </h2>
       <p className="text-body text-muted-foreground">
-        {backup === "deviceOnly"
-          ? "Este navegador no permite respaldar con passkey. Tu llave solo está en este dispositivo."
-          : "Si pierdes este dispositivo, pierdes tu cuenta. Respáldala con una passkey."}
+        Si pierdes este dispositivo, pierdes tu cuenta. Respáldala con una
+        passkey.
       </p>
       {problem ? (
         <p role="alert" className="text-body text-destructive">

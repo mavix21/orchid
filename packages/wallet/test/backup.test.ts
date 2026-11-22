@@ -1,3 +1,4 @@
+import "fake-indexeddb/auto";
 import { expect, layer } from "@effect/vitest";
 import { Database } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -9,55 +10,42 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import {
-  AccountAddress,
   AssertionRefused,
   BackupFound,
-  BackupStored,
   ChallengeRefused,
   NoBackup,
-  Offline,
-  Opened,
   PasskeyChallenge,
-  RegistrationRefused,
-  Username,
   type WalletPort,
 } from "../src/contract";
 import { PinnedCredential } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
-  BackupMismatch,
-  BackupUnsupported,
-  PasskeyCancelled,
   BackupLocated,
+  BackupMismatch,
+  PasskeyCancelled,
   RestoreSealed,
   Restored,
-  SavedWallet,
   type WalletEffects,
   makeWalletEffects,
 } from "../src/device/client";
+import { makeEnrollmentEffects } from "../src/device/enrollment";
 import {
   PublicDeviceWallet,
   SealedDeviceWallet,
 } from "../src/device/key-store";
 import {
   LocalPhraseEnvelope,
+  freshInstallationSalt,
   localPhrasePrfInput,
   reopenLocalEnvelope,
   sealLocalEnvelope,
-  freshInstallationSalt,
 } from "../src/device/local-envelope";
 import { backupSalt } from "../src/device/phrase-seal";
-import { signingKey } from "../src/device/signing";
 import { Backups } from "../src/server/Backups.server";
-import {
-  backups,
-  passkeyChallenges,
-  usernames,
-  wallets,
-} from "../src/server/tables.server";
+import { backups, passkeyChallenges } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { network } from "../src/stellar/network";
-import { memoryKeyStore, savedWallet } from "./device-fixtures";
+import { memoryKeyStore } from "./device-fixtures";
 import {
   clearDatabase,
   enrollDisposableWallet,
@@ -71,15 +59,6 @@ import {
   useDisposableDatabase,
   walletTestLayer,
 } from "./wallet-harness";
-
-const device = (
-  port: WalletPort,
-  auth: SoftwareAuthenticator,
-  store = memoryKeyStore(),
-) => ({
-  store,
-  client: makeWalletEffects(port, store, auth.passkeys),
-});
 
 const restoringDevice = (port: WalletPort, auth: SoftwareAuthenticator) =>
   makeWalletEffects(port, memoryKeyStore(), auth.passkeys, {
@@ -114,15 +93,57 @@ const restoredPhrase = (auth: SoftwareAuthenticator) =>
     return Redacted.value(reopened.phrase);
   });
 
-const tableRows = Effect.gen(function* () {
+const backupRows = Effect.gen(function* () {
   const db = yield* Database;
 
-  return {
-    backups: yield* db.select().from(backups),
-    usernames: yield* db.select().from(usernames),
-    wallets: yield* db.select().from(wallets),
-  };
+  return yield* db.select().from(backups);
 });
+
+const enrollBackedWallet = (
+  port: WalletPort,
+  auth: SoftwareAuthenticator,
+  username: string,
+) =>
+  Effect.gen(function* () {
+    yield* Effect.promise(clearDatabase);
+
+    const enrollment = makeEnrollmentEffects({
+      port,
+      store: browserKeyStore,
+      registration: auth.registration,
+      assertions: auth.assertions,
+      relyingParty,
+    });
+
+    const started = yield* enrollment.start(username);
+
+    assertTagged(started, "EnrollmentPending");
+
+    const completed = yield* enrollment.advance();
+
+    assertTagged(completed, "WalletEnrolled");
+
+    const persisted = Option.getOrThrow(yield* browserKeyStore.readSealed());
+
+    const reopened = yield* reopenLocalEnvelope(
+      auth.assertions,
+      relyingParty,
+      persisted.credential,
+      persisted.envelope,
+      {
+        network,
+        address: persisted.public.address,
+        purpose: "backup",
+      },
+    );
+
+    assertTagged(reopened, "PhraseOpened");
+
+    return {
+      profile: completed.profile,
+      phrase: Redacted.value(reopened.phrase),
+    };
+  });
 
 const assertion = (
   port: WalletPort,
@@ -141,113 +162,16 @@ useDisposableDatabase();
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect(
-      "creation stores an encrypted backup before opening and restores under the requested name",
-      () =>
-        Effect.gen(function* () {
-          const wallet = yield* Wallet;
-          const auth = new SoftwareAuthenticator(passkeyOrigin);
-
-          const offlinePort: WalletPort = {
-            ...wallet,
-            open: () => Effect.fail(new Offline()),
-          };
-
-          const first = device(offlinePort, auth);
-
-          yield* first.client.create("maria");
-          const saved = yield* savedWallet(first.store);
-          const rows = yield* tableRows;
-
-          expect(saved.address).toBe(signingKey(saved.phrase).publicKey());
-          expect(saved.backup).toBe("stored");
-          expect(rows.backups).toHaveLength(1);
-          expect(rows.backups[0]?.address).toBe(saved.address);
-          expect(JSON.stringify(rows.backups)).not.toContain(saved.phrase);
-          expect(JSON.stringify(rows.backups)).not.toContain(
-            Buffer.from(saved.phrase).toString("base64"),
-          );
-
-          yield* Effect.promise(clearDatabase);
-
-          const { restored } = yield* restoreOnFreshTaps(
-            restoringDevice(wallet, auth),
-          );
-
-          expect(
-            restored instanceof Restored && restored.profile.username,
-          ).toBe("maria");
-        }),
-    );
-
-    it.effect(
-      "a cancelled passkey stops creation, claims nothing and can be retried",
-      () =>
-        Effect.gen(function* () {
-          const wallet = yield* Wallet;
-          const auth = new SoftwareAuthenticator(passkeyOrigin);
-          const { store, client } = device(wallet, auth);
-
-          auth.cancels = true;
-          expect(yield* client.create("maria")).toEqual(new PasskeyCancelled());
-          const phrase = (yield* savedWallet(store)).phrase;
-
-          expect(yield* tableRows).toEqual({
-            backups: [],
-            usernames: [],
-            wallets: [],
-          });
-
-          auth.cancels = false;
-          expect(yield* client.create("maria")).toBeInstanceOf(Opened);
-          expect((yield* savedWallet(store)).phrase).toBe(phrase);
-        }),
-    );
-
-    it.effect(
-      "a passkey without PRF creates a device-only wallet that can back up later",
-      () =>
-        Effect.gen(function* () {
-          const wallet = yield* Wallet;
-          const auth = new SoftwareAuthenticator(passkeyOrigin);
-          const { client } = device(wallet, auth);
-
-          auth.prf = false;
-          const created = yield* client.create("maria");
-          const saved = yield* client.saved();
-
-          expect(created).toBeInstanceOf(Opened);
-          expect(saved instanceof SavedWallet && saved.backup).toBe(
-            "deviceOnly",
-          );
-          expect((yield* tableRows).backups).toEqual([]);
-          expect(yield* client.backUp()).toEqual(new BackupUnsupported());
-
-          auth.prf = true;
-          expect(yield* client.backUp()).toEqual(new BackupStored());
-          yield* Effect.promise(clearDatabase);
-
-          const { restored } = yield* restoreOnFreshTaps(
-            restoringDevice(wallet, auth),
-          );
-
-          expect(restored instanceof Restored && restored.profile).toEqual(
-            created instanceof Opened && created.profile,
-          );
-        }),
-    );
-
-    it.effect(
       "restore seals the backed phrase to the same credential and refuses a mismatched device or profile address",
       () =>
         Effect.gen(function* () {
-          yield* Effect.promise(clearDatabase);
-
           const wallet = yield* Wallet;
           const auth = new SoftwareAuthenticator(passkeyOrigin);
-          const first = device(wallet, auth);
-          const created = yield* first.client.create("maria");
-          const phrase = (yield* savedWallet(first.store)).phrase;
-          const backupRow = (yield* tableRows).backups[0];
+          const enrolled = yield* enrollBackedWallet(wallet, auth, "maria");
+          const phrase = enrolled.phrase;
+          const backupRow = (yield* backupRows)[0];
+
+          yield* Effect.promise(clearDatabase);
 
           const restoring = restoringDevice(wallet, auth);
           const steps = yield* restoreOnFreshTaps(restoring);
@@ -256,7 +180,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(steps.sealed).toBeInstanceOf(RestoreSealed);
           expect(
             steps.restored instanceof Restored && steps.restored.profile,
-          ).toEqual(created instanceof Opened && created.profile);
+          ).toEqual(enrolled.profile);
 
           const installed = Option.getOrThrow(
             yield* browserKeyStore.readSealed(),
@@ -321,21 +245,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "restore over the same address under another credential replaces the credential only after the proof tap, which can be cancelled and retried",
       () =>
         Effect.gen(function* () {
-          yield* Effect.promise(clearDatabase);
-
           const wallet = yield* Wallet;
           const auth = new SoftwareAuthenticator(passkeyOrigin);
-          const first = device(wallet, auth);
-
-          yield* first.client.create("maria");
-          const phrase = (yield* savedWallet(first.store)).phrase;
-          const profile = (yield* tableRows).backups[0];
-
-          const address = Schema.decodeSync(AccountAddress)(
-            profile?.address ?? "",
-          );
-
-          const username = Schema.decodeSync(Username)("maria");
+          const enrolled = yield* enrollBackedWallet(wallet, auth, "maria");
+          const phrase = enrolled.phrase;
+          const profile = (yield* backupRows)[0];
+          const { address, username } = enrolled.profile;
 
           const oldAuth = new SoftwareAuthenticator(passkeyOrigin);
           const salt = freshInstallationSalt();
@@ -406,7 +321,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const wallet = yield* Wallet;
           const auth = new SoftwareAuthenticator(passkeyOrigin);
 
-          yield* device(wallet, auth).client.create("maria");
+          yield* enrollBackedWallet(wallet, auth, "maria");
           const fresh = yield* assertion(wallet, auth);
 
           expect(yield* wallet.restore(fresh)).toBeInstanceOf(BackupFound);
@@ -446,32 +361,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             yield* wallet.restore(yield* assertion(wallet, stranger)),
           ).toEqual(new NoBackup());
         }),
-    );
-
-    it.effect("a registration from an unlisted origin stores no backup", () =>
-      Effect.gen(function* () {
-        const wallet = yield* Wallet;
-        const unlisted = new SoftwareAuthenticator("https://example.com");
-        const { client } = device(wallet, unlisted);
-
-        expect(yield* client.create("maria")).toEqual(
-          new RegistrationRefused(),
-        );
-        expect(yield* tableRows).toEqual({
-          backups: [],
-          usernames: [],
-          wallets: [],
-        });
-
-        const db = yield* Database;
-
-        expect(
-          yield* db
-            .select()
-            .from(passkeyChallenges)
-            .where(eq(passkeyChallenges.purpose, "enrollment")),
-        ).toEqual([]);
-      }),
     );
 
     it.effect(

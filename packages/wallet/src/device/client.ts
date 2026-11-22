@@ -18,7 +18,6 @@ import {
 } from "./key-store";
 import {
   type BackUpOutcome,
-  BackupUnsupported,
   type CancelPaymentLinkOutcome,
   type CreateOutcome,
   type CreatePaymentLinkOutcome,
@@ -102,10 +101,6 @@ export function makeWalletEffects(
     lock: Semaphore.makeUnsafe(1),
   };
 
-  const backups = loadFromServer(() => import("./backup")).pipe(
-    Effect.map(({ deviceBackup }) => deviceBackup(port, passkeys, store)),
-  );
-
   const sending = loadFromServer(() => import("./sending")).pipe(
     Effect.map(({ sendTransfer }) => sendTransfer(port, store)),
   );
@@ -121,7 +116,7 @@ export function makeWalletEffects(
 
     const { openWallet } = yield* loadFromServer(() => import("./opening"));
 
-    return yield* openWallet(port, store, passkeys)(username.value);
+    return yield* openWallet(port, store)(username.value);
   });
 
   const backUp = Effect.fn("Device.backUp")(function* () {
@@ -129,20 +124,9 @@ export function makeWalletEffects(
 
     if (Option.isNone(stored)) return new NoWallet();
 
-    if (stored.value.backup === "stored") return new BackupStored();
-
-    const secret = yield* store.read();
-
-    if (Option.isNone(secret) || secret.value.address !== stored.value.address)
-      return new UnsupportedDevice();
-
-    const enrolled = yield* (yield* backups).enroll(secret.value);
-
-    return enrolled instanceof PublicDeviceWallet
-      ? enrolled.backup === "stored"
-        ? new BackupStored()
-        : new BackupUnsupported()
-      : enrolled;
+    return stored.value.backup === "stored"
+      ? new BackupStored()
+      : new UnsupportedDevice();
   });
 
   const restore = Effect.fn("Device.restore")(function* () {

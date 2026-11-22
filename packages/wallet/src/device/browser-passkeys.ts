@@ -15,7 +15,13 @@ import type {
   PrfInputs,
   RelyingParty,
 } from "./assertion";
-import { PasskeyCancelled, PasskeyFailed, type Passkeys } from "./passkeys";
+import {
+  PasskeyCancelled,
+  PasskeyFailed,
+  type Passkeys,
+  type RegistrationCeremony,
+  type RegistrationRequest,
+} from "./passkeys";
 
 const toBase64Url = (buffer: ArrayBuffer) =>
   Schema.encodeSync(Schema.Uint8ArrayFromBase64Url)(new Uint8Array(buffer));
@@ -85,87 +91,83 @@ const prfRequest = (salt: Uint8Array<ArrayBuffer>) =>
 const webAuthnAvailable = () =>
   "PublicKeyCredential" in globalThis && "credentials" in navigator;
 
-const assertPrf = (credentialId: ArrayBuffer, salt: Uint8Array<ArrayBuffer>) =>
-  ceremony(() =>
-    navigator.credentials.get({
-      publicKey: {
-        challenge: crypto.getRandomValues(new Uint8Array(32)),
-        rpId: location.hostname,
-        allowCredentials: [{ type: "public-key", id: credentialId }],
-        userVerification: "required",
-        extensions: prfRequest(salt),
-      },
-    }),
-  ).pipe(Effect.map(prfOutput));
+const createRegistration = Effect.fn("Device.createPasskeyRegistration")(
+  function* (request: RegistrationRequest) {
+    if (!webAuthnAvailable() || !(yield* prfReported)) return Option.none();
+
+    const created = yield* ceremony(() =>
+      navigator.credentials.create({
+        publicKey: {
+          challenge: base64UrlBytes(request.challenge),
+          rp: { name: "Orchid", id: location.hostname },
+          user: {
+            id: crypto.getRandomValues(new Uint8Array(16)),
+            name: `@${request.username}`,
+            displayName: `@${request.username}`,
+          },
+          pubKeyCredParams: verifiableAlgorithms,
+          authenticatorSelection: {
+            residentKey: "required",
+            requireResidentKey: true,
+            userVerification: "required",
+          },
+          attestation: "none",
+          extensions: prfEvaluation(request.prf),
+        },
+      }),
+    );
+
+    const response = created.response;
+
+    const publicKey =
+      response instanceof AuthenticatorAttestationResponse
+        ? response.getPublicKey()
+        : null;
+
+    if (
+      !(response instanceof AuthenticatorAttestationResponse) ||
+      publicKey === null
+    )
+      return yield* Effect.fail(new PasskeyFailed());
+
+    return Option.some({
+      prf: prfResults(created),
+      registration: new PasskeyRegistration({
+        id: Schema.decodeSync(CredentialId)(created.id),
+        clientDataJSON: toBase64Url(response.clientDataJSON),
+        authenticatorData: toBase64Url(response.getAuthenticatorData()),
+        attestationObject: toBase64Url(response.attestationObject),
+        publicKey: toBase64Url(publicKey),
+        publicKeyAlgorithm: response.getPublicKeyAlgorithm(),
+        transports: response
+          .getTransports()
+          .flatMap((transport) =>
+            Option.toArray(
+              Schema.decodeUnknownOption(PasskeyTransport)(transport),
+            ),
+          ),
+      }),
+    });
+  },
+);
 
 const register = Effect.fn("Device.registerPasskey")(function* (
   challenge: PasskeyChallenge,
   username: Username,
   salt: Uint8Array<ArrayBuffer>,
 ) {
-  if (!webAuthnAvailable() || !(yield* prfReported)) return Option.none();
+  const created = yield* createRegistration({
+    challenge,
+    username,
+    prf: { first: salt, second: Option.none() },
+  });
 
-  const created = yield* ceremony(() =>
-    navigator.credentials.create({
-      publicKey: {
-        challenge: base64UrlBytes(challenge),
-        rp: { name: "Orchid", id: location.hostname },
-        user: {
-          id: crypto.getRandomValues(new Uint8Array(16)),
-          name: `@${username}`,
-          displayName: `@${username}`,
-        },
-        pubKeyCredParams: verifiableAlgorithms,
-        authenticatorSelection: {
-          residentKey: "required",
-          requireResidentKey: true,
-          userVerification: "required",
-        },
-        attestation: "none",
-        extensions: prfRequest(salt),
-      },
-    }),
-  );
-
-  const response = created.response;
-
-  const publicKey =
-    response instanceof AuthenticatorAttestationResponse
-      ? response.getPublicKey()
-      : null;
-
-  if (
-    !(response instanceof AuthenticatorAttestationResponse) ||
-    publicKey === null ||
-    created.getClientExtensionResults().prf?.enabled !== true
-  )
+  if (Option.isNone(created) || Option.isNone(created.value.prf.first))
     return Option.none();
 
-  const createdPrf = prfOutput(created);
-
-  const prf = Option.isSome(createdPrf)
-    ? createdPrf
-    : yield* assertPrf(created.rawId, salt);
-
-  if (Option.isNone(prf)) return Option.none();
-
   return Option.some({
-    prf: prf.value,
-    registration: new PasskeyRegistration({
-      id: Schema.decodeSync(CredentialId)(created.id),
-      clientDataJSON: toBase64Url(response.clientDataJSON),
-      authenticatorData: toBase64Url(response.getAuthenticatorData()),
-      attestationObject: toBase64Url(response.attestationObject),
-      publicKey: toBase64Url(publicKey),
-      publicKeyAlgorithm: response.getPublicKeyAlgorithm(),
-      transports: response
-        .getTransports()
-        .flatMap((transport) =>
-          Option.toArray(
-            Schema.decodeUnknownOption(PasskeyTransport)(transport),
-          ),
-        ),
-    }),
+    prf: created.value.prf.first.value,
+    registration: created.value.registration,
   });
 });
 
@@ -244,6 +246,10 @@ const assert = Effect.fn("Device.assertPasskey")(function* (
 });
 
 export const browserPasskeys: Passkeys = { register, authenticate };
+
+export const browserRegistration: RegistrationCeremony = {
+  register: createRegistration,
+};
 
 export const browserAssertions: AssertionCeremony = { assert };
 

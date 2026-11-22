@@ -256,12 +256,10 @@ export function deviceRestore(
     return yield* Match.valueTags(reopened, {
       PhraseOpened: () =>
         device.store
-          .installSealed(candidate)
+          .installSealed(candidate, "same-address")
           .pipe(
             Effect.map((installed) =>
-              Option.isSome(installed)
-                ? new Restored({ profile })
-                : new BackupMismatch(),
+              installed ? new Restored({ profile }) : new BackupMismatch(),
             ),
           ),
       CorruptEnvelope: () => Effect.succeed(new RestoreUnverified()),
