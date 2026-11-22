@@ -18,21 +18,35 @@ export const BrowserSupport = Data.taggedEnum<BrowserSupport>();
 const embeddedApps: ReadonlyArray<readonly [EmbeddedApp, RegExp]> = [
   ["Instagram", /Instagram/],
   ["Facebook", /FBAN|FBAV|FB_IAB/],
-  ["TikTok", /BytedanceWebview|musical_ly/],
+  ["TikTok", /BytedanceWebview|musical_ly|trill_|AppName\/trill/],
   ["WhatsApp", /WhatsApp/],
 ];
 
 const minimumIosVersion = { major: 18, minor: 4 };
 
-const platformOf = (userAgent: string): DevicePlatform =>
-  /iPhone|iPad|iPod/.test(userAgent)
+const isIpadWithDesktopUserAgent = (
+  userAgent: string,
+  maxTouchPoints: number,
+) => /Macintosh/.test(userAgent) && maxTouchPoints > 1;
+
+const platformOf = (
+  userAgent: string,
+  maxTouchPoints: number,
+): DevicePlatform =>
+  /iPhone|iPad|iPod/.test(userAgent) ||
+  isIpadWithDesktopUserAgent(userAgent, maxTouchPoints)
     ? "ios"
     : /Android/.test(userAgent)
       ? "android"
       : "other";
 
-const isOutdatedIos = (userAgent: string) => {
-  const version = /(?:iPhone|CPU) OS (\d+)_(\d+)/.exec(userAgent);
+const iosVersionOf = (userAgent: string, maxTouchPoints: number) =>
+  isIpadWithDesktopUserAgent(userAgent, maxTouchPoints)
+    ? /Version\/(\d+)\.(\d+)/.exec(userAgent)
+    : /(?:iPhone|CPU) OS (\d+)_(\d+)/.exec(userAgent);
+
+const isOutdatedIos = (userAgent: string, maxTouchPoints: number) => {
+  const version = iosVersionOf(userAgent, maxTouchPoints);
 
   if (version === null) return false;
 
@@ -45,8 +59,12 @@ const isOutdatedIos = (userAgent: string) => {
   );
 };
 
-export function classifyBrowser(userAgent: string): BrowserSupport {
-  if (isOutdatedIos(userAgent)) return BrowserSupport.OutdatedIos();
+export function classifyBrowser(
+  userAgent: string,
+  maxTouchPoints: number,
+): BrowserSupport {
+  if (isOutdatedIos(userAgent, maxTouchPoints))
+    return BrowserSupport.OutdatedIos();
 
   const embedded = embeddedApps.find(([, marker]) => marker.test(userAgent));
 
@@ -54,7 +72,7 @@ export function classifyBrowser(userAgent: string): BrowserSupport {
     ? BrowserSupport.Supported()
     : BrowserSupport.EmbeddedBrowser({
         app: embedded[0],
-        platform: platformOf(userAgent),
+        platform: platformOf(userAgent, maxTouchPoints),
       });
 }
 
