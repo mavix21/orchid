@@ -4,8 +4,15 @@ import { Database, databaseLayer } from "@workspace/db";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import {
+  DeviceWallet,
+  type KeyStore,
+  KeyStoreUnavailable,
+  publicWalletOf,
+} from "@workspace/wallet";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import { Chain } from "../src/server/Chain.server";
@@ -72,3 +79,45 @@ export const walletServices = (
     Layer.provide(database),
     Layer.provide(FetchHttpClient.layer),
   );
+
+export function memoryKeyStore() {
+  let saved = Option.none<DeviceWallet>();
+
+  const store: KeyStore = {
+    read: () => Effect.sync(() => saved),
+    write: (wallet) =>
+      Effect.sync(() => {
+        saved = Option.some(wallet);
+      }),
+    readPublic: () => Effect.sync(() => Option.map(saved, publicWalletOf)),
+    updatePublic: (update) =>
+      Effect.suspend(() => {
+        if (Option.isNone(saved)) return Effect.succeed(Option.none());
+
+        const current = publicWalletOf(saved.value);
+        const next = update(current);
+
+        if (Option.isNone(next))
+          return Effect.succeed(
+            Option.some({ wallet: current, updated: false }),
+          );
+
+        if (next.value.address !== current.address)
+          return Effect.fail(
+            new KeyStoreUnavailable({
+              cause: new Error("Wallet address cannot change"),
+            }),
+          );
+
+        saved = Option.some(
+          new DeviceWallet({ ...next.value, phrase: saved.value.phrase }),
+        );
+
+        return Effect.succeed(
+          Option.some({ wallet: next.value, updated: true }),
+        );
+      }),
+  };
+
+  return { store, saved: () => saved };
+}

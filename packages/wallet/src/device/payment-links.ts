@@ -241,17 +241,23 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
               DateTime.toEpochMillis(draft.request.expiresAt),
             );
 
-            const remaining =
-              deadline - DateTime.toEpochMillis(yield* DateTime.now);
+            const withinMargin = Effect.map(
+              DateTime.now,
+              (current) =>
+                deadline - DateTime.toEpochMillis(current) >=
+                approvalMargin * 1000,
+            );
 
-            if (remaining < approvalMargin * 1000) {
+            const refreshOrReject = (): CancelTurn => {
               if (refreshed)
                 return { done: Option.some(new DraftRejected()), pause: false };
 
               refreshed = true;
 
               return { done: Option.none(), pause: false };
-            }
+            };
+
+            if (!(yield* withinMargin)) return refreshOrReject();
 
             const secret = yield* store.read();
 
@@ -263,6 +269,8 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
                 done: Option.some(new UnsupportedDevice()),
                 pause: false,
               };
+
+            if (!(yield* withinMargin)) return refreshOrReject();
 
             signed = true;
             approval = Option.some(

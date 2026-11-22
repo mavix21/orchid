@@ -31,11 +31,13 @@ export function deviceBackup(
 ) {
   const rememberBackup = (
     address: AccountAddress,
-    backup: DeviceWallet["backup"],
+    backup: NonNullable<DeviceWallet["backup"]>,
   ) =>
     store
       .updatePublic((current) =>
-        current.address === address && current.backup !== backup
+        current.address === address &&
+        current.backup !== "stored" &&
+        current.backup !== backup
           ? Option.some(new PublicDeviceWallet({ ...current, backup }))
           : Option.none(),
       )
@@ -43,7 +45,8 @@ export function deviceBackup(
         Effect.map((result) =>
           Option.isSome(result) &&
           result.value.wallet.address === address &&
-          result.value.wallet.backup === backup
+          (result.value.wallet.backup === backup ||
+            result.value.wallet.backup === "stored")
             ? result.value.wallet
             : new UnsupportedDevice(),
         ),

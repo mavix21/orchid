@@ -12,10 +12,7 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   type CreateOutcome,
-  DeviceWallet,
   Holding,
-  type KeyStore,
-  KeyStoreUnavailable,
   Opened,
   PositiveAmount,
   Restored,
@@ -27,7 +24,6 @@ import {
   assetKey,
   baseAsset,
   makeWalletClient,
-  publicWalletOf,
 } from "@workspace/wallet";
 import { signingKey } from "../src/device/signing";
 import { SoftwareAuthenticator } from "../test/software-authenticator";
@@ -35,7 +31,12 @@ import { Chain } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { networkPassphrase, usdc } from "../src/stellar/network";
-import { freshDatabase, rpcUrl, walletServices } from "./live.server";
+import {
+  freshDatabase,
+  memoryKeyStore,
+  rpcUrl,
+  walletServices,
+} from "./live.server";
 import { fundWithFriendbot, fundWithUsdc, horizon } from "./testnet-funding";
 
 const sponsor = Keypair.random();
@@ -54,48 +55,6 @@ const runtime = ManagedRuntime.make(services);
 
 const run = <A, E>(program: Effect.Effect<A, E, Wallet | Chain | Directory>) =>
   runtime.runPromise(program);
-
-function memoryKeyStore() {
-  let saved = Option.none<DeviceWallet>();
-
-  const store: KeyStore = {
-    read: () => Effect.sync(() => saved),
-    write: (wallet) =>
-      Effect.sync(() => {
-        saved = Option.some(wallet);
-      }),
-    readPublic: () => Effect.sync(() => Option.map(saved, publicWalletOf)),
-    updatePublic: (update) =>
-      Effect.suspend(() => {
-        if (Option.isNone(saved)) return Effect.succeed(Option.none());
-
-        const current = publicWalletOf(saved.value);
-        const next = update(current);
-
-        if (Option.isNone(next))
-          return Effect.succeed(
-            Option.some({ wallet: current, updated: false }),
-          );
-
-        if (next.value.address !== current.address)
-          return Effect.fail(
-            new KeyStoreUnavailable({
-              cause: new Error("Wallet address cannot change"),
-            }),
-          );
-
-        saved = Option.some(
-          new DeviceWallet({ ...next.value, phrase: saved.value.phrase }),
-        );
-
-        return Effect.succeed(
-          Option.some({ wallet: next.value, updated: true }),
-        );
-      }),
-  };
-
-  return { store, saved: () => saved };
-}
 
 const device = memoryKeyStore();
 

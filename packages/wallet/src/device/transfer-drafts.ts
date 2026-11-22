@@ -18,10 +18,23 @@ import type {
 } from "../stellar/asset-envelopes";
 import { type PaymentFacts, readEnvelope } from "../stellar/envelopes";
 import { network } from "../stellar/network";
-import type { PublicDeviceWallet } from "./key-store";
+import { type PublicDeviceWallet, receiptJson } from "./key-store";
 import type { PaymentReview, TransferIntent } from "./outcomes";
 
 export const clockAllowance = 60;
+
+export const orderRevision = (wallet: PublicDeviceWallet) =>
+  wallet.transferRevision ?? 0;
+
+export const sameOrderSlot = (
+  left: PublicDeviceWallet,
+  right: PublicDeviceWallet,
+) =>
+  left.transfer?.id === right.transfer?.id &&
+  left.approvedUntil === right.approvedUntil &&
+  receiptJson(left.linkReceipt ?? null) ===
+    receiptJson(right.linkReceipt ?? null) &&
+  orderRevision(left) === orderRevision(right);
 
 export const orderJson = Schema.encodeSync(
   Schema.fromJsonString(TransferOrder),

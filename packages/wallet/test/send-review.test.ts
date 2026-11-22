@@ -35,6 +35,7 @@ import {
   type Passkeys,
   SavedWallet,
   TransferIntent,
+  UnsupportedDevice,
   makeWalletEffects,
 } from "../src/device/client";
 import {
@@ -484,6 +485,11 @@ it.live(
       expect(afterResolve.reserveSponsor).toBe(actors.sponsor);
 
       const review = yield* reviewed(client, toExchange);
+
+      expect(yield* client.confirm(review)).toEqual(new UnsupportedDevice());
+      expect(
+        Option.getOrThrow(yield* lockedStore.readPublic()).approvedUntil,
+      ).toBeUndefined();
 
       yield* lockedStore.updatePublic((current) =>
         Option.some(
