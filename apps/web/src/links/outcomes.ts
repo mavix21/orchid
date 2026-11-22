@@ -15,29 +15,39 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
 import { amountLabel, assetCode } from "@/send/money";
+import type { DeviceFailure } from "@/send/use-wallet-task";
 import { unavailableMessage } from "@/wallet/unavailable";
 
-export type LinkAction =
-  | "done"
-  | "home"
+export type CreateAction =
   | "again"
   | "edit"
   | "check"
+  | "home"
   | "links"
   | "assets"
   | "elsewhere";
 
-export class LinkScreen {
+export type CheckAction = "check" | "home" | "links";
+
+export type RecoverAction = "done" | "again" | "check" | "home";
+
+export class LinkScreen<Action extends string> {
   constructor(
     readonly title: string,
     readonly message: string,
-    readonly action: LinkAction,
+    readonly action: Action,
   ) {}
 }
 
 export interface RecoverableLink extends PaymentLinkTarget {
   readonly amount: PositiveAmount;
 }
+
+export const recoverable = ({
+  balance,
+  asset,
+  amount,
+}: RecoverableLink): RecoverableLink => ({ balance, asset, amount });
 
 export const lostLinkMessage =
   "Por seguridad, un link solo se puede compartir justo después de crearlo. Tu dinero sigue a salvo: recupéralo y crea uno nuevo.";
@@ -64,15 +74,9 @@ const unavailable = (failure: WalletUnavailable, next: string) =>
     "check",
   );
 
-export const creationDeviceFailure = new LinkScreen(
+const creationDeviceFailure = new LinkScreen(
   "Algo falló en este dispositivo",
   checkFirst,
-  "check",
-);
-
-export const recoveryDeviceFailure = new LinkScreen(
-  "Algo falló en este dispositivo",
-  "Revisa de nuevo para saber si recuperaste el dinero.",
   "check",
 );
 
@@ -123,11 +127,16 @@ const notCreated = new LinkScreen(
   "home",
 );
 
+export type CreateRefusal =
+  | Exclude<CreatePaymentLinkOutcome, PaymentLinkCreated>
+  | DeviceFailure;
+
 export const createLinkResult = (
-  outcome: Exclude<CreatePaymentLinkOutcome, PaymentLinkCreated>,
+  outcome: CreateRefusal,
   asset: Asset,
-): LinkScreen =>
+): LinkScreen<CreateAction> =>
   Match.valueTags(outcome, {
+    DeviceFailure: () => creationDeviceFailure,
     Pending: () => stillCreating,
     ApprovalOutstanding: ({ order }) =>
       Predicate.isTagged(order.to, "PaymentLink")
@@ -198,10 +207,15 @@ export const createLinkResult = (
     InvalidResponse: (failure) => unavailable(failure, checkFirst),
   });
 
+export type CheckRefusal =
+  | Exclude<ResolvePaymentLinkOutcome, ResolvedPaymentLink>
+  | DeviceFailure;
+
 export const resolveLinkResult = (
-  outcome: Exclude<ResolvePaymentLinkOutcome, ResolvedPaymentLink>,
-): LinkScreen =>
+  outcome: CheckRefusal,
+): LinkScreen<CheckAction> =>
   Match.valueTags(outcome, {
+    DeviceFailure: () => creationDeviceFailure,
     Pending: () => stillCreating,
     ApprovalOutstanding: () => stillCreating,
     PaymentLinkNotFound: () =>
@@ -257,13 +271,15 @@ const recoverAgain = new LinkScreen(
 const recheck = "Revisa de nuevo para saber si recuperaste el dinero.";
 
 export const cancelLinkResult = (
-  outcome: CancelPaymentLinkOutcome,
+  outcome: CancelPaymentLinkOutcome | DeviceFailure,
   link: RecoverableLink,
-): LinkScreen => {
+): LinkScreen<RecoverAction> => {
   const code = assetCode(link.asset);
   const amount = amountLabel(link.amount, link.asset);
 
   return Match.valueTags(outcome, {
+    DeviceFailure: () =>
+      new LinkScreen("Algo falló en este dispositivo", recheck, "check"),
     AssetSettled: () =>
       new LinkScreen(
         "Recuperaste tu dinero",

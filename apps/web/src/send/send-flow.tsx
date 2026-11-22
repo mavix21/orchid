@@ -1,5 +1,5 @@
 import { LinkIcon, PhoneIcon, UserRoundIcon, WalletIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import type {
@@ -11,7 +11,7 @@ import type {
   TransferId,
   TransferIntent,
 } from "@workspace/wallet";
-import * as Exit from "effect/Exit";
+import * as Data from "effect/Data";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -22,108 +22,270 @@ import { LinkFlow } from "@/links/link-flow";
 import { walletEffects } from "@/wallet";
 
 import { AmountStep } from "./amount-step";
-import { type Destination, FieldProblem, type SendForm } from "./intent";
-import { deviceFailure, sendResult } from "./outcomes";
+import {
+  type Destination,
+  FieldProblem,
+  type SendField,
+  type SendForm,
+} from "./intent";
+import { SendScreen, deviceFailure, sendResult } from "./outcomes";
 import { PaymentReviewCard } from "./payment-review";
 import { RecipientStep } from "./recipient-step";
 import { SendResultScreen } from "./send-result";
-import { type WalletRun, useWalletRun } from "./use-wallet-run";
-
-type Answer = WalletRun<ReviewOutcome | ResumeOutcome>;
+import { type Answer, DeviceFailure, useWalletTask } from "./use-wallet-task";
 
 type Choice = Destination | "link";
 
+type EntryField = "recipient" | "amount";
+
+interface Entry {
+  readonly destination: Destination;
+  readonly form: SendForm;
+  readonly problem: Option.Option<FieldProblem>;
+}
+
+interface Draft {
+  readonly entry: Entry;
+  readonly intent: TransferIntent;
+}
+
+type ReviewAnswer = Data.TaggedEnum<{
+  Shown: { readonly review: PaymentReview };
+  Corrected: { readonly outcome: string; readonly problem: FieldProblem };
+  Concluded: { readonly outcome: string; readonly screen: SendScreen };
+}>;
+
+const ReviewAnswer = Data.taggedEnum<ReviewAnswer>();
+
+type OutcomeAnswer = Exclude<
+  ReviewAnswer,
+  Data.TaggedEnum.Value<ReviewAnswer, "Shown">
+>;
+
+type SendStep = Data.TaggedEnum<{
+  Choosing: {};
+  Linking: {};
+  Entering: { readonly field: EntryField; readonly entry: Entry };
+  Reviewing: { readonly draft: Draft };
+  Reviewed: { readonly draft: Draft; readonly review: PaymentReview };
+  Confirming: { readonly draft: Draft; readonly review: PaymentReview };
+  Concluded: {
+    readonly draft: Draft;
+    readonly outcome: string;
+    readonly screen: SendScreen;
+    readonly resume: Option.Option<TransferId>;
+  };
+  Tracking: { readonly id: TransferId; readonly draft: Option.Option<Draft> };
+}>;
+
+const SendStep = Data.taggedEnum<SendStep>();
+
+type SendEvent = Data.TaggedEnum<{
+  Chose: { readonly choice: Choice };
+  Unchose: {};
+  Typed: { readonly field: SendField; readonly value: string };
+  Invalid: { readonly problem: FieldProblem };
+  Moved: { readonly field: EntryField };
+  ReviewStarted: { readonly intent: TransferIntent };
+  ReviewAnswered: { readonly answer: ReviewAnswer };
+  ConfirmStarted: {};
+  ConfirmAnswered: { readonly answer: OutcomeAnswer };
+  Resumed: {};
+  StartedOver: {};
+}>;
+
+const SendEvent = Data.taggedEnum<SendEvent>();
+
 const emptyForm: SendForm = { recipient: "", amount: "", memo: "" };
 
-const settledValue = (answer: Answer) =>
-  answer.working
-    ? Option.none()
-    : answer.answered.pipe(
-        Option.filter(Exit.isSuccess),
-        Option.map((exit) => exit.value),
-      );
+const readOutcome = (
+  answer: Answer<ResumeOutcome>,
+  asset: Asset,
+): OutcomeAnswer => {
+  if (answer instanceof DeviceFailure)
+    return ReviewAnswer.Concluded({
+      outcome: answer._tag,
+      screen: deviceFailure,
+    });
 
-const fieldProblemOf = (answer: Answer, asset: Asset) =>
-  Option.flatMap(settledValue(answer), (value) =>
-    Match.value(value).pipe(
-      Match.tag("PaymentReview", () => Option.none<FieldProblem>()),
-      Match.orElse((outcome) => {
-        const result = sendResult(outcome, asset);
+  const result = sendResult(answer, asset);
 
-        return result instanceof FieldProblem
-          ? Option.some(result)
-          : Option.none();
+  return result instanceof FieldProblem
+    ? ReviewAnswer.Corrected({ outcome: answer._tag, problem: result })
+    : ReviewAnswer.Concluded({ outcome: answer._tag, screen: result });
+};
+
+const readReview = (
+  answer: Answer<ReviewOutcome>,
+  asset: Asset,
+): ReviewAnswer =>
+  Predicate.isTagged(answer, "PaymentReview")
+    ? ReviewAnswer.Shown({ review: answer })
+    : readOutcome(answer, asset);
+
+const draftOf = (step: SendStep): Option.Option<Draft> =>
+  Match.valueTags(step, {
+    Choosing: () => Option.none(),
+    Linking: () => Option.none(),
+    Entering: () => Option.none(),
+    Reviewing: ({ draft }) => Option.some(draft),
+    Reviewed: ({ draft }) => Option.some(draft),
+    Confirming: ({ draft }) => Option.some(draft),
+    Concluded: ({ draft }) => Option.some(draft),
+    Tracking: ({ draft }) => draft,
+  });
+
+const entryOf = (step: SendStep): Option.Option<Entry> =>
+  Predicate.isTagged(step, "Entering")
+    ? Option.some(step.entry)
+    : Option.map(draftOf(step), (draft) => draft.entry);
+
+const corrected = (entry: Entry, problem: FieldProblem) =>
+  SendStep.Entering({
+    field: problem.field === "recipient" ? "recipient" : "amount",
+    entry: { ...entry, problem: Option.some(problem) },
+  });
+
+const editing = (
+  step: SendStep,
+  change: (entering: Data.TaggedEnum.Value<SendStep, "Entering">) => SendStep,
+) => (Predicate.isTagged(step, "Entering") ? change(step) : step);
+
+const reduceSendFlow = (step: SendStep, event: SendEvent): SendStep =>
+  Match.valueTags(event, {
+    Chose: ({ choice }) => {
+      if (!Predicate.isTagged(step, "Choosing")) return step;
+
+      return choice === "link"
+        ? SendStep.Linking()
+        : SendStep.Entering({
+            field: "recipient",
+            entry: {
+              destination: choice,
+              form: emptyForm,
+              problem: Option.none(),
+            },
+          });
+    },
+    Unchose: () =>
+      Predicate.isTagged(step, "Linking") ||
+      (Predicate.isTagged(step, "Entering") && step.field === "recipient")
+        ? SendStep.Choosing()
+        : step,
+    Typed: ({ field, value }) =>
+      editing(step, (entering) =>
+        SendStep.Entering({
+          field: entering.field,
+          entry: {
+            ...entering.entry,
+            form: { ...entering.entry.form, [field]: value },
+            problem: Option.none(),
+          },
+        }),
+      ),
+    Invalid: ({ problem }) =>
+      editing(step, (entering) =>
+        SendStep.Entering({
+          field: entering.field,
+          entry: { ...entering.entry, problem: Option.some(problem) },
+        }),
+      ),
+    Moved: ({ field }) =>
+      editing(step, (entering) =>
+        SendStep.Entering({ field, entry: entering.entry }),
+      ),
+    ReviewStarted: ({ intent }) =>
+      Option.match(entryOf(step), {
+        onNone: () => step,
+        onSome: (entry) =>
+          SendStep.Reviewing({
+            draft: { entry: { ...entry, problem: Option.none() }, intent },
+          }),
       }),
-    ),
-  );
+    ReviewAnswered: ({ answer }) => {
+      if (!Predicate.isTagged(step, "Reviewing")) return step;
+
+      return Match.valueTags(answer, {
+        Shown: ({ review }) => SendStep.Reviewed({ draft: step.draft, review }),
+        Corrected: ({ problem }) => corrected(step.draft.entry, problem),
+        Concluded: ({ outcome, screen }) =>
+          SendStep.Concluded({
+            draft: step.draft,
+            outcome,
+            screen,
+            resume: Option.none(),
+          }),
+      });
+    },
+    ConfirmStarted: () =>
+      Predicate.isTagged(step, "Reviewed")
+        ? SendStep.Confirming({ draft: step.draft, review: step.review })
+        : step,
+    ConfirmAnswered: ({ answer }) => {
+      if (!Predicate.isTagged(step, "Confirming")) return step;
+
+      return Match.valueTags(answer, {
+        Corrected: ({ problem }) => corrected(step.draft.entry, problem),
+        Concluded: ({ outcome, screen }) =>
+          SendStep.Concluded({
+            draft: step.draft,
+            outcome,
+            screen,
+            resume:
+              outcome === "Pending"
+                ? Option.some(step.review.order.id)
+                : Option.none(),
+          }),
+      });
+    },
+    Resumed: () =>
+      Predicate.isTagged(step, "Concluded") && Option.isSome(step.resume)
+        ? SendStep.Tracking({
+            id: step.resume.value,
+            draft: Option.some(step.draft),
+          })
+        : step,
+    StartedOver: () =>
+      Option.match(draftOf(step), {
+        onNone: () =>
+          Predicate.isTagged(step, "Tracking") ? SendStep.Choosing() : step,
+        onSome: ({ entry }) => SendStep.Entering({ field: "amount", entry }),
+      }),
+  });
 
 function Working({ label }: { label: string }) {
   return <ScreenStatus title={label} />;
 }
 
-function AnswerScreen({
-  answer,
-  asset,
-  working,
+function ReviewScreen({
+  review,
   onConfirm,
   onEdit,
-  onAgain,
 }: {
-  answer: Answer;
-  asset: Asset;
-  working: string;
-  onConfirm: (shown: PaymentReview) => void;
+  review: PaymentReview;
+  onConfirm: () => void;
   onEdit: () => void;
-  onAgain: () => void;
 }) {
-  if (answer.working || Option.isNone(answer.answered))
-    return <Working label={working} />;
-
-  return Exit.match(answer.answered.value, {
-    onFailure: () => (
-      <SendResultScreen
-        outcome="DeviceFailure"
-        screen={deviceFailure}
-        onAgain={onAgain}
-      />
-    ),
-    onSuccess: (value) =>
-      Match.value(value).pipe(
-        Match.tag("PaymentReview", (shown) => (
-          <>
-            <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-              <h1 className="font-display text-h1">Revisa tu pago</h1>
-              <PaymentReviewCard review={shown} />
-            </main>
-            <ScreenActions>
-              <Button
-                className="w-full"
-                onClick={() => onConfirm(shown)}
-                data-testid="confirm-payment"
-              >
-                Enviar
-              </Button>
-              <Button className="w-full" variant="secondary" onClick={onEdit}>
-                Editar
-              </Button>
-            </ScreenActions>
-          </>
-        )),
-        Match.orElse((outcome) => {
-          const result = sendResult(outcome, asset);
-
-          return result instanceof FieldProblem ? (
-            <Working label={working} />
-          ) : (
-            <SendResultScreen
-              outcome={outcome._tag}
-              screen={result}
-              onAgain={onAgain}
-            />
-          );
-        }),
-      ),
-  });
+  return (
+    <>
+      <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
+        <h1 className="font-display text-h1">Revisa tu pago</h1>
+        <PaymentReviewCard review={review} />
+      </main>
+      <ScreenActions>
+        <Button
+          className="w-full"
+          onClick={onConfirm}
+          data-testid="confirm-payment"
+        >
+          Enviar
+        </Button>
+        <Button className="w-full" variant="secondary" onClick={onEdit}>
+          Editar
+        </Button>
+      </ScreenActions>
+    </>
+  );
 }
 
 function TransferStatus({
@@ -135,24 +297,41 @@ function TransferStatus({
   asset: Asset;
   onStartOver: () => void;
 }) {
-  const lookup = useWalletRun(walletEffects.resume);
+  const task = useWalletTask();
 
-  useEffect(() => lookup.start(id), [id]);
-
-  const failed = Option.exists(settledValue(lookup.state), (value) =>
-    Predicate.isTagged(value, "Failed"),
+  const [found, setFound] = useState<Option.Option<Answer<ResumeOutcome>>>(
+    Option.none(),
   );
 
-  return (
-    <AnswerScreen
-      answer={lookup.state}
-      asset={asset}
-      working="Buscando tu pago…"
-      onConfirm={onStartOver}
-      onEdit={onStartOver}
-      onAgain={failed ? onStartOver : () => lookup.start(id)}
-    />
-  );
+  const look = () => {
+    setFound(Option.none());
+    task.run(walletEffects.resume(id), (answer) =>
+      setFound(Option.some(answer)),
+    );
+  };
+
+  useEffect(look, [id]);
+
+  if (Option.isNone(found)) return <Working label="Buscando tu pago…" />;
+
+  const answer = readOutcome(found.value, asset);
+
+  return Match.valueTags(answer, {
+    Corrected: ({ outcome, problem }) => (
+      <SendResultScreen
+        outcome={outcome}
+        screen={new SendScreen("No se envió", problem.message, "retry")}
+        onAgain={onStartOver}
+      />
+    ),
+    Concluded: ({ outcome, screen }) => (
+      <SendResultScreen
+        outcome={outcome}
+        screen={screen}
+        onAgain={outcome === "Failed" ? onStartOver : look}
+      />
+    ),
+  });
 }
 
 function DestinationChoice({
@@ -227,169 +406,133 @@ export function SendFlow({
   asset,
   available,
   transfer,
+  nav,
   onTransfer,
-  onLock,
 }: {
   asset: Asset;
   available: Amount;
   transfer: Option.Option<TransferId>;
+  nav: (locked: boolean) => React.ReactNode;
   onTransfer: (id: Option.Option<TransferId>) => void;
-  onLock: (locked: boolean) => void;
 }) {
-  const review = useWalletRun(walletEffects.review);
-  const confirmation = useWalletRun(walletEffects.confirm);
-  const [editing, setEditing] = useState(Option.isNone(transfer));
-  const [form, setForm] = useState<SendForm>(emptyForm);
-  const [entering, setEntering] = useState<"recipient" | "amount">("recipient");
+  const task = useWalletTask();
 
-  const [destination, setDestination] = useState<Option.Option<Destination>>(
-    Option.none(),
-  );
-
-  const [linking, setLinking] = useState(false);
-
-  const [intent, setIntent] = useState<Option.Option<TransferIntent>>(
-    Option.none(),
-  );
-
-  const [problem, setProblem] = useState<Option.Option<FieldProblem>>(
-    Option.none(),
+  const [step, send] = useReducer(
+    reduceSendFlow,
+    transfer,
+    Option.match({
+      onNone: () => SendStep.Choosing(),
+      onSome: (id) => SendStep.Tracking({ id, draft: Option.none() }),
+    }),
   );
 
   const startOver = () => {
-    review.reset();
-    confirmation.reset();
+    task.stop();
     onTransfer(Option.none());
-    setEditing(true);
+    send(SendEvent.StartedOver());
   };
 
-  useEffect(() => {
-    const found = Option.orElse(fieldProblemOf(confirmation.state, asset), () =>
-      fieldProblemOf(review.state, asset),
+  const review = (intent: TransferIntent) => {
+    onTransfer(Option.none());
+    send(SendEvent.ReviewStarted({ intent }));
+    task.run(walletEffects.review(intent), (answer) =>
+      send(SendEvent.ReviewAnswered({ answer: readReview(answer, asset) })),
     );
-
-    if (Option.isNone(found)) return;
-
-    setProblem(found);
-    setEntering(found.value.field === "recipient" ? "recipient" : "amount");
-    startOver();
-  }, [review.state, confirmation.state]);
-
-  const reviewIntent = (entered: TransferIntent) => {
-    onTransfer(Option.none());
-    setIntent(Option.some(entered));
-    setProblem(Option.none());
-    setEditing(false);
-    confirmation.reset();
-    review.start(entered);
   };
 
-  const again = () =>
-    Option.exists(settledValue(confirmation.state), (value) =>
-      Predicate.isTagged(value, "Pending"),
-    )
-      ? confirmation.reset()
-      : Option.match(intent, {
-          onNone: startOver,
-          onSome: reviewIntent,
-        });
+  const confirm = (shown: PaymentReview) => {
+    onTransfer(Option.some(shown.order.id));
+    send(SendEvent.ConfirmStarted());
+    task.run(walletEffects.confirm(shown), (answered) => {
+      const answer = readOutcome(answered, asset);
 
-  if (editing && linking)
-    return (
+      if (Predicate.isTagged(answer, "Corrected")) onTransfer(Option.none());
+
+      send(SendEvent.ConfirmAnswered({ answer }));
+    });
+  };
+
+  const edit = (field: SendField, value: string) =>
+    send(SendEvent.Typed({ field, value }));
+
+  const problem = (found: FieldProblem) =>
+    send(SendEvent.Invalid({ problem: found }));
+
+  const unlocked = (screen: React.ReactNode) => (
+    <>
+      {nav(false)}
+      {screen}
+    </>
+  );
+
+  return Match.valueTags(step, {
+    Linking: () => (
       <LinkFlow
         asset={asset}
         available={available}
-        onLock={onLock}
-        onChangeDestination={() => setLinking(false)}
+        nav={nav}
+        onChangeDestination={() => send(SendEvent.Unchose())}
       />
-    );
-
-  if (editing && Option.isNone(destination))
-    return (
-      <DestinationChoice
-        onChoose={(chosen) => {
-          if (chosen === "link") {
-            setLinking(true);
-
-            return;
+    ),
+    Choosing: () =>
+      unlocked(
+        <DestinationChoice
+          onChoose={(choice) => send(SendEvent.Chose({ choice }))}
+        />,
+      ),
+    Entering: ({ field, entry }) =>
+      unlocked(
+        field === "recipient" ? (
+          <RecipientStep
+            destination={entry.destination}
+            recipient={entry.form.recipient}
+            problem={entry.problem}
+            onEdit={(recipient) => edit("recipient", recipient)}
+            onContinue={() => send(SendEvent.Moved({ field: "amount" }))}
+            onProblem={problem}
+            onChangeDestination={() => send(SendEvent.Unchose())}
+          />
+        ) : (
+          <AmountStep
+            destination={entry.destination}
+            form={entry.form}
+            problem={entry.problem}
+            asset={asset}
+            available={available}
+            onEdit={edit}
+            onIntent={review}
+            onProblem={problem}
+            onChangeRecipient={() =>
+              send(SendEvent.Moved({ field: "recipient" }))
+            }
+          />
+        ),
+      ),
+    Reviewing: () => unlocked(<Working label="Preparando tu pago…" />),
+    Reviewed: ({ review: shown }) =>
+      unlocked(
+        <ReviewScreen
+          review={shown}
+          onConfirm={() => confirm(shown)}
+          onEdit={startOver}
+        />,
+      ),
+    Confirming: () => unlocked(<Working label="Enviando…" />),
+    Concluded: ({ draft, outcome, screen, resume }) =>
+      unlocked(
+        <SendResultScreen
+          outcome={outcome}
+          screen={screen}
+          onAgain={() =>
+            Option.isSome(resume)
+              ? send(SendEvent.Resumed())
+              : review(draft.intent)
           }
-
-          setForm(emptyForm);
-          setProblem(Option.none());
-          setEntering("recipient");
-          setDestination(Option.some(chosen));
-        }}
-      />
-    );
-
-  const edit = (field: keyof SendForm, value: string) => {
-    setForm((current) => ({ ...current, [field]: value }));
-    setProblem(Option.none());
-  };
-
-  if (editing && Option.isSome(destination) && entering === "recipient")
-    return (
-      <RecipientStep
-        destination={destination.value}
-        recipient={form.recipient}
-        problem={problem}
-        onEdit={(recipient) => edit("recipient", recipient)}
-        onContinue={() => setEntering("amount")}
-        onProblem={(found) => setProblem(Option.some(found))}
-        onChangeDestination={() => setDestination(Option.none())}
-      />
-    );
-
-  if (editing && Option.isSome(destination))
-    return (
-      <AmountStep
-        destination={destination.value}
-        form={form}
-        problem={problem}
-        asset={asset}
-        available={available}
-        onEdit={edit}
-        onIntent={reviewIntent}
-        onProblem={(found) => setProblem(Option.some(found))}
-        onChangeRecipient={() => setEntering("recipient")}
-      />
-    );
-
-  if (confirmation.state.working || Option.isSome(confirmation.state.answered))
-    return (
-      <AnswerScreen
-        answer={confirmation.state}
-        asset={asset}
-        working="Enviando…"
-        onConfirm={startOver}
-        onEdit={startOver}
-        onAgain={again}
-      />
-    );
-
-  if (Option.isSome(transfer))
-    return (
-      <TransferStatus
-        id={transfer.value}
-        asset={asset}
-        onStartOver={startOver}
-      />
-    );
-
-  return (
-    <AnswerScreen
-      answer={review.state}
-      asset={asset}
-      working="Preparando tu pago…"
-      onConfirm={(shown) => {
-        onTransfer(Option.some(shown.order.id));
-        confirmation.start(shown);
-      }}
-      onEdit={() => {
-        review.reset();
-        setEditing(true);
-      }}
-      onAgain={again}
-    />
-  );
+        />,
+      ),
+    Tracking: ({ id }) =>
+      unlocked(
+        <TransferStatus id={id} asset={asset} onStartOver={startOver} />,
+      ),
+  });
 }

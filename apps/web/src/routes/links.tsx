@@ -18,6 +18,7 @@ import type {
 import * as DateTime from "effect/DateTime";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 
 import {
   Screen,
@@ -27,10 +28,9 @@ import {
 } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { type RecoverableLink, lostLinkMessage } from "@/links/outcomes";
-import { RecoverDrawer, RecoveryAnswer } from "@/links/recovery";
+import { ResultButton } from "@/links/link-result";
+import { RecoverDrawer, RecoveryAnswer, useRecovery } from "@/links/recovery";
 import { amountLabel } from "@/send/money";
-import { useWalletRun } from "@/send/use-wallet-run";
-import { walletEffects } from "@/wallet";
 import { unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/links")({
@@ -50,6 +50,11 @@ export const Route = createFileRoute("/links")({
 interface ChosenLink {
   readonly link: RecoverableLink;
   readonly created?: string;
+}
+
+interface Confirmation {
+  readonly chosen: ChosenLink;
+  readonly open: boolean;
 }
 
 class LatestNotice {
@@ -183,64 +188,57 @@ function LinksFrame({
 function PaymentLinks() {
   const { latest, links } = Route.useLoaderData();
   const router = useRouter();
-  const recovery = useWalletRun(walletEffects.cancelPaymentLink);
+  const { started, recover, reset } = useRecovery();
 
-  const [chosen, setChosen] = useState<Option.Option<ChosenLink>>(
+  const [confirmation, setConfirmation] = useState<Option.Option<Confirmation>>(
     Option.none(),
   );
 
-  const [confirming, setConfirming] = useState(false);
-
-  const [recovering, setRecovering] = useState<Option.Option<RecoverableLink>>(
-    Option.none(),
-  );
-
-  const choose = (link: RecoverableLink, created?: string) => {
-    setChosen(Option.some({ link, created }));
-    setConfirming(true);
-  };
-
-  const recover = (link: RecoverableLink) => {
-    setRecovering(Option.some(link));
-    recovery.start(link);
-  };
-
-  if (Option.isSome(recovering))
+  if (Option.isSome(started))
     return (
       <LinksFrame>
         <RecoveryAnswer
-          answer={recovery.state}
-          link={recovering.value}
-          onAgain={() => recovery.start(recovering.value)}
-          onDone={() => {
-            recovery.reset();
-            setRecovering(Option.none());
-            void router.invalidate();
-          }}
+          recovery={started.value}
+          onRecover={recover}
+          done={
+            <ResultButton
+              onClick={() => {
+                reset();
+                void router.invalidate();
+              }}
+            >
+              Listo
+            </ResultButton>
+          }
         />
       </LinksFrame>
     );
 
   return (
     <LinksFrame>
-      {Match.value(links).pipe(
-        Match.tag("OpenPaymentLinks", (open) => (
-          <LinkList
-            links={open.links}
-            notice={latestNotice(latest)}
-            onChoose={choose}
-          />
-        )),
-        Match.orElse((problem) => (
-          <ListProblem message={listProblem(problem)} />
-        )),
+      {Predicate.isTagged(links, "OpenPaymentLinks") ? (
+        <LinkList
+          links={links.links}
+          notice={latestNotice(latest)}
+          onChoose={(link, created) =>
+            setConfirmation(
+              Option.some({ chosen: { link, created }, open: true }),
+            )
+          }
+        />
+      ) : (
+        <ListProblem message={listProblem(links)} />
       )}
-      {Option.isSome(chosen) ? (
+      {Option.isSome(confirmation) ? (
         <RecoverDrawer
-          link={chosen.value.link}
-          created={chosen.value.created}
-          open={confirming}
-          onOpenChange={setConfirming}
+          link={confirmation.value.chosen.link}
+          created={confirmation.value.chosen.created}
+          open={confirmation.value.open}
+          onOpenChange={(open) =>
+            setConfirmation(
+              Option.map(confirmation, (shown) => ({ ...shown, open })),
+            )
+          }
           onRecover={recover}
         />
       ) : null}

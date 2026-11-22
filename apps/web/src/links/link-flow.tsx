@@ -1,5 +1,5 @@
 import { CheckIcon, LinkIcon, ShareIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useReducer, useRef, useState } from "react";
 import { Link, useBlocker } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -12,7 +12,7 @@ import {
   formatAmount,
   parseAmount,
 } from "@workspace/wallet";
-import * as Exit from "effect/Exit";
+import * as Data from "effect/Data";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -21,36 +21,175 @@ import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
 import { AmountPad } from "@/send/amount-pad";
 import { amountLabel, assetCode } from "@/send/money";
 import { ReviewRow } from "@/send/payment-review";
-import { type WalletRun, useWalletRun } from "@/send/use-wallet-run";
+import { type Answer, useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
 
-import { LinkResultScreen, LinkWorking } from "./link-result";
 import {
+  LinkResultScreen,
+  LinkWorking,
+  ResultButton,
+  ResultLink,
+} from "./link-result";
+import {
+  type CheckRefusal,
+  type CreateRefusal,
   type RecoverableLink,
   createLinkResult,
-  creationDeviceFailure,
   lostLinkMessage,
+  recoverable,
   resolveLinkResult,
 } from "./outcomes";
-import { RecoverDrawer, RecoveryAnswer } from "./recovery";
+import { RecoverDrawer, RecoveryAnswer, useRecovery } from "./recovery";
 import { type ShareResult, shareLink } from "./share-link";
 
-type Delivery = ShareResult | "waiting" | "abandoned";
+type Delivery = "none" | "dismissed" | "shared" | "copied";
+
+type LinkStep = Data.TaggedEnum<{
+  Entering: { readonly problem: Option.Option<string> };
+  Reviewing: { readonly intent: PaymentLinkIntent };
+  Creating: { readonly intent: PaymentLinkIntent };
+  Refused: {
+    readonly intent: PaymentLinkIntent;
+    readonly outcome: CreateRefusal;
+  };
+  Created: { readonly link: PaymentLinkCreated; readonly delivery: Delivery };
+  Sharing: { readonly link: PaymentLinkCreated; readonly delivery: Delivery };
+  Lost: { readonly link: RecoverableLink };
+  Checking: {};
+  Checked: { readonly outcome: CheckRefusal };
+}>;
+
+const LinkStep = Data.taggedEnum<LinkStep>();
+
+interface LinkFlowState {
+  readonly amount: string;
+  readonly step: LinkStep;
+}
+
+type LinkEvent = Data.TaggedEnum<{
+  Typed: { readonly amount: string };
+  Invalid: { readonly problem: string };
+  Reviewed: { readonly intent: PaymentLinkIntent };
+  Edited: {};
+  CreateStarted: {};
+  CreateAnswered: { readonly answer: Answer<CreatePaymentLinkOutcome> };
+  Retried: {};
+  ShareStarted: {};
+  ShareEnded: { readonly result: ShareResult };
+  Left: {};
+  CheckStarted: {};
+  CheckAnswered: { readonly answer: Answer<ResolvePaymentLinkOutcome> };
+}>;
+
+const LinkEvent = Data.taggedEnum<LinkEvent>();
 
 const delivered = (delivery: Delivery) =>
   delivery === "shared" || delivery === "copied";
 
-const createdLink = (answer: WalletRun<CreatePaymentLinkOutcome>) =>
-  answer.working
-    ? Option.none<PaymentLinkCreated>()
-    : answer.answered.pipe(
-        Option.filter(Exit.isSuccess),
-        Option.flatMap((exit) =>
-          Predicate.isTagged(exit.value, "PaymentLinkCreated")
-            ? Option.some(exit.value)
-            : Option.none(),
-        ),
+const entering = (problem: Option.Option<string> = Option.none()) =>
+  LinkStep.Entering({ problem });
+
+const lost = (link: RecoverableLink) =>
+  LinkStep.Lost({ link: recoverable(link) });
+
+const afterShare = (
+  link: PaymentLinkCreated,
+  delivery: Delivery,
+  result: ShareResult,
+): LinkStep => {
+  if (delivered(delivery))
+    return LinkStep.Created({
+      link,
+      delivery: result === "shared" || result === "copied" ? result : delivery,
+    });
+
+  return result === "unavailable"
+    ? lost(link)
+    : LinkStep.Created({ link, delivery: result });
+};
+
+const reduceLinkFlow = (
+  state: LinkFlowState,
+  event: LinkEvent,
+): LinkFlowState => {
+  const { step } = state;
+  const to = (next: LinkStep): LinkFlowState => ({ ...state, step: next });
+
+  return Match.valueTags(event, {
+    Typed: ({ amount }) =>
+      Predicate.isTagged(step, "Entering")
+        ? { amount, step: entering() }
+        : state,
+    Invalid: ({ problem }) =>
+      Predicate.isTagged(step, "Entering")
+        ? to(entering(Option.some(problem)))
+        : state,
+    Reviewed: ({ intent }) =>
+      Predicate.isTagged(step, "Entering")
+        ? to(LinkStep.Reviewing({ intent }))
+        : state,
+    Edited: () =>
+      Predicate.isTagged(step, "Reviewing") ||
+      Predicate.isTagged(step, "Refused")
+        ? to(entering())
+        : state,
+    CreateStarted: () =>
+      Predicate.isTagged(step, "Reviewing")
+        ? to(LinkStep.Creating({ intent: step.intent }))
+        : state,
+    CreateAnswered: ({ answer }) => {
+      if (!Predicate.isTagged(step, "Creating")) return state;
+
+      return to(
+        Predicate.isTagged(answer, "PaymentLinkCreated")
+          ? LinkStep.Created({ link: answer, delivery: "none" })
+          : LinkStep.Refused({ intent: step.intent, outcome: answer }),
       );
+    },
+    Retried: () =>
+      Predicate.isTagged(step, "Refused")
+        ? to(LinkStep.Reviewing({ intent: step.intent }))
+        : state,
+    ShareStarted: () =>
+      Predicate.isTagged(step, "Created")
+        ? to(LinkStep.Sharing({ link: step.link, delivery: step.delivery }))
+        : state,
+    ShareEnded: ({ result }) =>
+      Predicate.isTagged(step, "Sharing")
+        ? to(afterShare(step.link, step.delivery, result))
+        : state,
+    Left: () =>
+      Predicate.isTagged(step, "Created") && !delivered(step.delivery)
+        ? to(lost(step.link))
+        : state,
+    CheckStarted: () =>
+      Predicate.isTagged(step, "Refused") || Predicate.isTagged(step, "Checked")
+        ? to(LinkStep.Checking())
+        : state,
+    CheckAnswered: ({ answer }) => {
+      if (!Predicate.isTagged(step, "Checking")) return state;
+
+      return to(
+        Predicate.isTagged(answer, "ResolvedPaymentLink")
+          ? lost(answer)
+          : LinkStep.Checked({ outcome: answer }),
+      );
+    },
+  });
+};
+
+const holdsUnsharedLink = (step: LinkStep) =>
+  Match.valueTags(step, {
+    Entering: () => false,
+    Reviewing: () => false,
+    Creating: () => true,
+    Refused: () => false,
+    Created: ({ delivery }) => !delivered(delivery),
+    Sharing: ({ delivery }) => !delivered(delivery),
+    Lost: () => false,
+    Checking: () => false,
+    Checked: () => false,
+  });
 
 function LinkAmountStep({
   amount,
@@ -73,18 +212,19 @@ function LinkAmountStep({
 }) {
   const field = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (Option.isSome(problem)) field.current?.focus();
-  }, [problem]);
+  const refuse = (found: string) => {
+    onProblem(found);
+    field.current?.focus();
+  };
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     Option.match(parseAmount(amount), {
-      onNone: () => onProblem("Escribe un monto válido"),
+      onNone: () => refuse("Escribe un monto válido"),
       onSome: (entered) =>
         entered > available
-          ? onProblem(`Tienes ${amountLabel(available, asset)} disponibles`)
+          ? refuse(`Tienes ${amountLabel(available, asset)} disponibles`)
           : onIntent(new PaymentLinkIntent({ asset, amount: entered })),
     });
   };
@@ -170,6 +310,7 @@ function LinkReview({
 
 const deliveryNote = (delivery: Delivery) =>
   Match.value(delivery).pipe(
+    Match.when("none", () => Option.none<string>()),
     Match.when("shared", () => Option.some("Link compartido.")),
     Match.when("copied", () =>
       Option.some("Link copiado. Pégalo en el chat de quien recibe."),
@@ -177,7 +318,7 @@ const deliveryNote = (delivery: Delivery) =>
     Match.when("dismissed", () =>
       Option.some("Aún no lo compartiste. Puedes intentarlo de nuevo."),
     ),
-    Match.orElse(() => Option.none<string>()),
+    Match.exhaustive,
   );
 
 function LinkCreated({
@@ -253,14 +394,18 @@ function LinkCreated({
   );
 }
 
-function LostLink({
-  link,
-  onRecover,
-}: {
-  link: RecoverableLink;
-  onRecover: (link: RecoverableLink) => void;
-}) {
+function LostLink({ link }: { link: RecoverableLink }) {
+  const { started, recover } = useRecovery();
   const [confirming, setConfirming] = useState(false);
+
+  if (Option.isSome(started))
+    return (
+      <RecoveryAnswer
+        recovery={started.value}
+        onRecover={recover}
+        done={<ResultLink link={<Link to="/home" />}>Listo</ResultLink>}
+      />
+    );
 
   return (
     <>
@@ -291,7 +436,7 @@ function LostLink({
         link={link}
         open={confirming}
         onOpenChange={setConfirming}
-        onRecover={onRecover}
+        onRecover={recover}
       />
     </>
   );
@@ -300,181 +445,163 @@ function LostLink({
 export function LinkFlow({
   asset,
   available,
-  onLock,
+  nav,
   onChangeDestination,
 }: {
   asset: Asset;
   available: Amount;
-  onLock: (locked: boolean) => void;
+  nav: (locked: boolean) => React.ReactNode;
   onChangeDestination: () => void;
 }) {
-  const creation = useWalletRun(walletEffects.createPaymentLink);
+  const task = useWalletTask();
 
-  const check = useWalletRun<void, ResolvePaymentLinkOutcome>(
-    walletEffects.resolvePaymentLink,
-  );
+  const [state, send] = useReducer(reduceLinkFlow, {
+    amount: "",
+    step: entering(),
+  });
 
-  const recovery = useWalletRun(walletEffects.cancelPaymentLink);
-  const [amount, setAmount] = useState("");
-  const [problem, setProblem] = useState<Option.Option<string>>(Option.none());
-
-  const [intent, setIntent] = useState<Option.Option<PaymentLinkIntent>>(
-    Option.none(),
-  );
-
-  const [delivery, setDelivery] = useState<Delivery>("waiting");
-  const [sharing, setSharing] = useState(false);
-
-  const [recovering, setRecovering] = useState<Option.Option<RecoverableLink>>(
-    Option.none(),
-  );
-
-  const created = createdLink(creation.state);
-
-  const locked =
-    creation.state.working ||
-    (Option.isSome(created) &&
-      !delivered(delivery) &&
-      delivery !== "abandoned" &&
-      delivery !== "unavailable");
-
-  useEffect(() => onLock(locked), [locked]);
-  useEffect(() => () => onLock(false), []);
+  const locked = holdsUnsharedLink(state.step);
 
   useBlocker({ shouldBlockFn: () => locked, enableBeforeUnload: locked });
 
-  const recover = (link: RecoverableLink) => {
-    setRecovering(Option.some(link));
-    recovery.start(link);
+  const create = (intent: PaymentLinkIntent) => {
+    send(LinkEvent.CreateStarted());
+    task.run(walletEffects.createPaymentLink(intent), (answer) =>
+      send(LinkEvent.CreateAnswered({ answer })),
+    );
   };
 
-  const startOver = () => {
-    creation.reset();
-    check.reset();
-    recovery.reset();
-    setRecovering(Option.none());
-    setDelivery("waiting");
-    setIntent(Option.none());
+  const check = () => {
+    send(LinkEvent.CheckStarted());
+    task.run(walletEffects.resolvePaymentLink(), (answer) =>
+      send(LinkEvent.CheckAnswered({ answer })),
+    );
   };
 
-  const create = (entered: PaymentLinkIntent) => {
-    setDelivery("waiting");
-    check.reset();
-    creation.start(entered);
+  const share = (link: PaymentLinkCreated) => {
+    send(LinkEvent.ShareStarted());
+    void shareLink(link).then((result) =>
+      send(LinkEvent.ShareEnded({ result })),
+    );
   };
 
-  const share = async (link: PaymentLinkCreated) => {
-    setSharing(true);
-
-    const result = await shareLink(link);
-
-    setDelivery((current) =>
-      delivered(current) && !delivered(result) ? current : result,
-    );
-    setSharing(false);
-  };
-
-  if (Option.isSome(recovering))
-    return (
-      <RecoveryAnswer
-        answer={recovery.state}
-        link={recovering.value}
-        onAgain={() => recovery.start(recovering.value)}
-      />
-    );
-
-  if (check.state.working || Option.isSome(check.state.answered)) {
-    if (check.state.working || Option.isNone(check.state.answered))
-      return <LinkWorking label="Revisando tu link…" />;
-
-    return Exit.match(check.state.answered.value, {
-      onFailure: () => (
-        <LinkResultScreen
-          outcome="DeviceFailure"
-          screen={creationDeviceFailure}
-          onAgain={startOver}
-          onEdit={startOver}
-          onCheck={() => check.start()}
-        />
-      ),
-      onSuccess: (outcome) =>
-        Predicate.isTagged(outcome, "ResolvedPaymentLink") ? (
-          <LostLink link={outcome} onRecover={recover} />
-        ) : (
-          <LinkResultScreen
-            outcome={outcome._tag}
-            screen={resolveLinkResult(outcome)}
-            onAgain={startOver}
-            onEdit={startOver}
-            onCheck={() => check.start()}
-          />
-        ),
-    });
-  }
-
-  if (creation.state.working)
-    return (
-      <LinkWorking label="Creando tu link…" note="No cierres esta pantalla." />
-    );
-
-  if (Option.isSome(creation.state.answered))
-    return Exit.match(creation.state.answered.value, {
-      onFailure: () => (
-        <LinkResultScreen
-          outcome="DeviceFailure"
-          screen={creationDeviceFailure}
-          onAgain={startOver}
-          onEdit={startOver}
-          onCheck={() => check.start()}
-        />
-      ),
-      onSuccess: (outcome) =>
-        Predicate.isTagged(outcome, "PaymentLinkCreated") ? (
-          delivery === "abandoned" || delivery === "unavailable" ? (
-            <LostLink link={outcome} onRecover={recover} />
-          ) : (
-            <LinkCreated
-              created={outcome}
-              delivery={delivery}
-              sharing={sharing}
-              onShare={() => void share(outcome)}
-              onLeave={() => setDelivery("abandoned")}
-            />
-          )
-        ) : (
-          <LinkResultScreen
-            outcome={outcome._tag}
-            screen={createLinkResult(outcome, asset)}
-            onElsewhere={onChangeDestination}
-            onAgain={() => creation.reset()}
-            onEdit={startOver}
-            onCheck={() => check.start()}
-          />
-        ),
-    });
-
-  if (Option.isSome(intent))
-    return (
-      <LinkReview
-        intent={intent.value}
-        onCreate={() => create(intent.value)}
-        onEdit={() => setIntent(Option.none())}
-      />
-    );
+  const created = (link: PaymentLinkCreated, delivery: Delivery) => (
+    <LinkCreated
+      created={link}
+      delivery={delivery}
+      sharing={Predicate.isTagged(state.step, "Sharing")}
+      onShare={() => share(link)}
+      onLeave={() => send(LinkEvent.Left())}
+    />
+  );
 
   return (
-    <LinkAmountStep
-      amount={amount}
-      problem={problem}
-      asset={asset}
-      available={available}
-      onAmount={(typed) => {
-        setAmount(typed);
-        setProblem(Option.none());
-      }}
-      onProblem={(found) => setProblem(Option.some(found))}
-      onIntent={(entered) => setIntent(Option.some(entered))}
-      onChangeDestination={onChangeDestination}
-    />
+    <>
+      {nav(locked)}
+      {Match.valueTags(state.step, {
+        Entering: ({ problem }) => (
+          <LinkAmountStep
+            amount={state.amount}
+            problem={problem}
+            asset={asset}
+            available={available}
+            onAmount={(amount) => send(LinkEvent.Typed({ amount }))}
+            onProblem={(problem) => send(LinkEvent.Invalid({ problem }))}
+            onIntent={(intent) => send(LinkEvent.Reviewed({ intent }))}
+            onChangeDestination={onChangeDestination}
+          />
+        ),
+        Reviewing: ({ intent }) => (
+          <LinkReview
+            intent={intent}
+            onCreate={() => create(intent)}
+            onEdit={() => send(LinkEvent.Edited())}
+          />
+        ),
+        Creating: () => (
+          <LinkWorking
+            label="Creando tu link…"
+            note="No cierres esta pantalla."
+          />
+        ),
+        Refused: ({ outcome }) => {
+          const screen = createLinkResult(outcome, asset);
+
+          return (
+            <LinkResultScreen outcome={outcome._tag} screen={screen}>
+              {Match.value(screen.action).pipe(
+                Match.when("again", () => (
+                  <ResultButton onClick={() => send(LinkEvent.Retried())}>
+                    Reintentar
+                  </ResultButton>
+                )),
+                Match.when("edit", () => (
+                  <ResultButton onClick={() => send(LinkEvent.Edited())}>
+                    Cambiar monto
+                  </ResultButton>
+                )),
+                Match.when("check", () => (
+                  <ResultButton onClick={check}>Revisar de nuevo</ResultButton>
+                )),
+                Match.when("home", () => (
+                  <ResultLink link={<Link to="/home" />}>
+                    Volver al inicio
+                  </ResultLink>
+                )),
+                Match.when("links", () => (
+                  <ResultLink link={<Link to="/links" />}>
+                    Ver mis links
+                  </ResultLink>
+                )),
+                Match.when("assets", () => (
+                  <ResultLink link={<Link to="/send" />}>
+                    Elegir otra moneda
+                  </ResultLink>
+                )),
+                Match.when("elsewhere", () => (
+                  <>
+                    <ResultButton onClick={onChangeDestination}>
+                      Enviar de otra forma
+                    </ResultButton>
+                    <ResultLink variant="secondary" link={<Link to="/send" />}>
+                      Elegir otra moneda
+                    </ResultLink>
+                  </>
+                )),
+                Match.exhaustive,
+              )}
+            </LinkResultScreen>
+          );
+        },
+        Created: ({ link, delivery }) => created(link, delivery),
+        Sharing: ({ link, delivery }) => created(link, delivery),
+        Lost: ({ link }) => <LostLink link={link} />,
+        Checking: () => <LinkWorking label="Revisando tu link…" />,
+        Checked: ({ outcome }) => {
+          const screen = resolveLinkResult(outcome);
+
+          return (
+            <LinkResultScreen outcome={outcome._tag} screen={screen}>
+              {Match.value(screen.action).pipe(
+                Match.when("check", () => (
+                  <ResultButton onClick={check}>Revisar de nuevo</ResultButton>
+                )),
+                Match.when("home", () => (
+                  <ResultLink link={<Link to="/home" />}>
+                    Volver al inicio
+                  </ResultLink>
+                )),
+                Match.when("links", () => (
+                  <ResultLink link={<Link to="/links" />}>
+                    Ver mis links
+                  </ResultLink>
+                )),
+                Match.exhaustive,
+              )}
+            </LinkResultScreen>
+          );
+        },
+      })}
+    </>
   );
 }

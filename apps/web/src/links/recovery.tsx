@@ -1,3 +1,5 @@
+import { useReducer } from "react";
+import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import {
   Drawer,
@@ -9,18 +11,81 @@ import {
 } from "@workspace/ui/components/drawer";
 
 import type { CancelPaymentLinkOutcome } from "@workspace/wallet";
-import * as Exit from "effect/Exit";
+import * as Data from "effect/Data";
+import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 
 import { amountLabel } from "@/send/money";
-import type { WalletRun } from "@/send/use-wallet-run";
+import { type Answer, useWalletTask } from "@/send/use-wallet-task";
+import { walletEffects } from "@/wallet";
 
-import { LinkResultScreen, LinkWorking } from "./link-result";
 import {
-  type RecoverableLink,
-  cancelLinkResult,
-  recoveryDeviceFailure,
-} from "./outcomes";
+  LinkResultScreen,
+  LinkWorking,
+  ResultButton,
+  ResultLink,
+} from "./link-result";
+import { type RecoverableLink, cancelLinkResult } from "./outcomes";
+
+type Recovery = Data.TaggedEnum<{
+  Idle: {};
+  Recovering: { readonly link: RecoverableLink };
+  Recovered: {
+    readonly link: RecoverableLink;
+    readonly answer: Answer<CancelPaymentLinkOutcome>;
+  };
+}>;
+
+const Recovery = Data.taggedEnum<Recovery>();
+
+export type RecoveryStarted = Exclude<
+  Recovery,
+  Data.TaggedEnum.Value<Recovery, "Idle">
+>;
+
+type RecoveryEvent = Data.TaggedEnum<{
+  Started: { readonly link: RecoverableLink };
+  Answered: { readonly answer: Answer<CancelPaymentLinkOutcome> };
+  Reset: {};
+}>;
+
+const RecoveryEvent = Data.taggedEnum<RecoveryEvent>();
+
+const reduceRecovery = (state: Recovery, event: RecoveryEvent): Recovery =>
+  Match.valueTags(event, {
+    Started: ({ link }) => Recovery.Recovering({ link }),
+    Answered: ({ answer }) =>
+      Predicate.isTagged(state, "Recovering")
+        ? Recovery.Recovered({ link: state.link, answer })
+        : state,
+    Reset: () => Recovery.Idle(),
+  });
+
+export function useRecovery() {
+  const task = useWalletTask();
+  const [recovery, send] = useReducer(reduceRecovery, Recovery.Idle());
+
+  const recover = (link: RecoverableLink) => {
+    send(RecoveryEvent.Started({ link }));
+    task.run(walletEffects.cancelPaymentLink(link), (answer) =>
+      send(RecoveryEvent.Answered({ answer })),
+    );
+  };
+
+  const reset = () => {
+    task.stop();
+    send(RecoveryEvent.Reset());
+  };
+
+  const started = Match.valueTags(recovery, {
+    Idle: () => Option.none<RecoveryStarted>(),
+    Recovering: (shown) => Option.some<RecoveryStarted>(shown),
+    Recovered: (shown) => Option.some<RecoveryStarted>(shown),
+  });
+
+  return { started, recover, reset };
+}
 
 export function RecoverDrawer({
   link,
@@ -75,39 +140,39 @@ export function RecoverDrawer({
 }
 
 export function RecoveryAnswer({
-  answer,
-  link,
-  onAgain,
-  onDone,
+  recovery,
+  done,
+  onRecover,
 }: {
-  answer: WalletRun<CancelPaymentLinkOutcome>;
-  link: RecoverableLink;
-  onAgain: () => void;
-  onDone?: () => void;
+  recovery: RecoveryStarted;
+  done: React.ReactNode;
+  onRecover: (link: RecoverableLink) => void;
 }) {
-  if (answer.working || Option.isNone(answer.answered))
+  if (Predicate.isTagged(recovery, "Recovering"))
     return <LinkWorking label="Recuperando tu dinero…" />;
 
-  return Exit.match(answer.answered.value, {
-    onFailure: () => (
-      <LinkResultScreen
-        outcome="DeviceFailure"
-        screen={recoveryDeviceFailure}
-        onAgain={onAgain}
-        onEdit={onAgain}
-        onCheck={onAgain}
-        onDone={onDone}
-      />
-    ),
-    onSuccess: (outcome) => (
-      <LinkResultScreen
-        outcome={outcome._tag}
-        screen={cancelLinkResult(outcome, link)}
-        onAgain={onAgain}
-        onEdit={onAgain}
-        onCheck={onAgain}
-        onDone={onDone}
-      />
-    ),
-  });
+  const { link, answer } = recovery;
+  const screen = cancelLinkResult(answer, link);
+
+  return (
+    <LinkResultScreen outcome={answer._tag} screen={screen}>
+      {Match.value(screen.action).pipe(
+        Match.when("done", () => done),
+        Match.when("home", () => (
+          <ResultLink link={<Link to="/home" />}>Volver al inicio</ResultLink>
+        )),
+        Match.when("again", () => (
+          <ResultButton onClick={() => onRecover(link)}>
+            Reintentar
+          </ResultButton>
+        )),
+        Match.when("check", () => (
+          <ResultButton onClick={() => onRecover(link)}>
+            Revisar de nuevo
+          </ResultButton>
+        )),
+        Match.exhaustive,
+      )}
+    </LinkResultScreen>
+  );
 }

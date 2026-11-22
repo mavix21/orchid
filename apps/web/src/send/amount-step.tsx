@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import {
   type Amount,
@@ -56,19 +56,21 @@ export function AmountStep({
   const amountProblem = messageFor(problem, "amount");
   const [memoOpen, setMemoOpen] = useState(Option.isSome(memoProblem));
 
-  useEffect(() => {
-    if (Option.isSome(memoProblem)) setMemoOpen(true);
-
-    if (Option.isSome(amountProblem)) amountField.current?.focus();
-  }, [problem]);
-
   const entered = Option.isSome(parseAmount(form.amount));
+
+  const refuse = (found: FieldProblem) => {
+    onProblem(found);
+
+    if (found.field === "memo") setMemoOpen(true);
+
+    if (found.field === "amount") amountField.current?.focus();
+  };
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     Result.match(intentOf(form, destination, asset), {
-      onFailure: onProblem,
+      onFailure: refuse,
       onSuccess: onIntent,
     });
   };

@@ -1,5 +1,4 @@
 import { ChevronLeftIcon } from "lucide-react";
-import { useState } from "react";
 import {
   Link,
   createFileRoute,
@@ -16,7 +15,10 @@ import { Screen } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { assetCode } from "@/send/money";
 import { SendFlow } from "@/send/send-flow";
-import { SendUnavailable } from "@/send/send-unavailable";
+import {
+  SendUnavailable,
+  type UnavailableOverview,
+} from "@/send/send-unavailable";
 import { shownOverview } from "@/wallet/shown-overview";
 
 const TransferSearch = Schema.Struct({ transfer: Schema.optional(TransferId) });
@@ -46,17 +48,26 @@ function SendAsset() {
   const { overview, balance } = Route.useLoaderData();
   const { transfer } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
-  const [locked, setLocked] = useState(false);
+
+  const nav = (locked: boolean) => (
+    <TopNav
+      title={balance ? `Enviar ${assetCode(balance.asset)}` : "Enviar"}
+      label="Atrás"
+      icon={<ChevronLeftIcon absoluteStrokeWidth />}
+      link={<Link to="/send" />}
+      disabled={locked}
+    />
+  );
+
+  const unavailable = (shown: UnavailableOverview) => (
+    <>
+      {nav(false)}
+      <SendUnavailable overview={shown} />
+    </>
+  );
 
   return (
     <Screen>
-      <TopNav
-        title={balance ? `Enviar ${assetCode(balance.asset)}` : "Enviar"}
-        label="Atrás"
-        icon={<ChevronLeftIcon absoluteStrokeWidth />}
-        link={<Link to="/send" />}
-        disabled={locked}
-      />
       {Match.valueTags(overview, {
         Holding: () =>
           balance ? (
@@ -64,7 +75,7 @@ function SendAsset() {
               asset={balance.asset}
               available={balance.amount}
               transfer={Option.fromNullishOr(transfer)}
-              onLock={setLocked}
+              nav={nav}
               onTransfer={(id) => {
                 if (Option.getOrUndefined(id) !== transfer)
                   void navigate({
@@ -73,29 +84,17 @@ function SendAsset() {
                   });
               }}
             />
-          ) : null,
-        NeedsReopening: (unavailable) => (
-          <SendUnavailable overview={unavailable} />
-        ),
-        InvalidAddress: (unavailable) => (
-          <SendUnavailable overview={unavailable} />
-        ),
-        UnsupportedDevice: (unavailable) => (
-          <SendUnavailable overview={unavailable} />
-        ),
-        Offline: (unavailable) => <SendUnavailable overview={unavailable} />,
-        ServerUnreachable: (unavailable) => (
-          <SendUnavailable overview={unavailable} />
-        ),
-        LedgerUnreachable: (unavailable) => (
-          <SendUnavailable overview={unavailable} />
-        ),
-        ServiceFailed: (unavailable) => (
-          <SendUnavailable overview={unavailable} />
-        ),
-        InvalidResponse: (unavailable) => (
-          <SendUnavailable overview={unavailable} />
-        ),
+          ) : (
+            nav(false)
+          ),
+        NeedsReopening: unavailable,
+        InvalidAddress: unavailable,
+        UnsupportedDevice: unavailable,
+        Offline: unavailable,
+        ServerUnreachable: unavailable,
+        LedgerUnreachable: unavailable,
+        ServiceFailed: unavailable,
+        InvalidResponse: unavailable,
       })}
     </Screen>
   );
