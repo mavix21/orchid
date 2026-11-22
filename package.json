@@ -12,6 +12,8 @@
     "db:migrate:local": "DATABASE_URL_UNPOOLED=postgres://orchid:orchid-local@127.0.0.1:55432/orchid bun packages/wallet/scripts/migrate.server.ts",
     "build": "bun tools/wallet/check-boundary.mjs && turbo build",
     "dev": "turbo dev",
+    "dev:phone": "bun tools/dev-phone.mjs start",
+    "dev:phone:stop": "bun tools/dev-phone.mjs stop",
     "lint": "bun tools/comments/check.mjs && oxlint",
     "typecheck": "turbo typecheck",
     "prepare": "git config core.hooksPath .githooks && effect-tsgo patch --typescript --no-oxlint",
