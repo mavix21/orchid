@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import { Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -8,23 +9,42 @@ import * as TestClock from "effect/testing/TestClock";
 import {
   AddressRecipient,
   type Approval,
+  BalanceId,
   ExternalRecipient,
   Holding,
   Offline,
+  OpenPaymentLinks,
+  PaymentLinkReceipt,
+  PaymentLinkRecipient,
   PaymentMemo,
   Pending,
   PositiveAmount,
+  Profile,
+  ResolvedPaymentLink,
   Settled,
   TransferId,
-  type TransferOrder,
+  TransferOrder,
   type TransferStep,
+  Username,
   UsernameRecipient,
   type WalletPort,
   baseAsset,
 } from "../src/contract";
-import { TransferIntent, makeWalletEffects } from "../src/device/client";
-import { DeviceWallet } from "../src/device/key-store";
 import {
+  PasskeyFailed,
+  type Passkeys,
+  SavedWallet,
+  TransferIntent,
+  makeWalletEffects,
+} from "../src/device/client";
+import {
+  DeviceWallet,
+  type KeyStore,
+  KeyStoreUnavailable,
+  PublicDeviceWallet,
+} from "../src/device/key-store";
+import {
+  addressOf,
   memoryKeyStore,
   nowSeconds,
   savedWallet,
@@ -334,4 +354,155 @@ it.effect("stops following a payment still Pending after it expired", () =>
     expect((yield* Fiber.join(following))._tag).toBe("Pending");
     expect(device.approvals.filter(Option.isSome)).toHaveLength(0);
   }),
+);
+
+it.live(
+  "reads status, overview, links, reviews and resumes orders without secret or passkey access",
+  () =>
+    Effect.gen(function* () {
+      const linkAddress = addressOf(Keypair.random());
+
+      const linkBalance = Schema.decodeSync(BalanceId)(
+        `00000000${"c".repeat(64)}`,
+      );
+
+      const linkOrder = new TransferOrder({
+        id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
+        from: actors.sender,
+        to: PaymentLinkRecipient.make({ value: linkAddress }),
+        asset: baseAsset,
+        amount,
+      });
+
+      const linkReceipt = new PaymentLinkReceipt({
+        network: "testnet",
+        address: linkAddress,
+        asset: baseAsset,
+        amount,
+        balance: linkBalance,
+        attempts: [linkBalance],
+      });
+
+      const approvedUntil = nowSeconds() + 120;
+      const staleUsername = Schema.decodeSync(Username)("mariaold");
+
+      const backing = memoryKeyStore(
+        Option.some(
+          new DeviceWallet({
+            ...actors.wallet,
+            username: staleUsername,
+            reserveSponsor: undefined,
+            transfer: linkOrder,
+            approvedUntil,
+            linkReceipt,
+          }),
+        ),
+      );
+
+      const lockedStore: KeyStore = {
+        read: () =>
+          Effect.fail(new KeyStoreUnavailable({ cause: "secret locked" })),
+        write: () =>
+          Effect.fail(new KeyStoreUnavailable({ cause: "secret locked" })),
+        readPublic: () => backing.readPublic(),
+        updatePublic: (update) => backing.updatePublic(update),
+      };
+
+      const lockedPasskeys: Passkeys = {
+        register: () => Effect.fail(new PasskeyFailed()),
+        authenticate: () => Effect.fail(new PasskeyFailed()),
+      };
+
+      const approvals: Array<Option.Option<Approval>> = [];
+      let settleResume = false;
+
+      const senderProfile = new Profile({
+        address: actors.sender,
+        username: actors.wallet.username,
+      });
+
+      const port = unusedPort({
+        overview: () =>
+          Effect.succeed(
+            new Holding({
+              profile: senderProfile,
+              reserveSponsor: Option.some(actors.sponsor),
+              balances: [],
+              claimable: [],
+              latest: Option.none(),
+            }),
+          ),
+        paymentLinks: () => Effect.succeed(new OpenPaymentLinks({ links: [] })),
+        resolvePaymentLink: () =>
+          Effect.succeed(
+            new ResolvedPaymentLink({
+              balance: linkBalance,
+              address: linkAddress,
+              asset: baseAsset,
+              amount,
+            }),
+          ),
+        transfer: (order, approval) =>
+          Effect.sync(() => {
+            approvals.push(approval);
+
+            return settleResume ? settledFor(order) : exchangeDraft();
+          }),
+      });
+
+      const client = makeWalletEffects(port, lockedStore, lockedPasskeys);
+
+      expect(yield* client.saved()).toEqual(
+        new SavedWallet({
+          username: staleUsername,
+          openingApproved: false,
+          backup: "stored",
+        }),
+      );
+
+      assertTagged(yield* client.overview(), "Holding");
+
+      const afterOverview = Option.getOrThrow(yield* lockedStore.readPublic());
+
+      expect(afterOverview.username).toBe(actors.wallet.username);
+      expect(afterOverview.reserveSponsor).toBe(actors.sponsor);
+      expect(afterOverview.transfer?.id).toBe(linkOrder.id);
+      expect(afterOverview.approvedUntil).toBe(approvedUntil);
+      expect(afterOverview.linkReceipt?.balance).toBe(linkBalance);
+
+      expect(yield* client.paymentLinks()).toEqual(
+        new OpenPaymentLinks({ links: [] }),
+      );
+
+      assertTagged(yield* client.resolvePaymentLink(), "ResolvedPaymentLink");
+
+      const afterResolve = Option.getOrThrow(yield* lockedStore.readPublic());
+
+      expect(afterResolve.transfer).toBeUndefined();
+      expect(afterResolve.approvedUntil).toBeUndefined();
+      expect(afterResolve.linkReceipt).toBeUndefined();
+      expect(afterResolve.reserveSponsor).toBe(actors.sponsor);
+
+      const review = yield* reviewed(client, toExchange);
+
+      yield* lockedStore.updatePublic((current) =>
+        Option.some(
+          new PublicDeviceWallet({
+            ...current,
+            approvedUntil: nowSeconds() + 120,
+          }),
+        ),
+      );
+
+      expect((yield* client.resume(review.order.id))._tag).toBe(
+        "ApprovalOutstanding",
+      );
+
+      settleResume = true;
+      assertTagged(yield* client.resume(review.order.id), "Settled");
+      expect(
+        Option.getOrThrow(yield* lockedStore.readPublic()).transfer,
+      ).toBeUndefined();
+      expect(approvals.filter(Option.isSome)).toHaveLength(0);
+    }),
 );

@@ -12,13 +12,24 @@ import {
   PositiveAmount,
   TransferId,
   TransferOrder,
+  Username,
   baseAsset,
 } from "../src/contract";
 import { browserKeyStore } from "../src/device/browser-key-store";
-import { DeviceWallet, clearStoredLink } from "../src/device/key-store";
+import {
+  DeviceWallet,
+  PublicDeviceWallet,
+  clearStoredLink,
+  publicWalletOf,
+} from "../src/device/key-store";
 import { addressOf, seededDeviceWallet } from "./device-fixtures";
 
 const wallet = seededDeviceWallet();
+
+const Ciphertext = Schema.Struct({
+  iv: Schema.String,
+  phrase: Schema.String,
+});
 
 const resumable = new DeviceWallet({
   ...wallet,
@@ -32,24 +43,44 @@ const resumable = new DeviceWallet({
   }),
 });
 
-const storedText = () =>
-  new Promise<string>((resolve, reject) => {
+const withEntryStore = <A>(
+  mode: IDBTransactionMode,
+  run: (store: IDBObjectStore) => IDBRequest<A>,
+) =>
+  new Promise<A>((resolve, reject) => {
     const request = indexedDB.open("orchid-device");
 
     request.addEventListener("error", () => reject(request.error));
     request.addEventListener("success", () => {
-      const read = request.result
-        .transaction("entries")
-        .objectStore("entries")
-        .get("wallet");
+      const transaction = request.result.transaction("entries", mode);
+      const op = run(transaction.objectStore("entries"));
 
-      read.addEventListener("error", () => reject(read.error));
-      read.addEventListener("success", () => {
+      op.addEventListener("error", () => reject(op.error));
+      transaction.addEventListener("error", () => reject(transaction.error));
+      transaction.addEventListener("abort", () => reject(transaction.error));
+      transaction.addEventListener("complete", () => {
         request.result.close();
-        resolve(JSON.stringify(read.result));
+        resolve(op.result);
       });
     });
   });
+
+const storedEntry = (name: string) =>
+  withEntryStore("readonly", (store) => store.get(name));
+
+const removeEntry = (name: string) =>
+  withEntryStore("readwrite", (store) => store.delete(name));
+
+const restoreEntry = (name: string, value: CryptoKey) =>
+  withEntryStore("readwrite", (store) => store.put(value, name));
+
+const storedText = () =>
+  storedEntry("wallet").then((value) => JSON.stringify(value));
+
+const storedCiphertext = () =>
+  storedEntry("wallet").then((value) =>
+    Schema.decodeUnknownSync(Ciphertext)(value),
+  );
 
 it.effect("keeps the secret phrase encrypted at rest and reads it back", () =>
   Effect.gen(function* () {
@@ -110,6 +141,41 @@ it.effect("keeps the secret phrase encrypted at rest and reads it back", () =>
 
     yield* browserKeyStore.write(withB);
 
+    const beforeCiphertext = yield* Effect.promise(storedCiphertext);
+
+    const wrappingKey = Schema.decodeUnknownSync(Schema.instanceOf(CryptoKey))(
+      yield* Effect.promise(() => storedEntry("wrapping-key")),
+    );
+
+    yield* Effect.promise(() => removeEntry("wrapping-key"));
+
+    expect(yield* browserKeyStore.readPublic()).toEqual(
+      Option.some(publicWalletOf(withB)),
+    );
+
+    const nextUsername = Schema.decodeSync(Username)("ana");
+    const nextSponsor = addressOf(Keypair.random());
+
+    const updated = yield* browserKeyStore.updatePublic((current) =>
+      Option.some(
+        new PublicDeviceWallet({
+          ...current,
+          username: nextUsername,
+          reserveSponsor: nextSponsor,
+        }),
+      ),
+    );
+
+    const expectedWithB = new PublicDeviceWallet({
+      ...publicWalletOf(withB),
+      username: nextUsername,
+      reserveSponsor: nextSponsor,
+    });
+
+    expect(updated).toEqual(
+      Option.some({ wallet: expectedWithB, updated: true }),
+    );
+
     yield* clearStoredLink(browserKeyStore, {
       address: wallet.address,
       transferId: orderA.id,
@@ -117,7 +183,9 @@ it.effect("keeps the secret phrase encrypted at rest and reads it back", () =>
       receipt: receiptA,
     });
 
-    expect(yield* browserKeyStore.read()).toEqual(Option.some(withB));
+    expect(yield* browserKeyStore.readPublic()).toEqual(
+      Option.some(expectedWithB),
+    );
 
     yield* clearStoredLink(browserKeyStore, {
       address: wallet.address,
@@ -126,6 +194,26 @@ it.effect("keeps the secret phrase encrypted at rest and reads it back", () =>
       receipt: receiptB,
     });
 
-    expect(yield* browserKeyStore.read()).toEqual(Option.some(wallet));
+    const expectedCleared = new PublicDeviceWallet({
+      ...publicWalletOf(wallet),
+      username: nextUsername,
+      reserveSponsor: nextSponsor,
+    });
+
+    expect(yield* browserKeyStore.readPublic()).toEqual(
+      Option.some(expectedCleared),
+    );
+    expect(yield* Effect.promise(storedCiphertext)).toEqual(beforeCiphertext);
+
+    yield* Effect.promise(() => restoreEntry("wrapping-key", wrappingKey));
+
+    expect(yield* browserKeyStore.read()).toEqual(
+      Option.some(
+        new DeviceWallet({
+          ...expectedCleared,
+          phrase: wallet.phrase,
+        }),
+      ),
+    );
   }),
 );

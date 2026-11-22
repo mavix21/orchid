@@ -13,12 +13,16 @@ import {
   type Approval,
   ExternalMemoRequired,
   ExternalRecipient,
+  Holding,
   LinkRecipient,
   NativeAsset,
+  Offline,
   PaymentMemo,
   Pending,
   PositiveAmount,
+  Profile,
   type ResolvedRecipient,
+  Settled,
   TransferId,
   TransferOrder,
   type TransferStep,
@@ -326,4 +330,132 @@ it.effect("rechecks the approval margin after recording the approval", () =>
     expect(yield* Fiber.join(sending)).toEqual(new DraftRejected());
     expect(approvals.filter(Option.isSome)).toHaveLength(0);
   }),
+);
+
+it.live(
+  "two concurrent sends for the same intent submit at most one order",
+  () =>
+    Effect.gen(function* () {
+      const store = memoryKeyStore(Option.some(actors.wallet));
+      const bothDrafting = yield* Latch.make();
+      const releaseDrafts = yield* Latch.make();
+      let draftRequests = 0;
+      const submittedIds: Array<string> = [];
+      const approvals: Array<Option.Option<Approval>> = [];
+
+      const port = unusedPort({
+        transfer: (order, approval) =>
+          Effect.gen(function* () {
+            approvals.push(approval);
+
+            if (Option.isSome(approval)) {
+              submittedIds.push(order.id);
+
+              return new Settled({
+                id: order.id,
+                to: order.to,
+                recipient: actors.pedroProfile,
+                asset: order.asset,
+                amount: order.amount,
+                settledAt: DateTime.makeUnsafe(Date.now()),
+              });
+            }
+
+            draftRequests++;
+
+            if (draftRequests === 2) yield* bothDrafting.open;
+
+            yield* releaseDrafts.await;
+
+            const at = nowSeconds();
+
+            return transferDraftOf(
+              actors.payment({ to: actors.pedro, amount, at }),
+              actors.pedroProfile,
+              120,
+              at,
+            );
+          }),
+      });
+
+      const client = makeWalletEffects(port, store, passkeys);
+      const first = yield* Effect.forkChild(client.send(toPedro));
+      const second = yield* Effect.forkChild(client.send(toPedro));
+
+      yield* bothDrafting.await;
+      yield* releaseDrafts.open;
+
+      const outcomes = [yield* Fiber.join(first), yield* Fiber.join(second)];
+
+      expect(submittedIds).toHaveLength(1);
+      expect(approvals.filter(Option.isSome)).toHaveLength(1);
+      expect(outcomes.map((outcome) => outcome._tag).sort()).toEqual([
+        "ApprovalOutstanding",
+        "Settled",
+      ]);
+    }),
+);
+
+it.live(
+  "overview storing the reserve sponsor preserves a concurrent transfer order and approval",
+  () =>
+    Effect.gen(function* () {
+      const store = memoryKeyStore(
+        Option.some(
+          new DeviceWallet({ ...actors.wallet, reserveSponsor: undefined }),
+        ),
+      );
+
+      const overviewReading = yield* Latch.make();
+      const releaseOverview = yield* Latch.make();
+
+      const port = unusedPort({
+        overview: () =>
+          overviewReading.open.pipe(
+            Effect.andThen(releaseOverview.await),
+            Effect.as(
+              new Holding({
+                profile: new Profile({
+                  address: actors.sender,
+                  username: actors.wallet.username,
+                }),
+                reserveSponsor: Option.some(actors.sponsor),
+                balances: [],
+                claimable: [],
+                latest: Option.none(),
+              }),
+            ),
+          ),
+        transfer: (_order, approval) =>
+          Option.isSome(approval)
+            ? Effect.fail(new Offline())
+            : Effect.sync(() => {
+                const at = nowSeconds();
+
+                return transferDraftOf(
+                  actors.payment({ to: actors.pedro, amount, at }),
+                  actors.pedroProfile,
+                  120,
+                  at,
+                );
+              }),
+      });
+
+      const client = makeWalletEffects(port, store, passkeys);
+      const loadingOverview = yield* Effect.forkChild(client.overview());
+
+      yield* overviewReading.await;
+      expect(yield* client.send(toPedro)).toEqual(new Offline());
+
+      const afterSend = Option.getOrThrow(yield* store.readPublic());
+
+      yield* releaseOverview.open;
+      expect((yield* Fiber.join(loadingOverview))._tag).toBe("Holding");
+
+      const afterOverview = Option.getOrThrow(yield* store.readPublic());
+
+      expect(afterOverview.reserveSponsor).toBe(actors.sponsor);
+      expect(afterOverview.transfer?.id).toBe(afterSend.transfer?.id);
+      expect(afterOverview.approvedUntil).toBe(afterSend.approvedUntil);
+    }),
 );

@@ -12,10 +12,7 @@ import { SecretPhrase } from "./secret-phrase";
 
 export const BackupState = Schema.Literals(["stored", "deviceOnly"]);
 
-export class DeviceWallet extends Schema.Class<DeviceWallet>(
-  "@workspace/wallet/DeviceWallet",
-)({
-  phrase: SecretPhrase,
+const publicWalletFields = {
   address: AccountAddress,
   username: Username,
   reserveSponsor: Schema.optional(AccountAddress),
@@ -23,7 +20,33 @@ export class DeviceWallet extends Schema.Class<DeviceWallet>(
   transfer: Schema.optional(TransferOrder),
   approvedUntil: Schema.optional(Schema.Number),
   linkReceipt: Schema.optional(PaymentLinkReceipt),
+};
+
+export class PublicDeviceWallet extends Schema.Class<PublicDeviceWallet>(
+  "@workspace/wallet/PublicDeviceWallet",
+)(publicWalletFields) {}
+
+export class DeviceWallet extends Schema.Class<DeviceWallet>(
+  "@workspace/wallet/DeviceWallet",
+)({
+  ...publicWalletFields,
+  phrase: SecretPhrase,
 }) {}
+
+export const publicWalletOf = (
+  wallet: PublicDeviceWallet | DeviceWallet,
+): PublicDeviceWallet =>
+  wallet instanceof PublicDeviceWallet
+    ? wallet
+    : new PublicDeviceWallet({
+        address: wallet.address,
+        username: wallet.username,
+        reserveSponsor: wallet.reserveSponsor,
+        backup: wallet.backup,
+        transfer: wallet.transfer,
+        approvedUntil: wallet.approvedUntil,
+        linkReceipt: wallet.linkReceipt,
+      });
 
 export class KeyStoreUnavailable extends Schema.TaggedError<KeyStoreUnavailable>()(
   "KeyStoreUnavailable",
@@ -37,12 +60,21 @@ export interface LinkClearTarget {
   readonly receipt: PaymentLinkReceipt;
 }
 
+export interface PublicWalletUpdate {
+  readonly wallet: PublicDeviceWallet;
+  readonly updated: boolean;
+}
+
 export interface KeyStore {
   read(): Effect.Effect<Option.Option<DeviceWallet>, KeyStoreUnavailable>;
   write(wallet: DeviceWallet): Effect.Effect<void, KeyStoreUnavailable>;
-  clearLink?(
-    expected: LinkClearTarget,
-  ): Effect.Effect<void, KeyStoreUnavailable>;
+  readPublic(): Effect.Effect<
+    Option.Option<PublicDeviceWallet>,
+    KeyStoreUnavailable
+  >;
+  updatePublic(
+    update: (current: PublicDeviceWallet) => Option.Option<PublicDeviceWallet>,
+  ): Effect.Effect<Option.Option<PublicWalletUpdate>, KeyStoreUnavailable>;
 }
 
 export const receiptJson = Schema.encodeSync(
@@ -51,7 +83,7 @@ export const receiptJson = Schema.encodeSync(
 
 export const sameLinkState = (
   wallet: Pick<
-    DeviceWallet,
+    PublicDeviceWallet,
     "address" | "transfer" | "approvedUntil" | "linkReceipt"
   >,
   expected: LinkClearTarget,
@@ -65,19 +97,18 @@ export const clearStoredLink = Effect.fn("Device.clearStoredLink")(function* (
   store: KeyStore,
   expected: LinkClearTarget,
 ) {
-  if (store.clearLink) return yield* store.clearLink(expected);
-
-  const current = yield* store.read();
-
-  if (Option.isSome(current) && sameLinkState(current.value, expected))
-    yield* store.write(
-      new DeviceWallet({
-        ...current.value,
-        transfer: undefined,
-        approvedUntil: undefined,
-        linkReceipt: undefined,
-      }),
-    );
+  yield* store.updatePublic((current) =>
+    sameLinkState(current, expected)
+      ? Option.some(
+          new PublicDeviceWallet({
+            ...current,
+            transfer: undefined,
+            approvedUntil: undefined,
+            linkReceipt: undefined,
+          }),
+        )
+      : Option.none(),
+  );
 });
 
 export const remember = Effect.fn("Device.remember")(function* (

@@ -12,9 +12,10 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   type CreateOutcome,
-  type DeviceWallet,
+  DeviceWallet,
   Holding,
   type KeyStore,
+  KeyStoreUnavailable,
   Opened,
   PositiveAmount,
   Restored,
@@ -26,6 +27,7 @@ import {
   assetKey,
   baseAsset,
   makeWalletClient,
+  publicWalletOf,
 } from "@workspace/wallet";
 import { signingKey } from "../src/device/signing";
 import { SoftwareAuthenticator } from "../test/software-authenticator";
@@ -61,6 +63,34 @@ function memoryKeyStore() {
     write: (wallet) =>
       Effect.sync(() => {
         saved = Option.some(wallet);
+      }),
+    readPublic: () => Effect.sync(() => Option.map(saved, publicWalletOf)),
+    updatePublic: (update) =>
+      Effect.suspend(() => {
+        if (Option.isNone(saved)) return Effect.succeed(Option.none());
+
+        const current = publicWalletOf(saved.value);
+        const next = update(current);
+
+        if (Option.isNone(next))
+          return Effect.succeed(
+            Option.some({ wallet: current, updated: false }),
+          );
+
+        if (next.value.address !== current.address)
+          return Effect.fail(
+            new KeyStoreUnavailable({
+              cause: new Error("Wallet address cannot change"),
+            }),
+          );
+
+        saved = Option.some(
+          new DeviceWallet({ ...next.value, phrase: saved.value.phrase }),
+        );
+
+        return Effect.succeed(
+          Option.some({ wallet: next.value, updated: true }),
+        );
       }),
   };
 
@@ -262,17 +292,11 @@ console.log(
   `PASS device client paid 0.5 USDC from ${username} to ${recipientName} in ${paymentRecord.hash}.`,
 );
 
-let restoredWallet = Option.none<DeviceWallet>();
+const restoredDevice = memoryKeyStore();
 
 const restoringClient = makeWalletClient(
   await run(Wallet),
-  {
-    read: () => Effect.sync(() => restoredWallet),
-    write: (wallet) =>
-      Effect.sync(() => {
-        restoredWallet = Option.some(wallet);
-      }),
-  },
+  restoredDevice.store,
   authenticator.passkeys,
 );
 
@@ -285,7 +309,7 @@ assert.ok(
 
 assert.equal(restored.profile.username, username);
 
-assert.equal(Option.getOrThrow(restoredWallet).phrase, wallet.phrase);
+assert.equal(Option.getOrThrow(restoredDevice.saved()).phrase, wallet.phrase);
 
 assert.ok((await restoringClient.overview()) instanceof Holding);
 

@@ -3,6 +3,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import {
   AccountAddress,
   type Asset,
@@ -21,7 +22,12 @@ import {
   type WalletPort,
   baseAsset,
 } from "../src/contract";
-import { DeviceWallet, type KeyStore } from "../src/device/key-store";
+import {
+  DeviceWallet,
+  type KeyStore,
+  KeyStoreUnavailable,
+  publicWalletOf,
+} from "../src/device/key-store";
 import { SecretPhrase } from "../src/device/secret-phrase";
 import { signingKey } from "../src/device/signing";
 import {
@@ -44,16 +50,48 @@ export function memoryKeyStore(
   beforeWrite: Effect.Effect<void> = Effect.void,
 ): KeyStore {
   let saved = initial;
+  const lock = Semaphore.makeUnsafe(1);
 
   return {
     read: () => Effect.sync(() => saved),
     write: (wallet) =>
-      beforeWrite.pipe(
-        Effect.andThen(
-          Effect.sync(() => {
-            saved = Option.some(wallet);
-          }),
+      lock.withPermit(
+        beforeWrite.pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              saved = Option.some(wallet);
+            }),
+          ),
         ),
+      ),
+    readPublic: () => Effect.sync(() => Option.map(saved, publicWalletOf)),
+    updatePublic: (update) =>
+      lock.withPermit(
+        Effect.gen(function* () {
+          if (Option.isNone(saved)) return Option.none();
+
+          const current = publicWalletOf(saved.value);
+          const next = update(current);
+
+          if (Option.isNone(next))
+            return Option.some({ wallet: current, updated: false });
+
+          if (next.value.address !== current.address)
+            return yield* new KeyStoreUnavailable({
+              cause: new Error("Wallet address cannot change"),
+            });
+
+          yield* beforeWrite;
+
+          saved = Option.some(
+            new DeviceWallet({
+              ...next.value,
+              phrase: saved.value.phrase,
+            }),
+          );
+
+          return Option.some({ wallet: next.value, updated: true });
+        }),
       ),
   };
 }
