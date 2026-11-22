@@ -354,7 +354,7 @@ function LinkCreated({
           Compártelo con quien quieres pagarle. Quien abra el link podrá recibir
           el dinero.
         </ScreenNote>
-        <p className="flex min-h-6 items-center gap-2 text-label text-accent-foreground">
+        <p className="flex min-h-6 items-center justify-center gap-2 text-label text-accent-foreground">
           {delivered(delivery) ? <CheckIcon className="size-5" /> : null}
           {Option.getOrUndefined(note)}
         </p>
