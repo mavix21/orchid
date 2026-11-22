@@ -357,15 +357,26 @@ console.log(
   `PASS device client paid 0.5 USDC from ${username} to ${recipientName} in ${paymentRecord.hash}.`,
 );
 
-const restoredDevice = memoryKeyStore();
+const restoredStore = memorySealedKeyStore();
 
 const restoringClient = makeWalletClient(
   await run(Wallet),
-  restoredDevice.store,
+  memoryKeyStore().store,
   authenticator.passkeys,
+  {
+    store: restoredStore,
+    ceremony: authenticator.assertions,
+    relyingParty: () => relyingParty,
+  },
 );
 
+const located = await restoringClient.restore();
+const sealed = await restoringClient.restore();
 const restored = await restoringClient.restore();
+
+assert.equal(located._tag, "BackupLocated");
+
+assert.equal(sealed._tag, "RestoreSealed");
 
 assert.ok(
   restored instanceof Restored,
@@ -374,9 +385,11 @@ assert.ok(
 
 assert.equal(restored.profile.username, username);
 
-assert.equal(Option.getOrThrow(restoredDevice.saved()).phrase, wallet.phrase);
-
-assert.ok((await restoringClient.overview()) instanceof Holding);
+assert.equal(
+  Option.getOrThrow(await Effect.runPromise(restoredStore.readSealed())).public
+    .address,
+  wallet.address,
+);
 
 console.log(
   "PASS a second device restores the same wallet from its passkey backup.",

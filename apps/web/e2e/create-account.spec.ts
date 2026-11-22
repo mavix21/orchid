@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 
 import {
   addAuthenticator,
@@ -9,6 +9,17 @@ import {
   topNavLink,
   usernameInput,
 } from "./device";
+
+const forgetDevice = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.deleteDatabase("orchid-device");
+
+        request.addEventListener("success", () => resolve());
+        request.addEventListener("error", () => reject(request.error));
+      }),
+  );
 
 test("redirects on the server by whether the device holds a wallet", async ({
   request,
@@ -59,6 +70,20 @@ test("enrolls a new wallet only after a fresh user-initiated reopen proof", asyn
     timeout: 30_000,
   });
   await expect(page.getByText(`@${username}`)).toBeVisible();
+
+  await forgetDevice(page);
+  await page.goto("/");
+  await page.getByTestId("start-restore").click();
+  await expect(page).toHaveURL("/restore");
+  await page.getByTestId("restore-submit").click();
+  await page.getByTestId("restore-submit").click();
+  await page.getByTestId("restore-submit").click();
+
+  await expect(page.getByTestId("enrollment-complete")).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByText(`@${username}`)).toBeVisible();
+  expect(await storedWalletRecord(page)).toBe(true);
 });
 
 test("refuses creation when the passkey has no PRF", async ({ page }) => {

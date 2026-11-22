@@ -4,6 +4,7 @@ import { Database } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
@@ -13,25 +14,43 @@ import {
   BackupFound,
   ChallengeRefused,
   NoBackup,
-  Opened,
   PasskeyChallenge,
   type WalletPort,
 } from "../src/contract";
+import { PinnedCredential } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
+  BackupLocated,
+  BackupMismatch,
+  PasskeyCancelled,
+  RestoreSealed,
   Restored,
-  WalletOnDevice,
+  type WalletEffects,
   makeWalletEffects,
 } from "../src/device/client";
 import { makeEnrollmentEffects } from "../src/device/enrollment";
-import { reopenLocalEnvelope } from "../src/device/local-envelope";
+import {
+  PublicDeviceWallet,
+  SealedDeviceWallet,
+} from "../src/device/key-store";
+import {
+  LocalPhraseEnvelope,
+  freshInstallationSalt,
+  localPhrasePrfInput,
+  reopenLocalEnvelope,
+  sealLocalEnvelope,
+} from "../src/device/local-envelope";
 import { backupSalt } from "../src/device/phrase-seal";
 import { Backups } from "../src/server/Backups.server";
-import { passkeyChallenges } from "../src/server/tables.server";
+import { backups, passkeyChallenges } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { network } from "../src/stellar/network";
-import { memoryKeyStore, savedWallet } from "./device-fixtures";
-import { clearDatabase, relyingParty } from "./sealed-wallet-fixtures";
+import { memoryKeyStore } from "./device-fixtures";
+import {
+  clearDatabase,
+  enrollDisposableWallet,
+  relyingParty,
+} from "./sealed-wallet-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 import {
@@ -41,13 +60,43 @@ import {
   walletTestLayer,
 } from "./wallet-harness";
 
-const device = (
-  port: WalletPort,
-  auth: SoftwareAuthenticator,
-  store = memoryKeyStore(),
-) => ({
-  store,
-  client: makeWalletEffects(port, store, auth.passkeys),
+const restoringDevice = (port: WalletPort, auth: SoftwareAuthenticator) =>
+  makeWalletEffects(port, memoryKeyStore(), auth.passkeys, {
+    store: browserKeyStore,
+    ceremony: auth.assertions,
+    relyingParty: () => relyingParty,
+  });
+
+const restoreOnFreshTaps = (client: WalletEffects) =>
+  Effect.gen(function* () {
+    const located = yield* client.restore();
+    const sealed = yield* client.restore();
+    const restored = yield* client.restore();
+
+    return { located, sealed, restored };
+  });
+
+const restoredPhrase = (auth: SoftwareAuthenticator) =>
+  Effect.gen(function* () {
+    const stored = Option.getOrThrow(yield* browserKeyStore.readSealed());
+
+    const reopened = yield* reopenLocalEnvelope(
+      auth.assertions,
+      relyingParty,
+      stored.credential,
+      stored.envelope,
+      { network, address: stored.public.address, purpose: "approval" },
+    );
+
+    assertTagged(reopened, "PhraseOpened");
+
+    return Redacted.value(reopened.phrase);
+  });
+
+const backupRows = Effect.gen(function* () {
+  const db = yield* Database;
+
+  return yield* db.select().from(backups);
 });
 
 const enrollBackedWallet = (
@@ -113,27 +162,155 @@ useDisposableDatabase();
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect(
-      "another device restores the enrolled secret phrase and username without overwriting",
+      "restore seals the backed phrase to the same credential and refuses a mismatched device or profile address",
       () =>
         Effect.gen(function* () {
           const wallet = yield* Wallet;
           const auth = new SoftwareAuthenticator(passkeyOrigin);
           const enrolled = yield* enrollBackedWallet(wallet, auth, "maria");
-          const second = device(wallet, auth);
-          const restored = yield* second.client.restore();
+          const phrase = enrolled.phrase;
+          const backupRow = (yield* backupRows)[0];
 
-          expect(restored instanceof Restored && restored.profile).toEqual(
-            enrolled.profile,
+          yield* Effect.promise(clearDatabase);
+
+          const restoring = restoringDevice(wallet, auth);
+          const steps = yield* restoreOnFreshTaps(restoring);
+
+          expect(steps.located).toBeInstanceOf(BackupLocated);
+          expect(steps.sealed).toBeInstanceOf(RestoreSealed);
+          expect(
+            steps.restored instanceof Restored && steps.restored.profile,
+          ).toEqual(enrolled.profile);
+
+          const installed = Option.getOrThrow(
+            yield* browserKeyStore.readSealed(),
           );
-          expect((yield* savedWallet(second.store)).phrase).toBe(
-            enrolled.phrase,
+
+          expect(installed.credential.id).toBe(backupRow?.credentialId);
+          expect(installed.credential.publicKey).toBe(backupRow?.publicKey);
+          expect(installed.public.username).toBe("maria");
+          expect(installed.public.backup).toBe("stored");
+          expect(yield* restoredPhrase(auth)).toBe(phrase);
+
+          yield* browserKeyStore.writeSealed(
+            new SealedDeviceWallet({
+              ...installed,
+              envelope: new LocalPhraseEnvelope({
+                ...installed.envelope,
+                ciphertext: Uint8Array.from(
+                  installed.envelope.ciphertext,
+                  (byte) => byte ^ 1,
+                ),
+              }),
+            }),
           );
-          expect(yield* second.client.create("maria")).toBeInstanceOf(Opened);
+          expect(
+            (yield* restoreOnFreshTaps(restoring)).restored,
+          ).toBeInstanceOf(Restored);
+          expect(yield* restoredPhrase(auth)).toBe(phrase);
 
-          const before = yield* savedWallet(second.store);
+          const racing = restoringDevice(wallet, auth);
+          const started = yield* Effect.forkChild(racing.restore());
 
-          expect(yield* second.client.restore()).toEqual(new WalletOnDevice());
-          expect(yield* savedWallet(second.store)).toEqual(before);
+          yield* Effect.yieldNow;
+          yield* racing.cancelRestore();
+          expect(yield* Fiber.join(started)).toBeInstanceOf(BackupLocated);
+          expect(yield* racing.restore()).toBeInstanceOf(BackupLocated);
+
+          yield* Effect.promise(clearDatabase);
+          const stranger = yield* enrollDisposableWallet("otro");
+
+          yield* browserKeyStore.writeSealed(stranger.record);
+          expect(yield* restoringDevice(wallet, auth).restore()).toEqual(
+            new BackupMismatch(),
+          );
+          expect(yield* browserKeyStore.readSealed()).toEqual(
+            Option.some(stranger.record),
+          );
+
+          yield* Effect.promise(clearDatabase);
+          const db = yield* Database;
+
+          yield* db.update(backups).set({ address: stranger.address });
+
+          const tampered = restoringDevice(wallet, auth);
+
+          expect(yield* tampered.restore()).toBeInstanceOf(BackupLocated);
+          expect(yield* tampered.restore()).toEqual(new BackupMismatch());
+          expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
+        }),
+    );
+
+    it.effect(
+      "restore over the same address under another credential replaces the credential only after the proof tap, which can be cancelled and retried",
+      () =>
+        Effect.gen(function* () {
+          const wallet = yield* Wallet;
+          const auth = new SoftwareAuthenticator(passkeyOrigin);
+          const enrolled = yield* enrollBackedWallet(wallet, auth, "maria");
+          const phrase = enrolled.phrase;
+          const profile = (yield* backupRows)[0];
+          const { address, username } = enrolled.profile;
+
+          const oldAuth = new SoftwareAuthenticator(passkeyOrigin);
+          const salt = freshInstallationSalt();
+
+          const registered = Option.getOrThrow(
+            yield* oldAuth.passkeys.register(
+              Schema.decodeSync(PasskeyChallenge)("A".repeat(43)),
+              username,
+              yield* localPhrasePrfInput({ network, address, salt }),
+            ),
+          );
+
+          const oldCredential = new PinnedCredential({
+            id: registered.registration.id,
+            publicKey: registered.registration.publicKey,
+            algorithm: "ES256",
+          });
+
+          const oldSeal = yield* sealLocalEnvelope(
+            {
+              phrase,
+              network,
+              address,
+              credentialId: oldCredential.id,
+              salt,
+            },
+            Redacted.make(Uint8Array.from(registered.prf)),
+          );
+
+          assertTagged(oldSeal, "EnvelopeSealed");
+          yield* browserKeyStore.writeSealed(
+            new SealedDeviceWallet({
+              version: 2,
+              public: new PublicDeviceWallet({ address, username }),
+              credential: oldCredential,
+              envelope: oldSeal.envelope,
+            }),
+          );
+
+          const restoring = restoringDevice(wallet, auth);
+
+          yield* restoring.restore();
+          yield* restoring.restore();
+          auth.cancels = true;
+          expect(yield* restoring.restore()).toEqual(new PasskeyCancelled());
+          expect(
+            Option.getOrThrow(yield* browserKeyStore.readSealed()).credential
+              .id,
+          ).toBe(oldCredential.id);
+
+          auth.cancels = false;
+          expect(yield* restoring.restore()).toBeInstanceOf(Restored);
+
+          const installed = Option.getOrThrow(
+            yield* browserKeyStore.readSealed(),
+          );
+
+          expect(installed.credential.id).toBe(profile?.credentialId);
+          expect(installed.public.backup).toBe("stored");
+          expect(yield* restoredPhrase(auth)).toBe(phrase);
         }),
     );
 

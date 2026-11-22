@@ -5,7 +5,7 @@ import { network } from "../stellar/network";
 import {
   CorruptDeviceWallet,
   KeyStoreUnavailable,
-  type PublicDeviceWallet,
+  PublicDeviceWallet,
   type PublicWalletUpdate,
   SealedDeviceWallet,
   type SealedKeyStore,
@@ -95,8 +95,35 @@ async function writeSealedWallet(wallet: SealedDeviceWallet): Promise<void> {
   }
 }
 
+function resealed(
+  existing: SealedDeviceWallet,
+  candidate: SealedDeviceWallet,
+): Option.Option<SealedDeviceWallet> {
+  if (
+    !matchesEnvelopeContext(existing.envelope, {
+      network,
+      address: existing.public.address,
+      credentialId: existing.credential.id,
+    })
+  )
+    throw new CorruptDeviceWallet();
+
+  if (existing.public.address !== candidate.public.address)
+    return Option.none();
+
+  return Option.some(
+    new SealedDeviceWallet({
+      version: candidate.version,
+      public: new PublicDeviceWallet({ ...existing.public, backup: "stored" }),
+      credential: candidate.credential,
+      envelope: candidate.envelope,
+    }),
+  );
+}
+
 async function installSealedWallet(
   wallet: SealedDeviceWallet,
+  replacing: "same-address" | undefined,
 ): Promise<boolean> {
   if (
     !matchesEnvelopeContext(wallet.envelope, {
@@ -126,7 +153,18 @@ async function installSealedWallet(
 
             if (Option.isNone(existing)) throw new CorruptDeviceWallet();
 
-            installed = false;
+            const replacement =
+              replacing === "same-address"
+                ? resealed(existing.value, wallet)
+                : Option.none();
+
+            if (Option.isSome(replacement)) {
+              objectStore.put(
+                Schema.encodeSync(SealedDeviceWallet)(replacement.value),
+                walletEntry,
+              );
+              installed = true;
+            }
 
             return;
           }
@@ -242,9 +280,9 @@ export const browserKeyStore: SealedKeyStore = {
       try: () => writeSealedWallet(wallet),
       catch: (cause) => new KeyStoreUnavailable({ cause }),
     }),
-  installSealed: (wallet) =>
+  installSealed: (wallet, replacing) =>
     Effect.tryPromise({
-      try: () => installSealedWallet(wallet),
+      try: () => installSealedWallet(wallet, replacing),
       catch: (cause) =>
         cause instanceof CorruptDeviceWallet
           ? cause

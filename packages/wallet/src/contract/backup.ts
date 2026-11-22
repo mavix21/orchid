@@ -90,7 +90,12 @@ export type EnrollStep = typeof EnrollStep.Type;
 
 export class BackupFound extends Schema.TaggedClass<BackupFound>()(
   "BackupFound",
-  { profile: Profile, sealed: SealedPhrase },
+  {
+    profile: Profile,
+    sealed: SealedPhrase,
+    publicKey: Base64Url,
+    algorithm: Schema.Literals(["ES256", "RS256"]),
+  },
 ) {}
 
 export class AssertionRefused extends Schema.TaggedClass<AssertionRefused>()(

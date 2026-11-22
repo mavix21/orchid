@@ -103,6 +103,7 @@ export interface SealedKeyStore {
   ): Effect.Effect<void, KeyStoreUnavailable>;
   installSealed(
     wallet: SealedDeviceWallet,
+    replacing?: "same-address",
   ): Effect.Effect<boolean, KeyStoreUnavailable | CorruptDeviceWallet>;
 }
 

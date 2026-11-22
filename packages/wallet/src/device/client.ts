@@ -1,7 +1,9 @@
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import {
   BackupStored,
   type TransferId,
@@ -38,6 +40,7 @@ import {
 } from "./outcomes";
 import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
 import { loadFromServer } from "./reaching";
+import type { RestoreDevice, RestoreProgress } from "./restore";
 
 export * from "./outcomes";
 
@@ -51,6 +54,7 @@ export interface WalletClient {
   create(usernameText: string): Promise<CreateOutcome>;
   backUp(): Promise<BackUpOutcome>;
   restore(): Promise<RestoreOutcome>;
+  cancelRestore(): Promise<void>;
   send(intent: TransferIntent): Promise<SendOutcome>;
   review(intent: TransferIntent): Promise<ReviewOutcome>;
   confirm(review: PaymentReview): Promise<ResumeOutcome>;
@@ -71,6 +75,7 @@ export interface WalletEffects {
   create(usernameText: string): Effect.Effect<CreateOutcome>;
   backUp(): Effect.Effect<BackUpOutcome>;
   restore(): Effect.Effect<RestoreOutcome>;
+  cancelRestore(): Effect.Effect<void>;
   send(intent: TransferIntent): Effect.Effect<SendOutcome>;
   review(intent: TransferIntent): Effect.Effect<ReviewOutcome>;
   confirm(review: PaymentReview): Effect.Effect<ResumeOutcome>;
@@ -89,10 +94,12 @@ export function makeWalletEffects(
   port: WalletPort,
   store: KeyStore,
   passkeys: Passkeys,
+  restoration?: RestoreDevice,
 ): WalletEffects {
-  const backups = loadFromServer(() => import("./backup")).pipe(
-    Effect.map(({ deviceBackup }) => deviceBackup(port, passkeys, store)),
-  );
+  const restoreProgress: RestoreProgress = {
+    pending: Ref.makeUnsafe(Option.none()),
+    lock: Semaphore.makeUnsafe(1),
+  };
 
   const sending = loadFromServer(() => import("./sending")).pipe(
     Effect.map(({ sendTransfer }) => sendTransfer(port, store)),
@@ -123,8 +130,20 @@ export function makeWalletEffects(
   });
 
   const restore = Effect.fn("Device.restore")(function* () {
-    return yield* (yield* backups).restore();
+    if (restoration === undefined) return new UnsupportedDevice();
+
+    const { deviceRestore } = yield* loadFromServer(() => import("./restore"));
+
+    return yield* deviceRestore(
+      port,
+      passkeys,
+      restoration,
+      restoreProgress,
+    ).restore();
   });
+
+  const serializedRestore = () =>
+    restoreProgress.lock.withPermits(1)(restore());
 
   const overview = Effect.fn("Device.overview")(function* () {
     const stored = yield* store.readPublic();
@@ -234,7 +253,18 @@ export function makeWalletEffects(
       ),
     create: (usernameText) => settle(create(usernameText)),
     backUp: () => settle(backUp()),
-    restore: () => settle(restore()),
+    restore: () =>
+      settle(
+        serializedRestore().pipe(
+          Effect.catchTag("CorruptDeviceWallet", (damaged) =>
+            Effect.succeed(damaged),
+          ),
+        ),
+      ),
+    cancelRestore: () =>
+      restoreProgress.lock.withPermits(1)(
+        Ref.set(restoreProgress.pending, Option.none()),
+      ),
     send: (intent) =>
       transfer(sending.pipe(Effect.flatMap(({ send }) => send(intent)))),
     review: (intent) =>
@@ -272,8 +302,9 @@ export function makeWalletClient(
   port: WalletPort,
   store: KeyStore,
   passkeys: Passkeys,
+  restoration?: RestoreDevice,
 ): WalletClient {
-  const effects = makeWalletEffects(port, store, passkeys);
+  const effects = makeWalletEffects(port, store, passkeys, restoration);
 
   return {
     overview: () => Effect.runPromise(effects.overview()),
@@ -281,6 +312,7 @@ export function makeWalletClient(
     create: (usernameText) => Effect.runPromise(effects.create(usernameText)),
     backUp: () => Effect.runPromise(effects.backUp()),
     restore: () => Effect.runPromise(effects.restore()),
+    cancelRestore: () => Effect.runPromise(effects.cancelRestore()),
     send: (intent) => Effect.runPromise(effects.send(intent)),
     review: (intent) => Effect.runPromise(effects.review(intent)),
     confirm: (shown) => Effect.runPromise(effects.confirm(shown)),
