@@ -1,39 +1,21 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { network } from "../stellar/network";
 import {
-  AccountAddress,
-  PaymentLinkReceipt,
-  TransferOrder,
-  Username,
-} from "../contract";
-import {
-  BackupState,
-  DeviceWallet,
-  type KeyStore,
   KeyStoreUnavailable,
-  PublicDeviceWallet,
+  type PublicDeviceWallet,
   type PublicWalletUpdate,
+  SealedDeviceWallet,
+  type SealedKeyStore,
 } from "./key-store";
-import { SecretPhrase } from "./secret-phrase";
+import { matchesEnvelopeContext } from "./local-envelope";
 
 const databaseName = "orchid-device";
 const entries = "entries";
-const wrappingKeyEntry = "wrapping-key";
 const walletEntry = "wallet";
 
-const SealedWallet = Schema.Struct({
-  address: AccountAddress,
-  username: Username,
-  reserveSponsor: Schema.optional(AccountAddress),
-  backup: Schema.optional(BackupState),
-  transfer: Schema.optional(TransferOrder),
-  approvedUntil: Schema.optional(Schema.Number),
-  linkReceipt: Schema.optional(PaymentLinkReceipt),
-  transferRevision: Schema.optional(Schema.Number),
-  iv: Schema.Uint8ArrayFromBase64,
-  phrase: Schema.Uint8ArrayFromBase64,
-});
+const decodeStoredWallet = Schema.decodeUnknownOption(SealedDeviceWallet);
 
 function settle<A>(request: IDBRequest<A>): Promise<A> {
   return new Promise((resolve, reject) => {
@@ -45,35 +27,51 @@ function settle<A>(request: IDBRequest<A>): Promise<A> {
 function openDatabase(): Promise<IDBDatabase> {
   const request = indexedDB.open(databaseName, 1);
 
-  request.addEventListener("upgradeneeded", () =>
-    request.result.createObjectStore(entries),
-  );
+  request.addEventListener("upgradeneeded", () => {
+    if (!request.result.objectStoreNames.contains(entries))
+      request.result.createObjectStore(entries);
+  });
 
   return settle(request);
 }
 
-async function readEntry(name: string) {
+async function readSealedWallet(): Promise<Option.Option<SealedDeviceWallet>> {
   const database = await openDatabase();
 
   try {
-    return await settle(
-      database.transaction(entries).objectStore(entries).get(name),
+    const raw = await settle(
+      database.transaction(entries).objectStore(entries).get(walletEntry),
     );
+
+    return decodeStoredWallet(raw);
   } finally {
     database.close();
   }
 }
 
-async function writeEntry(
-  name: string,
-  value: CryptoKey | typeof SealedWallet.Encoded,
-) {
+async function readPublicWallet(): Promise<Option.Option<PublicDeviceWallet>> {
+  return Option.map(await readSealedWallet(), (stored) => stored.public);
+}
+
+async function writeSealedWallet(wallet: SealedDeviceWallet): Promise<void> {
+  if (
+    !matchesEnvelopeContext(wallet.envelope, {
+      network,
+      address: wallet.public.address,
+      credentialId: wallet.credential.id,
+    })
+  )
+    throw new Error("Sealed wallet envelope does not match wallet context");
+
+  const encoded = Schema.encodeSync(SealedDeviceWallet)(wallet);
   const database = await openDatabase();
 
   try {
     const transaction = database.transaction(entries, "readwrite");
+    const objectStore = transaction.objectStore(entries);
 
-    transaction.objectStore(entries).put(value, name);
+    objectStore.clear();
+    objectStore.put(encoded, walletEntry);
 
     await new Promise<void>((resolve, reject) => {
       transaction.addEventListener("complete", () => resolve());
@@ -83,86 +81,6 @@ async function writeEntry(
   } finally {
     database.close();
   }
-}
-
-async function wrappingKey(): Promise<CryptoKey> {
-  const stored = Schema.decodeUnknownOption(Schema.instanceOf(CryptoKey))(
-    await readEntry(wrappingKeyEntry),
-  );
-
-  if (Option.isSome(stored)) return stored.value;
-
-  const created = await crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
-  );
-
-  await writeEntry(wrappingKeyEntry, created);
-
-  return created;
-}
-
-async function readWallet(): Promise<Option.Option<DeviceWallet>> {
-  const sealed = Schema.decodeUnknownSync(Schema.UndefinedOr(SealedWallet))(
-    await readEntry(walletEntry),
-  );
-
-  if (sealed === undefined) return Option.none();
-
-  const phrase = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: new Uint8Array(sealed.iv) },
-    await wrappingKey(),
-    new Uint8Array(sealed.phrase),
-  );
-
-  return Option.some(
-    new DeviceWallet({
-      address: sealed.address,
-      username: sealed.username,
-      reserveSponsor: sealed.reserveSponsor,
-      backup: sealed.backup,
-      transfer: sealed.transfer,
-      approvedUntil: sealed.approvedUntil,
-      linkReceipt: sealed.linkReceipt,
-      transferRevision: sealed.transferRevision,
-      phrase: Schema.decodeSync(SecretPhrase)(new TextDecoder().decode(phrase)),
-    }),
-  );
-}
-
-async function writeWallet(wallet: DeviceWallet): Promise<void> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-
-  const phrase = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    await wrappingKey(),
-    new TextEncoder().encode(wallet.phrase),
-  );
-
-  await writeEntry(
-    walletEntry,
-    Schema.encodeSync(SealedWallet)({
-      address: wallet.address,
-      username: wallet.username,
-      reserveSponsor: wallet.reserveSponsor,
-      backup: wallet.backup,
-      transfer: wallet.transfer,
-      approvedUntil: wallet.approvedUntil,
-      linkReceipt: wallet.linkReceipt,
-      transferRevision: wallet.transferRevision,
-      iv,
-      phrase: new Uint8Array(phrase),
-    }),
-  );
-}
-
-async function readPublicWallet(): Promise<Option.Option<PublicDeviceWallet>> {
-  const stored = Schema.decodeUnknownSync(
-    Schema.UndefinedOr(PublicDeviceWallet),
-  )(await readEntry(walletEntry));
-
-  return Option.fromNullishOr(stored);
 }
 
 async function updatePublicWallet(
@@ -182,23 +100,11 @@ async function updatePublicWallet(
         request.addEventListener("error", () => reject(request.error));
         request.addEventListener("success", () => {
           try {
-            const sealed = Schema.decodeUnknownSync(
-              Schema.UndefinedOr(SealedWallet),
-            )(request.result);
+            const stored = decodeStoredWallet(request.result);
 
-            if (sealed === undefined) return;
+            if (Option.isNone(stored)) return;
 
-            const current = new PublicDeviceWallet({
-              address: sealed.address,
-              username: sealed.username,
-              reserveSponsor: sealed.reserveSponsor,
-              backup: sealed.backup,
-              transfer: sealed.transfer,
-              approvedUntil: sealed.approvedUntil,
-              linkReceipt: sealed.linkReceipt,
-              transferRevision: sealed.transferRevision,
-            });
-
+            const current = stored.value.public;
             const next = update(current);
 
             if (Option.isNone(next)) {
@@ -211,18 +117,14 @@ async function updatePublicWallet(
               throw new Error("Wallet address cannot change");
 
             objectStore.put(
-              Schema.encodeSync(SealedWallet)({
-                address: sealed.address,
-                username: next.value.username,
-                reserveSponsor: next.value.reserveSponsor,
-                backup: next.value.backup,
-                transfer: next.value.transfer,
-                approvedUntil: next.value.approvedUntil,
-                linkReceipt: next.value.linkReceipt,
-                transferRevision: next.value.transferRevision,
-                iv: sealed.iv,
-                phrase: sealed.phrase,
-              }),
+              Schema.encodeSync(SealedDeviceWallet)(
+                new SealedDeviceWallet({
+                  version: stored.value.version,
+                  public: next.value,
+                  credential: stored.value.credential,
+                  envelope: stored.value.envelope,
+                }),
+              ),
               walletEntry,
             );
             result = Option.some({ wallet: next.value, updated: true });
@@ -242,17 +144,7 @@ async function updatePublicWallet(
   }
 }
 
-export const browserKeyStore: KeyStore = {
-  read: () =>
-    Effect.tryPromise({
-      try: readWallet,
-      catch: (cause) => new KeyStoreUnavailable({ cause }),
-    }),
-  write: (wallet) =>
-    Effect.tryPromise({
-      try: () => writeWallet(wallet),
-      catch: (cause) => new KeyStoreUnavailable({ cause }),
-    }),
+export const browserKeyStore: SealedKeyStore = {
   readPublic: () =>
     Effect.tryPromise({
       try: readPublicWallet,
@@ -261,6 +153,16 @@ export const browserKeyStore: KeyStore = {
   updatePublic: (update) =>
     Effect.tryPromise({
       try: () => updatePublicWallet(update),
+      catch: (cause) => new KeyStoreUnavailable({ cause }),
+    }),
+  readSealed: () =>
+    Effect.tryPromise({
+      try: readSealedWallet,
+      catch: (cause) => new KeyStoreUnavailable({ cause }),
+    }),
+  writeSealed: (wallet) =>
+    Effect.tryPromise({
+      try: () => writeSealedWallet(wallet),
       catch: (cause) => new KeyStoreUnavailable({ cause }),
     }),
 };

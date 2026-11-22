@@ -1,5 +1,6 @@
 import {
   type KeyStore,
+  KeyStoreUnavailable,
   browserKeyStore,
   browserPasskeys,
   makeWalletEffects,
@@ -11,17 +12,17 @@ import { markWalletOnDevice } from "./wallet-cookie";
 
 const deviceKeyStore: KeyStore = {
   read: () =>
-    browserKeyStore
-      .read()
-      .pipe(
-        Effect.tap((stored) =>
-          Effect.sync(() => markWalletOnDevice(Option.isSome(stored))),
-        ),
-      ),
-  write: (wallet) =>
-    browserKeyStore
-      .write(wallet)
-      .pipe(Effect.tap(() => Effect.sync(() => markWalletOnDevice(true)))),
+    Effect.fail(
+      new KeyStoreUnavailable({
+        cause: new Error("Local wallet requires passkey verification"),
+      }),
+    ),
+  write: () =>
+    Effect.fail(
+      new KeyStoreUnavailable({
+        cause: new Error("Local wallet requires passkey verification"),
+      }),
+    ),
   readPublic: () =>
     browserKeyStore
       .readPublic()
