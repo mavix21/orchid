@@ -14,8 +14,11 @@ export type Answer<A> = A | DeviceFailure;
 
 export function useWalletTask() {
   const running = useRef<Option.Option<Fiber.Fiber<void>>>(Option.none());
+  const latest = useRef(0);
 
   const stop = () => {
+    latest.current += 1;
+
     if (Option.isSome(running.current))
       Effect.runFork(Fiber.interrupt(running.current.value));
 
@@ -29,14 +32,20 @@ export function useWalletTask() {
     onAnswer: (answer: Answer<A>) => void,
   ) => {
     stop();
+
+    const ticket = latest.current;
+
     running.current = Option.some(
       Effect.runFork(
         effect.pipe(
           Effect.exit,
           Effect.flatMap((exit) =>
-            Effect.sync(() =>
-              onAnswer(Exit.isSuccess(exit) ? exit.value : new DeviceFailure()),
-            ),
+            Effect.sync(() => {
+              if (latest.current === ticket)
+                onAnswer(
+                  Exit.isSuccess(exit) ? exit.value : new DeviceFailure(),
+                );
+            }),
           ),
         ),
       ),

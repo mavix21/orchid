@@ -58,18 +58,9 @@ const checkFirst = "Revisa si tu link se creó antes de crear otro.";
 
 const stillInLink = "El dinero sigue en el link.";
 
-const unavailableTitle = (failure: WalletUnavailable) =>
-  Match.valueTags(failure, {
-    Offline: () => "Sin conexión",
-    ServerUnreachable: () => "No pudimos conectar con Orchid",
-    LedgerUnreachable: () => "La red Stellar no responde",
-    ServiceFailed: () => "Algo falló de nuestro lado",
-    InvalidResponse: () => "No pudimos leer la respuesta",
-  });
-
 const unavailable = (failure: WalletUnavailable, next: string) =>
   new LinkScreen(
-    unavailableTitle(failure),
+    "Algo se interrumpió",
     `${unavailableMessage(failure)} ${next}`,
     "check",
   );
@@ -288,14 +279,14 @@ export const cancelLinkResult = (
       ),
     AssetPending: () =>
       new LinkScreen(
-        "Recuperando tu dinero…",
-        "Te mostramos el resultado apenas llegue.",
+        "Tu recuperación sigue en proceso",
+        "Revisa de nuevo en un momento para ver si el dinero volvió a tu cuenta.",
         "check",
       ),
     AssetFailed: () =>
       new LinkScreen(
         "No se recuperó el dinero",
-        `La red no confirmó la operación. ${stillInLink}`,
+        "La operación no se completó. Inténtalo de nuevo para saber si el dinero sigue en el link.",
         "again",
       ),
     BalanceGone: ({ status }) =>

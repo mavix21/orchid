@@ -15,6 +15,7 @@ import type {
   PaymentLinksOutcome,
   ResolvePaymentLinkOutcome,
 } from "@workspace/wallet";
+import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
@@ -57,11 +58,19 @@ interface Confirmation {
   readonly open: boolean;
 }
 
+type NoticeAction = Data.TaggedEnum<{
+  Recover: { readonly link: RecoverableLink };
+  Recheck: {};
+  Browse: {};
+}>;
+
+const NoticeAction = Data.taggedEnum<NoticeAction>();
+
 class LatestNotice {
   constructor(
     readonly title: string,
     readonly message: string,
-    readonly link: Option.Option<RecoverableLink>,
+    readonly action: NoticeAction,
   ) {}
 }
 
@@ -74,7 +83,7 @@ const latestNotice = (
         new LatestNotice(
           "Tu último link ya no se puede compartir",
           lostLinkMessage,
-          Option.some(resolved),
+          NoticeAction.Recover({ link: resolved }),
         ),
       ),
     Pending: () =>
@@ -82,7 +91,7 @@ const latestNotice = (
         new LatestNotice(
           "Tu último link aún se está creando",
           "Ya no se podrá compartir. Cuando termine, aparecerá aquí y podrás recuperar el dinero.",
-          Option.none(),
+          NoticeAction.Recheck(),
         ),
       ),
     ApprovalOutstanding: () =>
@@ -90,7 +99,7 @@ const latestNotice = (
         new LatestNotice(
           "Tienes una operación en curso",
           "Cuando termine, tus links aparecerán aquí.",
-          Option.none(),
+          NoticeAction.Recheck(),
         ),
       ),
     PaymentLinkReceiptInvalid: () =>
@@ -98,7 +107,7 @@ const latestNotice = (
         new LatestNotice(
           "No pudimos confirmar tu último link",
           "Si aparece abajo, puedes recuperar el dinero.",
-          Option.none(),
+          NoticeAction.Browse(),
         ),
       ),
     PaymentLinkNotFound: () => Option.none(),
@@ -201,12 +210,7 @@ function PaymentLinks() {
           recovery={started.value}
           onRecover={recover}
           done={
-            <ResultButton
-              onClick={() => {
-                reset();
-                void router.invalidate();
-              }}
-            >
+            <ResultButton onClick={() => void router.invalidate().then(reset)}>
               Listo
             </ResultButton>
           }
@@ -220,6 +224,7 @@ function PaymentLinks() {
         <LinkList
           links={links.links}
           notice={latestNotice(latest)}
+          onRecheck={() => void router.invalidate()}
           onChoose={(link, created) =>
             setConfirmation(
               Option.some({ chosen: { link, created }, open: true }),
@@ -250,12 +255,18 @@ function LinkList({
   links,
   notice,
   onChoose,
+  onRecheck,
 }: {
   links: ReadonlyArray<OpenPaymentLink>;
   notice: Option.Option<LatestNotice>;
   onChoose: (link: RecoverableLink, created?: string) => void;
+  onRecheck: () => void;
 }) {
-  const latest = Option.flatMap(notice, (found) => found.link);
+  const latest = Option.flatMap(notice, ({ action }) =>
+    Predicate.isTagged(action, "Recover")
+      ? Option.some(action.link)
+      : Option.none(),
+  );
 
   const listed = links.filter((link) =>
     Option.isNone(
@@ -286,15 +297,27 @@ function LinkList({
             <p className="text-body text-muted-foreground">
               {notice.value.message}
             </p>
-            {Option.isSome(latest) ? (
-              <Button
-                className="w-full"
-                onClick={() => onChoose(latest.value)}
-                data-testid="recover-latest-link"
-              >
-                Recuperar {amountLabel(latest.value.amount, latest.value.asset)}
-              </Button>
-            ) : null}
+            {Match.valueTags(notice.value.action, {
+              Recover: ({ link }) => (
+                <Button
+                  className="w-full"
+                  onClick={() => onChoose(link)}
+                  data-testid="recover-latest-link"
+                >
+                  Recuperar {amountLabel(link.amount, link.asset)}
+                </Button>
+              ),
+              Recheck: () => (
+                <Button
+                  className="w-full"
+                  variant="secondary"
+                  onClick={onRecheck}
+                >
+                  Revisar de nuevo
+                </Button>
+              ),
+              Browse: () => null,
+            })}
           </section>
         ) : null}
         {listed.length === 0 ? (
