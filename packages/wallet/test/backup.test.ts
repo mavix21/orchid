@@ -3,6 +3,7 @@ import { Database } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
@@ -283,6 +284,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             (yield* restoreOnFreshTaps(restoring)).restored,
           ).toBeInstanceOf(Restored);
           expect(yield* restoredPhrase(auth)).toBe(phrase);
+
+          const racing = restoringDevice(wallet, auth);
+          const started = yield* Effect.forkChild(racing.restore());
+
+          yield* Effect.yieldNow;
+          yield* racing.cancelRestore();
+          expect(yield* Fiber.join(started)).toBeInstanceOf(BackupLocated);
+          expect(yield* racing.restore()).toBeInstanceOf(BackupLocated);
 
           yield* Effect.promise(clearDatabase);
           const stranger = yield* enrollDisposableWallet("otro");

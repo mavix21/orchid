@@ -158,6 +158,9 @@ export function makeWalletEffects(
     ).restore();
   });
 
+  const serializedRestore = () =>
+    restoreProgress.lock.withPermits(1)(restore());
+
   const overview = Effect.fn("Device.overview")(function* () {
     const stored = yield* store.readPublic();
 
@@ -268,7 +271,7 @@ export function makeWalletEffects(
     backUp: () => settle(backUp()),
     restore: () =>
       settle(
-        restore().pipe(
+        serializedRestore().pipe(
           Effect.catchTag("CorruptDeviceWallet", (damaged) =>
             Effect.succeed(damaged),
           ),

@@ -1,5 +1,5 @@
 import { ChevronLeftIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import type {
@@ -83,18 +83,24 @@ function RestoreAccount() {
 
   useHomeForSavedWallet();
 
-  useEffect(
-    () => () => {
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+
+    return () => {
+      mounted.current = false;
       void walletClient.cancelRestore();
-    },
-    [walletClient],
-  );
+    };
+  }, [walletClient]);
 
   const restore = async () => {
     setRestoring(true);
     setProblem(undefined);
 
     const outcome = await walletClient.restore();
+
+    if (!mounted.current) return;
 
     await Match.value(outcome).pipe(
       Match.tag("Restored", () => navigate({ to: "/home", replace: true })),

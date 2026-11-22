@@ -293,5 +293,5 @@ export function deviceRestore(
     );
   });
 
-  return { restore: () => progress.lock.withPermits(1)(restore()) };
+  return { restore };
 }
