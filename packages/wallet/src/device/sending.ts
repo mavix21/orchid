@@ -478,7 +478,10 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
 
         if (
           wallet.transfer !== undefined &&
-          wallet.approvedUntil !== undefined
+          wallet.approvedUntil !== undefined &&
+          observed.transfer !== undefined &&
+          wallet.transfer.id === observed.transfer.id &&
+          orderRevision(wallet) === orderRevision(observed)
         ) {
           if (attempt === 0) {
             observed = wallet;

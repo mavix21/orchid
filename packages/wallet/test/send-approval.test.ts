@@ -6,6 +6,7 @@ import * as Fiber from "effect/Fiber";
 import * as Latch from "effect/Latch";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import {
@@ -336,14 +337,18 @@ it.effect("rechecks the approval margin after recording the approval", () =>
   }),
 );
 
-it.live(
-  "two concurrent sends for the same intent submit at most one order",
-  () =>
+it.live.each([
+  ["after first settles and clears", false],
+  ["after first settles and an unrelated settled order is stored", true],
+] as const)(
+  "two concurrent sends for the same intent submit at most one order %s",
+  ([, storeSettledOther]) =>
     Effect.gen(function* () {
       const store = memoryKeyStore(Option.some(actors.wallet));
       const secondObservedEmpty = yield* Latch.make();
       const firstSettled = yield* Latch.make();
-      const submittedIds: Array<string> = [];
+      const pedroSubmissions: Array<string> = [];
+      let otherOrderId: string | undefined;
 
       const delayedStore: KeyStore = {
         read: () => store.read(),
@@ -356,9 +361,38 @@ it.live(
 
       const port = unusedPort({
         transfer: (order, approval) =>
-          Effect.sync(() => {
+          Effect.gen(function* () {
+            if (Predicate.isTagged(order.to, "Address")) {
+              if (Option.isSome(approval)) {
+                otherOrderId = order.id;
+
+                return yield* Effect.fail(new Offline());
+              }
+
+              if (order.id === otherOrderId)
+                return new Settled({
+                  id: order.id,
+                  to: order.to,
+                  recipient: new ExternalRecipient({
+                    address: actors.exchange,
+                  }),
+                  asset: order.asset,
+                  amount: order.amount,
+                  settledAt: DateTime.makeUnsafe(Date.now()),
+                });
+
+              const at = nowSeconds();
+
+              return transferDraftOf(
+                payment(actors.sender, 120, at),
+                new ExternalRecipient({ address: actors.exchange }),
+                120,
+                at,
+              );
+            }
+
             if (Option.isSome(approval)) {
-              submittedIds.push(order.id);
+              pedroSubmissions.push(order.id);
 
               return new Settled({
                 id: order.id,
@@ -383,20 +417,24 @@ it.live(
 
       const firstClient = makeWalletEffects(port, store, passkeys);
       const secondClient = makeWalletEffects(port, delayedStore, passkeys);
-
       const second = yield* Effect.forkChild(secondClient.send(toPedro));
 
       yield* secondObservedEmpty.await;
 
       const firstOutcome = yield* firstClient.send(toPedro);
 
+      if (storeSettledOther) yield* firstClient.send(toExchange);
+
       yield* firstSettled.open;
 
       const secondOutcome = yield* Fiber.join(second);
 
-      expect(submittedIds).toHaveLength(1);
+      expect(pedroSubmissions).toHaveLength(1);
       expect(firstOutcome._tag).toBe("Settled");
       expect(secondOutcome._tag).toBe("DraftRejected");
+      expect(Option.getOrThrow(yield* store.readPublic()).transfer?.id).toBe(
+        otherOrderId,
+      );
     }),
 );
 
