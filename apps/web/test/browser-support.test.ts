@@ -1,4 +1,3 @@
-import * as Predicate from "effect/Predicate";
 import { expect, it } from "vitest";
 
 import { classifyBrowser } from "../src/browser/support";
@@ -25,7 +24,5 @@ it.each([
   ["a Mac with Safari 18.3", iPadDesktopMode("18.3"), 0, "Supported"],
   ["TikTok on Android", tikTokOnAndroid, 5, "EmbeddedBrowser"],
 ])("%s is classified %s", (_device, userAgent, touchPoints, expected) => {
-  expect(
-    Predicate.isTagged(classifyBrowser(userAgent, touchPoints), expected),
-  ).toBe(true);
+  expect(classifyBrowser(userAgent, touchPoints)._tag).toBe(expected);
 });
