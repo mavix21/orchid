@@ -30,6 +30,7 @@ const SealedWallet = Schema.Struct({
   transfer: Schema.optional(TransferOrder),
   approvedUntil: Schema.optional(Schema.Number),
   linkReceipt: Schema.optional(PaymentLinkReceipt),
+  transferRevision: Schema.optional(Schema.Number),
   iv: Schema.Uint8ArrayFromBase64,
   phrase: Schema.Uint8ArrayFromBase64,
 });
@@ -124,6 +125,7 @@ async function readWallet(): Promise<Option.Option<DeviceWallet>> {
       transfer: sealed.transfer,
       approvedUntil: sealed.approvedUntil,
       linkReceipt: sealed.linkReceipt,
+      transferRevision: sealed.transferRevision,
       phrase: Schema.decodeSync(SecretPhrase)(new TextDecoder().decode(phrase)),
     }),
   );
@@ -148,6 +150,7 @@ async function writeWallet(wallet: DeviceWallet): Promise<void> {
       transfer: wallet.transfer,
       approvedUntil: wallet.approvedUntil,
       linkReceipt: wallet.linkReceipt,
+      transferRevision: wallet.transferRevision,
       iv,
       phrase: new Uint8Array(phrase),
     }),
@@ -193,6 +196,7 @@ async function updatePublicWallet(
               transfer: sealed.transfer,
               approvedUntil: sealed.approvedUntil,
               linkReceipt: sealed.linkReceipt,
+              transferRevision: sealed.transferRevision,
             });
 
             const next = update(current);
@@ -215,6 +219,7 @@ async function updatePublicWallet(
                 transfer: next.value.transfer,
                 approvedUntil: next.value.approvedUntil,
                 linkReceipt: next.value.linkReceipt,
+                transferRevision: next.value.transferRevision,
                 iv: sealed.iv,
                 phrase: sealed.phrase,
               }),

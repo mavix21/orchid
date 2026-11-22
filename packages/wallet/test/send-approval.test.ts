@@ -35,7 +35,11 @@ import {
   TransferIntent,
   makeWalletEffects,
 } from "../src/device/client";
-import { DeviceWallet } from "../src/device/key-store";
+import {
+  DeviceWallet,
+  type KeyStore,
+  PublicDeviceWallet,
+} from "../src/device/key-store";
 import {
   memoryKeyStore,
   nowSeconds,
@@ -337,17 +341,22 @@ it.live(
   () =>
     Effect.gen(function* () {
       const store = memoryKeyStore(Option.some(actors.wallet));
-      const bothDrafting = yield* Latch.make();
-      const releaseDrafts = yield* Latch.make();
-      let draftRequests = 0;
+      const secondObservedEmpty = yield* Latch.make();
+      const firstSettled = yield* Latch.make();
       const submittedIds: Array<string> = [];
-      const approvals: Array<Option.Option<Approval>> = [];
+
+      const delayedStore: KeyStore = {
+        read: () => store.read(),
+        write: (wallet) => store.write(wallet),
+        readPublic: () =>
+          store.readPublic().pipe(Effect.tap(() => secondObservedEmpty.open)),
+        updatePublic: (update) =>
+          firstSettled.await.pipe(Effect.andThen(store.updatePublic(update))),
+      };
 
       const port = unusedPort({
         transfer: (order, approval) =>
-          Effect.gen(function* () {
-            approvals.push(approval);
-
+          Effect.sync(() => {
             if (Option.isSome(approval)) {
               submittedIds.push(order.id);
 
@@ -361,12 +370,6 @@ it.live(
               });
             }
 
-            draftRequests++;
-
-            if (draftRequests === 2) yield* bothDrafting.open;
-
-            yield* releaseDrafts.await;
-
             const at = nowSeconds();
 
             return transferDraftOf(
@@ -378,21 +381,86 @@ it.live(
           }),
       });
 
-      const client = makeWalletEffects(port, store, passkeys);
-      const first = yield* Effect.forkChild(client.send(toPedro));
-      const second = yield* Effect.forkChild(client.send(toPedro));
+      const firstClient = makeWalletEffects(port, store, passkeys);
+      const secondClient = makeWalletEffects(port, delayedStore, passkeys);
 
-      yield* bothDrafting.await;
-      yield* releaseDrafts.open;
+      const second = yield* Effect.forkChild(secondClient.send(toPedro));
 
-      const outcomes = [yield* Fiber.join(first), yield* Fiber.join(second)];
+      yield* secondObservedEmpty.await;
+
+      const firstOutcome = yield* firstClient.send(toPedro);
+
+      yield* firstSettled.open;
+
+      const secondOutcome = yield* Fiber.join(second);
 
       expect(submittedIds).toHaveLength(1);
-      expect(approvals.filter(Option.isSome)).toHaveLength(1);
-      expect(outcomes.map((outcome) => outcome._tag).sort()).toEqual([
-        "ApprovalOutstanding",
-        "Settled",
-      ]);
+      expect(firstOutcome._tag).toBe("Settled");
+      expect(secondOutcome._tag).toBe("DraftRejected");
+    }),
+);
+
+it.live(
+  "replacing an expired order preserves a concurrent renewal of that order",
+  () =>
+    Effect.gen(function* () {
+      const oldOrder = new TransferOrder({
+        ...toExchange,
+        id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
+        from: actors.sender,
+      });
+
+      const store = memoryKeyStore(
+        Option.some(
+          new DeviceWallet({
+            ...actors.wallet,
+            transfer: oldOrder,
+            approvedUntil: nowSeconds() - 3600,
+          }),
+        ),
+      );
+
+      const renewedUntil = nowSeconds() + 120;
+      let renewed = false;
+
+      const port = unusedPort({
+        transfer: (_order, approval) =>
+          Effect.gen(function* () {
+            if (!renewed) {
+              renewed = true;
+
+              yield* store
+                .updatePublic((current) =>
+                  Option.some(
+                    new PublicDeviceWallet({
+                      ...current,
+                      approvedUntil: renewedUntil,
+                    }),
+                  ),
+                )
+                .pipe(Effect.orDie);
+            }
+
+            if (Option.isSome(approval))
+              return yield* Effect.die("Must not approve");
+
+            return transferDraftOf(
+              payment(),
+              new ExternalRecipient({ address: actors.exchange }),
+            );
+          }),
+      });
+
+      const outcome = yield* makeWalletEffects(port, store, passkeys).send(
+        new TransferIntent({ ...toExchange, amount: otherAmount }),
+      );
+
+      expect(outcome._tag).toBe("ApprovalOutstanding");
+
+      const kept = Option.getOrThrow(yield* store.readPublic());
+
+      expect(kept.transfer?.id).toBe(oldOrder.id);
+      expect(kept.approvedUntil).toBe(renewedUntil);
     }),
 );
 

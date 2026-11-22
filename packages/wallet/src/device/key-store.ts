@@ -20,6 +20,7 @@ const publicWalletFields = {
   transfer: Schema.optional(TransferOrder),
   approvedUntil: Schema.optional(Schema.Number),
   linkReceipt: Schema.optional(PaymentLinkReceipt),
+  transferRevision: Schema.optional(Schema.Number),
 };
 
 export class PublicDeviceWallet extends Schema.Class<PublicDeviceWallet>(
@@ -46,6 +47,7 @@ export const publicWalletOf = (
         transfer: wallet.transfer,
         approvedUntil: wallet.approvedUntil,
         linkReceipt: wallet.linkReceipt,
+        transferRevision: wallet.transferRevision,
       });
 
 export class KeyStoreUnavailable extends Schema.TaggedError<KeyStoreUnavailable>()(
@@ -105,6 +107,7 @@ export const clearStoredLink = Effect.fn("Device.clearStoredLink")(function* (
             transfer: undefined,
             approvedUntil: undefined,
             linkReceipt: undefined,
+            transferRevision: (current.transferRevision ?? 0) + 1,
           }),
         )
       : Option.none(),
@@ -127,6 +130,7 @@ export const remember = Effect.fn("Device.remember")(function* (
     stored.value.backup === wallet.backup &&
     stored.value.transfer?.id === wallet.transfer?.id &&
     stored.value.approvedUntil === wallet.approvedUntil &&
+    stored.value.transferRevision === wallet.transferRevision &&
     receiptJson(stored.value.linkReceipt ?? null) ===
       receiptJson(wallet.linkReceipt ?? null)
     ? Option.some(stored.value)

@@ -198,6 +198,7 @@ it.effect("keeps the secret phrase encrypted at rest and reads it back", () =>
       ...publicWalletOf(wallet),
       username: nextUsername,
       reserveSponsor: nextSponsor,
+      transferRevision: 1,
     });
 
     expect(yield* browserKeyStore.readPublic()).toEqual(

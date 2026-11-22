@@ -38,8 +38,10 @@ import {
   matchesIntent,
   nextLinkReceipt,
   orderJson,
+  orderRevision,
   orderedFacts,
   reviewed,
+  sameOrderSlot,
 } from "./transfer-drafts";
 
 const followAfterExpiry = { minutes: 2 };
@@ -96,6 +98,7 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
                 transfer: undefined,
                 approvedUntil: undefined,
                 linkReceipt: undefined,
+                transferRevision: orderRevision(current) + 1,
               }),
             )
           : Option.none(),
@@ -278,10 +281,20 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
           };
         }
 
+        const secret = yield* store.read();
+
+        if (Option.isNone(secret) || secret.value.address !== wallet.address)
+          return { done: Option.some(new UnsupportedDevice()) };
+
+        if (!(yield* withinMargin))
+          return { done: Option.some(new DraftRejected()) };
+
+        const reserveNow = yield* nowSeconds;
+
         const approved = yield* store.updatePublic((current) =>
           current.address === wallet.address &&
           current.transfer?.id === order.id &&
-          !approvalOutstanding(current, now)
+          !approvalOutstanding(current, reserveNow)
             ? Option.some(
                 new PublicDeviceWallet({
                   ...current,
@@ -304,20 +317,12 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
             done: Option.some(
               current.address === wallet.address &&
                 current.transfer?.id === order.id &&
-                approvalOutstanding(current, now)
+                approvalOutstanding(current, reserveNow)
                 ? new ApprovalOutstanding({ order })
                 : new DraftRejected(),
             ),
           };
         }
-
-        if (!(yield* withinMargin))
-          return { done: Option.some(new DraftRejected()) };
-
-        const secret = yield* store.read();
-
-        if (Option.isNone(secret) || secret.value.address !== wallet.address)
-          return { done: Option.some(new UnsupportedDevice()) };
 
         if (!(yield* withinMargin))
           return { done: Option.some(new DraftRejected()) };
@@ -401,70 +406,92 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
 
       if (Option.isNone(stored)) return new NoWallet();
 
-      const initial = stored.value;
-      const kept = initial.transfer;
+      let observed = stored.value;
+      const address = observed.address;
 
-      if (matchesIntent(initial, intent) && kept !== undefined)
-        return yield* advance(initial, kept, onDraft);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (matchesIntent(observed, intent) && observed.transfer !== undefined)
+          return yield* advance(observed, observed.transfer, onDraft);
 
-      let resolvedId: TransferId | undefined;
-
-      if (kept !== undefined && initial.approvedUntil !== undefined) {
-        const signed = yield* port.transfer(kept, Option.none());
-        const now = yield* nowSeconds;
-
-        const resolved =
-          Predicate.isTagged(signed, "Settled") ||
-          Predicate.isTagged(signed, "Failed") ||
-          (!Predicate.isTagged(signed, "Pending") &&
-            !approvalOutstanding(initial, now));
-
-        if (!resolved) return new ApprovalOutstanding({ order: kept });
-
-        resolvedId = kept.id;
-      }
-
-      const candidate = new TransferOrder({
-        ...intent,
-        id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
-        from: initial.address,
-      });
-
-      const claimed = yield* store.updatePublic((current) => {
-        if (current.address !== initial.address) return Option.none();
-
-        if (matchesIntent(current, intent)) return Option.none();
+        let reconciled = false;
 
         if (
-          current.transfer !== undefined &&
-          current.approvedUntil !== undefined &&
-          current.transfer.id !== resolvedId
-        )
-          return Option.none();
+          observed.transfer !== undefined &&
+          observed.approvedUntil !== undefined
+        ) {
+          const signed = yield* port.transfer(observed.transfer, Option.none());
+          const now = yield* nowSeconds;
 
-        return Option.some(
-          new PublicDeviceWallet({
-            ...current,
-            transfer: candidate,
-            approvedUntil: undefined,
-            linkReceipt: undefined,
-          }),
-        );
-      });
+          const resolved =
+            Predicate.isTagged(signed, "Settled") ||
+            Predicate.isTagged(signed, "Failed") ||
+            (!Predicate.isTagged(signed, "Pending") &&
+              !approvalOutstanding(observed, now));
 
-      if (Option.isNone(claimed)) return new NoWallet();
+          if (!resolved)
+            return new ApprovalOutstanding({ order: observed.transfer });
 
-      const wallet = claimed.value.wallet;
+          reconciled = true;
+        }
 
-      if (wallet.address !== initial.address) return new UnsupportedDevice();
+        const candidate = new TransferOrder({
+          ...intent,
+          id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
+          from: address,
+        });
 
-      if (matchesIntent(wallet, intent) && wallet.transfer !== undefined)
-        return yield* advance(wallet, wallet.transfer, onDraft);
+        const expected = observed;
 
-      if (wallet.transfer !== undefined && wallet.approvedUntil !== undefined)
-        return new ApprovalOutstanding({ order: wallet.transfer });
+        const claimed = yield* store.updatePublic((current) => {
+          if (current.address !== address) return Option.none();
 
-      return new UnsupportedDevice();
+          if (matchesIntent(current, intent)) return Option.none();
+
+          const unchanged = sameOrderSlot(current, expected);
+
+          const clearedObserved =
+            reconciled &&
+            current.transfer === undefined &&
+            orderRevision(current) === orderRevision(expected) + 1;
+
+          if (!unchanged && !clearedObserved) return Option.none();
+
+          return Option.some(
+            new PublicDeviceWallet({
+              ...current,
+              transfer: candidate,
+              approvedUntil: undefined,
+              linkReceipt: undefined,
+              transferRevision: orderRevision(current) + 1,
+            }),
+          );
+        });
+
+        if (Option.isNone(claimed)) return new NoWallet();
+
+        const wallet = claimed.value.wallet;
+
+        if (wallet.address !== address) return new UnsupportedDevice();
+
+        if (matchesIntent(wallet, intent) && wallet.transfer !== undefined)
+          return yield* advance(wallet, wallet.transfer, onDraft);
+
+        if (
+          wallet.transfer !== undefined &&
+          wallet.approvedUntil !== undefined
+        ) {
+          if (attempt === 0) {
+            observed = wallet;
+            continue;
+          }
+
+          return new ApprovalOutstanding({ order: wallet.transfer });
+        }
+
+        return new DraftRejected();
+      }
+
+      return new DraftRejected();
     });
 
   const send = Effect.fn("Device.send")(function* (intent: TransferIntent) {
