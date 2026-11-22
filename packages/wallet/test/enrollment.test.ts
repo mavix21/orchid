@@ -42,26 +42,34 @@ import {
 } from "./wallet-harness";
 
 const memoryPendingStorage = (): PendingEnrollmentStorage & {
+  failWrites: boolean;
   readSync(): Option.Option<PendingEnrollmentRecord>;
   replaceSync(record: PendingEnrollmentRecord): void;
 } => {
   let saved = Option.none<PendingEnrollmentRecord>();
 
-  return {
+  const storage = {
+    failWrites: false,
     read: () => Effect.sync(() => saved),
-    write: (record) =>
-      Effect.sync(() => {
-        saved = Option.some(record);
-      }),
+    write: (record: PendingEnrollmentRecord) =>
+      Effect.suspend(() =>
+        storage.failWrites
+          ? Effect.fail(new KeyStoreUnavailable({ cause: new Error("quota") }))
+          : Effect.sync(() => {
+              saved = Option.some(record);
+            }),
+      ),
     clear: () =>
       Effect.sync(() => {
         saved = Option.none();
       }),
     readSync: () => saved,
-    replaceSync: (record) => {
+    replaceSync: (record: PendingEnrollmentRecord) => {
       saved = Option.some(record);
     },
   };
+
+  return storage;
 };
 
 const enrollmentFor = (
@@ -339,6 +347,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ),
           );
           expect(yield* browserKeyStore.readPublic()).toEqual(Option.none());
+
+          pending.failWrites = true;
 
           const backupStep = yield* reloadedTab.advance();
 

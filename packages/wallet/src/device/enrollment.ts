@@ -288,21 +288,10 @@ export function makeEnrollmentEffects(
     }),
   );
 
-  const submitBackup = Effect.fn("Device.submitEnrollmentBackup")(function* (
+  const uploadBackup = Effect.fn("Device.uploadEnrollmentBackup")(function* (
     enrollment: BackupEnrollment,
     candidate: PendingReopenCandidate,
   ): Effect.fn.Return<EnrollWalletOutcome> {
-    if (deps.pending !== undefined) {
-      const persisted = yield* deps.pending
-        .write(new PendingBackupSubmission({ enrollment, candidate }))
-        .pipe(Effect.result);
-
-      if (Result.isFailure(persisted))
-        return yield* clearPending.pipe(Effect.as(new UnsupportedDevice()));
-    }
-
-    state = PendingState.AwaitingBackupStore({ enrollment, candidate });
-
     const enrolled = yield* deps.port.enroll(enrollment).pipe(Effect.result);
 
     if (Result.isFailure(enrolled)) {
@@ -329,6 +318,24 @@ export function makeEnrollmentEffects(
       ChallengeRefused: (refused) => clearPending.pipe(Effect.as(refused)),
       RegistrationRefused: (refused) => clearPending.pipe(Effect.as(refused)),
     });
+  });
+
+  const submitBackup = Effect.fn("Device.submitEnrollmentBackup")(function* (
+    enrollment: BackupEnrollment,
+    candidate: PendingReopenCandidate,
+  ): Effect.fn.Return<EnrollWalletOutcome> {
+    if (deps.pending !== undefined) {
+      const persisted = yield* deps.pending
+        .write(new PendingBackupSubmission({ enrollment, candidate }))
+        .pipe(Effect.result);
+
+      if (Result.isFailure(persisted))
+        return yield* clearPending.pipe(Effect.as(new UnsupportedDevice()));
+    }
+
+    state = PendingState.AwaitingBackupStore({ enrollment, candidate });
+
+    return yield* uploadBackup(enrollment, candidate);
   });
 
   const sealAndStoreBackup = Effect.fn("Device.sealEnrollmentBackup")(
@@ -605,7 +612,7 @@ export function makeEnrollmentEffects(
         Idle: () => Effect.succeed(new NoWallet()),
         AwaitingPrf: obtainPrf,
         AwaitingBackupStore: ({ enrollment, candidate }) =>
-          submitBackup(enrollment, candidate),
+          uploadBackup(enrollment, candidate),
         AwaitingReopenProof: ({ candidate }) => proveReopen(candidate),
       });
     },

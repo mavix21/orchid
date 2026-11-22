@@ -74,8 +74,6 @@ export class Backups extends Context.Service<
       purpose: ChallengePurpose,
     ): Effect.Effect<boolean, StoreFailure>;
 
-    enroll(backup: NewBackup): Effect.Effect<boolean, StoreFailure>;
-
     commitEnrollment(
       challenge: PasskeyChallenge,
       backup: NewBackup,
@@ -143,16 +141,6 @@ export class Backups extends Context.Service<
         const now = yield* Clock.currentTimeMillis;
 
         return removed.some((row) => row.expiresAt.getTime() > now);
-      });
-
-      const enroll = Effect.fn("Backups.enroll")(function* (backup: NewBackup) {
-        const inserted = yield* db
-          .insert(backups)
-          .values(backup)
-          .onConflictDoNothing()
-          .returning();
-
-        return inserted.length > 0;
       });
 
       const commitEnrollment = Effect.fn("Backups.commitEnrollment")(function* (
@@ -229,7 +217,6 @@ export class Backups extends Context.Service<
       return Backups.of({
         issue: (purpose) => wrap(issue(purpose)),
         consume: (challenge, purpose) => wrap(consume(challenge, purpose)),
-        enroll: (backup) => wrap(enroll(backup)),
         commitEnrollment: (challenge, backup) =>
           wrap(commitEnrollment(challenge, backup)),
         byCredential: (credentialId) => wrap(byCredential(credentialId)),
