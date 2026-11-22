@@ -1,6 +1,6 @@
 import { ChevronLeftIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import { Field, FieldError, FieldLabel } from "@workspace/ui/components/field";
 import {
@@ -9,7 +9,9 @@ import {
   InputGroupInput,
 } from "@workspace/ui/components/input-group";
 import {
-  type CreateOutcome,
+  type EnrollWalletOutcome,
+  type EnrollmentPending,
+  type EnrollmentStage,
   type UsernameIssue,
   usernameIssue,
   usernameMaxLength,
@@ -20,10 +22,11 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
 import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
-import { Screen, ScreenActions } from "@/components/screen";
+import { Screen, ScreenActions, ScreenNote } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { UserAvatar } from "@/components/user-avatar";
 import { me } from "@/fixtures/account";
+import { enrollmentClient } from "@/wallet/enrollment";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/create-account")({
@@ -34,27 +37,35 @@ export const Route = createFileRoute("/create-account")({
   ),
 });
 
-const refusal = (outcome: Exclude<CreateOutcome, { _tag: "Opened" }>) =>
+const refusal = (
+  outcome: Exclude<
+    EnrollWalletOutcome,
+    { _tag: "EnrollmentPending" | "WalletEnrolled" | "WalletOnDevice" }
+  >,
+) =>
   Match.valueTags(outcome, {
     InvalidUsername: () =>
       `Solo letras, números y guion bajo, de ${usernameMinLength} a ${usernameMaxLength} caracteres.`,
-    UsernameTaken: () => "Ese usuario ya está tomado. Prueba con otro.",
-    AddressBound: ({ profile }) => `Tu llave ya es @${profile.username}.`,
-    OpeningPending: () =>
-      "Tu cuenta se está abriendo. Vuelve a intentarlo en un momento.",
-    DraftRejected: () =>
-      "No pudimos terminar de crear tu cuenta y no se movió nada. Inténtalo de nuevo.",
-    UnsupportedDevice: () =>
-      "Este navegador no puede guardar tu llave de forma segura.",
-    InvalidAddress: () => "No pudimos abrir tu cuenta.",
-    NotSponsored: () => "No pudimos abrir tu cuenta.",
+    NoWallet: () =>
+      "Tu registro se interrumpió antes de guardarse. Vuelve a elegir tu @usuario.",
+    BackupUnsupported: () =>
+      "Este dispositivo o navegador no es compatible con passkeys con PRF. Orchid necesita una passkey compatible para crear y proteger tu cuenta.",
     PasskeyCancelled: () =>
-      "Necesitas crear una passkey para respaldar tu cuenta. Inténtalo de nuevo.",
-    PasskeyFailed: () =>
-      "No pudimos crear la passkey para respaldar tu cuenta. Inténtalo de nuevo.",
-    ChallengeRefused: () => "El respaldo tardó demasiado. Inténtalo de nuevo.",
+      "Cancelaste el uso de tu passkey. Inténtalo de nuevo para continuar.",
+    PasskeyFailed: () => "No pudimos usar tu passkey. Inténtalo de nuevo.",
+    WrongCredential: () =>
+      "Usaste una passkey distinta. Vuelve a intentarlo con la misma passkey.",
+    AssertionRejected: () =>
+      "No pudimos verificar tu passkey. Confirma con tu huella, rostro o PIN del dispositivo e inténtalo de nuevo.",
+    CorruptEnvelope: () =>
+      "No pudimos comprobar el cifrado local de tu llave. Vuelve a intentarlo.",
+    CorruptDeviceWallet: () =>
+      "Los datos guardados en este navegador están dañados.",
+    ChallengeRefused: () => "La solicitud venció. Inténtalo de nuevo.",
     RegistrationRefused: () =>
       "No pudimos guardar el respaldo de tu cuenta. Inténtalo de nuevo.",
+    UnsupportedDevice: () =>
+      "Este navegador no puede guardar tu llave de forma segura.",
     Offline: unavailableMessage,
     ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
@@ -74,19 +85,46 @@ const issueMessage = (issue: UsernameIssue) =>
     UsernameTooShort: () => `Mínimo ${usernameMinLength} caracteres.`,
   });
 
+const stageCopy = (stage: EnrollmentStage, username: string) =>
+  Match.value(stage).pipe(
+    Match.when("prf", () => ({
+      title: "Verifica tu passkey",
+      description: `Toca para comprobar que tu passkey puede proteger @${username} en este dispositivo.`,
+      action: "Verificar con passkey",
+      busyAction: "Verificando…",
+    })),
+    Match.when("backup", () => ({
+      title: "Guarda tu respaldo",
+      description: `No pudimos guardar el respaldo de @${username}. Reintenta sin crear otra passkey.`,
+      action: "Reintentar respaldo",
+      busyAction: "Guardando respaldo…",
+    })),
+    Match.when("reopen", () => ({
+      title: "Confirma tu passkey",
+      description: `Usa tu passkey una vez más para comprobar que puede abrir @${username} antes de activar tu cuenta.`,
+      action: "Confirmar con passkey",
+      busyAction: "Confirmando…",
+    })),
+    Match.exhaustive,
+  );
+
 function ChooseUsername() {
   const [hydrated, setHydrated] = useState(false);
-  const navigate = useNavigate();
   const { walletClient } = Route.useRouteContext();
   const [username, setUsername] = useState("");
   const [touched, setTouched] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [resuming, setResuming] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
   const [stopped, setStopped] = useState(false);
-  const [started, setStarted] = useState<Option.Option<string>>(Option.none());
 
-  const busy = creating || resuming;
+  const [pending, setPending] = useState<Option.Option<EnrollmentPending>>(
+    Option.none(),
+  );
+
+  const [enrolledUsername, setEnrolledUsername] = useState<
+    Option.Option<string>
+  >(Option.none());
+
   const typedIssue = usernameIssue(username);
   const length = Array.from(username).length;
 
@@ -101,51 +139,180 @@ function ChooseUsername() {
     onSome: issueMessage,
   });
 
-  const create = async (name: string) => {
-    setCreating(true);
-    setProblem(undefined);
-
-    const outcome = await walletClient.create(name);
-
-    await Match.value(outcome).pipe(
-      Match.tag("Opened", () => navigate({ to: "/home" })),
-      Match.orElse((refused) => {
-        setProblem(refusal(refused));
-        setStopped(!retryable(refused));
-        setCreating(false);
-        setResuming(false);
-      }),
-    );
-  };
-
   useEffect(() => {
     let current = true;
 
     setHydrated(true);
 
-    void walletClient.saved().then((saved) => {
-      if (!current || !Predicate.isTagged(saved, "SavedWallet")) return;
+    void Promise.all([walletClient.saved(), enrollmentClient.pending()]).then(
+      ([saved, currentPending]) => {
+        if (!current) return;
 
-      setUsername(saved.username);
-      setStarted(Option.some(saved.username));
+        if (Predicate.isTagged(saved, "SavedWallet")) {
+          setUsername(saved.username);
+          setEnrolledUsername(Option.some(saved.username));
+          setPending(Option.none());
 
-      if (!saved.openingApproved) return;
+          return;
+        }
 
-      setResuming(true);
-      void create(saved.username);
-    });
+        if (Predicate.isTagged(saved, "UnsupportedDevice")) {
+          setProblem(
+            "Este navegador no puede guardar tu llave de forma segura.",
+          );
+
+          return;
+        }
+
+        if (Option.isSome(currentPending)) {
+          setUsername(currentPending.value.username);
+          setPending(currentPending);
+        }
+      },
+    );
 
     return () => {
       current = false;
     };
   }, [walletClient]);
 
+  const handleOutcome = async (outcome: EnrollWalletOutcome) => {
+    await Match.value(outcome).pipe(
+      Match.tag("EnrollmentPending", (next) => {
+        setUsername(next.username);
+        setPending(Option.some(next));
+        setProblem(undefined);
+        setStopped(false);
+      }),
+      Match.tag("WalletEnrolled", ({ profile }) => {
+        setUsername(profile.username);
+        setEnrolledUsername(Option.some(profile.username));
+        setPending(Option.none());
+        setProblem(undefined);
+        setStopped(false);
+      }),
+      Match.tag("WalletOnDevice", async () => {
+        const saved = await walletClient.saved();
+
+        setPending(Option.none());
+
+        if (Predicate.isTagged(saved, "SavedWallet")) {
+          setUsername(saved.username);
+          setEnrolledUsername(Option.some(saved.username));
+          setProblem(undefined);
+        } else {
+          setProblem("Ya existe una cuenta guardada en este dispositivo.");
+        }
+      }),
+      Match.orElse(async (refused) => {
+        const nextPending = await enrollmentClient.pending();
+
+        setPending(nextPending);
+        setProblem(refusal(refused));
+        setStopped(!retryable(refused));
+      }),
+    );
+
+    setBusy(false);
+  };
+
+  const startEnrollment = async (name: string) => {
+    setBusy(true);
+    setProblem(undefined);
+    await handleOutcome(await enrollmentClient.start(name));
+  };
+
+  const continueEnrollment = async () => {
+    setBusy(true);
+    setProblem(undefined);
+    await handleOutcome(await enrollmentClient.advance());
+  };
+
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setTouched(true);
 
-    if (Option.isNone(typedIssue)) void create(username);
+    if (Option.isNone(typedIssue)) void startEnrollment(username);
   };
+
+  if (Option.isSome(enrolledUsername))
+    return (
+      <Screen>
+        <TopNav
+          title="Crea tu cuenta"
+          label="Atrás"
+          icon={<ChevronLeftIcon />}
+          link={<Link to="/" />}
+        />
+        <main
+          data-testid="enrollment-complete"
+          className="flex flex-1 flex-col gap-6 px-5 pt-2"
+        >
+          <div className="flex flex-col gap-2">
+            <h1 className="font-display text-h1 text-balance">
+              Tu passkey protege @{enrolledUsername.value}
+            </h1>
+            <ScreenNote>
+              El respaldo y la comprobación local con passkey terminaron bien.
+              La apertura de la cuenta permanecerá pausada hasta habilitar la
+              autorización revisada.
+            </ScreenNote>
+          </div>
+          <div className="flex justify-center">
+            <UserAvatar profile={me} size="xl" />
+          </div>
+        </main>
+      </Screen>
+    );
+
+  if (Option.isSome(pending)) {
+    const copy = stageCopy(pending.value.stage, pending.value.username);
+
+    return (
+      <Screen>
+        <TopNav
+          title="Crea tu cuenta"
+          label="Atrás"
+          icon={<ChevronLeftIcon />}
+          link={<Link to="/" disabled={busy} />}
+          disabled={busy}
+        />
+        <main
+          data-testid="enrollment-step"
+          data-stage={pending.value.stage}
+          className="flex flex-1 flex-col gap-6 px-5 pt-2"
+        >
+          <div className="flex flex-col gap-2">
+            <h1 className="font-display text-h1 text-balance">{copy.title}</h1>
+            <p className="text-body text-muted-foreground">
+              {copy.description}
+            </p>
+          </div>
+          <div className="flex justify-center">
+            <UserAvatar profile={me} size="xl" />
+          </div>
+          {problem ? (
+            <p role="alert" className="text-body text-destructive">
+              {problem}
+            </p>
+          ) : null}
+        </main>
+        <ScreenActions>
+          <Button
+            className="w-full"
+            type="button"
+            data-testid="enrollment-continue"
+            disabled={!hydrated || busy || stopped}
+            onClick={() => {
+              void continueEnrollment();
+            }}
+          >
+            {busy ? copy.busyAction : copy.action}
+          </Button>
+        </ScreenActions>
+      </Screen>
+    );
+  }
 
   return (
     <Screen>
@@ -159,17 +326,9 @@ function ChooseUsername() {
       <form className="flex flex-1 flex-col" noValidate onSubmit={submit}>
         <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
           <div className="flex flex-col gap-2">
-            <h1 className="font-display text-h1">
-              {Option.isSome(started)
-                ? "Termina de crear tu cuenta"
-                : "Elige tu @usuario"}
-            </h1>
+            <h1 className="font-display text-h1">Elige tu @usuario</h1>
             <p className="text-body text-muted-foreground">
-              {Option.match(started, {
-                onNone: () => "Así te encuentran para enviarte plata.",
-                onSome: (name) =>
-                  `Empezaste a crear @${name} en este dispositivo. Continúa para terminar.`,
-              })}
+              Así te encuentran para enviarte plata.
             </p>
           </div>
           <div className="flex justify-center">
@@ -222,11 +381,7 @@ function ChooseUsername() {
               Option.isSome(blockingIssue)
             }
           >
-            {resuming
-              ? "Terminando de crear tu cuenta…"
-              : creating
-                ? "Creando tu cuenta…"
-                : "Continuar"}
+            {busy ? "Creando passkey…" : "Continuar"}
           </Button>
         </ScreenActions>
       </form>

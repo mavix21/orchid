@@ -209,24 +209,33 @@ export function openWallet(
     if (Option.isNone(existing)) {
       const phrase = generateSecretPhrase();
 
+      const address = Schema.decodeSync(AccountAddress)(
+        signingKey(phrase).publicKey(),
+      );
+
+      const enrolled = yield* enroll({ phrase, address, username });
+
+      if (!Predicate.isTagged(enrolled, "BackupStored"))
+        return yield* Match.valueTags(enrolled, {
+          BackupStored: () => Effect.succeed(new UnsupportedDevice()),
+          BackupUnsupported: Effect.succeed,
+          ChallengeRefused: Effect.succeed,
+          RegistrationRefused: Effect.succeed,
+        });
+
       const created = yield* remember(
         store,
         new DeviceWallet({
           phrase,
-          address: Schema.decodeSync(AccountAddress)(
-            signingKey(phrase).publicKey(),
-          ),
+          address,
           username,
+          backup: "stored",
         }),
       );
 
       if (Option.isNone(created)) return new UnsupportedDevice();
 
-      const enrolled = yield* enroll(created.value);
-
-      if (!(enrolled instanceof PublicDeviceWallet)) return enrolled;
-
-      return yield* advance(enrolled);
+      return yield* advance(created.value);
     }
 
     const prepared = yield* store.updatePublic((current) =>
@@ -253,9 +262,30 @@ export function openWallet(
 
       const enrolled = yield* enroll(secret.value);
 
-      if (!(enrolled instanceof PublicDeviceWallet)) return enrolled;
+      if (!Predicate.isTagged(enrolled, "BackupStored"))
+        return yield* Match.valueTags(enrolled, {
+          BackupStored: () => Effect.succeed(new UnsupportedDevice()),
+          BackupUnsupported: Effect.succeed,
+          ChallengeRefused: Effect.succeed,
+          RegistrationRefused: Effect.succeed,
+        });
 
-      wallet = enrolled;
+      const backedUp = yield* store.updatePublic((current) =>
+        current.address === wallet.address && current.backup !== "stored"
+          ? Option.some(
+              new PublicDeviceWallet({ ...current, backup: "stored" }),
+            )
+          : Option.none(),
+      );
+
+      if (
+        Option.isNone(backedUp) ||
+        backedUp.value.wallet.address !== wallet.address ||
+        backedUp.value.wallet.backup !== "stored"
+      )
+        return new UnsupportedDevice();
+
+      wallet = backedUp.value.wallet;
     }
 
     return yield* advance(wallet);

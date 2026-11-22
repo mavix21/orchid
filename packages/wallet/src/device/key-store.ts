@@ -12,7 +12,7 @@ import { PinnedCredential } from "./assertion";
 import { LocalPhraseEnvelope, localEnvelopeVersion } from "./local-envelope";
 import { SecretPhrase } from "./secret-phrase";
 
-export const BackupState = Schema.Literals(["stored", "deviceOnly"]);
+export const BackupState = Schema.Literals(["stored"]);
 
 const publicWalletFields = {
   address: AccountAddress,

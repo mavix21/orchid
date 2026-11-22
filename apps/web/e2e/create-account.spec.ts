@@ -92,9 +92,7 @@ test("creates a backed-up testnet wallet and restores it after the device forget
   await expect(page).toHaveURL("/home", { timeout: 30_000 });
 });
 
-test("creates a device-only wallet when the passkey has no PRF", async ({
-  page,
-}) => {
+test("refuses creation when the passkey has no PRF", async ({ page }) => {
   await addAuthenticator(page, false);
 
   const username = freshUsername();
@@ -103,8 +101,13 @@ test("creates a device-only wallet when the passkey has no PRF", async ({
   await usernameInput(page).fill(username);
   await submitButton(page).click();
 
-  await expect(page).toHaveURL("/home", { timeout: 90_000 });
-  await expect(page.getByText(`@${username}`)).toBeVisible();
+  await expect(page.getByTestId("enrollment-continue")).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByTestId("enrollment-continue").click();
+
+  await expect(page.getByRole("alert")).toBeVisible({ timeout: 30_000 });
+  await expect(page).toHaveURL("/create-account");
 });
 
 test("returns to the loaded home without the skeleton", async ({ page }) => {
