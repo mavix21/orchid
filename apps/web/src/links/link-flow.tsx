@@ -355,7 +355,9 @@ function LinkCreated({
           el dinero.
         </ScreenNote>
         <p className="flex min-h-6 items-center justify-center gap-2 text-label text-accent-foreground">
-          {delivered(delivery) ? <CheckIcon className="size-5" /> : null}
+          {delivered(delivery) ? (
+            <CheckIcon className="size-5 shrink-0" />
+          ) : null}
           {Option.getOrUndefined(note)}
         </p>
       </ScreenStatus>
