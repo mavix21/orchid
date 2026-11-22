@@ -423,7 +423,23 @@ it.live.each([
 
       const firstOutcome = yield* firstClient.send(toPedro);
 
-      if (storeSettledOther) yield* firstClient.send(toExchange);
+      const expectedStoredId = storeSettledOther
+        ? yield* firstClient.send(toExchange).pipe(
+            Effect.andThen(store.readPublic()),
+            Effect.flatMap((wallet) =>
+              Effect.fromOption(
+                Option.flatMap(wallet, (current) =>
+                  current.transfer !== undefined &&
+                  current.transfer.id === otherOrderId &&
+                  current.approvedUntil !== undefined
+                    ? Option.some(current.transfer.id)
+                    : Option.none(),
+                ),
+              ),
+            ),
+            Effect.orDie,
+          )
+        : undefined;
 
       yield* firstSettled.open;
 
@@ -433,7 +449,7 @@ it.live.each([
       expect(firstOutcome._tag).toBe("Settled");
       expect(secondOutcome._tag).toBe("DraftRejected");
       expect(Option.getOrThrow(yield* store.readPublic()).transfer?.id).toBe(
-        otherOrderId,
+        expectedStoredId,
       );
     }),
 );
