@@ -87,9 +87,31 @@ export class PendingReopenCandidate extends Schema.Class<PendingReopenCandidate>
   envelope: LocalPhraseEnvelope,
 }) {}
 
+export class PendingBackupSubmission extends Schema.TaggedClass<PendingBackupSubmission>()(
+  "PendingBackupSubmission",
+  {
+    enrollment: BackupEnrollment,
+    candidate: PendingReopenCandidate,
+  },
+) {}
+
+export class PendingReopenProof extends Schema.TaggedClass<PendingReopenProof>()(
+  "PendingReopenProof",
+  {
+    candidate: PendingReopenCandidate,
+  },
+) {}
+
+export const PendingEnrollmentRecord = Schema.Union([
+  PendingBackupSubmission,
+  PendingReopenProof,
+]);
+
+export type PendingEnrollmentRecord = typeof PendingEnrollmentRecord.Type;
+
 export interface PendingEnrollmentStorage {
-  read(): Effect.Effect<Option.Option<PendingReopenCandidate>>;
-  write(candidate: PendingReopenCandidate): Effect.Effect<void>;
+  read(): Effect.Effect<Option.Option<PendingEnrollmentRecord>>;
+  write(record: PendingEnrollmentRecord): Effect.Effect<void>;
   clear(): Effect.Effect<void>;
 }
 
@@ -235,7 +257,12 @@ export function makeEnrollmentEffects(
     const restored = yield* deps.pending.read();
 
     if (Option.isSome(restored))
-      state = PendingState.AwaitingReopenProof({ candidate: restored.value });
+      state = Match.valueTags(restored.value, {
+        PendingBackupSubmission: ({ enrollment, candidate }) =>
+          PendingState.AwaitingBackupStore({ enrollment, candidate }),
+        PendingReopenProof: ({ candidate }) =>
+          PendingState.AwaitingReopenProof({ candidate }),
+      });
 
     return state;
   });
@@ -262,16 +289,17 @@ export function makeEnrollmentEffects(
     enrollment: BackupEnrollment,
     candidate: PendingReopenCandidate,
   ): Effect.fn.Return<EnrollWalletOutcome> {
+    state = PendingState.AwaitingBackupStore({ enrollment, candidate });
+
+    if (deps.pending !== undefined)
+      yield* deps.pending.write(
+        new PendingBackupSubmission({ enrollment, candidate }),
+      );
+
     const enrolled = yield* deps.port.enroll(enrollment).pipe(Effect.result);
 
     if (Result.isFailure(enrolled)) {
-      if (isRetryableUnavailable(enrolled.failure)) {
-        state = PendingState.AwaitingBackupStore({ enrollment, candidate });
-
-        if (deps.pending !== undefined) yield* deps.pending.clear();
-      } else {
-        yield* clearPending;
-      }
+      if (!isRetryableUnavailable(enrolled.failure)) yield* clearPending;
 
       return enrolled.failure;
     }
@@ -281,7 +309,8 @@ export function makeEnrollmentEffects(
         Effect.gen(function* () {
           state = PendingState.AwaitingReopenProof({ candidate });
 
-          if (deps.pending !== undefined) yield* deps.pending.write(candidate);
+          if (deps.pending !== undefined)
+            yield* deps.pending.write(new PendingReopenProof({ candidate }));
 
           return new EnrollmentPending({
             stage: "reopen",
@@ -515,10 +544,6 @@ export function makeEnrollmentEffects(
     return yield* Match.valueTags(reopened.success, {
       PhraseOpened: () =>
         Effect.gen(function* () {
-          const blocked = yield* requireNoInstalledWallet;
-
-          if (Option.isSome(blocked)) return blocked.value;
-
           const record = new SealedDeviceWallet({
             version: localEnvelopeVersion,
             public: new PublicDeviceWallet({
@@ -530,20 +555,26 @@ export function makeEnrollmentEffects(
             envelope: candidate.envelope,
           });
 
-          const written = yield* deps.store
-            .writeSealed(record)
+          const installed = yield* deps.store
+            .installSealed(record)
             .pipe(Effect.result);
 
-          if (Result.isFailure(written)) return new UnsupportedDevice();
+          if (Result.isFailure(installed))
+            return Match.valueTags(installed.failure, {
+              CorruptDeviceWallet: (corrupt) => corrupt,
+              KeyStoreUnavailable: () => new UnsupportedDevice(),
+            });
 
           yield* clearPending;
 
-          return new WalletEnrolled({
-            profile: new Profile({
-              address: candidate.address,
-              username: candidate.username,
-            }),
-          });
+          return installed.success
+            ? new WalletEnrolled({
+                profile: new Profile({
+                  address: candidate.address,
+                  username: candidate.username,
+                }),
+              })
+            : new WalletOnDevice();
         }),
       CorruptEnvelope: (corrupt) => clearPending.pipe(Effect.as(corrupt)),
       WrongCredential: Effect.succeed,

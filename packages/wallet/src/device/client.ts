@@ -109,7 +109,7 @@ export function makeWalletEffects(
 
     const { openWallet } = yield* loadFromServer(() => import("./opening"));
 
-    return yield* openWallet(port, store, passkeys)(username.value);
+    return yield* openWallet(port, store)(username.value);
   });
 
   const backUp = Effect.fn("Device.backUp")(function* () {
@@ -117,26 +117,7 @@ export function makeWalletEffects(
 
     if (Option.isNone(stored)) return new NoWallet();
 
-    if (stored.value.backup === "stored") return new BackupStored();
-
-    const secret = yield* store.read();
-
-    if (Option.isNone(secret) || secret.value.address !== stored.value.address)
-      return new UnsupportedDevice();
-
-    const enrolled = yield* (yield* backups).enroll(secret.value);
-
-    if (!Predicate.isTagged(enrolled, "BackupStored")) return enrolled;
-
-    const saved = yield* store.updatePublic((current) =>
-      current.address === stored.value.address && current.backup !== "stored"
-        ? Option.some(new PublicDeviceWallet({ ...current, backup: "stored" }))
-        : Option.none(),
-    );
-
-    return Option.isSome(saved) &&
-      saved.value.wallet.address === stored.value.address &&
-      saved.value.wallet.backup === "stored"
+    return stored.value.backup === "stored"
       ? new BackupStored()
       : new UnsupportedDevice();
   });

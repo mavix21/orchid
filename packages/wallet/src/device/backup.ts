@@ -1,11 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import {
-  BackupEnrollment,
-  type BackupFound,
-  type WalletPort,
-} from "../contract";
+import type { BackupFound, WalletPort } from "../contract";
 import { DeviceWallet, type KeyStore, remember } from "./key-store";
 import {
   BackupMismatch,
@@ -15,7 +11,7 @@ import {
   WalletOnDevice,
 } from "./outcomes";
 import type { Passkeys } from "./passkeys";
-import { backupSalt, openPhrase, sealPhrase } from "./phrase-seal";
+import { backupSalt, openPhrase } from "./phrase-seal";
 import { signingKey } from "./signing";
 
 export function deviceBackup(
@@ -23,29 +19,6 @@ export function deviceBackup(
   passkeys: Passkeys,
   store: KeyStore,
 ) {
-  const enroll = Effect.fn("Device.enroll")(function* (
-    wallet: Pick<DeviceWallet, "address" | "username" | "phrase">,
-  ) {
-    const challenge = yield* port.passkeyChallenge("enrollment");
-
-    const registered = yield* passkeys.register(
-      challenge,
-      wallet.username,
-      yield* backupSalt,
-    );
-
-    if (Option.isNone(registered)) return new BackupUnsupported();
-
-    return yield* port.enroll(
-      new BackupEnrollment({
-        address: wallet.address,
-        username: wallet.username,
-        registration: registered.value.registration,
-        sealed: yield* sealPhrase(registered.value.prf, wallet.phrase),
-      }),
-    );
-  });
-
   const keepRestored = Effect.fn("Device.keepRestored")(function* (
     found: BackupFound,
     prf: Uint8Array<ArrayBuffer>,
@@ -97,5 +70,5 @@ export function deviceBackup(
     });
   });
 
-  return { enroll, restore };
+  return { restore };
 }

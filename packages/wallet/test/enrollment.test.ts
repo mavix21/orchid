@@ -3,9 +3,11 @@ import { expect, layer } from "@effect/vitest";
 import { Database } from "@workspace/db";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
+  BackupEnrollment,
   BackupFound,
   Offline,
   Username,
@@ -14,8 +16,9 @@ import {
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
   EnrollmentPending,
+  type PendingEnrollmentRecord,
   type PendingEnrollmentStorage,
-  type PendingReopenCandidate,
+  PendingReopenProof,
   makeEnrollmentEffects,
 } from "../src/device/enrollment";
 import {
@@ -38,24 +41,24 @@ import {
 } from "./wallet-harness";
 
 const memoryPendingStorage = (): PendingEnrollmentStorage & {
-  readSync(): Option.Option<PendingReopenCandidate>;
-  replaceSync(candidate: PendingReopenCandidate): void;
+  readSync(): Option.Option<PendingEnrollmentRecord>;
+  replaceSync(record: PendingEnrollmentRecord): void;
 } => {
-  let saved = Option.none<PendingReopenCandidate>();
+  let saved = Option.none<PendingEnrollmentRecord>();
 
   return {
     read: () => Effect.sync(() => saved),
-    write: (candidate) =>
+    write: (record) =>
       Effect.sync(() => {
-        saved = Option.some(candidate);
+        saved = Option.some(record);
       }),
     clear: () =>
       Effect.sync(() => {
         saved = Option.none();
       }),
     readSync: () => saved,
-    replaceSync: (candidate) => {
-      saved = Option.some(candidate);
+    replaceSync: (record) => {
+      saved = Option.some(record);
     },
   };
 };
@@ -204,35 +207,99 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "obtains PRF on a fresh pinned get when create returns none, recovers from transient backup failure, and still requires a distinct reopen proof",
+      "installs only one wallet when two tabs complete reopen proof concurrently",
+      () =>
+        Effect.gen(function* () {
+          yield* Effect.promise(clearDatabase);
+
+          const wallet = yield* Wallet;
+          const firstAuth = new SoftwareAuthenticator(passkeyOrigin);
+          const secondAuth = new SoftwareAuthenticator(passkeyOrigin);
+
+          const firstTab = makeEnrollmentEffects({
+            port: wallet,
+            store: browserKeyStore,
+            registration: firstAuth.registration,
+            assertions: firstAuth.assertions,
+            relyingParty,
+          });
+
+          const secondTab = makeEnrollmentEffects({
+            port: wallet,
+            store: browserKeyStore,
+            registration: secondAuth.registration,
+            assertions: secondAuth.assertions,
+            relyingParty,
+          });
+
+          assertTagged(yield* firstTab.start("maria"), "EnrollmentPending");
+          assertTagged(yield* secondTab.start("pedro"), "EnrollmentPending");
+
+          const [firstOutcome, secondOutcome] = yield* Effect.all(
+            [firstTab.advance(), secondTab.advance()],
+            { concurrency: "unbounded" },
+          );
+
+          const outcomes = [firstOutcome, secondOutcome];
+
+          const winner = Option.getOrThrow(
+            Option.fromNullishOr(
+              outcomes.find(Predicate.isTagged("WalletEnrolled")),
+            ),
+          );
+
+          const loser = Option.getOrThrow(
+            Option.fromNullishOr(
+              outcomes.find(Predicate.isTagged("WalletOnDevice")),
+            ),
+          );
+
+          assertTagged(winner, "WalletEnrolled");
+          expect(loser._tag).toBe("WalletOnDevice");
+
+          const persisted = Option.getOrThrow(
+            yield* browserKeyStore.readSealed(),
+          );
+
+          expect(persisted.public.address).toBe(winner.profile.address);
+          expect(persisted.public.username).toBe(winner.profile.username);
+        }),
+    );
+
+    it.effect(
+      "obtains PRF on a fresh pinned get when create returns none, recovers after a committed backup whose response is lost across reload, and still requires a distinct reopen proof",
       () =>
         Effect.gen(function* () {
           yield* Effect.promise(clearDatabase);
 
           const wallet = yield* Wallet;
           const auth = new SoftwareAuthenticator(passkeyOrigin);
+          const pending = memoryPendingStorage();
 
           auth.prfOnCreate = false;
 
-          let failEnroll = true;
+          let dropCommittedResponse = true;
 
           const flakyPort: WalletPort = {
             ...wallet,
             enroll: (enrollment) =>
-              failEnroll
-                ? Effect.fail(new Offline())
+              dropCommittedResponse
+                ? wallet
+                    .enroll(enrollment)
+                    .pipe(Effect.andThen(Effect.fail(new Offline())))
                 : wallet.enroll(enrollment),
           };
 
-          const enrollment = makeEnrollmentEffects({
+          const firstTab = makeEnrollmentEffects({
             port: flakyPort,
             store: browserKeyStore,
             registration: auth.registration,
             assertions: auth.assertions,
             relyingParty,
+            pending,
           });
 
-          const started = yield* enrollment.start("maria");
+          const started = yield* firstTab.start("maria");
 
           expect(started).toEqual(
             new EnrollmentPending({
@@ -245,12 +312,42 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(yield* browserKeyStore.readPublic()).toEqual(Option.none());
 
           auth.cancels = true;
-          expect((yield* enrollment.advance())._tag).toBe("PasskeyCancelled");
-          expect(yield* enrollment.pending()).toEqual(Option.some(started));
+          expect((yield* firstTab.advance())._tag).toBe("PasskeyCancelled");
+          expect(yield* firstTab.pending()).toEqual(Option.some(started));
 
           auth.cancels = false;
-          expect((yield* enrollment.advance())._tag).toBe("Offline");
-          expect(yield* enrollment.pending()).toEqual(
+          expect((yield* firstTab.advance())._tag).toBe("Offline");
+
+          const committedRows = yield* tableRows;
+
+          expect(committedRows.backups).toHaveLength(1);
+
+          const committedAddress = committedRows.backups[0]?.address;
+          const savedSubmission = Option.getOrThrow(pending.readSync());
+
+          assertTagged(savedSubmission, "PendingBackupSubmission");
+
+          const mismatchedRetry = yield* wallet.enroll(
+            new BackupEnrollment({
+              ...savedSubmission.enrollment,
+              username: Schema.decodeSync(Username)("pedro"),
+            }),
+          );
+
+          expect(mismatchedRetry._tag).toBe("ChallengeRefused");
+
+          dropCommittedResponse = false;
+
+          const reloadedTab = makeEnrollmentEffects({
+            port: wallet,
+            store: browserKeyStore,
+            registration: auth.registration,
+            assertions: auth.assertions,
+            relyingParty,
+            pending,
+          });
+
+          expect(yield* reloadedTab.pending()).toEqual(
             Option.some(
               new EnrollmentPending({
                 stage: "backup",
@@ -260,9 +357,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
           expect(yield* browserKeyStore.readPublic()).toEqual(Option.none());
 
-          failEnroll = false;
-
-          const backupStep = yield* enrollment.advance();
+          const backupStep = yield* reloadedTab.advance();
 
           expect(backupStep).toEqual(
             new EnrollmentPending({
@@ -273,16 +368,17 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect((yield* tableRows).backups).toHaveLength(1);
           expect(yield* browserKeyStore.readPublic()).toEqual(Option.none());
 
-          const completed = yield* enrollment.advance();
+          const completed = yield* reloadedTab.advance();
 
           assertTagged(completed, "WalletEnrolled");
+          expect(completed.profile.address).toBe(committedAddress);
           expect(auth.registered).toHaveLength(1);
 
           const persisted = Option.getOrThrow(
             yield* browserKeyStore.readSealed(),
           );
 
-          expect(persisted.public.address).toBe(completed.profile.address);
+          expect(persisted.public.address).toBe(committedAddress);
           expect(persisted.credential.id).toBe(auth.registered[0]?.id);
 
           const reopened = yield* reopenLocalEnvelope(
@@ -402,20 +498,28 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
             assertTagged(started, "EnrollmentPending");
 
-            const candidate = Option.getOrThrow(pending.readSync());
+            const saved = Option.getOrThrow(pending.readSync());
+
+            assertTagged(saved, "PendingReopenProof");
+
+            const { candidate } = saved;
 
             const tamperedCiphertext = Uint8Array.from(
               candidate.envelope.ciphertext,
             );
 
             tamperedCiphertext[0] = (tamperedCiphertext[0] ?? 0) ^ 0xff;
-            pending.replaceSync({
-              ...candidate,
-              envelope: new LocalPhraseEnvelope({
-                ...candidate.envelope,
-                ciphertext: tamperedCiphertext,
+            pending.replaceSync(
+              new PendingReopenProof({
+                candidate: {
+                  ...candidate,
+                  envelope: new LocalPhraseEnvelope({
+                    ...candidate.envelope,
+                    ciphertext: tamperedCiphertext,
+                  }),
+                },
               }),
-            });
+            );
 
             const second = makeEnrollmentEffects({
               port: wallet,

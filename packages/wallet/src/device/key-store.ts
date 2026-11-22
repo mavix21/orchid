@@ -101,6 +101,9 @@ export interface SealedKeyStore {
   writeSealed(
     wallet: SealedDeviceWallet,
   ): Effect.Effect<void, KeyStoreUnavailable>;
+  installSealed(
+    wallet: SealedDeviceWallet,
+  ): Effect.Effect<boolean, KeyStoreUnavailable | CorruptDeviceWallet>;
 }
 
 export interface KeyStore {

@@ -56,13 +56,11 @@ export const backupFlow = Effect.gen(function* () {
       : Option.none<PasskeyChallenge>();
   });
 
-  const enroll = Effect.fn("Wallet.enroll")(function* (
+  const verifyEnrollment = (
     enrollment: BackupEnrollment,
-  ) {
+    expectedChallenge: PasskeyChallenge,
+  ) => {
     const { registration } = enrollment;
-    const challenge = yield* redeem(registration.clientDataJSON, "enrollment");
-
-    if (Option.isNone(challenge)) return new ChallengeRefused();
 
     const registrationJson: RegistrationJSON = {
       id: registration.id,
@@ -80,21 +78,82 @@ export const backupFlow = Effect.gen(function* () {
       },
     };
 
-    const verified = yield* Effect.tryPromise(() =>
+    return Effect.tryPromise(() =>
       server.verifyRegistration(registrationJson, {
-        challenge: challenge.value,
+        challenge: expectedChallenge,
         origin: allowedOrigin,
         userVerified: true,
       }),
-    ).pipe(Effect.option);
+    ).pipe(
+      Effect.option,
+      Effect.map(
+        Option.flatMap((verified) =>
+          Schema.decodeUnknownOption(verifiableAlgorithm)(
+            verified.credential.algorithm,
+          ).pipe(
+            Option.map((algorithm) => ({
+              publicKey: verified.credential.publicKey,
+              algorithm,
+              counter: verified.authenticator.counter,
+            })),
+          ),
+        ),
+      ),
+    );
+  };
+
+  const confirmCommittedRetry = Effect.fn("Wallet.confirmCommittedBackup")(
+    function* (enrollment: BackupEnrollment) {
+      const parsedChallenge = clientChallenge(
+        enrollment.registration.clientDataJSON,
+      );
+
+      if (Option.isNone(parsedChallenge)) return false;
+
+      const existing = yield* backups.byCredential(enrollment.registration.id);
+
+      if (Option.isNone(existing)) return false;
+
+      const verified = yield* verifyEnrollment(
+        enrollment,
+        parsedChallenge.value,
+      );
+
+      if (Option.isNone(verified)) return false;
+
+      const storedSealed = Schema.encodeSync(SealedPhrase)(
+        existing.value.sealed,
+      );
+
+      const submittedSealed = Schema.encodeSync(SealedPhrase)(
+        enrollment.sealed,
+      );
+
+      return (
+        existing.value.profile.address === enrollment.address &&
+        existing.value.profile.username === enrollment.username &&
+        existing.value.publicKey === verified.value.publicKey &&
+        existing.value.algorithm === verified.value.algorithm &&
+        storedSealed.iv === submittedSealed.iv &&
+        storedSealed.ciphertext === submittedSealed.ciphertext
+      );
+    },
+  );
+
+  const enroll = Effect.fn("Wallet.enroll")(function* (
+    enrollment: BackupEnrollment,
+  ) {
+    const { registration } = enrollment;
+    const challenge = yield* redeem(registration.clientDataJSON, "enrollment");
+
+    if (Option.isNone(challenge))
+      return (yield* confirmCommittedRetry(enrollment))
+        ? new BackupStored()
+        : new ChallengeRefused();
+
+    const verified = yield* verifyEnrollment(enrollment, challenge.value);
 
     if (Option.isNone(verified)) return new RegistrationRefused();
-
-    const algorithm = Schema.decodeUnknownOption(verifiableAlgorithm)(
-      verified.value.credential.algorithm,
-    );
-
-    if (Option.isNone(algorithm)) return new RegistrationRefused();
 
     const sealed = Schema.encodeSync(SealedPhrase)(enrollment.sealed);
 
@@ -102,9 +161,9 @@ export const backupFlow = Effect.gen(function* () {
       credentialId: registration.id,
       address: enrollment.address,
       username: enrollment.username,
-      publicKey: verified.value.credential.publicKey,
-      algorithm: algorithm.value,
-      counter: verified.value.authenticator.counter,
+      publicKey: verified.value.publicKey,
+      algorithm: verified.value.algorithm,
+      counter: verified.value.counter,
       iv: sealed.iv,
       ciphertext: sealed.ciphertext,
     });

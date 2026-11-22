@@ -115,6 +115,7 @@ function ChooseUsername() {
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const [unsupportedPrf, setUnsupportedPrf] = useState(false);
   const [stopped, setStopped] = useState(false);
 
   const [pending, setPending] = useState<Option.Option<EnrollmentPending>>(
@@ -182,6 +183,7 @@ function ChooseUsername() {
         setUsername(next.username);
         setPending(Option.some(next));
         setProblem(undefined);
+        setUnsupportedPrf(false);
         setStopped(false);
       }),
       Match.tag("WalletEnrolled", ({ profile }) => {
@@ -189,12 +191,14 @@ function ChooseUsername() {
         setEnrolledUsername(Option.some(profile.username));
         setPending(Option.none());
         setProblem(undefined);
+        setUnsupportedPrf(false);
         setStopped(false);
       }),
       Match.tag("WalletOnDevice", async () => {
         const saved = await walletClient.saved();
 
         setPending(Option.none());
+        setUnsupportedPrf(false);
 
         if (Predicate.isTagged(saved, "SavedWallet")) {
           setUsername(saved.username);
@@ -209,6 +213,7 @@ function ChooseUsername() {
 
         setPending(nextPending);
         setProblem(refusal(refused));
+        setUnsupportedPrf(Predicate.isTagged(refused, "BackupUnsupported"));
         setStopped(!retryable(refused));
       }),
     );
@@ -219,12 +224,14 @@ function ChooseUsername() {
   const startEnrollment = async (name: string) => {
     setBusy(true);
     setProblem(undefined);
+    setUnsupportedPrf(false);
     await handleOutcome(await enrollmentClient.start(name));
   };
 
   const continueEnrollment = async () => {
     setBusy(true);
     setProblem(undefined);
+    setUnsupportedPrf(false);
     await handleOutcome(await enrollmentClient.advance());
   };
 
@@ -345,6 +352,7 @@ function ChooseUsername() {
                 onChange={(event) => {
                   setUsername(event.target.value.toLowerCase());
                   setProblem(undefined);
+                  setUnsupportedPrf(false);
                 }}
                 onBlur={() => setTouched(username.length > 0)}
                 disabled={!hydrated || busy}
@@ -365,7 +373,12 @@ function ChooseUsername() {
               </InputGroupAddon>
             </InputGroup>
             {message ? (
-              <FieldError id="username-error">{message}</FieldError>
+              <FieldError
+                id="username-error"
+                data-testid={unsupportedPrf ? "prf-unsupported" : undefined}
+              >
+                {message}
+              </FieldError>
             ) : null}
           </Field>
         </main>

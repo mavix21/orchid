@@ -95,6 +95,60 @@ async function writeSealedWallet(wallet: SealedDeviceWallet): Promise<void> {
   }
 }
 
+async function installSealedWallet(
+  wallet: SealedDeviceWallet,
+): Promise<boolean> {
+  if (
+    !matchesEnvelopeContext(wallet.envelope, {
+      network,
+      address: wallet.public.address,
+      credentialId: wallet.credential.id,
+    })
+  )
+    throw new Error("Sealed wallet envelope does not match wallet context");
+
+  const encoded = Schema.encodeSync(SealedDeviceWallet)(wallet);
+  const database = await openDatabase();
+
+  try {
+    const transaction = database.transaction(entries, "readwrite");
+    const objectStore = transaction.objectStore(entries);
+
+    return await new Promise<boolean>((resolve, reject) => {
+      let installed = false;
+      const request = objectStore.get(walletEntry);
+
+      request.addEventListener("error", () => reject(request.error));
+      request.addEventListener("success", () => {
+        try {
+          if (isCurrentVersion(request.result)) {
+            const existing = decodeStoredWallet(request.result);
+
+            if (Option.isNone(existing)) throw new CorruptDeviceWallet();
+
+            installed = false;
+
+            return;
+          }
+
+          objectStore.clear();
+          objectStore.put(encoded, walletEntry);
+          installed = true;
+        } catch (error) {
+          transaction.abort();
+          reject(error);
+        }
+      });
+
+      transaction.addEventListener("complete", () => resolve(installed));
+      transaction.addEventListener("error", () => reject(transaction.error));
+      transaction.addEventListener("abort", () => reject(transaction.error));
+    });
+  } finally {
+    database.close();
+  }
+}
+
 async function updatePublicWallet(
   update: (current: PublicDeviceWallet) => Option.Option<PublicDeviceWallet>,
 ): Promise<Option.Option<PublicWalletUpdate>> {
@@ -187,5 +241,13 @@ export const browserKeyStore: SealedKeyStore = {
     Effect.tryPromise({
       try: () => writeSealedWallet(wallet),
       catch: (cause) => new KeyStoreUnavailable({ cause }),
+    }),
+  installSealed: (wallet) =>
+    Effect.tryPromise({
+      try: () => installSealedWallet(wallet),
+      catch: (cause) =>
+        cause instanceof CorruptDeviceWallet
+          ? cause
+          : new KeyStoreUnavailable({ cause }),
     }),
 };
