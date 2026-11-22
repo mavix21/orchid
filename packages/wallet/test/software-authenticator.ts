@@ -15,7 +15,16 @@ import {
   type PasskeyChallenge,
   PasskeyRegistration,
 } from "../src/contract";
-import { PasskeyCancelled, type Passkeys } from "../src/device/passkeys";
+import type {
+  AssertionCeremony,
+  PlatformAssertion,
+  PrfInputs,
+} from "../src/device/assertion";
+import {
+  PasskeyCancelled,
+  PasskeyFailed,
+  type Passkeys,
+} from "../src/device/passkeys";
 
 interface SoftwareCredential {
   readonly id: Buffer;
@@ -25,6 +34,7 @@ interface SoftwareCredential {
   signCount: number;
 }
 
+const userPresent = 0x01;
 const userPresentAndVerified = 0x05;
 const attestedCredentialData = 0x40;
 
@@ -82,8 +92,11 @@ export class SoftwareAuthenticator {
   private current: SoftwareCredential | undefined;
   prf = true;
   cancels = false;
+  userVerified = true;
+  readonly issued: Array<PasskeyAssertion> = [];
+  readonly requested: Array<Option.Option<PrfInputs>> = [];
 
-  constructor(readonly origin: string) {}
+  constructor(public origin: string) {}
 
   private clientData(type: string, challenge: PasskeyChallenge) {
     return Buffer.from(
@@ -99,6 +112,34 @@ export class SoftwareAuthenticator {
     return Uint8Array.from(
       createHmac("sha256", credential.prfSecret).update(salt).digest(),
     );
+  }
+
+  private signAssertion(
+    credential: SoftwareCredential,
+    challenge: PasskeyChallenge,
+    flags: number,
+    counter: number,
+  ) {
+    const clientDataJSON = this.clientData("webauthn.get", challenge);
+
+    const authenticatorData = Buffer.concat([
+      this.rpIdHash(),
+      Buffer.from([flags]),
+      counterBytes(counter),
+    ]);
+
+    const signature = sign(
+      "sha256",
+      Buffer.concat([authenticatorData, sha256(clientDataJSON)]),
+      { key: credential.privateKey, dsaEncoding: "der" },
+    );
+
+    return new PasskeyAssertion({
+      id: Schema.decodeSync(CredentialId)(credential.id.toString("base64url")),
+      clientDataJSON: clientDataJSON.toString("base64url"),
+      authenticatorData: authenticatorData.toString("base64url"),
+      signature: signature.toString("base64url"),
+    });
   }
 
   forge(id: string) {
@@ -162,33 +203,69 @@ export class SoftwareAuthenticator {
           return Effect.succeed(Option.none());
 
         credential.signCount += 1;
-        const clientDataJSON = this.clientData("webauthn.get", challenge);
 
-        const authenticatorData = Buffer.concat([
-          this.rpIdHash(),
-          Buffer.from([userPresentAndVerified]),
-          counterBytes(credential.signCount),
-        ]);
-
-        const signature = sign(
-          "sha256",
-          Buffer.concat([authenticatorData, sha256(clientDataJSON)]),
-          { key: credential.privateKey, dsaEncoding: "der" },
+        const assertion = this.signAssertion(
+          credential,
+          challenge,
+          userPresentAndVerified,
+          credential.signCount,
         );
 
         return Effect.succeed(
           Option.some({
             prf: this.evaluate(credential, salt),
-            assertion: new PasskeyAssertion({
-              id: Schema.decodeSync(CredentialId)(
-                credential.id.toString("base64url"),
-              ),
-              clientDataJSON: clientDataJSON.toString("base64url"),
-              authenticatorData: authenticatorData.toString("base64url"),
-              signature: signature.toString("base64url"),
-            }),
+            assertion,
           }),
         );
       }),
+  };
+
+  readonly assertions: AssertionCeremony = {
+    assert: (request) =>
+      Effect.suspend(
+        (): Effect.Effect<
+          PlatformAssertion,
+          PasskeyCancelled | PasskeyFailed
+        > => {
+          this.requested.push(request.prf);
+
+          if (this.cancels) return Effect.fail(new PasskeyCancelled());
+
+          const credential = this.current;
+
+          if (credential === undefined) return Effect.fail(new PasskeyFailed());
+
+          const assertion = this.signAssertion(
+            credential,
+            request.challenge,
+            this.userVerified ? userPresentAndVerified : userPresent,
+            0,
+          );
+
+          this.issued.push(assertion);
+
+          const evaluated = (
+            pick: (inputs: PrfInputs) => Uint8Array | undefined,
+          ) =>
+            this.prf
+              ? request.prf.pipe(
+                  Option.flatMapNullishOr(pick),
+                  Option.map((salt) => this.evaluate(credential, salt)),
+                )
+              : Option.none();
+
+          const platform: PlatformAssertion = {
+            assertion,
+            prf: {
+              first: evaluated((inputs) => inputs.first),
+              second: evaluated((inputs) =>
+                Option.getOrUndefined(inputs.second),
+              ),
+            },
+          };
+
+          return Effect.succeed(platform);
+        },
+      ),
   };
 }

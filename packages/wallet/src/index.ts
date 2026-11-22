@@ -6,4 +6,10 @@ export * from "./device/key-store";
 
 export { browserKeyStore } from "./device/browser-key-store";
 
-export { browserPasskeys } from "./device/browser-passkeys";
+export * from "./device/assertion";
+
+export {
+  browserAssertions,
+  browserPasskeys,
+  browserRelyingParty,
+} from "./device/browser-passkeys";

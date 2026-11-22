@@ -9,13 +9,19 @@ import {
   PasskeyTransport,
   type Username,
 } from "../contract";
+import type {
+  AssertionCeremony,
+  AssertionRequest,
+  PrfInputs,
+  RelyingParty,
+} from "./assertion";
 import { PasskeyCancelled, PasskeyFailed, type Passkeys } from "./passkeys";
 
 const toBase64Url = (buffer: ArrayBuffer) =>
   Schema.encodeSync(Schema.Uint8ArrayFromBase64Url)(new Uint8Array(buffer));
 
-const challengeBytes = (challenge: PasskeyChallenge) =>
-  Uint8Array.from(Schema.decodeSync(Schema.Uint8ArrayFromBase64Url)(challenge));
+const base64UrlBytes = (value: string) =>
+  Uint8Array.from(Schema.decodeSync(Schema.Uint8ArrayFromBase64Url)(value));
 
 const verifiableAlgorithms: Array<PublicKeyCredentialParameters> = [
   { type: "public-key", alg: -7 },
@@ -45,23 +51,36 @@ const prfReported = Effect.tryPromise(async () =>
     : true,
 ).pipe(Effect.orElseSucceed(() => true));
 
-const prfOutput = (credential: PublicKeyCredential) => {
-  const first = credential.getClientExtensionResults().prf?.results?.first;
+const copiedBytes = (value: BufferSource) =>
+  value instanceof ArrayBuffer
+    ? Uint8Array.from(new Uint8Array(value))
+    : Uint8Array.from(
+        new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
+      );
 
-  if (first === undefined) return Option.none<Uint8Array<ArrayBuffer>>();
+const prfResults = (credential: PublicKeyCredential) => {
+  const results = credential.getClientExtensionResults().prf?.results;
 
-  return Option.some(
-    first instanceof ArrayBuffer
-      ? Uint8Array.from(new Uint8Array(first))
-      : Uint8Array.from(
-          new Uint8Array(first.buffer, first.byteOffset, first.byteLength),
-        ),
-  );
+  return {
+    first: Option.fromNullishOr(results?.first).pipe(Option.map(copiedBytes)),
+    second: Option.fromNullishOr(results?.second).pipe(Option.map(copiedBytes)),
+  };
 };
 
-const prfRequest = (salt: Uint8Array<ArrayBuffer>) => ({
-  prf: { eval: { first: salt } },
+const prfOutput = (credential: PublicKeyCredential) =>
+  prfResults(credential).first;
+
+const prfEvaluation = (inputs: PrfInputs) => ({
+  prf: {
+    eval: Option.match(inputs.second, {
+      onNone: () => ({ first: inputs.first }),
+      onSome: (second) => ({ first: inputs.first, second }),
+    }),
+  },
 });
+
+const prfRequest = (salt: Uint8Array<ArrayBuffer>) =>
+  prfEvaluation({ first: salt, second: Option.none() });
 
 const webAuthnAvailable = () =>
   "PublicKeyCredential" in globalThis && "credentials" in navigator;
@@ -89,7 +108,7 @@ const register = Effect.fn("Device.registerPasskey")(function* (
   const created = yield* ceremony(() =>
     navigator.credentials.create({
       publicKey: {
-        challenge: challengeBytes(challenge),
+        challenge: base64UrlBytes(challenge),
         rp: { name: "Orchid", id: location.hostname },
         user: {
           id: crypto.getRandomValues(new Uint8Array(16)),
@@ -159,7 +178,7 @@ const authenticate = Effect.fn("Device.authenticatePasskey")(function* (
   const asserted = yield* ceremony(() =>
     navigator.credentials.get({
       publicKey: {
-        challenge: challengeBytes(challenge),
+        challenge: base64UrlBytes(challenge),
         rpId: location.hostname,
         userVerification: "required",
         extensions: prfRequest(salt),
@@ -187,4 +206,48 @@ const authenticate = Effect.fn("Device.authenticatePasskey")(function* (
   });
 });
 
+const assert = Effect.fn("Device.assertPasskey")(function* (
+  request: AssertionRequest,
+) {
+  if (!webAuthnAvailable()) return yield* Effect.fail(new PasskeyFailed());
+
+  const asserted = yield* ceremony(() =>
+    navigator.credentials.get({
+      publicKey: {
+        challenge: base64UrlBytes(request.challenge),
+        rpId: location.hostname,
+        allowCredentials: [
+          { type: "public-key", id: base64UrlBytes(request.credentialId) },
+        ],
+        userVerification: "required",
+        extensions: Option.getOrUndefined(
+          Option.map(request.prf, prfEvaluation),
+        ),
+      },
+    }),
+  );
+
+  const response = asserted.response;
+
+  if (!(response instanceof AuthenticatorAssertionResponse))
+    return yield* Effect.fail(new PasskeyFailed());
+
+  return {
+    prf: prfResults(asserted),
+    assertion: new PasskeyAssertion({
+      id: Schema.decodeSync(CredentialId)(asserted.id),
+      clientDataJSON: toBase64Url(response.clientDataJSON),
+      authenticatorData: toBase64Url(response.authenticatorData),
+      signature: toBase64Url(response.signature),
+    }),
+  };
+});
+
 export const browserPasskeys: Passkeys = { register, authenticate };
+
+export const browserAssertions: AssertionCeremony = { assert };
+
+export const browserRelyingParty = (): RelyingParty => ({
+  origin: location.origin,
+  rpId: location.hostname,
+});
