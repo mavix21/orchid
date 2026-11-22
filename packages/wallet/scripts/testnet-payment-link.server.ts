@@ -9,9 +9,10 @@ import {
   AssetSettled,
   BalanceGone,
   type CreateOutcome,
-  type DeviceWallet,
+  DeviceWallet,
   Holding,
   type KeyStore,
+  KeyStoreUnavailable,
   Offline,
   OpenPaymentLinks,
   Opened,
@@ -23,6 +24,7 @@ import {
   assetKey,
   baseAsset,
   makeWalletClient,
+  publicWalletOf,
 } from "@workspace/wallet";
 import { Chain } from "../src/server/Chain.server";
 import { Wallet } from "../src/server/Wallet.server";
@@ -56,6 +58,34 @@ function memoryKeyStore() {
     write: (wallet) =>
       Effect.sync(() => {
         saved = Option.some(wallet);
+      }),
+    readPublic: () => Effect.sync(() => Option.map(saved, publicWalletOf)),
+    updatePublic: (update) =>
+      Effect.suspend(() => {
+        if (Option.isNone(saved)) return Effect.succeed(Option.none());
+
+        const current = publicWalletOf(saved.value);
+        const next = update(current);
+
+        if (Option.isNone(next))
+          return Effect.succeed(
+            Option.some({ wallet: current, updated: false }),
+          );
+
+        if (next.value.address !== current.address)
+          return Effect.fail(
+            new KeyStoreUnavailable({
+              cause: new Error("Wallet address cannot change"),
+            }),
+          );
+
+        saved = Option.some(
+          new DeviceWallet({ ...next.value, phrase: saved.value.phrase }),
+        );
+
+        return Effect.succeed(
+          Option.some({ wallet: next.value, updated: true }),
+        );
       }),
   };
 

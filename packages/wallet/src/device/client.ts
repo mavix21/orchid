@@ -10,10 +10,9 @@ import {
   type WalletUnavailable,
 } from "../contract";
 import {
-  DeviceWallet,
   type KeyStore,
   type KeyStoreUnavailable,
-  remember,
+  PublicDeviceWallet,
 } from "./key-store";
 import {
   type BackUpOutcome,
@@ -115,15 +114,20 @@ export function makeWalletEffects(
   });
 
   const backUp = Effect.fn("Device.backUp")(function* () {
-    const stored = yield* store.read();
+    const stored = yield* store.readPublic();
 
     if (Option.isNone(stored)) return new NoWallet();
 
     if (stored.value.backup === "stored") return new BackupStored();
 
-    const enrolled = yield* (yield* backups).enroll(stored.value);
+    const secret = yield* store.read();
 
-    return enrolled instanceof DeviceWallet
+    if (Option.isNone(secret) || secret.value.address !== stored.value.address)
+      return new UnsupportedDevice();
+
+    const enrolled = yield* (yield* backups).enroll(secret.value);
+
+    return enrolled instanceof PublicDeviceWallet
       ? enrolled.backup === "stored"
         ? new BackupStored()
         : new BackupUnsupported()
@@ -135,34 +139,48 @@ export function makeWalletEffects(
   });
 
   const overview = Effect.fn("Device.overview")(function* () {
-    const stored = yield* store.read();
+    const stored = yield* store.readPublic();
 
     if (Option.isNone(stored)) return new NoWallet();
 
     const overview = yield* port.overview(stored.value.address);
 
-    const current = yield* store.read();
-
     if (
-      Predicate.isTagged(overview, "Holding") &&
-      Option.isSome(overview.reserveSponsor) &&
-      Option.isSome(current) &&
-      current.value.address === stored.value.address &&
-      current.value.reserveSponsor === undefined
+      Predicate.isTagged(overview, "Holding") ||
+      Predicate.isTagged(overview, "NeedsReopening")
     )
-      yield* remember(
-        store,
-        new DeviceWallet({
-          ...current.value,
-          reserveSponsor: overview.reserveSponsor.value,
-        }),
-      );
+      yield* store.updatePublic((current) => {
+        if (current.address !== stored.value.address) return Option.none();
+
+        const reserveSponsor =
+          Predicate.isTagged(overview, "Holding") &&
+          Option.isSome(overview.reserveSponsor) &&
+          current.reserveSponsor === undefined
+            ? overview.reserveSponsor.value
+            : current.reserveSponsor;
+
+        const username =
+          overview.profile.address === current.address
+            ? overview.profile.username
+            : current.username;
+
+        return reserveSponsor === current.reserveSponsor &&
+          username === current.username
+          ? Option.none()
+          : Option.some(
+              new PublicDeviceWallet({
+                ...current,
+                username,
+                reserveSponsor,
+              }),
+            );
+      });
 
     return overview;
   });
 
   const saved = Effect.fn("Device.saved")(function* () {
-    const stored = yield* store.read();
+    const stored = yield* store.readPublic();
 
     return Option.match(stored, {
       onNone: () => new NoWallet(),

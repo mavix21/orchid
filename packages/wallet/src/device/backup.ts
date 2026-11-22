@@ -2,11 +2,17 @@ import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import {
+  type AccountAddress,
   BackupEnrollment,
   type BackupFound,
   type WalletPort,
 } from "../contract";
-import { DeviceWallet, type KeyStore, remember } from "./key-store";
+import {
+  DeviceWallet,
+  type KeyStore,
+  PublicDeviceWallet,
+  remember,
+} from "./key-store";
 import {
   BackupMismatch,
   BackupUnsupported,
@@ -24,17 +30,24 @@ export function deviceBackup(
   store: KeyStore,
 ) {
   const rememberBackup = (
-    wallet: DeviceWallet,
+    address: AccountAddress,
     backup: DeviceWallet["backup"],
   ) =>
-    remember(store, new DeviceWallet({ ...wallet, backup })).pipe(
-      Effect.map(
-        Option.match({
-          onNone: () => new UnsupportedDevice(),
-          onSome: (remembered) => remembered,
-        }),
-      ),
-    );
+    store
+      .updatePublic((current) =>
+        current.address === address && current.backup !== backup
+          ? Option.some(new PublicDeviceWallet({ ...current, backup }))
+          : Option.none(),
+      )
+      .pipe(
+        Effect.map((result) =>
+          Option.isSome(result) &&
+          result.value.wallet.address === address &&
+          result.value.wallet.backup === backup
+            ? result.value.wallet
+            : new UnsupportedDevice(),
+        ),
+      );
 
   const enroll = Effect.fn("Device.enroll")(function* (wallet: DeviceWallet) {
     const challenge = yield* port.passkeyChallenge("enrollment");
@@ -46,7 +59,7 @@ export function deviceBackup(
     );
 
     if (Option.isNone(registered))
-      return yield* rememberBackup(wallet, "deviceOnly");
+      return yield* rememberBackup(wallet.address, "deviceOnly");
 
     const step = yield* port.enroll(
       new BackupEnrollment({
@@ -58,7 +71,7 @@ export function deviceBackup(
     );
 
     return yield* Match.valueTags(step, {
-      BackupStored: () => rememberBackup(wallet, "stored"),
+      BackupStored: () => rememberBackup(wallet.address, "stored"),
       ChallengeRefused: Effect.succeed,
       RegistrationRefused: Effect.succeed,
     });
@@ -76,7 +89,7 @@ export function deviceBackup(
     )
       return new BackupMismatch();
 
-    if (Option.isSome(yield* store.read())) return new WalletOnDevice();
+    if (Option.isSome(yield* store.readPublic())) return new WalletOnDevice();
 
     const restored = yield* remember(
       store,
@@ -94,7 +107,7 @@ export function deviceBackup(
   });
 
   const restore = Effect.fn("Device.restore")(function* () {
-    if (Option.isSome(yield* store.read())) return new WalletOnDevice();
+    if (Option.isSome(yield* store.readPublic())) return new WalletOnDevice();
 
     const challenge = yield* port.passkeyChallenge("restore");
 

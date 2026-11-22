@@ -12,8 +12,8 @@ import {
   DeviceWallet,
   type KeyStore,
   KeyStoreUnavailable,
-  type LinkClearTarget,
-  sameLinkState,
+  PublicDeviceWallet,
+  type PublicWalletUpdate,
 } from "./key-store";
 import { SecretPhrase } from "./secret-phrase";
 
@@ -154,45 +154,84 @@ async function writeWallet(wallet: DeviceWallet): Promise<void> {
   );
 }
 
-async function clearSealedLink(expected: LinkClearTarget): Promise<void> {
+async function readPublicWallet(): Promise<Option.Option<PublicDeviceWallet>> {
+  const stored = Schema.decodeUnknownSync(
+    Schema.UndefinedOr(PublicDeviceWallet),
+  )(await readEntry(walletEntry));
+
+  return Option.fromNullishOr(stored);
+}
+
+async function updatePublicWallet(
+  update: (current: PublicDeviceWallet) => Option.Option<PublicDeviceWallet>,
+): Promise<Option.Option<PublicWalletUpdate>> {
   const database = await openDatabase();
 
   try {
     const transaction = database.transaction(entries, "readwrite");
     const objectStore = transaction.objectStore(entries);
 
-    await new Promise<void>((resolve, reject) => {
-      const request = objectStore.get(walletEntry);
+    return await new Promise<Option.Option<PublicWalletUpdate>>(
+      (resolve, reject) => {
+        let result: Option.Option<PublicWalletUpdate> = Option.none();
+        const request = objectStore.get(walletEntry);
 
-      request.addEventListener("error", () => reject(request.error));
-      request.addEventListener("success", () => {
-        try {
-          const sealed = Schema.decodeUnknownSync(
-            Schema.UndefinedOr(SealedWallet),
-          )(request.result);
+        request.addEventListener("error", () => reject(request.error));
+        request.addEventListener("success", () => {
+          try {
+            const sealed = Schema.decodeUnknownSync(
+              Schema.UndefinedOr(SealedWallet),
+            )(request.result);
 
-          if (sealed !== undefined && sameLinkState(sealed, expected))
+            if (sealed === undefined) return;
+
+            const current = new PublicDeviceWallet({
+              address: sealed.address,
+              username: sealed.username,
+              reserveSponsor: sealed.reserveSponsor,
+              backup: sealed.backup,
+              transfer: sealed.transfer,
+              approvedUntil: sealed.approvedUntil,
+              linkReceipt: sealed.linkReceipt,
+            });
+
+            const next = update(current);
+
+            if (Option.isNone(next)) {
+              result = Option.some({ wallet: current, updated: false });
+
+              return;
+            }
+
+            if (next.value.address !== current.address)
+              throw new Error("Wallet address cannot change");
+
             objectStore.put(
               Schema.encodeSync(SealedWallet)({
                 address: sealed.address,
-                username: sealed.username,
-                reserveSponsor: sealed.reserveSponsor,
-                backup: sealed.backup,
+                username: next.value.username,
+                reserveSponsor: next.value.reserveSponsor,
+                backup: next.value.backup,
+                transfer: next.value.transfer,
+                approvedUntil: next.value.approvedUntil,
+                linkReceipt: next.value.linkReceipt,
                 iv: sealed.iv,
                 phrase: sealed.phrase,
               }),
               walletEntry,
             );
-        } catch (error) {
-          transaction.abort();
-          reject(error);
-        }
-      });
+            result = Option.some({ wallet: next.value, updated: true });
+          } catch (error) {
+            transaction.abort();
+            reject(error);
+          }
+        });
 
-      transaction.addEventListener("complete", () => resolve());
-      transaction.addEventListener("error", () => reject(transaction.error));
-      transaction.addEventListener("abort", () => reject(transaction.error));
-    });
+        transaction.addEventListener("complete", () => resolve(result));
+        transaction.addEventListener("error", () => reject(transaction.error));
+        transaction.addEventListener("abort", () => reject(transaction.error));
+      },
+    );
   } finally {
     database.close();
   }
@@ -209,9 +248,14 @@ export const browserKeyStore: KeyStore = {
       try: () => writeWallet(wallet),
       catch: (cause) => new KeyStoreUnavailable({ cause }),
     }),
-  clearLink: (expected) =>
+  readPublic: () =>
     Effect.tryPromise({
-      try: () => clearSealedLink(expected),
+      try: readPublicWallet,
+      catch: (cause) => new KeyStoreUnavailable({ cause }),
+    }),
+  updatePublic: (update) =>
+    Effect.tryPromise({
+      try: () => updatePublicWallet(update),
       catch: (cause) => new KeyStoreUnavailable({ cause }),
     }),
 };

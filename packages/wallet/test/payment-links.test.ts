@@ -28,7 +28,11 @@ import {
   baseAsset,
 } from "../src/contract";
 import { PaymentLinkIntent, makeWalletEffects } from "../src/device/client";
-import { DeviceWallet, type KeyStore } from "../src/device/key-store";
+import {
+  DeviceWallet,
+  type KeyStore,
+  PublicDeviceWallet,
+} from "../src/device/key-store";
 import { holdingsFromEntries } from "../src/server/ledger-assets.server";
 import { transfers } from "../src/server/tables.server";
 import { Transfers } from "../src/server/Transfers.server";
@@ -68,6 +72,10 @@ const euro = IssuedAsset.make({
 
 const orderJson = Schema.encodeSync(Schema.fromJsonString(TransferOrder));
 const walletJson = Schema.encodeSync(Schema.fromJsonString(DeviceWallet));
+
+const publicWalletJson = Schema.encodeSync(
+  Schema.fromJsonString(PublicDeviceWallet),
+);
 
 const euroLine = (
   bal: string,
@@ -168,6 +176,18 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 Effect.tap(() =>
                   Effect.sync(() => {
                     storeSnapshots.push(walletJson(w));
+                  }),
+                ),
+              ),
+            readPublic: () => baseStore.readPublic(),
+            updatePublic: (update) =>
+              baseStore.updatePublic(update).pipe(
+                Effect.tap((result) =>
+                  Effect.sync(() => {
+                    if (Option.isSome(result) && result.value.updated)
+                      storeSnapshots.push(
+                        publicWalletJson(result.value.wallet),
+                      );
                   }),
                 ),
               ),

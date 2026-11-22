@@ -38,6 +38,7 @@ import {
   type PaymentLinksOutcome,
   type ResolvePaymentLinkOutcome,
   TransferIntent,
+  UnsupportedDevice,
 } from "./outcomes";
 import { pendingSteps, pollSchedule } from "./polling";
 import { sendTransfer } from "./sending";
@@ -97,7 +98,7 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
       PaymentLinksOutcome,
       WalletUnavailable | KeyStoreUnavailable
     > {
-      const stored = yield* store.read();
+      const stored = yield* store.readPublic();
 
       if (Option.isNone(stored)) return new NoWallet();
 
@@ -110,7 +111,7 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
       ResolvePaymentLinkOutcome,
       WalletUnavailable | KeyStoreUnavailable
     > {
-      const stored = yield* store.read();
+      const stored = yield* store.readPublic();
 
       if (Option.isNone(stored)) return new NoWallet();
 
@@ -177,7 +178,7 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
     CancelPaymentLinkOutcome,
     WalletUnavailable | KeyStoreUnavailable
   > {
-    const stored = yield* store.read();
+    const stored = yield* store.readPublic();
 
     if (Option.isNone(stored)) return new NoWallet();
 
@@ -252,9 +253,20 @@ export function devicePaymentLinks(port: WalletPort, store: KeyStore) {
               return { done: Option.none(), pause: false };
             }
 
+            const secret = yield* store.read();
+
+            if (
+              Option.isNone(secret) ||
+              secret.value.address !== wallet.address
+            )
+              return {
+                done: Option.some(new UnsupportedDevice()),
+                pause: false,
+              };
+
             signed = true;
             approval = Option.some(
-              approve(draft.request, signingKey(wallet.phrase)),
+              approve(draft.request, signingKey(secret.value.phrase)),
             );
 
             return { done: Option.none(), pause: false };
