@@ -1,11 +1,13 @@
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
-  type AssetDraft,
+  AssetDraft,
+  AssetOrder,
   type AssetStep,
   Asset,
   BalanceId,
   DestinationAddress,
+  IssuedAsset,
   LinkSecret,
   type AddressBound,
   type AssertionRefused,
@@ -264,6 +266,7 @@ export class PaymentLinkIntent extends Schema.Class<PaymentLinkIntent>(
 export interface PaymentLinkTarget {
   readonly balance: BalanceId;
   readonly asset: Asset;
+  readonly amount: PositiveAmount;
 }
 
 export class PaymentLinkCreated extends Schema.TaggedClass<PaymentLinkCreated>()(
@@ -299,9 +302,34 @@ export type ResolvePaymentLinkOutcome =
   | UnsupportedDevice
   | WalletUnavailable;
 
-export type CancelPaymentLinkOutcome =
+export class ReclaimReview extends Schema.TaggedClass<ReclaimReview>()(
+  "ReclaimReview",
+  {
+    order: AssetOrder,
+    draft: AssetDraft,
+    redrafted: Schema.Boolean,
+    network: Schema.String,
+    balance: BalanceId,
+    asset: Asset,
+    amount: PositiveAmount,
+    opensTrustline: Schema.optional(IssuedAsset),
+  },
+) {}
+
+export type ReclaimOutcome =
   | Exclude<AssetStep, AssetDraft>
   | DraftRejected
   | NoWallet
   | UnsupportedDevice
   | WalletUnavailable;
+
+export type ReviewReclaimOutcome = ReclaimReview | ReclaimOutcome;
+
+export type ConfirmReclaimOutcome =
+  | ReviewReclaimOutcome
+  | PasskeyCancelled
+  | PasskeyFailed
+  | WrongCredential
+  | AssertionRejected
+  | PrfOutputMissing
+  | CorruptDeviceWallet;

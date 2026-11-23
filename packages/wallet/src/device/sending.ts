@@ -207,7 +207,7 @@ export function sendTransfer(
 
         const timing = draftTiming(
           derived.value.facts.maxTime,
-          draft,
+          draft.request,
           DateTime.toEpochMillis(yield* DateTime.now),
         );
 

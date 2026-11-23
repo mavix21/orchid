@@ -29,6 +29,7 @@ import {
   freshDatabase,
   memoryKeyStore,
   openThroughReview,
+  reclaimThroughReview,
   rpcUrl,
   walletServices,
 } from "./live.server";
@@ -172,7 +173,7 @@ assert.deepEqual(
   [created.balance],
 );
 
-const cancelled = await client.cancelPaymentLink(created);
+const cancelled = await reclaimThroughReview(client, created);
 
 assert.ok(
   cancelled instanceof AssetSettled,
@@ -191,7 +192,7 @@ const afterCancelEntries = await run(
 
 assert.equal(afterCancelEntries.length, 0);
 
-const cancelAgain = await client.cancelPaymentLink(created);
+const cancelAgain = await reclaimThroughReview(client, created);
 
 assert.ok(
   cancelAgain instanceof BalanceGone && cancelAgain.status === "reclaimed",
@@ -247,7 +248,7 @@ assert.ok(
 
 const restartCreateTxHash = await latestTxHash(wallet.address);
 
-const restartCancelled = await restartedClient.cancelPaymentLink(resolved);
+const restartCancelled = await reclaimThroughReview(restartedClient, resolved);
 
 assert.ok(
   restartCancelled instanceof AssetSettled,

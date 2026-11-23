@@ -1,5 +1,5 @@
 import { CheckIcon, LinkIcon, ShareIcon } from "lucide-react";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import { Link, useBlocker } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -49,7 +49,7 @@ import {
   entering,
   lost,
 } from "./link-step";
-import { RecoverDrawer, RecoveryAnswer, useRecovery } from "./recovery";
+import { RecoveryAnswer, useRecovery } from "./recovery";
 import { type ShareResult, shareLink } from "./share-link";
 
 interface LinkFlowState {
@@ -413,14 +413,15 @@ function LinkSent({
 }
 
 function LostLink({ link }: { link: RecoverableLink }) {
-  const { started, recover } = useRecovery();
-  const [confirming, setConfirming] = useState(false);
+  const { started, begin, confirm, reset } = useRecovery();
 
   if (Option.isSome(started))
     return (
       <RecoveryAnswer
         recovery={started.value}
-        onRecover={recover}
+        onBegin={begin}
+        onConfirm={confirm}
+        onCancel={reset}
         done={<ResultLink link={<Link to="/home" />}>Listo</ResultLink>}
       />
     );
@@ -436,7 +437,7 @@ function LostLink({ link }: { link: RecoverableLink }) {
       <ScreenActions>
         <Button
           className="w-full"
-          onClick={() => setConfirming(true)}
+          onClick={() => begin(link)}
           data-testid="recover-link"
         >
           Recuperar {amountLabel(link.amount, link.asset)}
@@ -450,12 +451,6 @@ function LostLink({ link }: { link: RecoverableLink }) {
           Recuperarlo después
         </Button>
       </ScreenActions>
-      <RecoverDrawer
-        link={link}
-        open={confirming}
-        onOpenChange={setConfirming}
-        onRecover={recover}
-      />
     </>
   );
 }

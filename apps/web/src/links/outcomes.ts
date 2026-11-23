@@ -1,10 +1,11 @@
 import type {
   Asset,
-  CancelPaymentLinkOutcome,
+  CorruptDeviceWallet,
   CreatePaymentLinkOutcome,
   PaymentLinkCreated,
   PaymentLinkTarget,
-  PositiveAmount,
+  PrfOutputMissing,
+  ReclaimOutcome,
   ResolvePaymentLinkOutcome,
   ResolvedPaymentLink,
   WalletUnavailable,
@@ -39,9 +40,7 @@ export class LinkScreen<Action extends string> {
   ) {}
 }
 
-export interface RecoverableLink extends PaymentLinkTarget {
-  readonly amount: PositiveAmount;
-}
+export type RecoverableLink = PaymentLinkTarget;
 
 export const recoverable = ({
   balance,
@@ -261,8 +260,14 @@ const recoverAgain = new LinkScreen(
 
 const recheck = "Revisa de nuevo para saber si recuperaste el dinero.";
 
-export const cancelLinkResult = (
-  outcome: CancelPaymentLinkOutcome | DeviceFailure,
+export type ReclaimConclusion =
+  | ReclaimOutcome
+  | PrfOutputMissing
+  | CorruptDeviceWallet
+  | DeviceFailure;
+
+export const reclaimResult = (
+  outcome: ReclaimConclusion,
   link: RecoverableLink,
 ): LinkScreen<RecoverAction> => {
   const code = assetCode(link.asset);
@@ -375,6 +380,18 @@ export const cancelLinkResult = (
     TrustlineNotEmpty: () => recoverAgain,
     DraftRejected: () =>
       new LinkScreen("No pudimos confirmar la operación", recheck, "check"),
+    PrfOutputMissing: () =>
+      new LinkScreen(
+        "Tu passkey no puede firmar aquí",
+        `Tu passkey no abrió tu llave en este dispositivo. ${stillInLink}`,
+        "home",
+      ),
+    CorruptDeviceWallet: () =>
+      new LinkScreen(
+        "No pudimos leer tu llave",
+        `Los datos guardados en este navegador están dañados. ${stillInLink}`,
+        "home",
+      ),
     NotOpened: () =>
       new LinkScreen(
         "Aún no puedes recuperar dinero",

@@ -1,5 +1,4 @@
 import { ChevronLeftIcon } from "lucide-react";
-import { useState } from "react";
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -30,7 +29,7 @@ import {
 import { TopNav } from "@/components/top-nav";
 import { type RecoverableLink, lostLinkMessage } from "@/links/outcomes";
 import { ResultButton } from "@/links/link-result";
-import { RecoverDrawer, RecoveryAnswer, useRecovery } from "@/links/recovery";
+import { RecoveryAnswer, useRecovery } from "@/links/recovery";
 import { amountLabel } from "@/send/money";
 import { whenUnlocked } from "@/wallet/display-lock";
 import { unavailableMessage } from "@/wallet/unavailable";
@@ -50,16 +49,6 @@ export const Route = createFileRoute("/_wallet/links")({
   },
   component: PaymentLinks,
 });
-
-interface ChosenLink {
-  readonly link: RecoverableLink;
-  readonly created?: string;
-}
-
-interface Confirmation {
-  readonly chosen: ChosenLink;
-  readonly open: boolean;
-}
 
 type NoticeAction = Data.TaggedEnum<{
   Recover: { readonly link: RecoverableLink };
@@ -200,18 +189,16 @@ function LinksFrame({
 function PaymentLinks() {
   const { latest, links } = Route.useLoaderData();
   const router = useRouter();
-  const { started, recover, reset } = useRecovery();
-
-  const [confirmation, setConfirmation] = useState<Option.Option<Confirmation>>(
-    Option.none(),
-  );
+  const { started, begin, confirm, reset } = useRecovery();
 
   if (Option.isSome(started))
     return (
       <LinksFrame>
         <RecoveryAnswer
           recovery={started.value}
-          onRecover={recover}
+          onBegin={begin}
+          onConfirm={confirm}
+          onCancel={reset}
           done={
             <ResultButton
               onClick={() =>
@@ -232,28 +219,11 @@ function PaymentLinks() {
           links={links.links}
           notice={latestNotice(latest)}
           onRecheck={() => void router.invalidate()}
-          onChoose={(link, created) =>
-            setConfirmation(
-              Option.some({ chosen: { link, created }, open: true }),
-            )
-          }
+          onChoose={begin}
         />
       ) : (
         <ListProblem message={listProblem(links)} />
       )}
-      {Option.isSome(confirmation) ? (
-        <RecoverDrawer
-          link={confirmation.value.chosen.link}
-          created={confirmation.value.chosen.created}
-          open={confirmation.value.open}
-          onOpenChange={(open) =>
-            setConfirmation(
-              Option.map(confirmation, (shown) => ({ ...shown, open })),
-            )
-          }
-          onRecover={recover}
-        />
-      ) : null}
     </LinksFrame>
   );
 }

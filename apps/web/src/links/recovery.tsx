@@ -1,22 +1,21 @@
 import { useReducer } from "react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@workspace/ui/components/drawer";
 
-import type { CancelPaymentLinkOutcome } from "@workspace/wallet";
+import {
+  type ConfirmReclaimOutcome,
+  type ReclaimReview,
+  type ReviewReclaimOutcome,
+  formatAmount,
+} from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
-import { amountLabel } from "@/send/money";
+import { ScreenActions } from "@/components/screen";
+import { assetCode, shortAddress } from "@/send/money";
+import { ReviewRow } from "@/send/payment-review";
 import { type Answer, useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
 
@@ -26,14 +25,29 @@ import {
   ResultButton,
   ResultLink,
 } from "./link-result";
-import { type RecoverableLink, cancelLinkResult } from "./outcomes";
+import {
+  type ReclaimConclusion,
+  type RecoverableLink,
+  reclaimResult,
+} from "./outcomes";
+
+interface ChosenLink {
+  readonly link: RecoverableLink;
+  readonly created: Option.Option<string>;
+}
 
 type Recovery = Data.TaggedEnum<{
   Idle: {};
-  Recovering: { readonly link: RecoverableLink };
+  Reviewing: { readonly chosen: ChosenLink };
+  Reviewed: {
+    readonly chosen: ChosenLink;
+    readonly review: ReclaimReview;
+    readonly problem: Option.Option<string>;
+  };
+  Confirming: { readonly chosen: ChosenLink; readonly review: ReclaimReview };
   Recovered: {
-    readonly link: RecoverableLink;
-    readonly answer: Answer<CancelPaymentLinkOutcome>;
+    readonly chosen: ChosenLink;
+    readonly answer: Answer<ReclaimConclusion>;
   };
 }>;
 
@@ -45,19 +59,81 @@ export type RecoveryStarted = Exclude<
 >;
 
 type RecoveryEvent = Data.TaggedEnum<{
-  Started: { readonly link: RecoverableLink };
-  Answered: { readonly answer: Answer<CancelPaymentLinkOutcome> };
+  ReviewStarted: { readonly chosen: ChosenLink };
+  ReviewAnswered: { readonly answer: Answer<ReviewReclaimOutcome> };
+  ConfirmStarted: {};
+  ConfirmAnswered: { readonly answer: Answer<ConfirmReclaimOutcome> };
   Reset: {};
 }>;
 
 const RecoveryEvent = Data.taggedEnum<RecoveryEvent>();
 
+const expired =
+  "La recuperación anterior venció y la preparamos de nuevo. Revísala y confirma otra vez.";
+
+const confirmed = (
+  state: Data.TaggedEnum.Value<Recovery, "Confirming">,
+  answer: Answer<ConfirmReclaimOutcome>,
+): Recovery => {
+  const withdrawn = (problem: string) =>
+    Recovery.Reviewed({
+      chosen: state.chosen,
+      review: state.review,
+      problem: Option.some(problem),
+    });
+
+  return Match.value(answer).pipe(
+    Match.tag("ReclaimReview", (review) =>
+      Recovery.Reviewed({
+        chosen: state.chosen,
+        review,
+        problem: Option.some(expired),
+      }),
+    ),
+    Match.tag("PasskeyCancelled", () =>
+      withdrawn("No usaste tu passkey, así que no recuperamos el dinero."),
+    ),
+    Match.tag("PasskeyFailed", () =>
+      withdrawn(
+        "No pudimos usar tu passkey y no recuperamos el dinero. Inténtalo de nuevo.",
+      ),
+    ),
+    Match.tag("WrongCredential", () =>
+      withdrawn(
+        "Usaste una passkey distinta y no recuperamos el dinero. Confirma con la passkey de tu cuenta.",
+      ),
+    ),
+    Match.tag("AssertionRejected", () =>
+      withdrawn(
+        "No pudimos verificar tu passkey y no recuperamos el dinero. Confirma con tu huella, rostro o PIN del dispositivo.",
+      ),
+    ),
+    Match.orElse((outcome) =>
+      Recovery.Recovered({ chosen: state.chosen, answer: outcome }),
+    ),
+  );
+};
+
 const reduceRecovery = (state: Recovery, event: RecoveryEvent): Recovery =>
   Match.valueTags(event, {
-    Started: ({ link }) => Recovery.Recovering({ link }),
-    Answered: ({ answer }) =>
-      Predicate.isTagged(state, "Recovering")
-        ? Recovery.Recovered({ link: state.link, answer })
+    ReviewStarted: ({ chosen }) => Recovery.Reviewing({ chosen }),
+    ReviewAnswered: ({ answer }) =>
+      Predicate.isTagged(state, "Reviewing")
+        ? Predicate.isTagged(answer, "ReclaimReview")
+          ? Recovery.Reviewed({
+              chosen: state.chosen,
+              review: answer,
+              problem: Option.none(),
+            })
+          : Recovery.Recovered({ chosen: state.chosen, answer })
+        : state,
+    ConfirmStarted: () =>
+      Predicate.isTagged(state, "Reviewed")
+        ? Recovery.Confirming({ chosen: state.chosen, review: state.review })
+        : state,
+    ConfirmAnswered: ({ answer }) =>
+      Predicate.isTagged(state, "Confirming")
+        ? confirmed(state, answer)
         : state,
     Reset: () => Recovery.Idle(),
   });
@@ -66,10 +142,23 @@ export function useRecovery() {
   const task = useWalletTask();
   const [recovery, send] = useReducer(reduceRecovery, Recovery.Idle());
 
-  const recover = (link: RecoverableLink) => {
-    send(RecoveryEvent.Started({ link }));
-    task.run(walletEffects.cancelPaymentLink(link), (answer) =>
-      send(RecoveryEvent.Answered({ answer })),
+  const begin = (link: RecoverableLink, created?: string) => {
+    send(
+      RecoveryEvent.ReviewStarted({
+        chosen: { link, created: Option.fromNullishOr(created) },
+      }),
+    );
+    task.run(walletEffects.reviewReclaim(link), (answer) =>
+      send(RecoveryEvent.ReviewAnswered({ answer })),
+    );
+  };
+
+  const confirm = () => {
+    if (!Predicate.isTagged(recovery, "Reviewed")) return;
+
+    send(RecoveryEvent.ConfirmStarted());
+    task.run(walletEffects.confirmReclaim(recovery.review), (answer) =>
+      send(RecoveryEvent.ConfirmAnswered({ answer })),
     );
   };
 
@@ -80,99 +169,142 @@ export function useRecovery() {
 
   const started = Match.valueTags(recovery, {
     Idle: () => Option.none<RecoveryStarted>(),
-    Recovering: (shown) => Option.some<RecoveryStarted>(shown),
+    Reviewing: (shown) => Option.some<RecoveryStarted>(shown),
+    Reviewed: (shown) => Option.some<RecoveryStarted>(shown),
+    Confirming: (shown) => Option.some<RecoveryStarted>(shown),
     Recovered: (shown) => Option.some<RecoveryStarted>(shown),
   });
 
-  return { started, recover, reset };
+  return { started, begin, confirm, reset };
 }
 
-export function RecoverDrawer({
-  link,
-  created,
-  open,
-  onOpenChange,
-  onRecover,
+function ReclaimReviewScreen({
+  chosen,
+  review,
+  problem,
+  onConfirm,
+  onCancel,
 }: {
-  link: RecoverableLink;
-  created?: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onRecover: (link: RecoverableLink) => void;
+  chosen: ChosenLink;
+  review: ReclaimReview;
+  problem: Option.Option<string>;
+  onConfirm: () => void;
+  onCancel: () => void;
 }) {
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} showSwipeHandle>
-      <DrawerContent>
-        <div className="flex flex-col gap-6">
-          <DrawerHeader>
-            <DrawerTitle>
-              ¿Recuperar {amountLabel(link.amount, link.asset)}?
-            </DrawerTitle>
-            <DrawerDescription>
-              {created === undefined ? "" : `Es el link creado el ${created}. `}
-              El link dejará de funcionar. Si nadie lo usó, el dinero vuelve a
-              tu cuenta.
-            </DrawerDescription>
-          </DrawerHeader>
-          <DrawerFooter>
-            <Button
-              className="w-full"
-              onClick={() => {
-                onOpenChange(false);
-                onRecover(link);
-              }}
-              data-testid="confirm-recover"
-            >
-              Recuperar dinero
-            </Button>
-            <Button
-              className="w-full"
-              variant="secondary"
-              onClick={() => onOpenChange(false)}
-            >
-              Mantener el link
-            </Button>
-          </DrawerFooter>
-        </div>
-      </DrawerContent>
-    </Drawer>
+    <>
+      <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
+        <h1 className="font-display text-h1">Revisa tu recuperación</h1>
+        <dl
+          aria-label="Resumen de la recuperación"
+          className="flex flex-col divide-y divide-border rounded-lg border border-border px-4"
+        >
+          <ReviewRow label="Acción">Recuperar el dinero de un link</ReviewRow>
+          <ReviewRow label="Activo">{assetCode(review.asset)}</ReviewRow>
+          <ReviewRow label="Monto">{formatAmount(review.amount)}</ReviewRow>
+          <ReviewRow label="Link">
+            <span className="flex flex-col items-end">
+              <span>…{review.balance.slice(-8)}</span>
+              {Option.isSome(chosen.created) ? (
+                <span className="text-caption text-muted-foreground">
+                  Creado el {chosen.created.value}
+                </span>
+              ) : null}
+            </span>
+          </ReviewRow>
+          <ReviewRow label="Cuenta">
+            {shortAddress(review.order.wallet)}
+          </ReviewRow>
+          <ReviewRow label="Red">Stellar {review.network}</ReviewRow>
+          {review.opensTrustline === undefined ? null : (
+            <ReviewRow label="Moneda nueva">
+              <span className="flex flex-col items-end">
+                <span>{assetCode(review.opensTrustline)}</span>
+                <span className="text-caption text-muted-foreground">
+                  Se activa en tu cuenta para recibirla
+                </span>
+              </span>
+            </ReviewRow>
+          )}
+          <ReviewRow label="Comisión">Orchid paga la comisión</ReviewRow>
+        </dl>
+        <p className="text-body text-muted-foreground">
+          El link dejará de funcionar. Si nadie lo usó, el dinero vuelve a tu
+          cuenta. Tu passkey confirma que eres tú, pero no muestra los datos de
+          la operación. Revísalos aquí antes de confirmar.
+        </p>
+        {Option.isSome(problem) ? (
+          <p role="alert" className="text-body text-destructive">
+            {problem.value}
+          </p>
+        ) : null}
+      </main>
+      <ScreenActions>
+        <Button
+          className="w-full"
+          onClick={onConfirm}
+          data-testid="confirm-recover"
+        >
+          Recuperar dinero
+        </Button>
+        <Button className="w-full" variant="secondary" onClick={onCancel}>
+          Mantener el link
+        </Button>
+      </ScreenActions>
+    </>
   );
 }
 
 export function RecoveryAnswer({
   recovery,
   done,
-  onRecover,
+  onBegin,
+  onConfirm,
+  onCancel,
 }: {
   recovery: RecoveryStarted;
   done: React.ReactNode;
-  onRecover: (link: RecoverableLink) => void;
+  onBegin: (link: RecoverableLink, created?: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
 }) {
-  if (Predicate.isTagged(recovery, "Recovering"))
-    return <LinkWorking label="Recuperando tu dinero…" />;
+  return Match.valueTags(recovery, {
+    Reviewing: () => <LinkWorking label="Preparando tu recuperación…" />,
+    Confirming: () => <LinkWorking label="Recuperando tu dinero…" />,
+    Reviewed: ({ chosen, review, problem }) => (
+      <ReclaimReviewScreen
+        chosen={chosen}
+        review={review}
+        problem={problem}
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />
+    ),
+    Recovered: ({ chosen, answer }) => {
+      const screen = reclaimResult(answer, chosen.link);
 
-  const { link, answer } = recovery;
-  const screen = cancelLinkResult(answer, link);
+      const again = () =>
+        onBegin(chosen.link, Option.getOrUndefined(chosen.created));
 
-  return (
-    <LinkResultScreen outcome={answer._tag} screen={screen}>
-      {Match.value(screen.action).pipe(
-        Match.when("done", () => done),
-        Match.when("home", () => (
-          <ResultLink link={<Link to="/home" />}>Volver al inicio</ResultLink>
-        )),
-        Match.when("again", () => (
-          <ResultButton onClick={() => onRecover(link)}>
-            Reintentar
-          </ResultButton>
-        )),
-        Match.when("check", () => (
-          <ResultButton onClick={() => onRecover(link)}>
-            Revisar de nuevo
-          </ResultButton>
-        )),
-        Match.exhaustive,
-      )}
-    </LinkResultScreen>
-  );
+      return (
+        <LinkResultScreen outcome={answer._tag} screen={screen}>
+          {Match.value(screen.action).pipe(
+            Match.when("done", () => done),
+            Match.when("home", () => (
+              <ResultLink link={<Link to="/home" />}>
+                Volver al inicio
+              </ResultLink>
+            )),
+            Match.when("again", () => (
+              <ResultButton onClick={again}>Reintentar</ResultButton>
+            )),
+            Match.when("check", () => (
+              <ResultButton onClick={again}>Revisar de nuevo</ResultButton>
+            )),
+            Match.exhaustive,
+          )}
+        </LinkResultScreen>
+      );
+    },
+  });
 }
