@@ -14,16 +14,14 @@ import {
 } from "../contract";
 import { network } from "../stellar/network";
 import {
-  type AssertionCeremony,
   AssertionIntent,
   PinnedCredential,
-  type RelyingParty,
   verifyPinnedAssertion,
 } from "./assertion";
 import type {
   CorruptDeviceWallet,
   KeyStoreUnavailable,
-  SealedKeyStore,
+  SealedDevice,
 } from "./key-store";
 import { PublicDeviceWallet, SealedDeviceWallet } from "./key-store";
 import {
@@ -46,12 +44,6 @@ import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
 import { backupSalt, openPhrase } from "./phrase-seal";
 import { signingKey } from "./signing";
 
-export interface RestoreDevice {
-  readonly store: SealedKeyStore;
-  readonly ceremony: AssertionCeremony;
-  readonly relyingParty: () => RelyingParty;
-}
-
 export interface PendingRestore {
   readonly profile: Profile;
   readonly credential: PinnedCredential;
@@ -71,7 +63,7 @@ const zeroed = (prf: Redacted.Redacted<Uint8Array<ArrayBuffer>>) =>
 export function deviceRestore(
   port: WalletPort,
   passkeys: Passkeys,
-  device: RestoreDevice,
+  device: SealedDevice,
   progress: RestoreProgress,
 ) {
   const { pending } = progress;

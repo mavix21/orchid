@@ -5,9 +5,15 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { PasskeyChallenge, Username } from "../src/contract";
 import { PinnedCredential } from "../src/device/assertion";
+import { browserKeyStore } from "../src/device/browser-key-store";
 import {
+  type DeviceWallet,
+  type KeyStore,
+  KeyStoreUnavailable,
   PublicDeviceWallet,
+  type SealedDevice,
   SealedDeviceWallet,
+  publicWalletOf,
 } from "../src/device/key-store";
 import {
   type LocalPhraseEnvelope,
@@ -16,7 +22,10 @@ import {
   localPhrasePrfInput,
   sealLocalEnvelope,
 } from "../src/device/local-envelope";
-import { generateSecretPhrase } from "../src/device/secret-phrase";
+import {
+  type SecretPhrase,
+  generateSecretPhrase,
+} from "../src/device/secret-phrase";
 import { signingKey } from "../src/device/signing";
 import { network } from "../src/stellar/network";
 import { addressOf } from "./device-fixtures";
@@ -96,18 +105,20 @@ export const storedKeys = () =>
 export const putRawEntry = (name: string, value: RawStoredEntry) =>
   withEntryStore("readwrite", (store) => store.put(value, name));
 
-export const enrollDisposableWallet = (name = "maria") =>
+const sealPhrase = (phrase: SecretPhrase, publicWallet: PublicDeviceWallet) =>
   Effect.gen(function* () {
-    const phrase = generateSecretPhrase();
     const key = signingKey(phrase);
     const address = addressOf(key);
-    const username = Schema.decodeSync(Username)(name);
     const auth = new SoftwareAuthenticator(relyingParty.origin);
     const salt = freshInstallationSalt();
     const prfInput = yield* localPhrasePrfInput({ network, address, salt });
 
     const registered = Option.getOrThrow(
-      yield* auth.passkeys.register(dummyChallenge, username, prfInput),
+      yield* auth.passkeys.register(
+        dummyChallenge,
+        publicWallet.username,
+        prfInput,
+      ),
     );
 
     const credential = new PinnedCredential({
@@ -131,12 +142,6 @@ export const enrollDisposableWallet = (name = "maria") =>
 
     assertTagged(sealed, "EnvelopeSealed");
 
-    const publicWallet = new PublicDeviceWallet({
-      address,
-      username,
-      backup: "stored",
-    });
-
     const record = new SealedDeviceWallet({
       version: localEnvelopeVersion,
       public: publicWallet,
@@ -156,4 +161,60 @@ export const enrollDisposableWallet = (name = "maria") =>
       envelope: sealed.envelope,
       record,
     };
+  });
+
+export const enrollDisposableWallet = (name = "maria") => {
+  const phrase = generateSecretPhrase();
+
+  return sealPhrase(
+    phrase,
+    new PublicDeviceWallet({
+      address: addressOf(signingKey(phrase)),
+      username: Schema.decodeSync(Username)(name),
+      backup: "stored",
+    }),
+  );
+};
+
+export const sealedKeyStore: KeyStore = {
+  read: () =>
+    Effect.fail(new KeyStoreUnavailable({ cause: "secret requires passkey" })),
+  write: () =>
+    Effect.fail(new KeyStoreUnavailable({ cause: "secret requires passkey" })),
+  readPublic: () =>
+    browserKeyStore
+      .readPublic()
+      .pipe(
+        Effect.catchTag("CorruptDeviceWallet", (cause) =>
+          Effect.fail(new KeyStoreUnavailable({ cause })),
+        ),
+      ),
+  updatePublic: (update) =>
+    browserKeyStore
+      .updatePublic(update)
+      .pipe(
+        Effect.catchTag("CorruptDeviceWallet", (cause) =>
+          Effect.fail(new KeyStoreUnavailable({ cause })),
+        ),
+      ),
+};
+
+export const approvingDevice = (
+  auth: SoftwareAuthenticator,
+  store = browserKeyStore,
+): SealedDevice => ({
+  store,
+  ceremony: auth.assertions,
+  relyingParty: () => relyingParty,
+});
+
+export const installSealedWallet = (wallet: DeviceWallet) =>
+  Effect.gen(function* () {
+    yield* Effect.promise(clearDatabase);
+
+    const sealed = yield* sealPhrase(wallet.phrase, publicWalletOf(wallet));
+
+    yield* browserKeyStore.installSealed(sealed.record);
+
+    return sealed;
   });

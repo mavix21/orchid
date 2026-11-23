@@ -21,10 +21,12 @@ import {
   type KeyStore,
   type KeyStoreUnavailable,
   PublicDeviceWallet,
+  type SealedDevice,
 } from "./key-store";
 import {
   type BackUpOutcome,
   type CancelPaymentLinkOutcome,
+  type ConfirmOutcome,
   type CreateOutcome,
   type CreatePaymentLinkOutcome,
   type DeviceOverview,
@@ -40,7 +42,6 @@ import {
   type ReviewOutcome,
   type SavedOutcome,
   SavedWallet,
-  type SendOutcome,
   type TransferIntent,
   type UnlockOutcome,
   Unlocked,
@@ -48,7 +49,7 @@ import {
 } from "./outcomes";
 import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
 import { loadFromServer } from "./reaching";
-import type { RestoreDevice, RestoreProgress } from "./restore";
+import type { RestoreProgress } from "./restore";
 
 export * from "./outcomes";
 
@@ -64,9 +65,8 @@ export interface WalletClient {
   backUp(): Promise<BackUpOutcome>;
   restore(): Promise<RestoreOutcome>;
   cancelRestore(): Promise<void>;
-  send(intent: TransferIntent): Promise<SendOutcome>;
   review(intent: TransferIntent): Promise<ReviewOutcome>;
-  confirm(review: PaymentReview): Promise<ResumeOutcome>;
+  confirm(review: PaymentReview): Promise<ConfirmOutcome>;
   resume(id: TransferId): Promise<ResumeOutcome>;
   createPaymentLink(
     intent: PaymentLinkIntent,
@@ -86,9 +86,8 @@ export interface WalletEffects {
   backUp(): Effect.Effect<BackUpOutcome>;
   restore(): Effect.Effect<RestoreOutcome>;
   cancelRestore(): Effect.Effect<void>;
-  send(intent: TransferIntent): Effect.Effect<SendOutcome>;
   review(intent: TransferIntent): Effect.Effect<ReviewOutcome>;
-  confirm(review: PaymentReview): Effect.Effect<ResumeOutcome>;
+  confirm(review: PaymentReview): Effect.Effect<ConfirmOutcome>;
   resume(id: TransferId): Effect.Effect<ResumeOutcome>;
   createPaymentLink(
     intent: PaymentLinkIntent,
@@ -104,7 +103,7 @@ export function makeWalletEffects(
   port: WalletPort,
   store: KeyStore,
   passkeys: Passkeys,
-  restoration?: RestoreDevice,
+  device?: SealedDevice,
 ): WalletEffects {
   const restoreProgress: RestoreProgress = {
     pending: Ref.makeUnsafe(Option.none()),
@@ -112,7 +111,7 @@ export function makeWalletEffects(
   };
 
   const sending = loadFromServer(() => import("./sending")).pipe(
-    Effect.map(({ sendTransfer }) => sendTransfer(port, store)),
+    Effect.map(({ sendTransfer }) => sendTransfer(port, store, device)),
   );
 
   const links = loadFromServer(() => import("./payment-links")).pipe(
@@ -140,14 +139,14 @@ export function makeWalletEffects(
   });
 
   const restore = Effect.fn("Device.restore")(function* () {
-    if (restoration === undefined) return new UnsupportedDevice();
+    if (device === undefined) return new UnsupportedDevice();
 
     const { deviceRestore } = yield* loadFromServer(() => import("./restore"));
 
     return yield* deviceRestore(
       port,
       passkeys,
-      restoration,
+      device,
       restoreProgress,
     ).restore();
   });
@@ -211,15 +210,15 @@ export function makeWalletEffects(
   });
 
   const unlock = Effect.fn("Device.unlock")(function* () {
-    if (restoration === undefined) return new UnsupportedDevice();
+    if (device === undefined) return new UnsupportedDevice();
 
-    const sealed = yield* restoration.store.readSealed();
+    const sealed = yield* device.store.readSealed();
 
     if (Option.isNone(sealed)) return new NoWallet();
 
     const verified = yield* verifyPinnedAssertion(
-      restoration.ceremony,
-      restoration.relyingParty(),
+      device.ceremony,
+      device.relyingParty(),
       sealed.value.credential,
       AssertionIntent.Entry(),
     );
@@ -307,12 +306,17 @@ export function makeWalletEffects(
       restoreProgress.lock.withPermits(1)(
         Ref.set(restoreProgress.pending, Option.none()),
       ),
-    send: (intent) =>
-      transfer(sending.pipe(Effect.flatMap(({ send }) => send(intent)))),
     review: (intent) =>
       transfer(sending.pipe(Effect.flatMap(({ review }) => review(intent)))),
     confirm: (shown) =>
-      transfer(sending.pipe(Effect.flatMap(({ confirm }) => confirm(shown)))),
+      transfer(
+        sending.pipe(
+          Effect.flatMap(({ confirm }) => confirm(shown)),
+          Effect.catchTag("CorruptDeviceWallet", (damaged) =>
+            Effect.succeed(damaged),
+          ),
+        ),
+      ),
     resume: (id) =>
       transfer(sending.pipe(Effect.flatMap(({ resume }) => resume(id)))),
     createPaymentLink: (intent) =>
@@ -344,9 +348,9 @@ export function makeWalletClient(
   port: WalletPort,
   store: KeyStore,
   passkeys: Passkeys,
-  restoration?: RestoreDevice,
+  device?: SealedDevice,
 ): WalletClient {
-  const effects = makeWalletEffects(port, store, passkeys, restoration);
+  const effects = makeWalletEffects(port, store, passkeys, device);
 
   return {
     overview: () => Effect.runPromise(effects.overview()),
@@ -356,7 +360,6 @@ export function makeWalletClient(
     backUp: () => Effect.runPromise(effects.backUp()),
     restore: () => Effect.runPromise(effects.restore()),
     cancelRestore: () => Effect.runPromise(effects.cancelRestore()),
-    send: (intent) => Effect.runPromise(effects.send(intent)),
     review: (intent) => Effect.runPromise(effects.review(intent)),
     confirm: (shown) => Effect.runPromise(effects.confirm(shown)),
     resume: (id) => Effect.runPromise(effects.resume(id)),

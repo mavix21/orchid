@@ -5,6 +5,7 @@ import { Button } from "@workspace/ui/components/button";
 import type {
   Amount,
   Asset,
+  ConfirmOutcome,
   PaymentReview,
   ResumeOutcome,
   ReviewOutcome,
@@ -50,13 +51,19 @@ interface Draft {
   readonly intent: TransferIntent;
 }
 
-type ReviewAnswer = Data.TaggedEnum<{
+type Answered = Data.TaggedEnum<{
   Shown: { readonly review: PaymentReview };
+  Refused: { readonly problem: string };
   Corrected: { readonly outcome: string; readonly problem: FieldProblem };
   Concluded: { readonly outcome: string; readonly screen: SendScreen };
 }>;
 
-const ReviewAnswer = Data.taggedEnum<ReviewAnswer>();
+const Answered = Data.taggedEnum<Answered>();
+
+type ReviewAnswer = Exclude<
+  Answered,
+  Data.TaggedEnum.Value<Answered, "Refused">
+>;
 
 type OutcomeAnswer = Exclude<
   ReviewAnswer,
@@ -68,7 +75,11 @@ type SendStep = Data.TaggedEnum<{
   Linking: {};
   Entering: { readonly field: EntryField; readonly entry: Entry };
   Reviewing: { readonly draft: Draft };
-  Reviewed: { readonly draft: Draft; readonly review: PaymentReview };
+  Reviewed: {
+    readonly draft: Draft;
+    readonly review: PaymentReview;
+    readonly problem: Option.Option<string>;
+  };
   Confirming: { readonly draft: Draft; readonly review: PaymentReview };
   Concluded: {
     readonly draft: Draft;
@@ -90,7 +101,7 @@ type SendEvent = Data.TaggedEnum<{
   ReviewStarted: { readonly intent: TransferIntent };
   ReviewAnswered: { readonly answer: ReviewAnswer };
   ConfirmStarted: {};
-  ConfirmAnswered: { readonly answer: OutcomeAnswer };
+  ConfirmAnswered: { readonly answer: Answered };
   Resumed: {};
   StartedOver: {};
 }>;
@@ -104,7 +115,7 @@ const readOutcome = (
   asset: Asset,
 ): OutcomeAnswer => {
   if (answer instanceof DeviceFailure)
-    return ReviewAnswer.Concluded({
+    return Answered.Concluded({
       outcome: answer._tag,
       screen: deviceFailure,
     });
@@ -112,8 +123,8 @@ const readOutcome = (
   const result = sendResult(answer, asset);
 
   return result instanceof FieldProblem
-    ? ReviewAnswer.Corrected({ outcome: answer._tag, problem: result })
-    : ReviewAnswer.Concluded({ outcome: answer._tag, screen: result });
+    ? Answered.Corrected({ outcome: answer._tag, problem: result })
+    : Answered.Concluded({ outcome: answer._tag, screen: result });
 };
 
 const readReview = (
@@ -121,8 +132,71 @@ const readReview = (
   asset: Asset,
 ): ReviewAnswer =>
   Predicate.isTagged(answer, "PaymentReview")
-    ? ReviewAnswer.Shown({ review: answer })
+    ? Answered.Shown({ review: answer })
     : readOutcome(answer, asset);
+
+const unsent = "Tu dinero no se movió.";
+
+const unreleased = new Set([
+  "PaymentReview",
+  "PasskeyCancelled",
+  "PasskeyFailed",
+  "WrongCredential",
+  "AssertionRejected",
+  "PrfOutputMissing",
+  "CorruptDeviceWallet",
+]);
+
+const readConfirm = (answer: Answer<ConfirmOutcome>, asset: Asset): Answered =>
+  answer instanceof DeviceFailure
+    ? readOutcome(answer, asset)
+    : Match.value(answer).pipe(
+        Match.tag("PaymentReview", (review) => Answered.Shown({ review })),
+        Match.tag("PasskeyCancelled", () =>
+          Answered.Refused({
+            problem: "No usaste tu passkey, así que no enviamos el pago.",
+          }),
+        ),
+        Match.tag("PasskeyFailed", () =>
+          Answered.Refused({
+            problem:
+              "No pudimos usar tu passkey y no enviamos el pago. Inténtalo de nuevo.",
+          }),
+        ),
+        Match.tag("WrongCredential", () =>
+          Answered.Refused({
+            problem:
+              "Usaste una passkey distinta y no enviamos el pago. Confirma con la passkey de tu cuenta.",
+          }),
+        ),
+        Match.tag("AssertionRejected", () =>
+          Answered.Refused({
+            problem:
+              "No pudimos verificar tu passkey y no enviamos el pago. Confirma con tu huella, rostro o PIN del dispositivo.",
+          }),
+        ),
+        Match.tag("PrfOutputMissing", (missing) =>
+          Answered.Concluded({
+            outcome: missing._tag,
+            screen: new SendScreen(
+              "Tu passkey no puede firmar aquí",
+              `Tu passkey no abrió tu llave en este dispositivo. ${unsent}`,
+              "home",
+            ),
+          }),
+        ),
+        Match.tag("CorruptDeviceWallet", (damaged) =>
+          Answered.Concluded({
+            outcome: damaged._tag,
+            screen: new SendScreen(
+              "No pudimos leer tu llave",
+              `Los datos guardados en este navegador están dañados. ${unsent}`,
+              "home",
+            ),
+          }),
+        ),
+        Match.orElse((outcome) => readOutcome(outcome, asset)),
+      );
 
 const draftOf = (step: SendStep): Option.Option<Draft> =>
   Match.valueTags(step, {
@@ -207,7 +281,12 @@ const reduceSendFlow = (step: SendStep, event: SendEvent): SendStep =>
       if (!Predicate.isTagged(step, "Reviewing")) return step;
 
       return Match.valueTags(answer, {
-        Shown: ({ review }) => SendStep.Reviewed({ draft: step.draft, review }),
+        Shown: ({ review }) =>
+          SendStep.Reviewed({
+            draft: step.draft,
+            review,
+            problem: Option.none(),
+          }),
         Corrected: ({ problem }) => corrected(step.draft.entry, problem),
         Concluded: ({ outcome, screen }) =>
           SendStep.Concluded({
@@ -226,6 +305,20 @@ const reduceSendFlow = (step: SendStep, event: SendEvent): SendStep =>
       if (!Predicate.isTagged(step, "Confirming")) return step;
 
       return Match.valueTags(answer, {
+        Shown: ({ review }) =>
+          SendStep.Reviewed({
+            draft: step.draft,
+            review,
+            problem: Option.some(
+              "El pago anterior venció y lo preparamos de nuevo. Revísalo y confirma otra vez.",
+            ),
+          }),
+        Refused: ({ problem }) =>
+          SendStep.Reviewed({
+            draft: step.draft,
+            review: step.review,
+            problem: Option.some(problem),
+          }),
         Corrected: ({ problem }) => corrected(step.draft.entry, problem),
         Concluded: ({ outcome, screen }) =>
           SendStep.Concluded({
@@ -260,10 +353,12 @@ function Working({ label }: { label: string }) {
 
 function ReviewScreen({
   review,
+  problem,
   onConfirm,
   onEdit,
 }: {
   review: PaymentReview;
+  problem: Option.Option<string>;
   onConfirm: () => void;
   onEdit: () => void;
 }) {
@@ -272,6 +367,15 @@ function ReviewScreen({
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
         <h1 className="font-display text-h1">Revisa tu pago</h1>
         <PaymentReviewCard review={review} />
+        <p className="text-body text-muted-foreground">
+          Tu passkey confirma que eres tú, pero no muestra los datos del pago.
+          Revísalos aquí antes de enviar.
+        </p>
+        {Option.isSome(problem) ? (
+          <p role="alert" className="text-body text-destructive">
+            {problem.value}
+          </p>
+        ) : null}
       </main>
       <ScreenActions>
         <Button
@@ -454,9 +558,13 @@ export function SendFlow({
     onTransfer(Option.some(shown.order.id));
     send(SendEvent.ConfirmStarted());
     task.run(walletEffects.confirm(shown), (answered) => {
-      const answer = readOutcome(answered, asset);
+      const answer = readConfirm(answered, asset);
 
-      if (Predicate.isTagged(answer, "Corrected")) onTransfer(Option.none());
+      if (
+        Predicate.isTagged(answer, "Corrected") ||
+        unreleased.has(answered._tag)
+      )
+        onTransfer(Option.none());
 
       send(SendEvent.ConfirmAnswered({ answer }));
     });
@@ -519,10 +627,11 @@ export function SendFlow({
         ),
       ),
     Reviewing: () => unlocked(<Working label="Preparando tu pago…" />),
-    Reviewed: ({ review: shown }) =>
+    Reviewed: ({ review: shown, problem: refusal }) =>
       unlocked(
         <ReviewScreen
           review={shown}
+          problem={refusal}
           onConfirm={() => confirm(shown)}
           onEdit={startOver}
         />,

@@ -19,7 +19,7 @@ import {
   type ResolveReceiptStep,
   type Pending,
   type Settled,
-  type TransferDraft,
+  TransferDraft,
   TransferId,
   TransferOrder,
   type TransferStep,
@@ -37,7 +37,11 @@ import {
   type UsernameTaken,
   type WalletUnavailable,
 } from "../contract";
-import type { AssertionRejected, WrongCredential } from "./assertion";
+import type {
+  AssertionRejected,
+  PrfOutputMissing,
+  WrongCredential,
+} from "./assertion";
 import { BackupState, type CorruptDeviceWallet } from "./key-store";
 import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";
 
@@ -198,6 +202,8 @@ export class PaymentReview extends Schema.TaggedClass<PaymentReview>()(
   "PaymentReview",
   {
     order: TransferOrder,
+    draft: TransferDraft,
+    redrafted: Schema.Boolean,
     to: DestinationAddress,
     username: Schema.optional(Username),
     asset: Asset,
@@ -216,6 +222,16 @@ export class NoTransfer extends Schema.TaggedClass<NoTransfer>()(
 ) {}
 
 export type ResumeOutcome = NoTransfer | SendOutcome | Receipt;
+
+export type ConfirmOutcome =
+  | ResumeOutcome
+  | PaymentReview
+  | PasskeyCancelled
+  | PasskeyFailed
+  | WrongCredential
+  | AssertionRejected
+  | PrfOutputMissing
+  | CorruptDeviceWallet;
 
 export class PaymentLinkIntent extends Schema.Class<PaymentLinkIntent>(
   "@workspace/wallet/PaymentLinkIntent",

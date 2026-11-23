@@ -15,12 +15,15 @@ import {
 } from "../contract";
 import { approvalMargin, paymentLifetime } from "../stellar/network";
 import {
+  type CorruptDeviceWallet,
   type KeyStore,
   type KeyStoreUnavailable,
   PublicDeviceWallet,
+  type SealedDevice,
 } from "./key-store";
 import {
   ApprovalOutstanding,
+  type ConfirmOutcome,
   DraftRejected,
   NoTransfer,
   NoWallet,
@@ -31,6 +34,9 @@ import {
   UnsupportedDevice,
 } from "./outcomes";
 import { pendingSteps, pollSchedule } from "./polling";
+import { reviewOf, standingNow } from "./payment-reviews";
+import { approveReviewed } from "./reviewed-approval";
+import { reserveApproval, withdrawReservation } from "./transfer-reservation";
 import { approve, signingKey } from "./signing";
 import {
   approvalOutstanding,
@@ -40,7 +46,6 @@ import {
   orderJson,
   orderRevision,
   orderedFacts,
-  reviewed,
   sameOrderSlot,
 } from "./transfer-drafts";
 
@@ -87,7 +92,11 @@ const observeDraft =
       Effect.map((done): DraftResult<D> => ({ done: Option.some(done) })),
     );
 
-export function sendTransfer(port: WalletPort, store: KeyStore) {
+export function sendTransfer(
+  port: WalletPort,
+  store: KeyStore,
+  device?: SealedDevice,
+) {
   const forget = (address: AccountAddress, order: TransferOrder) =>
     store
       .updatePublic((current) =>
@@ -109,10 +118,11 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
     initial: PublicDeviceWallet,
     order: TransferOrder,
     onDraft: DraftHandler<D>,
+    released: Option.Option<Approval> = Option.none(),
   ): Effect.Effect<D | SendOutcome, WalletUnavailable | KeyStoreUnavailable> =>
     Effect.gen(function* () {
       let wallet = initial;
-      let approval: Option.Option<Approval> = Option.none();
+      let approval = released;
       let refreshed = false;
       let attempts = 0;
 
@@ -204,153 +214,53 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
       return Option.getOrElse(last.done, () => new DraftRejected());
     });
 
-  const signing =
-    (review: Option.Option<PaymentReview>): DraftHandler<SendOutcome> =>
-    (wallet, order, draft, finalStep, refreshed) =>
-      Effect.gen(function* () {
-        const facts = orderedFacts(wallet, order, draft).pipe(
-          Option.filter(reviewed(review)),
-        );
-
-        const now = yield* nowSeconds;
-
-        if (
-          finalStep ||
-          Option.isNone(facts) ||
-          approvalOutstanding(wallet, now) ||
-          facts.value.maxTime > now + paymentLifetime + clockAllowance
-        )
-          return { done: Option.some(new DraftRejected()) };
-
-        const deadline = Math.min(
-          facts.value.maxTime * 1000,
-          DateTime.toEpochMillis(draft.request.expiresAt),
-        );
-
-        const withinMargin = Effect.map(
-          DateTime.now,
-          (current) =>
-            deadline - DateTime.toEpochMillis(current) >= approvalMargin * 1000,
-        );
-
-        const linkFacts = Predicate.isTagged(facts.value, "PaymentLinkFacts")
-          ? facts.value
-          : undefined;
-
-        if (!(yield* withinMargin)) {
-          if (refreshed) return { done: Option.some(new DraftRejected()) };
-
-          if (linkFacts === undefined)
-            return {
-              done: Option.none(),
-              next: {
-                wallet,
-                approval: Option.none(),
-                refreshed: true,
-              },
-            };
-
-          const kept = yield* store.updatePublic((current) =>
-            current.address === wallet.address &&
-            current.transfer?.id === order.id
-              ? Option.some(
-                  new PublicDeviceWallet({
-                    ...current,
-                    linkReceipt: nextLinkReceipt(
-                      current.linkReceipt,
-                      linkFacts,
-                    ),
-                  }),
-                )
-              : Option.none(),
-          );
-
-          if (Option.isNone(kept))
-            return { done: Option.some(new UnsupportedDevice()) };
-
-          if (!kept.value.updated)
-            return { done: Option.some(new DraftRejected()) };
-
-          return {
-            done: Option.none(),
-            next: {
-              wallet: kept.value.wallet,
-              approval: Option.none(),
-              refreshed: true,
-            },
-          };
-        }
-
-        const secret = yield* store.read();
-
-        if (Option.isNone(secret) || secret.value.address !== wallet.address)
-          return { done: Option.some(new UnsupportedDevice()) };
-
-        if (!(yield* withinMargin))
-          return { done: Option.some(new DraftRejected()) };
-
-        const reserveNow = yield* nowSeconds;
-
-        const approved = yield* store.updatePublic((current) =>
-          current.address === wallet.address &&
-          current.transfer?.id === order.id &&
-          !approvalOutstanding(current, reserveNow)
-            ? Option.some(
-                new PublicDeviceWallet({
-                  ...current,
-                  approvedUntil: facts.value.maxTime,
-                  linkReceipt: linkFacts
-                    ? nextLinkReceipt(current.linkReceipt, linkFacts)
-                    : current.linkReceipt,
-                }),
-              )
-            : Option.none(),
-        );
-
-        if (Option.isNone(approved))
-          return { done: Option.some(new UnsupportedDevice()) };
-
-        if (!approved.value.updated) {
-          const current = approved.value.wallet;
-
-          return {
-            done: Option.some(
-              current.address === wallet.address &&
-                current.transfer?.id === order.id &&
-                approvalOutstanding(current, reserveNow)
-                ? new ApprovalOutstanding({ order })
-                : new DraftRejected(),
-            ),
-          };
-        }
-
-        if (!(yield* withinMargin))
-          return { done: Option.some(new DraftRejected()) };
-
-        return {
-          done: Option.none(),
-          next: {
-            wallet: approved.value.wallet,
-            approval: Option.some(
-              approve(draft.request, signingKey(secret.value.phrase)),
-            ),
-            refreshed,
-          },
-        };
-      });
-
-  const reviewing: ObserveDraft<PaymentReview | DraftRejected> = (
+  const signing: DraftHandler<SendOutcome> = (
     wallet,
     order,
     draft,
+    finalStep,
+    refreshed,
   ) =>
     Effect.gen(function* () {
       const facts = orderedFacts(wallet, order, draft);
 
-      if (Option.isNone(facts)) return new DraftRejected();
+      const now = yield* nowSeconds;
 
-      if (Predicate.isTagged(facts.value, "PaymentLinkFacts")) {
-        const linkFacts = facts.value;
+      if (
+        finalStep ||
+        Option.isNone(facts) ||
+        approvalOutstanding(wallet, now) ||
+        facts.value.maxTime > now + paymentLifetime + clockAllowance
+      )
+        return { done: Option.some(new DraftRejected()) };
+
+      const deadline = Math.min(
+        facts.value.maxTime * 1000,
+        DateTime.toEpochMillis(draft.request.expiresAt),
+      );
+
+      const withinMargin = Effect.map(
+        DateTime.now,
+        (current) =>
+          deadline - DateTime.toEpochMillis(current) >= approvalMargin * 1000,
+      );
+
+      const linkFacts = Predicate.isTagged(facts.value, "PaymentLinkFacts")
+        ? facts.value
+        : undefined;
+
+      if (!(yield* withinMargin)) {
+        if (refreshed) return { done: Option.some(new DraftRejected()) };
+
+        if (linkFacts === undefined)
+          return {
+            done: Option.none(),
+            next: {
+              wallet,
+              approval: Option.none(),
+              refreshed: true,
+            },
+          };
 
         const kept = yield* store.updatePublic((current) =>
           current.address === wallet.address &&
@@ -364,28 +274,89 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
             : Option.none(),
         );
 
-        if (Option.isNone(kept)) return new UnsupportedDevice();
+        if (Option.isNone(kept))
+          return { done: Option.some(new UnsupportedDevice()) };
 
-        if (!kept.value.updated) return new DraftRejected();
+        if (!kept.value.updated)
+          return { done: Option.some(new DraftRejected()) };
+
+        return {
+          done: Option.none(),
+          next: {
+            wallet: kept.value.wallet,
+            approval: Option.none(),
+            refreshed: true,
+          },
+        };
       }
 
-      return new PaymentReview({
-        order,
-        to: facts.value.to,
-        username: Predicate.isTagged(order.to, "Username")
-          ? order.to.value
-          : undefined,
-        asset: facts.value.asset,
-        amount: facts.value.amount,
-        memo: Predicate.isTagged(facts.value, "PaymentFacts")
-          ? facts.value.memo
-          : undefined,
-        claimable:
-          Predicate.isTagged(facts.value, "ClaimableFacts") ||
-          Predicate.isTagged(facts.value, "PaymentLinkFacts"),
-        memoRequired: draft.memoRequired,
-      });
+      const secret = yield* store.read();
+
+      if (Option.isNone(secret) || secret.value.address !== wallet.address)
+        return { done: Option.some(new UnsupportedDevice()) };
+
+      if (!(yield* withinMargin))
+        return { done: Option.some(new DraftRejected()) };
+
+      const reserveNow = yield* nowSeconds;
+
+      const approved = yield* store.updatePublic((current) =>
+        current.address === wallet.address &&
+        current.transfer?.id === order.id &&
+        !approvalOutstanding(current, reserveNow)
+          ? Option.some(
+              new PublicDeviceWallet({
+                ...current,
+                approvedUntil: facts.value.maxTime,
+                linkReceipt: linkFacts
+                  ? nextLinkReceipt(current.linkReceipt, linkFacts)
+                  : current.linkReceipt,
+              }),
+            )
+          : Option.none(),
+      );
+
+      if (Option.isNone(approved))
+        return { done: Option.some(new UnsupportedDevice()) };
+
+      if (!approved.value.updated) {
+        const current = approved.value.wallet;
+
+        return {
+          done: Option.some(
+            current.address === wallet.address &&
+              current.transfer?.id === order.id &&
+              approvalOutstanding(current, reserveNow)
+              ? new ApprovalOutstanding({ order })
+              : new DraftRejected(),
+          ),
+        };
+      }
+
+      if (!(yield* withinMargin))
+        return { done: Option.some(new DraftRejected()) };
+
+      return {
+        done: Option.none(),
+        next: {
+          wallet: approved.value.wallet,
+          approval: Option.some(
+            approve(draft.request, signingKey(secret.value.phrase)),
+          ),
+          refreshed,
+        },
+      };
     });
+
+  const reviewing =
+    (redrafted: boolean): ObserveDraft<PaymentReview | DraftRejected> =>
+    (wallet, order, draft) =>
+      Effect.succeed(
+        Option.match(reviewOf(wallet, order, draft, redrafted), {
+          onNone: () => new DraftRejected(),
+          onSome: ({ review }) => review,
+        }),
+      );
 
   const observing: ObserveDraft<ApprovalOutstanding | NoTransfer> = (
     wallet,
@@ -498,11 +469,14 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
     });
 
   const send = Effect.fn("Device.send")(function* (intent: TransferIntent) {
-    return yield* prepared(intent, signing(Option.none()));
+    return yield* prepared(intent, signing);
   });
 
   const review = Effect.fn("Device.review")(function* (intent: TransferIntent) {
-    return yield* prepared(intent, observeDraft(reviewing));
+    if (Predicate.isTagged(intent.to, "PaymentLink"))
+      return new DraftRejected();
+
+    return yield* prepared(intent, observeDraft(reviewing(false)));
   });
 
   const observed = (wallet: PublicDeviceWallet, id: TransferId) =>
@@ -564,27 +538,81 @@ export function sendTransfer(port: WalletPort, store: KeyStore) {
     );
   });
 
+  const redraft = (
+    wallet: PublicDeviceWallet,
+    order: TransferOrder,
+    shown: PaymentReview,
+  ) =>
+    shown.redrafted
+      ? Effect.succeed(new DraftRejected())
+      : advance(wallet, order, observeDraft(reviewing(true)));
+
   const confirm = Effect.fn("Device.confirm")(function* (
     shown: PaymentReview,
-  ): Effect.fn.Return<ResumeOutcome, WalletUnavailable | KeyStoreUnavailable> {
-    const stored = yield* store.readPublic();
+  ): Effect.fn.Return<
+    ConfirmOutcome,
+    WalletUnavailable | KeyStoreUnavailable | CorruptDeviceWallet
+  > {
+    if (device === undefined) return new UnsupportedDevice();
 
-    if (Option.isNone(stored)) return new NoWallet();
+    const sealed = yield* device.store.readSealed();
 
-    const kept = stored.value.transfer;
+    if (Option.isNone(sealed)) return new NoWallet();
 
-    if (kept === undefined || orderJson(kept) !== orderJson(shown.order))
+    const record = sealed.value;
+    const observed = record.public;
+    const order = observed.transfer;
+
+    if (order === undefined || orderJson(order) !== orderJson(shown.order))
       return new DraftRejected();
 
-    const answered = yield* advance(
-      stored.value,
-      kept,
-      signing(Option.some(shown)),
-    );
+    if (approvalOutstanding(observed, yield* nowSeconds))
+      return new ApprovalOutstanding({ order });
 
-    return Predicate.isTagged(answered, "Pending")
-      ? yield* resume(kept.id)
-      : answered;
+    const facts = orderedFacts(observed, order, shown.draft);
+
+    if (Option.isNone(facts)) return new DraftRejected();
+
+    const approvedUntil = facts.value.maxTime;
+
+    if ((yield* standingNow(observed, shown)) === "expiring")
+      return yield* redraft(observed, order, shown);
+
+    const approved = yield* approveReviewed(device, {
+      record,
+      requests: [shown.draft.request],
+      holds: (wallet) =>
+        Effect.map(
+          standingNow(wallet, shown),
+          (standing) =>
+            sameOrderSlot(wallet, observed) && standing === "current",
+        ),
+      reserve: (wallet) =>
+        reserveApproval(device.store, wallet, order, approvedUntil),
+      unreserve: (reservation) =>
+        withdrawReservation(device.store, reservation, observed.approvedUntil),
+      release: ([approval], reservation) =>
+        advance(
+          reservation,
+          order,
+          observeDraft(observing),
+          Option.some(approval),
+        ),
+    });
+
+    if (Predicate.isTagged(approved, "DraftRejected")) {
+      const latest = yield* device.store.readPublic();
+
+      return Option.isSome(latest) &&
+        sameOrderSlot(latest.value, observed) &&
+        (yield* standingNow(latest.value, shown)) === "expiring"
+        ? yield* redraft(latest.value, order, shown)
+        : approved;
+    }
+
+    return Predicate.isTagged(approved, "Pending")
+      ? yield* resume(order.id)
+      : approved;
   });
 
   return { send, review, confirm, resume };

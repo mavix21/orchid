@@ -22,7 +22,13 @@ import {
   memoryKeyStore,
   savedWallet,
 } from "./device-fixtures";
+import {
+  approvingDevice,
+  installSealedWallet,
+  sealedKeyStore,
+} from "./sealed-wallet-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
+import { assertTagged } from "./tagged";
 import {
   accountState,
   addressOf,
@@ -62,6 +68,17 @@ const openSender = Effect.fn(function* (store: KeyStore) {
   return { wallet, sender };
 });
 
+const reviewedAndConfirmed = Effect.fn(function* (
+  client: ReturnType<typeof makeWalletEffects>,
+  intent: TransferIntent,
+) {
+  const review = yield* client.review(intent);
+
+  assertTagged(review, "PaymentReview");
+
+  return yield* client.confirm(review);
+});
+
 const settleOnSubmission =
   (wallet: WalletPort): WalletPort["transfer"] =>
   (order, approval) =>
@@ -84,8 +101,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           yield* create(Keypair.random(), "pedro");
-          const store = memoryKeyStore();
-          const { wallet } = yield* openSender(store);
+          const { wallet, sender } = yield* openSender(memoryKeyStore());
+          const { auth } = yield* installSealedWallet(sender);
 
           const reloaded: WalletPort = {
             ...wallet,
@@ -98,10 +115,21 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           };
 
           expect(
-            (yield* makeWalletEffects(reloaded, store, passkeys).send(toPedro))
-              ._tag,
+            (yield* reviewedAndConfirmed(
+              makeWalletEffects(
+                reloaded,
+                sealedKeyStore,
+                passkeys,
+                approvingDevice(auth),
+              ),
+              toPedro,
+            ))._tag,
           ).toBe("Offline");
-          const stored = (yield* savedWallet(store)).transfer;
+
+          const stored = Option.getOrThrow(
+            yield* sealedKeyStore.readPublic(),
+          ).transfer;
+
           const sealed = world.submitted.at(-1);
           const submissions = world.submitted.length;
 
@@ -111,9 +139,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const replayed = yield* makeWalletEffects(
             wallet,
-            store,
+            sealedKeyStore,
             passkeys,
-          ).send(toPedro);
+            approvingDevice(auth),
+          ).review(toPedro);
 
           expect(replayed instanceof Settled && replayed.id).toBe(stored.id);
           expect(world.submitted).toHaveLength(submissions);
@@ -146,10 +175,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             }),
           );
 
-          const restored = memoryKeyStore(
-            Option.some(
-              new DeviceWallet({ ...sender, reserveSponsor: undefined }),
-            ),
+          const { auth } = yield* installSealedWallet(
+            new DeviceWallet({ ...sender, reserveSponsor: undefined }),
           );
 
           const settledPort: WalletPort = {
@@ -157,11 +184,17 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             transfer: settleOnSubmission(wallet),
           };
 
-          const client = makeWalletEffects(settledPort, restored, passkeys);
+          const client = makeWalletEffects(
+            settledPort,
+            sealedKeyStore,
+            passkeys,
+            approvingDevice(auth),
+          );
 
           yield* client.overview();
 
-          const sent = yield* client.send(
+          const sent = yield* reviewedAndConfirmed(
+            client,
             new TransferIntent({ ...toPedro, asset: euro }),
           );
 
