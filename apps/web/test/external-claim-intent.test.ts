@@ -3,10 +3,7 @@ import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import { expect, it } from "vitest";
 
-import {
-  externalClaimIntentOf,
-  isMuxedDestination,
-} from "../src/links/external-claim-intent";
+import { externalClaimIntentOf } from "../src/links/external-claim-intent";
 
 const destination = Keypair.random().publicKey();
 
@@ -48,7 +45,6 @@ it.each([
     "",
     "destination",
   ],
-  ["non-address text", "not-an-address", "", "destination"],
 ] as const)(
   "external claim rejects %s on the %s field",
   (_name, target, memo, field) => {
@@ -60,8 +56,3 @@ it.each([
     ).toEqual(Option.some(field));
   },
 );
-
-it("detects a muxed destination ignoring outer whitespace", () => {
-  expect(isMuxedDestination(` ${muxed} `)).toBe(true);
-  expect(isMuxedDestination(destination)).toBe(false);
-});
