@@ -1,61 +1,51 @@
-import type { PaymentLinkCreated } from "@workspace/wallet";
+import type { Asset, PositiveAmount } from "@workspace/wallet";
 import * as Predicate from "effect/Predicate";
 
 import { amountLabel } from "@/send/money";
 import { displayLock } from "@/wallet/display-lock";
 
-export type ShareResult = "shared" | "copied" | "dismissed" | "unavailable";
+export type ShareResult = "shared" | "copied" | "dismissed" | "failed";
 
-class HeldUrl {
-  constructor(public url: string | undefined) {}
-
-  release() {
-    this.url = undefined;
-  }
+export interface ShareableLink {
+  readonly path: string;
+  readonly asset: Asset;
+  readonly amount: PositiveAmount;
 }
 
-const present = async (text: string, held: HeldUrl): Promise<ShareResult> => {
-  const stopWatching = displayLock.subscribe(() => {
-    if (!Predicate.isTagged(displayLock.state(), "Unlocked")) held.release();
+const whileUnlocked = (
+  link: ShareableLink,
+  deliver: (url: string) => Promise<ShareResult>,
+): Promise<ShareResult> =>
+  Predicate.isTagged(displayLock.state(), "Unlocked")
+    ? deliver(new URL(link.path, window.location.origin).href)
+    : Promise.resolve("failed");
+
+export const nativeShareAvailable = () => "share" in navigator;
+
+export const shareLink = (link: ShareableLink) =>
+  whileUnlocked(link, async (url) => {
+    try {
+      await navigator.share({
+        title: "Link de pago de Orchid",
+        text: `Te envié ${amountLabel(link.amount, link.asset)} con Orchid. Abre el link para recibirlo.`,
+        url,
+      });
+
+      return "shared";
+    } catch (error) {
+      return error instanceof DOMException && error.name === "AbortError"
+        ? "dismissed"
+        : "failed";
+    }
   });
 
-  try {
-    if ("share" in navigator) {
-      try {
-        await navigator.share({
-          title: "Link de pago de Orchid",
-          text,
-          url: held.url,
-        });
-
-        return "shared";
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError")
-          return "dismissed";
-      }
-    }
-
-    if (held.url === undefined) return "unavailable";
-
+export const copyLink = (link: ShareableLink) =>
+  whileUnlocked(link, async (url) => {
     try {
-      await navigator.clipboard.writeText(held.url);
+      await navigator.clipboard.writeText(url);
 
       return "copied";
     } catch {
-      return "unavailable";
+      return "failed";
     }
-  } finally {
-    stopWatching();
-    held.release();
-  }
-};
-
-export function shareLink(created: PaymentLinkCreated): Promise<ShareResult> {
-  if (!Predicate.isTagged(displayLock.state(), "Unlocked"))
-    return Promise.resolve("unavailable");
-
-  return present(
-    `Te envié ${amountLabel(created.amount, created.asset)} con Orchid. Abre el link para recibirlo.`,
-    new HeldUrl(new URL(created.path, window.location.origin).href),
-  );
-}
+  });

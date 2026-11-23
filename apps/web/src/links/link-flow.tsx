@@ -1,4 +1,4 @@
-import { CheckIcon, LinkIcon, ShareIcon } from "lucide-react";
+import { LinkIcon, ShareIcon } from "lucide-react";
 import { useEffect, useReducer, useRef } from "react";
 import { Link, useBlocker } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
@@ -8,6 +8,7 @@ import {
   type PaymentLinkCreated,
   PaymentLinkIntent,
   type PaymentReview,
+  type SavedLinkTarget,
   formatAmount,
   parseAmount,
 } from "@workspace/wallet";
@@ -49,7 +50,16 @@ import {
   holdsUnsharedLink,
   reduceLinkFlow,
 } from "./link-flow-state";
-import { shareLink } from "./share-link";
+import {
+  DeliveryActions,
+  DeliveryNote,
+  LinkShareDrawer,
+  useLinkReveal,
+} from "./link-reveal";
+import { type ShareResult, copyLink, shareLink } from "./share-link";
+
+const oneTime = (intent: PaymentLinkIntent) =>
+  new PaymentLinkIntent({ ...intent, saveOnDevice: false });
 
 function LinkAmountStep({
   amount,
@@ -85,7 +95,13 @@ function LinkAmountStep({
       onSome: (entered) =>
         entered > available
           ? refuse(`Tienes ${amountLabel(available, asset)} disponibles`)
-          : onIntent(new PaymentLinkIntent({ asset, amount: entered })),
+          : onIntent(
+              new PaymentLinkIntent({
+                asset,
+                amount: entered,
+                saveOnDevice: true,
+              }),
+            ),
     });
   };
 
@@ -126,14 +142,18 @@ function LinkAmountStep({
 }
 
 function LinkReview({
+  intent,
   review,
   problem,
   onCreate,
+  onOnce,
   onEdit,
 }: {
+  intent: PaymentLinkIntent;
   review: PaymentReview;
   problem: Option.Option<string>;
   onCreate: () => void;
+  onOnce: () => void;
   onEdit: () => void;
 }) {
   return (
@@ -142,6 +162,8 @@ function LinkReview({
         <h1 className="font-display text-h1">Revisa tu link</h1>
         <dl
           aria-label="Resumen del link"
+          data-testid="link-review"
+          data-saved={intent.saveOnDevice}
           className="flex flex-col divide-y divide-border rounded-lg border border-border px-4"
         >
           <ReviewRow label="Monto">{formatAmount(review.amount)}</ReviewRow>
@@ -164,12 +186,20 @@ function LinkReview({
             })}
           </ReviewRow>
           <ReviewRow label="Comisión">Gratis</ReviewRow>
+          <ReviewRow label="Guardar el link">
+            {intent.saveOnDevice ? "En este dispositivo" : "No, solo ahora"}
+          </ReviewRow>
         </dl>
         <p className="text-body text-muted-foreground">
           Cualquiera que tenga el link puede recibir el dinero. Compártelo solo
           con quien quieres pagarle. Mientras nadie lo use, puedes recuperarlo.
           Tu passkey confirma que eres tú, pero no muestra los datos del link.
           Revísalos aquí antes de crearlo.
+        </p>
+        <p className="text-body text-muted-foreground">
+          {intent.saveOnDevice
+            ? "Guardamos el link cifrado solo en este dispositivo para que puedas compartirlo otra vez con tu passkey."
+            : "No guardaremos el link: compártelo apenas esté listo."}
         </p>
         {Option.isSome(problem) ? (
           <p role="alert" className="text-body text-destructive">
@@ -188,23 +218,20 @@ function LinkReview({
         <Button className="w-full" variant="secondary" onClick={onEdit}>
           Editar
         </Button>
+        {intent.saveOnDevice ? (
+          <Button
+            className="w-full"
+            variant="ghost"
+            onClick={onOnce}
+            data-testid="once-link"
+          >
+            Crear sin guardarlo
+          </Button>
+        ) : null}
       </ScreenActions>
     </>
   );
 }
-
-const deliveryNote = (delivery: Delivery) =>
-  Match.value(delivery).pipe(
-    Match.when("none", () => Option.none<string>()),
-    Match.when("shared", () => Option.some("Link compartido.")),
-    Match.when("copied", () =>
-      Option.some("Link copiado. Pégalo en el chat de quien recibe."),
-    ),
-    Match.when("dismissed", () =>
-      Option.some("Aún no lo compartiste. Puedes intentarlo de nuevo."),
-    ),
-    Match.exhaustive,
-  );
 
 function LinkReceipt({
   created,
@@ -213,8 +240,6 @@ function LinkReceipt({
   created: RecoverableLink;
   delivery: Delivery;
 }) {
-  const note = deliveryNote(delivery);
-
   return (
     <ScreenStatus
       title="Tu link está listo"
@@ -232,10 +257,7 @@ function LinkReceipt({
         Compártelo con quien quieres pagarle. Quien abra el link podrá recibir
         el dinero.
       </ScreenNote>
-      <p className="flex min-h-6 items-center justify-center gap-2 text-label text-accent-foreground">
-        {delivered(delivery) ? <CheckIcon className="size-5 shrink-0" /> : null}
-        {Option.getOrUndefined(note)}
-      </p>
+      <DeliveryNote delivery={delivery} />
     </ScreenStatus>
   );
 }
@@ -245,40 +267,38 @@ function LinkCreated({
   delivery,
   sharing,
   onShare,
+  onCopy,
   onLeave,
 }: {
   created: PaymentLinkCreated;
   delivery: Delivery;
   sharing: boolean;
   onShare: () => void;
+  onCopy: () => void;
   onLeave: () => void;
 }) {
   return (
     <>
       <LinkReceipt created={created} delivery={delivery} />
       <ScreenActions>
-        <Button
-          className="w-full"
-          onClick={onShare}
-          disabled={sharing}
-          data-testid="share-link"
-        >
-          <ShareIcon />
-          {delivered(delivery) ? "Compartir de nuevo" : "Compartir link"}
-        </Button>
-        {delivered(delivery) ? (
+        <DeliveryActions
+          delivering={sharing}
+          onShare={onShare}
+          onCopy={onCopy}
+        />
+        {created.savedOnDevice || delivered(delivery) ? (
           <Button
             className="w-full"
-            variant="secondary"
+            variant="ghost"
             nativeButton={false}
             render={<Link to="/home" data-testid="finish-link" />}
           >
-            Listo
+            {delivered(delivery) ? "Listo" : "Compartir después"}
           </Button>
         ) : (
           <Button
             className="w-full"
-            variant="secondary"
+            variant="ghost"
             onClick={onLeave}
             disabled={sharing}
             data-testid="leave-link"
@@ -357,6 +377,66 @@ function LostLink({ link }: { link: RecoverableLink }) {
   );
 }
 
+function SavedLink({ link }: { link: SavedLinkTarget }) {
+  const { started, begin, confirm, reset } = useRecovery();
+  const sharing = useLinkReveal();
+
+  if (Option.isSome(started))
+    return (
+      <RecoveryAnswer
+        recovery={started.value}
+        onBegin={begin}
+        onConfirm={confirm}
+        onCancel={reset}
+        done={<ResultLink link={<Link to="/home" />}>Listo</ResultLink>}
+      />
+    );
+
+  return (
+    <>
+      <ScreenStatus
+        title="Tu link está guardado"
+        data-testid="link-saved"
+        media={
+          <span className="flex size-14 items-center justify-center rounded-full bg-accent text-icon-accent [&_svg]:size-7">
+            <LinkIcon absoluteStrokeWidth />
+          </span>
+        }
+      >
+        <p className="font-display text-h1 text-muted-foreground">
+          {amountLabel(link.amount, link.asset)}
+        </p>
+        <ScreenNote>
+          Puedes compartirlo de nuevo con tu passkey o recuperar el dinero
+          mientras nadie lo use.
+        </ScreenNote>
+      </ScreenStatus>
+      <ScreenActions>
+        <Button
+          className="w-full"
+          onClick={() => sharing.open(link)}
+          data-testid="reshare-link"
+        >
+          <ShareIcon />
+          Compartir link
+        </Button>
+        <Button
+          className="w-full"
+          variant="secondary"
+          onClick={() => begin(link)}
+          data-testid="recover-link"
+        >
+          Recuperar {amountLabel(link.amount, link.asset)}
+        </Button>
+      </ScreenActions>
+      <LinkShareDrawer
+        sharing={sharing}
+        onRecover={(target) => begin(target)}
+      />
+    </>
+  );
+}
+
 export function LinkFlow({
   asset,
   available,
@@ -416,11 +496,12 @@ export function LinkFlow({
     );
   };
 
-  const share = (link: PaymentLinkCreated) => {
+  const deliver = (
+    link: PaymentLinkCreated,
+    handOff: (shared: PaymentLinkCreated) => Promise<ShareResult>,
+  ) => {
     send(LinkEvent.ShareStarted());
-    void shareLink(link).then((result) =>
-      send(LinkEvent.ShareEnded({ result })),
-    );
+    void handOff(link).then((result) => send(LinkEvent.ShareEnded({ result })));
   };
 
   const created = (link: PaymentLinkCreated, delivery: Delivery) => (
@@ -428,7 +509,8 @@ export function LinkFlow({
       created={link}
       delivery={delivery}
       sharing={Predicate.isTagged(state.step, "Sharing")}
-      onShare={() => share(link)}
+      onShare={() => deliver(link, shareLink)}
+      onCopy={() => deliver(link, copyLink)}
       onLeave={() => send(LinkEvent.Left())}
     />
   );
@@ -450,11 +532,13 @@ export function LinkFlow({
           />
         ),
         Reviewing: () => <LinkWorking label="Preparando tu link…" />,
-        Reviewed: ({ review, problem }) => (
+        Reviewed: ({ intent, review, problem }) => (
           <LinkReview
+            intent={intent}
             review={review}
             problem={problem}
             onCreate={() => create(review)}
+            onOnce={() => prepare(oneTime(intent))}
             onEdit={() => send(LinkEvent.Edited())}
           />
         ),
@@ -473,6 +557,11 @@ export function LinkFlow({
           return (
             <LinkResultScreen outcome={outcome._tag} screen={screen}>
               {Match.value(screen.action).pipe(
+                Match.when("once", () => (
+                  <ResultButton onClick={() => prepare(oneTime(intent))}>
+                    Crear sin guardarlo
+                  </ResultButton>
+                )),
                 Match.when("again", () => (
                   <ResultButton onClick={() => prepare(intent)}>
                     Reintentar
@@ -521,6 +610,7 @@ export function LinkFlow({
         Sent: ({ link, delivery }) => (
           <LinkSent link={link} delivery={delivery} />
         ),
+        Saved: ({ link }) => <SavedLink link={link} />,
         Lost: ({ link }) => <LostLink link={link} />,
         Checking: () => <LinkWorking label="Revisando tu link…" />,
         Checked: ({ outcome }) => {

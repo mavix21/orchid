@@ -53,6 +53,7 @@ export type RawStoredEntry =
       };
     })
   | typeof SealedDeviceWallet.Encoded
+  | ReadonlyArray<unknown>
   | CryptoKey;
 
 const withEntryStore = <A>(

@@ -72,6 +72,8 @@ const webSealedKeyStore: SealedKeyStore = {
       ),
     ),
   readSealed: () => browserKeyStore.readSealed(),
+  readLinks: () => browserKeyStore.readLinks(),
+  updateRecords: (update) => browserKeyStore.updateRecords(update),
   writeSealed: (wallet) =>
     browserKeyStore
       .writeSealed(wallet)

@@ -14,7 +14,9 @@ export const concealedLinkFor = (asset: Asset): Option.Option<LinkStep> =>
   Option.filter(
     kept,
     (step) =>
-      (Predicate.isTagged(step, "Lost") || Predicate.isTagged(step, "Sent")) &&
+      (Predicate.isTagged(step, "Lost") ||
+        Predicate.isTagged(step, "Saved") ||
+        Predicate.isTagged(step, "Sent")) &&
       assetKey(step.link.asset) === assetKey(asset),
   );
 

@@ -36,7 +36,9 @@ import {
   type PaymentReview,
   type ReclaimReview,
   type ResolvePaymentLinkOutcome,
+  type RevealPaymentLinkOutcome,
   type ReviewPaymentLinkOutcome,
+  type SavedLinkTarget,
   type RestoreOutcome,
   type ResumeOutcome,
   type ReviewOpeningOutcome,
@@ -79,6 +81,7 @@ export interface WalletClient {
   confirmPaymentLink(review: PaymentReview): Promise<ConfirmPaymentLinkOutcome>;
   paymentLinks(): Promise<PaymentLinksOutcome>;
   resolvePaymentLink(): Promise<ResolvePaymentLinkOutcome>;
+  revealPaymentLink(target: SavedLinkTarget): Promise<RevealPaymentLinkOutcome>;
   reviewReclaim(target: PaymentLinkTarget): Promise<ReviewReclaimOutcome>;
   confirmReclaim(review: ReclaimReview): Promise<ConfirmReclaimOutcome>;
 }
@@ -103,6 +106,9 @@ export interface WalletEffects {
   ): Effect.Effect<ConfirmPaymentLinkOutcome>;
   paymentLinks(): Effect.Effect<PaymentLinksOutcome>;
   resolvePaymentLink(): Effect.Effect<ResolvePaymentLinkOutcome>;
+  revealPaymentLink(
+    target: SavedLinkTarget,
+  ): Effect.Effect<RevealPaymentLinkOutcome>;
   reviewReclaim(target: PaymentLinkTarget): Effect.Effect<ReviewReclaimOutcome>;
   confirmReclaim(review: ReclaimReview): Effect.Effect<ConfirmReclaimOutcome>;
 }
@@ -380,6 +386,15 @@ export function makeWalletEffects(
           Effect.flatMap(({ resolvePaymentLink }) => resolvePaymentLink()),
         ),
       ),
+    revealPaymentLink: (target) =>
+      settle(
+        links.pipe(
+          Effect.flatMap(({ reveal }) => reveal(target)),
+          Effect.catchTag("CorruptDeviceWallet", (damaged) =>
+            Effect.succeed(damaged),
+          ),
+        ),
+      ),
     reviewReclaim: (target) =>
       transfer(reclaim.pipe(Effect.flatMap(({ review }) => review(target)))),
     confirmReclaim: (shown) =>
@@ -421,6 +436,8 @@ export function makeWalletClient(
       Effect.runPromise(effects.confirmPaymentLink(shown)),
     paymentLinks: () => Effect.runPromise(effects.paymentLinks()),
     resolvePaymentLink: () => Effect.runPromise(effects.resolvePaymentLink()),
+    revealPaymentLink: (target) =>
+      Effect.runPromise(effects.revealPaymentLink(target)),
     reviewReclaim: (target) => Effect.runPromise(effects.reviewReclaim(target)),
     confirmReclaim: (shown) => Effect.runPromise(effects.confirmReclaim(shown)),
   };

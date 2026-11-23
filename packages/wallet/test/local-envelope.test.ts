@@ -10,10 +10,10 @@ import {
   LocalPhraseEnvelope,
   freshInstallationSalt,
   localPhrasePrfInput,
-  paymentLinkPrfInput,
   reopenLocalEnvelope,
   sealLocalEnvelope,
 } from "../src/device/local-envelope";
+import { linkPrfInput } from "../src/device/link-seal";
 import { backupSalt } from "../src/device/phrase-seal";
 import { network } from "../src/stellar/network";
 import { addressOf } from "./device-fixtures";
@@ -159,18 +159,8 @@ it.effect(
         yield* localPhrasePrfInput({ network: "mainnet", address, salt }),
         yield* localPhrasePrfInput({ network, address: otherAddress, salt }),
         yield* localPhrasePrfInput({ network, address, salt: otherSalt }),
-        yield* paymentLinkPrfInput({
-          network,
-          address,
-          linkAddress: linkA,
-          salt,
-        }),
-        yield* paymentLinkPrfInput({
-          network,
-          address,
-          linkAddress: linkB,
-          salt,
-        }),
+        yield* linkPrfInput({ network, wallet: address, address: linkA }),
+        yield* linkPrfInput({ network, wallet: address, address: linkB }),
       ];
 
       const hexInputs = inputs.map((input) =>

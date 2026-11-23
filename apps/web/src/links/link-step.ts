@@ -2,6 +2,7 @@ import type {
   PaymentLinkCreated,
   PaymentLinkIntent,
   PaymentReview,
+  SavedLinkTarget,
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as Match from "effect/Match";
@@ -14,7 +15,7 @@ import {
   recoverable,
 } from "./outcomes";
 
-export type Delivery = "none" | "dismissed" | "shared" | "copied";
+export type Delivery = "none" | "dismissed" | "failed" | "shared" | "copied";
 
 export type LinkStep = Data.TaggedEnum<{
   Entering: { readonly problem: Option.Option<string> };
@@ -36,6 +37,7 @@ export type LinkStep = Data.TaggedEnum<{
   Created: { readonly link: PaymentLinkCreated; readonly delivery: Delivery };
   Sharing: { readonly link: PaymentLinkCreated; readonly delivery: Delivery };
   Sent: { readonly link: RecoverableLink; readonly delivery: Delivery };
+  Saved: { readonly link: SavedLinkTarget };
   Lost: { readonly link: RecoverableLink };
   Checking: {};
   Checked: { readonly outcome: CheckRefusal };
@@ -46,11 +48,24 @@ export const LinkStep = Data.taggedEnum<LinkStep>();
 export const delivered = (delivery: Delivery) =>
   delivery === "shared" || delivery === "copied";
 
+export const nextDelivery = (delivery: Delivery, result: Delivery): Delivery =>
+  delivered(delivery) && !delivered(result) ? delivery : result;
+
 export const entering = (problem: Option.Option<string> = Option.none()) =>
   LinkStep.Entering({ problem });
 
 export const lost = (link: RecoverableLink) =>
   LinkStep.Lost({ link: recoverable(link) });
+
+export const saved = ({ address, balance, asset, amount }: SavedLinkTarget) =>
+  LinkStep.Saved({ link: { address, balance, asset, amount } });
+
+const keptReceipt = (link: PaymentLinkCreated, delivery: Delivery) => {
+  if (delivered(delivery))
+    return LinkStep.Sent({ link: recoverable(link), delivery });
+
+  return link.savedOnDevice ? saved(link) : lost(link);
+};
 
 export const concealedStep = (step: LinkStep): Option.Option<LinkStep> =>
   Match.valueTags(step, {
@@ -59,19 +74,10 @@ export const concealedStep = (step: LinkStep): Option.Option<LinkStep> =>
     Reviewed: () => Option.none(),
     Creating: () => Option.none(),
     Refused: () => Option.none(),
-    Created: ({ link, delivery }) =>
-      Option.some(
-        delivered(delivery)
-          ? LinkStep.Sent({ link: recoverable(link), delivery })
-          : lost(link),
-      ),
-    Sharing: ({ link, delivery }) =>
-      Option.some(
-        delivered(delivery)
-          ? LinkStep.Sent({ link: recoverable(link), delivery })
-          : lost(link),
-      ),
+    Created: ({ link, delivery }) => Option.some(keptReceipt(link, delivery)),
+    Sharing: ({ link, delivery }) => Option.some(keptReceipt(link, delivery)),
     Sent: () => Option.some(step),
+    Saved: () => Option.some(step),
     Lost: () => Option.some(step),
     Checking: () => Option.none(),
     Checked: () => Option.none(),

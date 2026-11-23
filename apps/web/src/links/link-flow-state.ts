@@ -1,6 +1,5 @@
 import type {
   ConfirmPaymentLinkOutcome,
-  PaymentLinkCreated,
   PaymentLinkIntent,
   ResolvePaymentLinkOutcome,
   ReviewPaymentLinkOutcome,
@@ -13,11 +12,12 @@ import * as Predicate from "effect/Predicate";
 import type { Answer } from "@/send/use-wallet-task";
 
 import {
-  type Delivery,
   LinkStep,
   delivered,
   entering,
   lost,
+  nextDelivery,
+  saved,
 } from "./link-step";
 import type { ShareResult } from "./share-link";
 
@@ -42,22 +42,6 @@ export type LinkEvent = Data.TaggedEnum<{
 }>;
 
 export const LinkEvent = Data.taggedEnum<LinkEvent>();
-
-const afterShare = (
-  link: PaymentLinkCreated,
-  delivery: Delivery,
-  result: ShareResult,
-): LinkStep => {
-  if (delivered(delivery))
-    return LinkStep.Created({
-      link,
-      delivery: result === "shared" || result === "copied" ? result : delivery,
-    });
-
-  return result === "unavailable"
-    ? lost(link)
-    : LinkStep.Created({ link, delivery: result });
-};
 
 const expired =
   "El link anterior venció y lo preparamos de nuevo. Revísalo y confirma otra vez.";
@@ -126,6 +110,7 @@ export const reduceLinkFlow = (
         : state,
     ReviewStarted: ({ intent }) =>
       Predicate.isTagged(step, "Entering") ||
+      Predicate.isTagged(step, "Reviewed") ||
       Predicate.isTagged(step, "Refused")
         ? to(LinkStep.Reviewing({ intent }))
         : state,
@@ -165,10 +150,17 @@ export const reduceLinkFlow = (
         : state,
     ShareEnded: ({ result }) =>
       Predicate.isTagged(step, "Sharing")
-        ? to(afterShare(step.link, step.delivery, result))
+        ? to(
+            LinkStep.Created({
+              link: step.link,
+              delivery: nextDelivery(step.delivery, result),
+            }),
+          )
         : state,
     Left: () =>
-      Predicate.isTagged(step, "Created") && !delivered(step.delivery)
+      Predicate.isTagged(step, "Created") &&
+      !delivered(step.delivery) &&
+      !step.link.savedOnDevice
         ? to(lost(step.link))
         : state,
     CheckStarted: () =>
@@ -178,11 +170,10 @@ export const reduceLinkFlow = (
     CheckAnswered: ({ answer }) => {
       if (!Predicate.isTagged(step, "Checking")) return state;
 
-      return to(
-        Predicate.isTagged(answer, "ResolvedPaymentLink")
-          ? lost(answer)
-          : LinkStep.Checked({ outcome: answer }),
-      );
+      if (!Predicate.isTagged(answer, "LatestPaymentLink"))
+        return to(LinkStep.Checked({ outcome: answer }));
+
+      return to(answer.savedOnDevice ? saved(answer) : lost(answer));
     },
   });
 };
@@ -194,9 +185,12 @@ export const holdsUnsharedLink = (step: LinkStep) =>
     Reviewed: () => false,
     Creating: () => true,
     Refused: () => false,
-    Created: ({ delivery }) => !delivered(delivery),
-    Sharing: ({ delivery }) => !delivered(delivery),
+    Created: ({ link, delivery }) =>
+      !link.savedOnDevice && !delivered(delivery),
+    Sharing: ({ link, delivery }) =>
+      !link.savedOnDevice && !delivered(delivery),
     Sent: () => false,
+    Saved: () => false,
     Lost: () => false,
     Checking: () => false,
     Checked: () => false,

@@ -12,7 +12,9 @@ import type {
   ReclaimOutcome,
   WrongCredential,
   ResolvePaymentLinkOutcome,
-  ResolvedPaymentLink,
+  LatestPaymentLink,
+  PaymentLinkRevealed,
+  RevealPaymentLinkOutcome,
   WalletUnavailable,
 } from "@workspace/wallet";
 import * as DateTime from "effect/DateTime";
@@ -25,6 +27,7 @@ import type { DeviceFailure } from "@/send/use-wallet-task";
 import { unavailableMessage } from "@/wallet/unavailable";
 
 export type CreateAction =
+  | "once"
   | "again"
   | "edit"
   | "check"
@@ -54,7 +57,7 @@ export const recoverable = ({
 }: RecoverableLink): RecoverableLink => ({ balance, asset, amount });
 
 export const lostLinkMessage =
-  "Por seguridad, un link solo se puede compartir justo después de crearlo. Tu dinero sigue a salvo: recupéralo y crea uno nuevo.";
+  "Este link no se guardó en este dispositivo, así que ya no se puede compartir. Tu dinero sigue a salvo: recupéralo y crea uno nuevo.";
 
 const untouched = "Tu dinero no se movió.";
 
@@ -100,7 +103,7 @@ const unsupportedScreen = (
 
 const stillCreating = new LinkScreen(
   "Tu link aún se está creando",
-  "Este link ya no se podrá compartir. Cuando termine de crearse, recupera el dinero y crea uno nuevo.",
+  "Cuando termine de crearse, revisa tus links para compartirlo o recuperar el dinero.",
   "check",
 );
 
@@ -169,6 +172,12 @@ export const createLinkResult = (
         "Tu passkey no puede firmar aquí",
         `Tu passkey no abrió tu llave en este dispositivo. ${untouched}`,
         "home",
+      ),
+    LinkOutputMissing: () =>
+      new LinkScreen(
+        "No podemos guardar tu link aquí",
+        `Tu passkey no puede proteger el link en este dispositivo. Puedes crearlo sin guardarlo y compartirlo apenas esté listo. ${untouched}`,
+        "once",
       ),
     CorruptDeviceWallet: () =>
       new LinkScreen(
@@ -262,7 +271,7 @@ export const preparedLinkResult = (
   );
 
 export type CheckRefusal =
-  | Exclude<ResolvePaymentLinkOutcome, ResolvedPaymentLink>
+  | Exclude<ResolvePaymentLinkOutcome, LatestPaymentLink>
   | DeviceFailure;
 
 export const resolveLinkResult = (
@@ -487,3 +496,59 @@ export const reclaimResult = (
     InvalidResponse: (failure) => unavailable(failure, recheck),
   });
 };
+
+export type RevealRefusal =
+  | Exclude<RevealPaymentLinkOutcome, PaymentLinkRevealed>
+  | DeviceFailure;
+
+const cannotOpen = (reason: string) =>
+  new LinkScreen<RevealAction>(
+    "No pudimos abrir tu link",
+    `${reason} ${stillInLink}`,
+    "recover",
+  );
+
+const retryOpen = (reason: string) =>
+  new LinkScreen<RevealAction>(
+    "No pudimos abrir tu link",
+    `${reason} ${stillInLink}`,
+    "retry",
+  );
+
+export type RevealAction = "retry" | "recover";
+
+export const revealResult = (
+  outcome: RevealRefusal,
+): LinkScreen<RevealAction> =>
+  Match.valueTags(outcome, {
+    PasskeyCancelled: () =>
+      retryOpen("No usaste tu passkey, así que no abrimos el link."),
+    PasskeyFailed: () =>
+      retryOpen("No pudimos usar tu passkey. Inténtalo de nuevo."),
+    WrongCredential: () =>
+      retryOpen(
+        "Usaste una passkey distinta. Ábrelo con la passkey de tu cuenta.",
+      ),
+    AssertionRejected: () =>
+      retryOpen(
+        "No pudimos verificar tu passkey. Ábrelo con tu huella, rostro o PIN del dispositivo.",
+      ),
+    PrfOutputMissing: () =>
+      cannotOpen("Tu passkey no puede abrir el link en este dispositivo."),
+    LinkSecretMissing: () =>
+      cannotOpen("Este link no está guardado en este dispositivo."),
+    LinkSecretCorrupt: () =>
+      cannotOpen("El link guardado en este dispositivo está dañado."),
+    CorruptDeviceWallet: () =>
+      cannotOpen("Los datos guardados en este navegador están dañados."),
+    NoWallet: () =>
+      cannotOpen("Este dispositivo no tiene una cuenta de Orchid."),
+    UnsupportedDevice: () =>
+      cannotOpen("Este navegador no puede abrir tu link de forma segura."),
+    DeviceFailure: () => retryOpen("Algo falló en este dispositivo."),
+    Offline: (failure) => retryOpen(unavailableMessage(failure)),
+    ServerUnreachable: (failure) => retryOpen(unavailableMessage(failure)),
+    LedgerUnreachable: (failure) => retryOpen(unavailableMessage(failure)),
+    ServiceFailed: (failure) => retryOpen(unavailableMessage(failure)),
+    InvalidResponse: (failure) => retryOpen(unavailableMessage(failure)),
+  });

@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   BalanceGone,
@@ -18,9 +19,11 @@ import {
   type WalletPort,
   baseAsset,
 } from "../src/contract";
+import { browserKeyStore } from "../src/device/browser-key-store";
 import {
   DraftRejected,
   PaymentLinkIntent,
+  type WalletEffects,
   makeWalletEffects,
 } from "../src/device/client";
 import { DeviceWallet } from "../src/device/key-store";
@@ -57,9 +60,38 @@ useDisposableDatabase();
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
-    it.effect(
-      "a restarted creation resolves the receipt committed before an interrupted approval to one balance",
-      () =>
+    it.effect.each([
+      {
+        name: "resolving the receipt",
+        reconcile: (client: WalletEffects) =>
+          client
+            .resolvePaymentLink()
+            .pipe(
+              Effect.map((resolved) =>
+                Predicate.isTagged(resolved, "LatestPaymentLink")
+                  ? resolved.savedOnDevice
+                  : resolved._tag,
+              ),
+            ),
+        reconciled: true,
+      },
+      {
+        name: "starting another link before visiting the links",
+        reconcile: (client: WalletEffects) =>
+          client
+            .reviewPaymentLink(
+              new PaymentLinkIntent({
+                asset: baseAsset,
+                amount: linkAmount,
+                saveOnDevice: false,
+              }),
+            )
+            .pipe(Effect.map((reviewed) => reviewed._tag)),
+        reconciled: "PaymentReview",
+      },
+    ])(
+      "a restarted creation records the balance funded before an interrupted approval by $name and re-shares its link",
+      ({ reconcile, reconciled }) =>
         Effect.gen(function* () {
           const store = memoryKeyStore();
           const { wallet, sender } = yield* openSender(store, "receiptowner");
@@ -85,7 +117,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           const review = yield* interrupted.reviewPaymentLink(
-            new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
+            new PaymentLinkIntent({
+              asset: baseAsset,
+              amount: linkAmount,
+              saveOnDevice: true,
+            }),
           );
 
           assertTagged(review, "PaymentReview");
@@ -95,31 +131,64 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const savedAfterCrash = yield* savedWallet(sealedKeyStore);
 
-          expect(savedAfterCrash.linkReceipt?.attempts).toHaveLength(1);
+          const funded = Option.getOrThrow(
+            Option.fromNullishOr(savedAfterCrash.linkReceipt),
+          );
+
+          expect(funded.attempts).toHaveLength(1);
+          expect(
+            (yield* browserKeyStore.readLinks()).map((link) => ({
+              address: link.address,
+              fundedBalance: link.fundedBalance,
+            })),
+          ).toEqual([{ address: funded.address, fundedBalance: undefined }]);
 
           const restartedDevice = makeWalletEffects(
             wallet,
             sealedKeyStore,
             devicePasskeys,
+            approvingDevice(auth),
           );
 
-          const resolved = yield* restartedDevice.resolvePaymentLink();
+          world.holdings.set(
+            sender.address,
+            holdingsFor(sender.address, {
+              lines: [{ ...euroLine("500000000"), asset: baseAsset }],
+            }),
+          );
 
-          assertTagged(resolved, "ResolvedPaymentLink");
-          expect(resolved.address).toBe(review.to);
-          expect(resolved.balance).toBe(savedAfterCrash.linkReceipt?.balance);
+          expect(yield* reconcile(restartedDevice)).toBe(reconciled);
+          expect(
+            (yield* browserKeyStore.readLinks()).map((link) => ({
+              address: link.address,
+              fundedBalance: link.fundedBalance,
+            })),
+          ).toEqual([
+            { address: funded.address, fundedBalance: funded.balance },
+          ]);
 
-          const competingLink = addressOf(Keypair.random());
+          const revealed = yield* restartedDevice.revealPaymentLink({
+            address: funded.address,
+            balance: funded.balance,
+            asset: funded.asset,
+            amount: funded.amount,
+          });
+
+          assertTagged(revealed, "PaymentLinkRevealed");
+          expect(Keypair.fromSecret(revealed.secret).publicKey()).toBe(
+            funded.address,
+          );
+          expect(revealed.path).toBe(`/l/${funded.address}#${revealed.secret}`);
 
           const competingMiss = yield* wallet.resolvePaymentLink(
             sender.address,
             new PaymentLinkReceipt({
               network: "testnet",
-              address: competingLink,
+              address: addressOf(Keypair.random()),
               asset: baseAsset,
               amount: linkAmount,
-              balance: resolved.balance,
-              attempts: [resolved.balance],
+              balance: funded.balance,
+              attempts: [funded.balance],
             }),
           );
 
@@ -154,7 +223,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           const review = yield* pending.reviewPaymentLink(
-            new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
+            new PaymentLinkIntent({
+              asset: baseAsset,
+              amount: linkAmount,
+              saveOnDevice: true,
+            }),
           );
 
           assertTagged(review, "PaymentReview");
@@ -173,9 +246,16 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             wallet,
             sealedKeyStore,
             devicePasskeys,
+            approvingDevice(auth),
+          );
+
+          const savedFunding = Effect.map(
+            browserKeyStore.readLinks(),
+            (links) => links.map((link) => link.fundedBalance),
           );
 
           assertTagged(yield* restarted.resolvePaymentLink(), "Pending");
+          expect(yield* savedFunding).toEqual([undefined]);
           expect(
             (yield* savedWallet(sealedKeyStore)).linkReceipt?.balance,
           ).toBe(receipt.balance);
@@ -193,9 +273,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const resolved = yield* restarted.resolvePaymentLink();
 
-          assertTagged(resolved, "ResolvedPaymentLink");
+          assertTagged(resolved, "LatestPaymentLink");
           expect(resolved.balance).toBe(receipt.balance);
           expect(resolved.address).toBe(linkAddr);
+          expect(resolved.savedOnDevice).toBe(true);
+          expect(yield* savedFunding).toEqual([receipt.balance]);
 
           const cancelSettlingPort: WalletPort = {
             ...wallet,
@@ -254,6 +336,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               ),
             }),
           ).toEqual(new BalanceGone({ status: "unresolved" }));
+          expect(yield* savedFunding).toEqual([receipt.balance]);
 
           yield* released.open;
 
@@ -271,10 +354,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
           expect(auth.requested).toHaveLength(fundingPrompts);
 
+          expect(yield* savedFunding).toEqual([receipt.balance]);
           assertTagged(
             yield* reclaiming.confirmReclaim(current),
             "AssetSettled",
           );
+          expect(yield* savedFunding).toEqual([]);
           expect(auth.requested).toHaveLength(fundingPrompts + 1);
         }),
     );
@@ -520,7 +605,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const resolvedA = yield* Fiber.join(resolvingA);
 
-          assertTagged(resolvedA, "ResolvedPaymentLink");
+          assertTagged(resolvedA, "LatestPaymentLink");
           expect(resolvedA.balance).toBe(balanceA);
 
           const storedAfterA = yield* savedWallet(store);
@@ -534,7 +619,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             devicePasskeys,
           ).resolvePaymentLink();
 
-          assertTagged(resolvedB, "ResolvedPaymentLink");
+          assertTagged(resolvedB, "LatestPaymentLink");
           expect(resolvedB.balance).toBe(balanceB);
           expect(resolvedB.address).toBe(linkB);
         }),

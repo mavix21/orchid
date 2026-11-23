@@ -21,6 +21,7 @@ import {
   PublicDeviceWallet,
   Restored,
   SealedDeviceWallet,
+  type SealedLinkSecret,
   type SealedKeyStore,
   Settled,
   TransferIntent,
@@ -68,8 +69,26 @@ const device = memoryKeyStore();
 
 const memorySealedKeyStore = (): SealedKeyStore => {
   let saved = Option.none<SealedDeviceWallet>();
+  let links: ReadonlyArray<SealedLinkSecret> = [];
 
   return {
+    readLinks: () => Effect.sync(() => links),
+    updateRecords: (update) =>
+      Effect.sync(() =>
+        Option.map(saved, (stored) => {
+          const current = { wallet: stored.public, links };
+          const next = update(current);
+
+          if (Option.isNone(next)) return { records: current, updated: false };
+
+          saved = Option.some(
+            new SealedDeviceWallet({ ...stored, public: next.value.wallet }),
+          );
+          links = next.value.links;
+
+          return { records: next.value, updated: true };
+        }),
+      ),
     readPublic: () => Effect.sync(() => Option.map(saved, (s) => s.public)),
     updatePublic: (update) =>
       Effect.sync(() =>
