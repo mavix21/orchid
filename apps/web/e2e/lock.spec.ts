@@ -25,6 +25,9 @@ const setVisibility = (page: Page, state: "hidden" | "visible") =>
     document.dispatchEvent(new Event("visibilitychange"));
   }, state);
 
+const useRealVisibility = (page: Page) =>
+  page.evaluate(() => Reflect.deleteProperty(document, "visibilityState"));
+
 const restorePageFromCache = (page: Page) =>
   page.evaluate(() => {
     window.dispatchEvent(new PageTransitionEvent("pagehide"));
@@ -58,7 +61,7 @@ test("starts every wallet route locked and unlocks only on a verified assertion"
   await expect(unlockButton(page)).toBeVisible();
 });
 
-test("masks on hide, resumes within the window, and locks on a restored page", async ({
+test("masks on hide, resumes within the window or after a reload, and locks on a restored page", async ({
   page,
 }) => {
   await openWallet(page, freshUsername());
@@ -75,25 +78,14 @@ test("masks on hide, resumes within the window, and locks on a restored page", a
   await setVisibility(page, "visible");
   await expect(content).toBeVisible();
 
-  await restorePageFromCache(page);
-  await expect(unlockButton(page)).toBeVisible();
-  await expect(content).toHaveCount(0);
-});
-
-test("resumes a reloaded tab within the window and locks it after", async ({
-  page,
-}) => {
-  await openWallet(page, freshUsername());
-
-  const content = page.getByTestId("open-send");
-  const start = Date.now();
-
-  await page.clock.setFixedTime(start);
+  await useRealVisibility(page);
   await page.reload();
   await expect(content).toBeVisible();
 
-  await setVisibility(page, "hidden");
-  await page.clock.setFixedTime(start + resumeWindow);
+  await restorePageFromCache(page);
+  await expect(unlockButton(page)).toBeVisible();
+  await expect(content).toHaveCount(0);
+
   await page.reload();
   await expect(unlockButton(page)).toBeVisible();
   await expect(content).toHaveCount(0);

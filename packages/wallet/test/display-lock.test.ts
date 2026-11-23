@@ -157,15 +157,12 @@ it.each([
   expect(lock.state()._tag).toBe("Locked");
 });
 
-const reloadedAfter = (
-  milliseconds: number,
-  leaveTab: (lock: DisplayLock) => void,
-) => {
+const reloadedAfterHide = (milliseconds: number) => {
   const store = sessionStore();
   const { clock, lock } = tabAt(store);
 
   lock.unlock(lock.begin());
-  leaveTab(lock);
+  lock.hide();
   clock.now += milliseconds;
 
   const reloaded = tabAt(store, clock).lock;
@@ -190,7 +187,7 @@ it.each([
 ] as const)(
   "a tab reloaded after being hidden for $away ends up $expected",
   ({ millis, expected }) => {
-    expect(reloadedAfter(millis, (lock) => lock.hide())).toBe(expected);
+    expect(reloadedAfterHide(millis)).toBe(expected);
   },
 );
 
@@ -204,6 +201,14 @@ it.each([
       lock.relock();
     },
   ],
+  [
+    "it already came back",
+    (lock: DisplayLock) => {
+      lock.unlock(lock.begin());
+      lock.hide();
+      lock.show();
+    },
+  ],
 ] as const)("a tab reloaded after %s stays locked", (_, leaveTab) => {
   const store = sessionStore();
   const { clock, lock } = tabAt(store);
@@ -213,32 +218,33 @@ it.each([
   expect(tabAt(store, clock).lock.state()._tag).toBe("Locked");
 });
 
-it("a reloaded tab that stays hidden resumes only if it returns within the window of the original hide", () => {
-  const store = sessionStore();
-  const { clock, lock } = tabAt(store);
+it.each([
+  {
+    later: "within the window of the original hide",
+    millis: 29_999,
+    expected: "Unlocked",
+  },
+  {
+    later: "past the window of the original hide",
+    millis: 30_000,
+    expected: "Locked",
+  },
+] as const)(
+  "a reloaded tab that stays hidden and returns $later ends up $expected",
+  ({ millis, expected }) => {
+    const store = sessionStore();
+    const { clock, lock } = tabAt(store);
 
-  lock.unlock(lock.begin());
-  lock.hide();
-  clock.now += 30_000;
+    lock.unlock(lock.begin());
+    lock.hide();
+    clock.now += 30_000;
 
-  const reloaded = tabAt(store, clock).lock;
+    const reloaded = tabAt(store, clock).lock;
 
-  expect(reloaded.state()._tag).toBe("Masked");
+    reloaded.hide();
+    clock.now += millis;
+    reloaded.show();
 
-  reloaded.hide();
-  clock.now += 29_999;
-  reloaded.show();
-
-  expect(reloaded.state()._tag).toBe("Unlocked");
-});
-
-it("a tab that came back does not resume again on a later reload", () => {
-  const store = sessionStore();
-  const { clock, lock } = tabAt(store);
-
-  lock.unlock(lock.begin());
-  lock.hide();
-  lock.show();
-
-  expect(tabAt(store, clock).lock.state()._tag).toBe("Locked");
-});
+    expect(reloaded.state()._tag).toBe(expected);
+  },
+);
