@@ -26,10 +26,9 @@ import {
   type WalletEffects,
   makeWalletEffects,
 } from "../src/device/client";
-import { DeviceWallet } from "../src/device/key-store";
 import { signingKey } from "../src/device/signing";
 import { Transfers } from "../src/server/Transfers.server";
-import { memoryKeyStore, savedWallet } from "./device-fixtures";
+import { DeviceWallet, memoryKeyStore, savedWallet } from "./device-fixtures";
 import {
   approvingDevice,
   installSealedWallet,
@@ -557,16 +556,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ],
           });
 
-          yield* store
-            .write(
-              new DeviceWallet({
-                ...sender,
-                transfer: orderA,
-                approvedUntil: Math.floor(Date.now() / 1000) + 120,
-                linkReceipt: receiptA,
-              }),
-            )
-            .pipe(Effect.orDie);
+          yield* store.seed(
+            new DeviceWallet({
+              ...sender,
+              transfer: orderA,
+              approvedUntil: Math.floor(Date.now() / 1000) + 120,
+              linkReceipt: receiptA,
+            }),
+          );
 
           const started = yield* Latch.make();
           const release = yield* Latch.make();
@@ -590,16 +587,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           yield* started.await;
 
-          yield* store
-            .write(
-              new DeviceWallet({
-                ...sender,
-                transfer: orderB,
-                approvedUntil: Math.floor(Date.now() / 1000) + 180,
-                linkReceipt: receiptB,
-              }),
-            )
-            .pipe(Effect.orDie);
+          yield* store.seed(
+            new DeviceWallet({
+              ...sender,
+              transfer: orderB,
+              approvedUntil: Math.floor(Date.now() / 1000) + 180,
+              linkReceipt: receiptB,
+            }),
+          );
 
           yield* release.open;
 

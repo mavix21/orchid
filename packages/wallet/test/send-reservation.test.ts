@@ -21,8 +21,9 @@ import {
   type WalletEffects,
   makeWalletEffects,
 } from "../src/device/client";
-import { DeviceWallet, PublicDeviceWallet } from "../src/device/key-store";
+import { PublicDeviceWallet } from "../src/device/key-store";
 import {
+  DeviceWallet,
   memoryKeyStore,
   nowSeconds,
   savedWallet,

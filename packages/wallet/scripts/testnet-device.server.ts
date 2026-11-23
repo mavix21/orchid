@@ -13,10 +13,8 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
   type ConfirmOutcome,
-  DeviceWallet,
   Holding,
   type KeyStore,
-  KeyStoreUnavailable,
   PositiveAmount,
   PublicDeviceWallet,
   Restored,
@@ -127,10 +125,6 @@ const relyingParty = {
 };
 
 const publicKeyStore = (sealed: SealedKeyStore): KeyStore => ({
-  read: () =>
-    Effect.fail(new KeyStoreUnavailable({ cause: "secret requires passkey" })),
-  write: () =>
-    Effect.fail(new KeyStoreUnavailable({ cause: "secret requires passkey" })),
   readPublic: () => Effect.orDie(sealed.readPublic()),
   updatePublic: (update) => Effect.orDie(sealed.updatePublic(update)),
 });
@@ -188,15 +182,13 @@ const openWallet = async (
     `Expected PhraseOpened, got ${reopened._tag}`,
   );
 
-  await Effect.runPromise(
-    store.store.write(
-      new DeviceWallet({
-        phrase: Redacted.value(reopened.phrase),
-        address: sealed.public.address,
-        username: sealed.public.username,
-        backup: "stored",
-      }),
-    ),
+  store.seed(
+    Redacted.value(reopened.phrase),
+    new PublicDeviceWallet({
+      address: sealed.public.address,
+      username: sealed.public.username,
+      backup: "stored",
+    }),
   );
 
   const reviewed = Option.getOrThrow(

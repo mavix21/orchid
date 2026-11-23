@@ -21,8 +21,13 @@ import {
   TransferIntent,
   makeWalletEffects,
 } from "../src/device/client";
-import { DeviceWallet, type KeyStore } from "../src/device/key-store";
-import { nowSeconds, transferDraftOf, unusedPort } from "./device-fixtures";
+import type { KeyStore } from "../src/device/key-store";
+import {
+  DeviceWallet,
+  nowSeconds,
+  transferDraftOf,
+  unusedPort,
+} from "./device-fixtures";
 import {
   approvingDevice,
   installSealedWallet,

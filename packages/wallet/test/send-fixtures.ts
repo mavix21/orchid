@@ -19,12 +19,9 @@ import {
 } from "../src/contract";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import { TransferIntent, type WalletEffects } from "../src/device/client";
+import type { DeviceRecords, SealedKeyStore } from "../src/device/key-store";
 import {
-  type DeviceRecords,
-  DeviceWallet,
-  type SealedKeyStore,
-} from "../src/device/key-store";
-import {
+  type DeviceWallet,
   memoryKeyStore,
   nowSeconds,
   sendActors,

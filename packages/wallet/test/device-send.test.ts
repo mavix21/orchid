@@ -13,8 +13,7 @@ import {
   baseAsset,
 } from "../src/contract";
 import { TransferIntent, makeWalletEffects } from "../src/device/client";
-import { DeviceWallet } from "../src/device/key-store";
-import { memoryKeyStore } from "./device-fixtures";
+import { DeviceWallet, memoryKeyStore } from "./device-fixtures";
 import {
   approvingDevice,
   installSealedWallet,

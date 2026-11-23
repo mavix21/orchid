@@ -26,11 +26,7 @@ import {
   UnsupportedDevice,
   makeWalletEffects,
 } from "../src/device/client";
-import {
-  type KeyStore,
-  KeyStoreUnavailable,
-  PublicDeviceWallet,
-} from "../src/device/key-store";
+import { type KeyStore, PublicDeviceWallet } from "../src/device/key-store";
 import {
   memoryKeyStore,
   nowSeconds,
@@ -357,16 +353,7 @@ it.live(
   "reads, reviews and resumes without secret or passkey access, and fails closed on any signature",
   () =>
     Effect.gen(function* () {
-      const backing = memoryKeyStore(Option.some(actors.wallet));
-
-      const lockedStore: KeyStore = {
-        read: () =>
-          Effect.fail(new KeyStoreUnavailable({ cause: "secret locked" })),
-        write: () =>
-          Effect.fail(new KeyStoreUnavailable({ cause: "secret locked" })),
-        readPublic: () => backing.readPublic(),
-        updatePublic: (update) => backing.updatePublic(update),
-      };
+      const lockedStore = memoryKeyStore(Option.some(actors.wallet));
 
       const lockedPasskeys: Passkeys = {
         authenticate: () => Effect.fail(new PasskeyFailed()),

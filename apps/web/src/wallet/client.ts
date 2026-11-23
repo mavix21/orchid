@@ -24,18 +24,6 @@ const failClosed = <A>(
   );
 
 const deviceKeyStore: KeyStore = {
-  read: () =>
-    Effect.fail(
-      new KeyStoreUnavailable({
-        cause: new Error("Local wallet requires passkey verification"),
-      }),
-    ),
-  write: () =>
-    Effect.fail(
-      new KeyStoreUnavailable({
-        cause: new Error("Local wallet requires passkey verification"),
-      }),
-    ),
   readPublic: () =>
     failClosed(browserKeyStore.readPublic()).pipe(
       Effect.tap((stored) =>
