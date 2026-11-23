@@ -239,12 +239,50 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const { auth } = yield* installSealedWallet(sender);
 
+          const held = yield* Latch.make();
+          const released = yield* Latch.make();
+          let holdFirstPreflight = true;
+
+          const holdingPort: WalletPort = {
+            ...cancelSettlingPort,
+            manage: (order, approval) => {
+              if (!holdFirstPreflight || Option.isSome(approval))
+                return cancelSettlingPort.manage(order, approval);
+
+              holdFirstPreflight = false;
+
+              return held.open.pipe(
+                Effect.andThen(released.await),
+                Effect.andThen(cancelSettlingPort.manage(order, approval)),
+              );
+            },
+          };
+
           const reclaiming = makeWalletEffects(
-            cancelSettlingPort,
+            holdingPort,
             sealedKeyStore,
             devicePasskeys,
             approvingDevice(auth),
           );
+
+          const lateReview = yield* Effect.forkChild(
+            reclaiming.reviewReclaim(resolved),
+          );
+
+          yield* held.await;
+
+          expect(
+            yield* reclaiming.reviewReclaim({
+              ...resolved,
+              balance: Schema.decodeSync(BalanceId)(
+                `00000000${"1".repeat(64)}`,
+              ),
+            }),
+          ).toEqual(new BalanceGone({ status: "unresolved" }));
+
+          yield* released.open;
+
+          expect(yield* Fiber.join(lateReview)).toEqual(new DraftRejected());
 
           const superseded = yield* reclaiming.reviewReclaim(resolved);
           const current = yield* reclaiming.reviewReclaim(resolved);

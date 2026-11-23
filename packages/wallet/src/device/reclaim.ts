@@ -52,6 +52,7 @@ type OnDraft = (
 
 export interface ReclaimReviews {
   readonly issued: Ref.Ref<Option.Option<string>>;
+  readonly preflights: Ref.Ref<number>;
   readonly device: SealedDevice | undefined;
 }
 
@@ -118,11 +119,10 @@ export function deviceReclaim(
       return Option.getOrElse(last.done, () => new DraftRejected());
     });
 
-  const latest = Ref.makeUnsafe(0);
-
-  const startPreflight = Ref.updateAndGet(latest, (ticket) => ticket + 1).pipe(
-    Effect.tap(() => Ref.set(reviews.issued, Option.none())),
-  );
+  const startPreflight = Ref.updateAndGet(
+    reviews.preflights,
+    (ticket) => ticket + 1,
+  ).pipe(Effect.tap(() => Ref.set(reviews.issued, Option.none())));
 
   const presenting = (
     wallet: PublicDeviceWallet,
@@ -157,7 +157,10 @@ export function deviceReclaim(
           return Option.none();
         }
 
-        if (standing !== "current" || (yield* Ref.get(latest)) !== ticket)
+        if (
+          standing !== "current" ||
+          (yield* Ref.get(reviews.preflights)) !== ticket
+        )
           return Option.some(new DraftRejected());
 
         yield* Ref.set(
@@ -175,11 +178,10 @@ export function deviceReclaim(
     ReviewReclaimOutcome,
     WalletUnavailable | KeyStoreUnavailable
   > {
+    const ticket = yield* startPreflight;
     const stored = yield* store.readPublic();
 
     if (Option.isNone(stored)) return new NoWallet();
-
-    const ticket = yield* startPreflight;
 
     const order = new AssetOrder({
       id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
