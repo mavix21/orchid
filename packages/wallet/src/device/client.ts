@@ -50,6 +50,7 @@ import {
 } from "./outcomes";
 import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
 import { loadFromServer } from "./reaching";
+import type { ReclaimIssue } from "./reclaim";
 import type { RestoreProgress } from "./restore";
 
 export * from "./outcomes";
@@ -113,8 +114,11 @@ export function makeWalletEffects(
 
   const issuedReview = Ref.makeUnsafe(Option.none<string>());
   const issuedOpening = Ref.makeUnsafe(Option.none<string>());
-  const issuedReclaim = Ref.makeUnsafe(Option.none<string>());
-  const reclaimPreflights = Ref.makeUnsafe(0);
+
+  const reclaimIssue = Ref.makeUnsafe<ReclaimIssue>({
+    ticket: 0,
+    issued: Option.none(),
+  });
 
   const sending = loadFromServer(() => import("./sending")).pipe(
     Effect.map(({ sendTransfer }) =>
@@ -128,11 +132,7 @@ export function makeWalletEffects(
 
   const reclaim = loadFromServer(() => import("./reclaim")).pipe(
     Effect.map(({ deviceReclaim }) =>
-      deviceReclaim(port, store, {
-        issued: issuedReclaim,
-        preflights: reclaimPreflights,
-        device,
-      }),
+      deviceReclaim(port, store, { state: reclaimIssue, device }),
     ),
   );
 

@@ -50,9 +50,13 @@ type OnDraft = (
   draft: AssetDraft,
 ) => Effect.Effect<Option.Option<ReviewReclaimOutcome>>;
 
+export interface ReclaimIssue {
+  readonly ticket: number;
+  readonly issued: Option.Option<string>;
+}
+
 export interface ReclaimReviews {
-  readonly issued: Ref.Ref<Option.Option<string>>;
-  readonly preflights: Ref.Ref<number>;
+  readonly state: Ref.Ref<ReclaimIssue>;
   readonly device: SealedDevice | undefined;
 }
 
@@ -119,10 +123,24 @@ export function deviceReclaim(
       return Option.getOrElse(last.done, () => new DraftRejected());
     });
 
-  const startPreflight = Ref.updateAndGet(
-    reviews.preflights,
-    (ticket) => ticket + 1,
-  ).pipe(Effect.tap(() => Ref.set(reviews.issued, Option.none())));
+  const startPreflight = Ref.modify(reviews.state, (current) => [
+    current.ticket + 1,
+    { ticket: current.ticket + 1, issued: Option.none() },
+  ]);
+
+  const publish = (ticket: number, snapshot: string) =>
+    Ref.modify(reviews.state, (current) =>
+      current.ticket === ticket
+        ? [true, { ticket, issued: Option.some(snapshot) }]
+        : [false, current],
+    );
+
+  const consume = (snapshot: string) =>
+    Ref.modify(reviews.state, (current) =>
+      Option.contains(current.issued, snapshot)
+        ? [true, { ticket: current.ticket, issued: Option.none() }]
+        : [false, current],
+    );
 
   const presenting = (
     wallet: PublicDeviceWallet,
@@ -159,14 +177,9 @@ export function deviceReclaim(
 
         if (
           standing !== "current" ||
-          (yield* Ref.get(reviews.preflights)) !== ticket
+          !(yield* publish(ticket, reviewJson(derived.value.review)))
         )
           return Option.some(new DraftRejected());
-
-        yield* Ref.set(
-          reviews.issued,
-          Option.some(reviewJson(derived.value.review)),
-        );
 
         return Option.some(derived.value.review);
       });
@@ -207,26 +220,27 @@ export function deviceReclaim(
     wallet: PublicDeviceWallet,
     shown: ReclaimReview,
   ) =>
-    Ref.modify(reviews.issued, (current) =>
-      Option.contains(current, snapshot)
-        ? [true, Option.none()]
-        : [false, current],
+    Ref.modify(
+      reviews.state,
+      (current): [Option.Option<number>, ReclaimIssue] =>
+        Option.contains(current.issued, snapshot)
+          ? [
+              Option.some(current.ticket + 1),
+              { ticket: current.ticket + 1, issued: Option.none() },
+            ]
+          : [Option.none(), current],
     ).pipe(
-      Effect.flatMap((consumed): ReturnType<typeof advance> =>
-        consumed && !shown.redrafted
-          ? startPreflight.pipe(
-              Effect.flatMap((ticket) =>
-                advance(
-                  shown.order,
-                  presenting(
-                    wallet,
-                    shown.order,
-                    shown.asset,
-                    shown.amount,
-                    true,
-                    ticket,
-                  ),
-                ),
+      Effect.flatMap((ticket): ReturnType<typeof advance> =>
+        Option.isSome(ticket) && !shown.redrafted
+          ? advance(
+              shown.order,
+              presenting(
+                wallet,
+                shown.order,
+                shown.asset,
+                shown.amount,
+                true,
+                ticket.value,
               ),
             )
           : Effect.succeed(new DraftRejected()),
@@ -239,19 +253,19 @@ export function deviceReclaim(
     ConfirmReclaimOutcome,
     WalletUnavailable | KeyStoreUnavailable | CorruptDeviceWallet
   > {
-    const { device, issued } = reviews;
+    const { device } = reviews;
 
     if (device === undefined) return new UnsupportedDevice();
 
-    const snapshot = yield* Ref.get(issued);
+    const { issued: snapshot } = yield* Ref.get(reviews.state);
 
     if (Option.isNone(snapshot) || snapshot.value !== reviewJson(shown))
       return new DraftRejected();
 
     const presented = reviewFromJson(snapshot.value);
 
-    const issuedHere = Effect.map(Ref.get(issued), (current) =>
-      Option.contains(current, snapshot.value),
+    const issuedHere = Effect.map(Ref.get(reviews.state), (current) =>
+      Option.contains(current.issued, snapshot.value),
     );
 
     const sealed = yield* device.store.readSealed();
@@ -288,13 +302,7 @@ export function deviceReclaim(
           if ((yield* standingNow(reservation, presented)) !== "current")
             return new DraftRejected();
 
-          const consumed = yield* Ref.modify(issued, (current) =>
-            Option.contains(current, snapshot.value)
-              ? [true, Option.none()]
-              : [false, current],
-          );
-
-          if (!consumed) return new DraftRejected();
+          if (!(yield* consume(snapshot.value))) return new DraftRejected();
 
           released = true;
 
