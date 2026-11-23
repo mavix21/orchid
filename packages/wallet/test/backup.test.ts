@@ -172,8 +172,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           yield* Effect.promise(clearDatabase);
 
           const restoring = restoringDevice(wallet, auth);
+          const pinnedBeforeRestore = auth.issued.length;
           const steps = yield* restoreOnFreshTaps(restoring);
 
+          expect(auth.issued).toHaveLength(pinnedBeforeRestore + 1);
           expect(steps.located).toBeInstanceOf(BackupLocated);
           expect(
             steps.restored instanceof Restored && steps.restored.profile,
