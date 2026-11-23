@@ -37,6 +37,7 @@ import {
 } from "../src/stellar/envelopes";
 import { draftOpeningWithRecovery } from "../src/stellar/opening-drafts";
 import {
+  approvalMargin,
   paymentLifetime,
   recoveryDelay,
   recoveryWindow,
@@ -90,11 +91,12 @@ interface PairedChange {
   readonly recoverySequence?: bigint;
   readonly recoveryMinLedger?: boolean;
   readonly delay?: number;
+  readonly lifetime?: number;
 }
 
 const pairedDraft = (change: PairedChange = {}) => {
   const now = Math.floor(Date.now() / 1000);
-  const maxTime = now + paymentLifetime;
+  const maxTime = now + (change.lifetime ?? paymentLifetime);
   const address = change.address ?? seeded.address;
 
   const window = {
@@ -224,6 +226,10 @@ const rejectedDrafts: ReadonlyArray<readonly [string, OpenStep]> = [
         expiresAt: DateTime.makeUnsafe(Date.now() - 1000),
       }),
     }),
+  ],
+  [
+    "an opening that keeps expiring within the approval margin",
+    pairedDraft({ lifetime: approvalMargin - 5 }),
   ],
   [
     "an opening drafted for another address",
