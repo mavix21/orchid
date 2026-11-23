@@ -30,8 +30,8 @@ export const Route = createFileRoute("/_wallet/_app/home")({
   ssr: false,
   pendingMs: 0,
   pendingComponent: HomeSkeleton,
-  loader: async ({ context }) => {
-    await whenUnlocked();
+  loader: async ({ context, abortController }) => {
+    await whenUnlocked(abortController.signal);
 
     const [overview, saved] = await Promise.all([
       context.walletClient.overview(),
