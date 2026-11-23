@@ -1,5 +1,6 @@
 import { expect, layer } from "@effect/vitest";
 import { Claimant, Keypair } from "@stellar/stellar-sdk";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -22,6 +23,10 @@ import {
   Username,
   UsernameRecipient,
 } from "../src/contract";
+import { AssetOrders } from "../src/server/AssetOrders.server";
+import { Sealed } from "../src/server/Chain.server";
+import { Directory } from "../src/server/Directory.server";
+import { WalletInactive } from "../src/server/slot.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { assertTagged } from "./tagged";
@@ -60,6 +65,46 @@ const assetOrder = (key: Keypair, action: AssetOrder["action"]) =>
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
+    it.effect(
+      "an asset order is not authorized once its wallet stopped being active",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet("assetowner");
+          const opening = assetOrder(key, OpenTrustline.make({ asset: euro }));
+
+          assertTagged(yield* manage(opening), "AssetDraft");
+
+          const proposed = Option.getOrThrow(
+            yield* AssetOrders.use((orders) => orders.find(opening.id)),
+          );
+
+          assertTagged(proposed, "AssetProposed");
+          yield* Directory.use((directory) =>
+            Effect.flatMap(directory.byAddress(addressOf(key)), (row) =>
+              directory.recover(Option.getOrThrow(row)),
+            ),
+          );
+          expect(
+            yield* AssetOrders.use((orders) =>
+              orders.authorize(
+                proposed,
+                new Sealed({
+                  envelope: "AAAA",
+                  hash: "00".repeat(32),
+                  expiresAt: DateTime.makeUnsafe(Date.now() + 60_000),
+                }),
+              ),
+            ),
+          ).toEqual(new WalletInactive());
+          assertTagged(
+            Option.getOrThrow(
+              yield* AssetOrders.use((orders) => orders.find(opening.id)),
+            ),
+            "AssetProposed",
+          );
+        }),
+    );
+
     it.effect(
       "sponsored trustline approval survives submit failure and sweep records settlement",
       () =>
