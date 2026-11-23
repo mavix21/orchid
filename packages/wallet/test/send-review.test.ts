@@ -263,7 +263,7 @@ it.live.each([
       ),
   ],
 ] as const)(
-  "refuses a review whose draft was swapped for %s",
+  "refuses a review whose draft was swapped for %s, by copy or in place",
   ([, swappedDraft]) =>
     Effect.gen(function* () {
       const { approvals, callsAtPrompt, client } = yield* confirmingDevice(() =>
@@ -271,10 +271,16 @@ it.live.each([
       );
 
       const review = yield* reviewed(client, toPedro);
+      const swapped = swappedDraft();
+      const copied = new PaymentReview({ ...review, draft: swapped });
 
-      const swapped = new PaymentReview({ ...review, draft: swappedDraft() });
+      expect((yield* client.confirm(copied))._tag).toBe("DraftRejected");
 
-      expect((yield* client.confirm(swapped))._tag).toBe("DraftRejected");
+      Object.assign(review.draft.request, {
+        envelope: swapped.request.envelope,
+      });
+
+      expect((yield* client.confirm(review))._tag).toBe("DraftRejected");
       expect(approvals.filter(Option.isSome)).toHaveLength(0);
       expect(callsAtPrompt).toEqual([]);
     }),
