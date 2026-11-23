@@ -13,7 +13,6 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
   type ConfirmOutcome,
-  type CreateOutcome,
   DeviceWallet,
   Holding,
   type KeyStore,
@@ -44,6 +43,7 @@ import { network, networkPassphrase, usdc } from "../src/stellar/network";
 import {
   freshDatabase,
   memoryKeyStore,
+  openThroughReview,
   rpcUrl,
   walletServices,
 } from "./live.server";
@@ -183,16 +183,31 @@ const openWallet = async (
     ),
   );
 
-  let opened: CreateOutcome = await client.create(username);
-
-  for (
-    let attempt = 0;
-    attempt < 3 && Predicate.isTagged(opened, "OpeningPending");
-    attempt++
-  )
-    opened = await client.create(username);
+  const opened = await openThroughReview(
+    makeWalletClient(port, publicKeyStore(sealedStore), auth.passkeys, {
+      store: sealedStore,
+      ceremony: auth.assertions,
+      relyingParty: () => relyingParty,
+    }),
+    username,
+  );
 
   assert.ok(opened instanceof Opened, `Expected Opened, got ${opened._tag}`);
+
+  const reviewed = Option.getOrThrow(
+    await Effect.runPromise(sealedStore.readPublic()),
+  );
+
+  await Effect.runPromise(
+    store.store.updatePublic((current) =>
+      Option.some(
+        new PublicDeviceWallet({
+          ...current,
+          reserveSponsor: reviewed.reserveSponsor,
+        }),
+      ),
+    ),
+  );
 
   return { opened, sealed };
 };
@@ -466,7 +481,7 @@ console.log(
       paymentHash: paymentRecord.hash,
       checks: [
         "device client generated, stored and reused a 12-word SEP-5 secret phrase",
-        "opening and recovery approved by the device client against real testnet drafts",
+        "opening and its paired recovery approved by one reviewed device assertion against real testnet drafts",
         "raw extXdr identifies Orchid as account and trustline sponsor; 0 XLM, num_sponsored 3",
         "stored recovery signed by the derived key and merging into the reserve sponsor",
         "overview returns Holding with a zero USDC balance",

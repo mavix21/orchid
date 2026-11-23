@@ -8,7 +8,6 @@ import * as Schema from "effect/Schema";
 import {
   AssetSettled,
   BalanceGone,
-  type CreateOutcome,
   Holding,
   Offline,
   OpenPaymentLinks,
@@ -29,6 +28,7 @@ import { SoftwareAuthenticator } from "../test/software-authenticator";
 import {
   freshDatabase,
   memoryKeyStore,
+  openThroughReview,
   rpcUrl,
   walletServices,
 } from "./live.server";
@@ -55,14 +55,7 @@ const openWallet = async (
   client: ReturnType<typeof makeWalletClient>,
   username: string,
 ) => {
-  let opened: CreateOutcome = await client.create(username);
-
-  for (
-    let attempt = 0;
-    attempt < 3 && Predicate.isTagged(opened, "OpeningPending");
-    attempt++
-  )
-    opened = await client.create(username);
+  const opened = await openThroughReview(client, username);
 
   assert.ok(opened instanceof Opened, `Expected Opened, got ${opened._tag}`);
 

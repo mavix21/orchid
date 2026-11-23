@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { Approval, SigningRequest } from "./approval";
+import { Approval, type Approvals, SigningRequest } from "./approval";
 import {
   AssetBusy,
   AssetDraft,
@@ -86,6 +86,7 @@ export class OpeningDraft extends Schema.TaggedClass<OpeningDraft>()(
   "OpeningDraft",
   {
     request: SigningRequest,
+    recovery: Schema.optional(SigningRequest),
   },
 ) {}
 
@@ -471,7 +472,7 @@ export interface WalletPort<E = WalletUnavailable> {
   overview(address: AccountAddress): Effect.Effect<Overview, E>;
   open(
     claim: WalletClaim,
-    approval: Option.Option<Approval>,
+    approvals: Option.Option<Approvals>,
   ): Effect.Effect<OpenStep, E>;
   transfer(
     order: TransferOrder,

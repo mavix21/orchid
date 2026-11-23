@@ -19,6 +19,7 @@ import { HomeSkeleton } from "@/components/home-skeleton";
 import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
 import { recentActivity } from "@/fixtures/activity";
 import { whenUnlocked } from "@/wallet/display-lock";
+import { OpeningFlow } from "@/wallet/opening-flow";
 import { shownOverview } from "@/wallet/shown-overview";
 import {
   retryable,
@@ -190,24 +191,11 @@ function BackupNotice() {
 
 function Reopening({ username }: { username: string }) {
   const router = useRouter();
-  const { walletClient } = Route.useRouteContext();
-  const [reopening, setReopening] = useState(false);
-
-  const reopen = async () => {
-    setReopening(true);
-    await walletClient.create(username);
-    await router.invalidate();
-    setReopening(false);
-  };
 
   return (
-    <Notice
-      title={`@${username} necesita reabrirse`}
-      message="Tu cuenta se cerró por inactividad. Tu usuario sigue siendo tuyo."
-      action={reopening ? "Reabriendo…" : "Reabrir cuenta"}
-      busy={reopening}
-      onAction={reopen}
-    />
+    <Screen>
+      <OpeningFlow username={username} onOpened={() => router.invalidate()} />
+    </Screen>
   );
 }
 

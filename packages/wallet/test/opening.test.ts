@@ -20,16 +20,18 @@ import {
   Username,
   WalletClaim,
 } from "../src/contract";
+import { Database } from "@workspace/db";
+import { sql } from "drizzle-orm";
 import { Sealed } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
-import { draftOpening } from "../src/stellar/envelopes";
+import { draftOpening, readEnvelope } from "../src/stellar/envelopes";
 import { networkPassphrase } from "../src/stellar/network";
 import { assertTagged } from "./tagged";
 import {
   accountState,
   addressOf,
   amount,
-  approve,
+  approveOpening,
   claimFor,
   create,
   feePayer,
@@ -39,6 +41,7 @@ import {
   overviewOf,
   reserveSponsor,
   send,
+  settleAttempt,
   sponsor,
   useDisposableDatabase,
   walletTestLayer,
@@ -59,7 +62,21 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const draft = yield* opening(claim);
 
           assertTagged(draft, "OpeningDraft");
-          yield* opening(claim, approve(draft.request, key));
+          expect(draft.recovery).toBeDefined();
+          expect(
+            yield* opening(claim, approveOpening(Keypair.random(), draft)),
+          ).toEqual(draft);
+          expect(world.submitted).toHaveLength(0);
+          expect((yield* opening(claim, approveOpening(key, draft)))._tag).toBe(
+            "OpeningPending",
+          );
+
+          expect((yield* opening(claim))._tag).toBe("OpeningPending");
+          yield* Database.use((db) =>
+            db.execute(
+              sql`update wallets set "attemptExpiresAt" = now() - interval '1 minute' where address = ${claim.address}`,
+            ),
+          );
 
           const recovery = yield* opening(claim);
 
@@ -71,12 +88,64 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ),
           ).toEqual(Option.some("opening"));
           expect(
-            yield* opening(claim, approve(recovery.request, Keypair.random())),
+            yield* opening(claim, approveOpening(Keypair.random(), recovery)),
           ).toEqual(recovery);
           expect(
-            (yield* opening(claim, approve(recovery.request, key)))._tag,
+            (yield* opening(claim, approveOpening(key, recovery)))._tag,
           ).toBe("Opened");
           expect(world.submitted).toHaveLength(1);
+
+          const pairedKey = Keypair.random();
+          const paired = claimFor(pairedKey, "pedro");
+          const pairedDraft = yield* opening(paired);
+
+          assertTagged(pairedDraft, "OpeningDraft");
+          yield* opening(paired, approveOpening(pairedKey, pairedDraft));
+          yield* settleAttempt(paired.address);
+
+          const visible = Option.getOrThrow(
+            Option.fromNullishOr(world.accounts.get(paired.address)),
+          );
+
+          world.accounts.delete(paired.address);
+          expect((yield* opening(paired))._tag).toBe("OpeningPending");
+          expect(
+            Option.getOrThrow(yield* findWallet(paired.address))
+              .pairedRecoveryEnvelope,
+          ).not.toBeNull();
+          world.accounts.set(paired.address, visible);
+          expect((yield* opening(paired))._tag).toBe("Opened");
+
+          const row = Option.getOrThrow(yield* findWallet(paired.address));
+
+          expect(row.status).toBe("active");
+          expect(row.recoverySequence).toBe(
+            Option.getOrThrow(
+              readEnvelope(
+                Option.getOrThrow(Option.fromNullishOr(pairedDraft.recovery))
+                  .envelope,
+              ),
+            ).sequence,
+          );
+
+          const advancedKey = Keypair.random();
+          const advanced = claimFor(advancedKey, "lucia");
+          const advancedDraft = yield* opening(advanced);
+
+          assertTagged(advancedDraft, "OpeningDraft");
+          yield* opening(advanced, approveOpening(advancedKey, advancedDraft));
+          yield* settleAttempt(advanced.address);
+          world.accounts.set(
+            advanced.address,
+            accountState({
+              sequence: "5000",
+              balance: Option.some(amount("0")),
+            }),
+          );
+          assertTagged(yield* opening(advanced), "RecoveryDraft");
+          expect(
+            Option.getOrThrow(yield* findWallet(advanced.address)).status,
+          ).toBe("opening");
         }),
     );
 
@@ -138,7 +207,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             expiresAt: DateTime.makeUnsafe((now - 80) * 1000),
           });
 
-          yield* Directory.use((d) => d.seal(row, historical, claim));
+          yield* Directory.use((d) =>
+            d.seal(row, historical, claim, Option.none()),
+          );
           expect((yield* opening(claim))._tag).toBe("OpeningDraft");
           expect(world.submitted).toHaveLength(0);
           expect(
@@ -251,7 +322,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const bDraft = yield* opening(claimB);
 
           assertTagged(bDraft, "RecoveryDraft");
-          expect(yield* opening(claimB, approve(bDraft.request, key))).toEqual(
+          expect(yield* opening(claimB, approveOpening(key, bDraft))).toEqual(
             new Opened({ profile: new Profile(claimB) }),
           );
           expect(world.submitted).toHaveLength(0);

@@ -21,7 +21,7 @@ import {
   accountState,
   addressOf,
   amount,
-  approve,
+  approveOpening,
   claimFor,
   create,
   findWallet,
@@ -30,6 +30,7 @@ import {
   orderFor,
   overviewOf,
   send,
+  settleAttempt,
   useDisposableDatabase,
   walletTestLayer,
   world,
@@ -64,7 +65,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             (yield* opening(claimFor(Keypair.random(), "maria")))._tag,
           ).toBe("OpeningDraft");
           expect(
-            (yield* opening(second, approve(redraft.request, key)))._tag,
+            (yield* opening(second, approveOpening(key, redraft)))._tag,
           ).toBe("OpeningPending");
           expect(yield* opening(first)).toEqual(
             new AddressBound({ profile: new Profile(second) }),
@@ -93,7 +94,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
               return opening(
                 claims[i] ?? claims[0],
-                approve(draft.request, keys[i] ?? keys[0]),
+                approveOpening(keys[i] ?? keys[0], draft),
               );
             }),
             { concurrency: "unbounded" },
@@ -116,7 +117,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(retry, "OpeningDraft");
           expect(
-            (yield* opening(renamed, approve(retry.request, loser)))._tag,
+            (yield* opening(renamed, approveOpening(loser, retry)))._tag,
           ).toBe("OpeningPending");
           expect(world.submitted).toHaveLength(2);
         }),
@@ -180,18 +181,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const draft = yield* opening(claim);
 
           assertTagged(draft, "OpeningDraft");
-          yield* opening(claim, approve(draft.request, key));
+          yield* opening(claim, approveOpening(key, draft));
           expect((yield* overviewOf(claim.address))._tag).toBe(
             "NeedsReopening",
           );
           expect((yield* send(recoveredOrder))._tag).toBe("UnknownRecipient");
-
-          const recovery = yield* opening(claim);
-
-          assertTagged(recovery, "RecoveryDraft");
-          expect(
-            (yield* opening(claim, approve(recovery.request, key)))._tag,
-          ).toBe("Opened");
+          yield* settleAttempt(claim.address);
+          expect((yield* opening(claim))._tag).toBe("Opened");
           expect((yield* overviewOf(claim.address))._tag).toBe("Holding");
 
           const reopenedDraft = yield* send(recoveredOrder);

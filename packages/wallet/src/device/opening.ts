@@ -1,140 +1,138 @@
 import * as Effect from "effect/Effect";
-import * as Predicate from "effect/Predicate";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import {
-  type Approval,
+  type AccountAddress,
+  type Approvals,
+  type OpeningDraft,
   OpeningPending,
-  type Username,
+  type RecoveryDraft,
+  Username,
   WalletClaim,
   type WalletPort,
   type WalletUnavailable,
 } from "../contract";
 import {
+  type CorruptDeviceWallet,
   type KeyStore,
   type KeyStoreUnavailable,
   PublicDeviceWallet,
+  type SealedDevice,
 } from "./key-store";
 import {
-  type CreateOutcome,
+  type ConfirmOpeningOutcome,
   DraftRejected,
+  InvalidUsername,
   NoWallet,
+  OpeningReview,
+  type ReviewOpeningOutcome,
   UnsupportedDevice,
 } from "./outcomes";
+import {
+  requestsOf,
+  reserveSponsorOf,
+  reviewFromJson,
+  reviewJson,
+  standingNow,
+} from "./opening-drafts";
 import { pollSchedule } from "./polling";
-import { approve, liveFacts, signingKey } from "./signing";
+import { Reserved, approveReviewed } from "./reviewed-approval";
+
+type Draft = OpeningDraft | RecoveryDraft;
 
 interface OpeningTurn {
-  readonly done: Option.Option<CreateOutcome>;
+  readonly done: Option.Option<ReviewOpeningOutcome>;
   readonly pause: boolean;
 }
 
-export function openWallet(port: WalletPort, store: KeyStore) {
-  const advance = Effect.fn("Device.advanceOpening")(function* (
+type OnDraft = (
+  wallet: PublicDeviceWallet,
+  draft: Draft,
+) => Effect.Effect<Option.Option<ReviewOpeningOutcome>>;
+
+interface SponsorReservation {
+  readonly address: AccountAddress;
+  readonly sponsor: AccountAddress;
+  readonly previous: AccountAddress | undefined;
+}
+
+export interface OpeningReviews {
+  readonly issued: Ref.Ref<Option.Option<string>>;
+  readonly device: SealedDevice | undefined;
+}
+
+export function deviceOpening(
+  port: WalletPort,
+  store: KeyStore,
+  reviews: OpeningReviews,
+) {
+  const presenting =
+    (redrafted: boolean): OnDraft =>
+    (wallet, draft) => {
+      let refreshed = false;
+
+      return Effect.gen(function* () {
+        const review = new OpeningReview({
+          username: wallet.username,
+          address: wallet.address,
+          draft,
+          redrafted,
+        });
+
+        const standing = yield* standingNow(wallet, review);
+
+        if (standing === "expiring" && !refreshed && !redrafted) {
+          refreshed = true;
+
+          return Option.none();
+        }
+
+        if (standing !== "current") return Option.some(new DraftRejected());
+
+        yield* Ref.set(reviews.issued, Option.some(reviewJson(review)));
+
+        return Option.some(review);
+      });
+    };
+
+  const observe = Effect.fn("Device.observeOpening")(function* (
     initial: PublicDeviceWallet,
-  ): Effect.fn.Return<CreateOutcome, WalletUnavailable | KeyStoreUnavailable> {
+    first: Option.Option<Approvals>,
+    onDraft: OnDraft,
+  ): Effect.fn.Return<
+    ReviewOpeningOutcome,
+    WalletUnavailable | KeyStoreUnavailable
+  > {
     let wallet = initial;
-    let approval: Option.Option<Approval> = Option.none();
+    let approvals = first;
 
     const step: Effect.Effect<
       OpeningTurn,
       WalletUnavailable | KeyStoreUnavailable
     > = Effect.gen(function* () {
-      const submitted = Option.isSome(approval);
+      const submitted = Option.isSome(approvals);
 
       const response = yield* port.open(
         new WalletClaim({
           username: wallet.username,
           address: wallet.address,
         }),
-        approval,
+        approvals,
       );
 
-      approval = Option.none();
+      approvals = Option.none();
+
+      const drafted = (draft: Draft) =>
+        onDraft(wallet, draft).pipe(
+          Effect.map((done): OpeningTurn => ({ done, pause: false })),
+        );
 
       return yield* Match.valueTags(response, {
-        OpeningDraft: ({ request }) =>
-          Effect.gen(function* () {
-            const facts = yield* liveFacts(request);
-
-            if (
-              Option.isNone(facts) ||
-              !Predicate.isTagged(facts.value, "OpeningFacts") ||
-              facts.value.address !== wallet.address
-            )
-              return { done: Option.some(new DraftRejected()), pause: false };
-
-            const nextSponsor = facts.value.reserveSponsor;
-
-            const sponsored = yield* store.updatePublic((current) =>
-              current.address === wallet.address &&
-              current.reserveSponsor !== nextSponsor
-                ? Option.some(
-                    new PublicDeviceWallet({
-                      ...current,
-                      reserveSponsor: nextSponsor,
-                    }),
-                  )
-                : Option.none(),
-            );
-
-            if (
-              Option.isNone(sponsored) ||
-              sponsored.value.wallet.address !== wallet.address ||
-              sponsored.value.wallet.reserveSponsor !== nextSponsor
-            )
-              return {
-                done: Option.some(new UnsupportedDevice()),
-                pause: false,
-              };
-
-            const secret = yield* store.read();
-
-            if (
-              Option.isNone(secret) ||
-              secret.value.address !== wallet.address
-            )
-              return {
-                done: Option.some(new UnsupportedDevice()),
-                pause: false,
-              };
-
-            wallet = sponsored.value.wallet;
-            approval = Option.some(
-              approve(request, signingKey(secret.value.phrase)),
-            );
-
-            return { done: Option.none(), pause: false };
-          }),
-        RecoveryDraft: ({ request }) =>
-          Effect.gen(function* () {
-            const facts = yield* liveFacts(request);
-
-            if (
-              Option.isNone(facts) ||
-              !Predicate.isTagged(facts.value, "RecoveryFacts") ||
-              facts.value.address !== wallet.address ||
-              facts.value.reserveSponsor !== wallet.reserveSponsor
-            )
-              return { done: Option.some(new DraftRejected()), pause: false };
-
-            const secret = yield* store.read();
-
-            if (
-              Option.isNone(secret) ||
-              secret.value.address !== wallet.address
-            )
-              return {
-                done: Option.some(new UnsupportedDevice()),
-                pause: false,
-              };
-
-            approval = Option.some(
-              approve(request, signingKey(secret.value.phrase)),
-            );
-
-            return { done: Option.none(), pause: false };
-          }),
+        OpeningDraft: drafted,
+        RecoveryDraft: drafted,
         OpeningPending: () =>
           Effect.succeed({ done: Option.none(), pause: !submitted }),
         AddressBound: (bound) =>
@@ -191,7 +189,16 @@ export function openWallet(port: WalletPort, store: KeyStore) {
     return Option.getOrElse(last.done, () => new OpeningPending());
   });
 
-  return Effect.fn("Device.open")(function* (username: Username) {
+  const review = Effect.fn("Device.reviewOpening")(function* (
+    usernameText: string,
+  ): Effect.fn.Return<
+    ReviewOpeningOutcome,
+    WalletUnavailable | KeyStoreUnavailable
+  > {
+    const username = Schema.decodeUnknownOption(Username)(usernameText);
+
+    if (Option.isNone(username)) return new InvalidUsername();
+
     const existing = yield* store.readPublic();
 
     if (Option.isNone(existing)) return new NoWallet();
@@ -200,18 +207,160 @@ export function openWallet(port: WalletPort, store: KeyStore) {
 
     const prepared = yield* store.updatePublic((current) =>
       current.address === existing.value.address &&
-      current.username !== username
-        ? Option.some(new PublicDeviceWallet({ ...current, username }))
+      current.username !== username.value
+        ? Option.some(
+            new PublicDeviceWallet({ ...current, username: username.value }),
+          )
         : Option.none(),
     );
 
     if (
       Option.isNone(prepared) ||
       prepared.value.wallet.address !== existing.value.address ||
-      prepared.value.wallet.username !== username
+      prepared.value.wallet.username !== username.value
     )
       return new UnsupportedDevice();
 
-    return yield* advance(prepared.value.wallet);
+    return yield* observe(
+      prepared.value.wallet,
+      Option.none(),
+      presenting(false),
+    );
   });
+
+  const redraft = (
+    snapshot: string,
+    wallet: PublicDeviceWallet,
+    shown: OpeningReview,
+  ) =>
+    Ref.modify(reviews.issued, (current) =>
+      Option.contains(current, snapshot)
+        ? [true, Option.none()]
+        : [false, current],
+    ).pipe(
+      Effect.flatMap(
+        (consumed): ReturnType<typeof observe> | Effect.Effect<DraftRejected> =>
+          consumed && !shown.redrafted
+            ? observe(wallet, Option.none(), presenting(true))
+            : Effect.succeed(new DraftRejected()),
+      ),
+    );
+
+  const afterRelease =
+    (shown: OpeningReview): OnDraft =>
+    (wallet, draft) =>
+      Predicate.isTagged(draft, "RecoveryDraft")
+        ? presenting(false)(wallet, draft)
+        : shown.redrafted
+          ? Effect.succeed(Option.some(new DraftRejected()))
+          : presenting(true)(wallet, draft);
+
+  const confirm = Effect.fn("Device.confirmOpening")(function* (
+    shown: OpeningReview,
+  ): Effect.fn.Return<
+    ConfirmOpeningOutcome,
+    WalletUnavailable | KeyStoreUnavailable | CorruptDeviceWallet
+  > {
+    const { device, issued } = reviews;
+
+    if (device === undefined) return new UnsupportedDevice();
+
+    const snapshot = yield* Ref.get(issued);
+
+    if (Option.isNone(snapshot) || snapshot.value !== reviewJson(shown))
+      return new DraftRejected();
+
+    const presented = reviewFromJson(snapshot.value);
+    const sponsor = reserveSponsorOf(presented.draft);
+
+    if (Option.isNone(sponsor)) return new DraftRejected();
+
+    const issuedHere = Effect.map(Ref.get(issued), (current) =>
+      Option.contains(current, snapshot.value),
+    );
+
+    const sealed = yield* device.store.readSealed();
+
+    if (Option.isNone(sealed)) return new NoWallet();
+
+    const record = sealed.value;
+    const observed = record.public;
+
+    if ((yield* standingNow(observed, presented)) === "expiring")
+      return yield* redraft(snapshot.value, observed, presented);
+
+    const approved = yield* approveReviewed(device, {
+      record,
+      requests: requestsOf(presented.draft),
+      holds: (wallet) =>
+        Effect.zipWith(
+          standingNow(wallet, presented),
+          issuedHere,
+          (standing, current) => current && standing === "current",
+        ),
+      reserve: (wallet) =>
+        device.store
+          .updatePublic((current) =>
+            current.address === wallet.address &&
+            current.reserveSponsor !== sponsor.value
+              ? Option.some(
+                  new PublicDeviceWallet({
+                    ...current,
+                    reserveSponsor: sponsor.value,
+                  }),
+                )
+              : Option.none(),
+          )
+          .pipe(
+            Effect.map(
+              (
+                committed,
+              ): Reserved<SponsorReservation> | NoWallet | DraftRejected => {
+                if (Option.isNone(committed)) return new NoWallet();
+
+                return committed.value.wallet.address === wallet.address &&
+                  committed.value.wallet.reserveSponsor === sponsor.value
+                  ? new Reserved({
+                      reservation: {
+                        address: wallet.address,
+                        sponsor: sponsor.value,
+                        previous: wallet.reserveSponsor,
+                      },
+                    })
+                  : new DraftRejected();
+              },
+            ),
+          ),
+      unreserve: (reservation) =>
+        device.store
+          .updatePublic((current) =>
+            current.address === reservation.address &&
+            current.reserveSponsor === reservation.sponsor &&
+            reservation.previous !== reservation.sponsor
+              ? Option.some(
+                  new PublicDeviceWallet({
+                    ...current,
+                    reserveSponsor: reservation.previous,
+                  }),
+                )
+              : Option.none(),
+          )
+          .pipe(Effect.asVoid),
+      release: (approvals) =>
+        observe(observed, Option.some(approvals), afterRelease(presented)),
+    });
+
+    if (Predicate.isTagged(approved, "DraftRejected")) {
+      const latest = yield* device.store.readPublic();
+
+      return Option.isSome(latest) &&
+        (yield* standingNow(latest.value, presented)) === "expiring"
+        ? yield* redraft(snapshot.value, latest.value, presented)
+        : approved;
+    }
+
+    return approved;
+  });
+
+  return { review, confirm };
 }

@@ -27,6 +27,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const claim = yield* create(Keypair.random(), "maria");
           const initial = world.submitted.length;
 
+          const openedSequence = Option.getOrThrow(
+            Option.fromNullishOr(world.accounts.get(claim.address)),
+          ).sequence;
+
           yield* sweep;
           expect(world.submitted).toHaveLength(initial);
           yield* Database.use((db) =>
@@ -39,7 +43,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           for (const state of [
             accountState({ balance: Option.some(amount("1")) }),
-            accountState({ sequence: "1001", balance: zero }),
+            accountState({
+              sequence: (BigInt(openedSequence) + 1n).toString(),
+              balance: zero,
+            }),
             accountState({ nativeBalance: 1n, balance: zero }),
           ]) {
             world.accounts.set(claim.address, state);
@@ -47,7 +54,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             expect(world.submitted).toHaveLength(initial);
           }
 
-          world.accounts.set(claim.address, accountState({ balance: zero }));
+          world.accounts.set(
+            claim.address,
+            accountState({ sequence: openedSequence, balance: zero }),
+          );
           yield* sweep;
           expect(world.submitted).toHaveLength(initial + 1);
 

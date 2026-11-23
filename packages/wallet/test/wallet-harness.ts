@@ -9,6 +9,7 @@ import {
 import { Database, databaseLayer } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
+import * as Arr from "effect/Array";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -28,11 +29,14 @@ import {
   AddressRecipient,
   Amount,
   Approval,
+  type Approvals,
   AssetCode,
   BalanceId,
   IssuedAsset,
+  type OpeningDraft,
   PositiveAmount,
   type Recipient,
+  type RecoveryDraft,
   SigningRequest,
   TransferId,
   TransferOrder,
@@ -41,6 +45,7 @@ import {
   type WalletPort,
   baseAsset,
 } from "../src/contract";
+import { requestsOf } from "../src/device/opening-drafts";
 import { DeviceWallet, type KeyStore } from "../src/device/key-store";
 import { signingKey } from "../src/device/signing";
 import { AssetOrders } from "../src/server/AssetOrders.server";
@@ -72,12 +77,12 @@ import {
 } from "../src/stellar/asset-envelopes";
 import { draftPlan } from "../src/stellar/asset-plans";
 import {
-  draftOpening,
   draftPayment,
   draftRecovery,
   signingPayload,
 } from "../src/stellar/envelopes";
-import { networkPassphrase } from "../src/stellar/network";
+import { draftOpeningWithRecovery } from "../src/stellar/opening-drafts";
+import { networkPassphrase, recoveryDelay } from "../src/stellar/network";
 import { addressOf, enrolledDeviceWallet } from "./device-fixtures";
 import {
   httpClientAnswering,
@@ -289,13 +294,16 @@ export const fakeChain = Layer.effect(
         ),
       balance: (addr) =>
         account(addr).pipe(Effect.map(Option.flatMap((s) => s.balance))),
-      draftOpening: (addr) =>
-        draftWith((w) =>
-          draftOpening({
+      draftOpening: (addr, pinSequence) =>
+        Effect.map(Clock.currentTimeMillis, (ms) =>
+          draftOpeningWithRecovery({
             source: new Account(reserveSponsor, "100"),
             address: addr,
-            createAccount: !world.accounts.has(addr),
-            ...w,
+            reserveSponsor,
+            observedSequence: world.accounts.get(addr)?.sequence,
+            now: Math.floor(ms / 1000),
+            latestLedger: 100,
+            pinSequence,
           }),
         ),
       draftPayment: (from, to, a, val, memo) =>
@@ -313,7 +321,7 @@ export const fakeChain = Layer.effect(
         draftWith(
           (w) =>
             draftRecovery({ source: sourceOf(addr), reserveSponsor, ...w }),
-          60,
+          recoveryDelay,
         ),
       submit: (sealed) =>
         Effect.gen(function* () {
@@ -326,17 +334,27 @@ export const fakeChain = Layer.effect(
             networkPassphrase,
           );
 
-          const first = (
-            outer instanceof FeeBumpTransaction ? outer.innerTransaction : outer
-          ).operations[0];
+          const inner =
+            outer instanceof FeeBumpTransaction
+              ? outer.innerTransaction
+              : outer;
+
+          const [first] = inner.operations;
 
           if (first?.type === "beginSponsoringFutureReserves") {
             const addr = Schema.decodeSync(AccountAddress)(first.sponsoredId);
 
+            const bump = inner.operations.find(
+              (op) => op.type === "bumpSequence",
+            );
+
             world.accounts.set(
               addr,
               accountState({
-                sequence: world.accounts.get(addr)?.sequence ?? "1000",
+                sequence:
+                  bump?.type === "bumpSequence"
+                    ? bump.bumpTo
+                    : (world.accounts.get(addr)?.sequence ?? "1000"),
                 balance: Option.some(amount("0")),
               }),
             );
@@ -414,6 +432,18 @@ export const approve = (req: SigningRequest, key: Keypair) =>
     new Approval({ signature: key.sign(signingPayload(req.envelope)) }),
   );
 
+export const approveOpening = (
+  key: Keypair,
+  draft: OpeningDraft | RecoveryDraft,
+): Option.Option<Approvals> =>
+  Option.some(
+    Arr.map(
+      requestsOf(draft),
+      (request) =>
+        new Approval({ signature: key.sign(signingPayload(request.envelope)) }),
+    ),
+  );
+
 export const claimFor = (key: Keypair, name: string) =>
   new WalletClaim({
     address: addressOf(key),
@@ -422,8 +452,8 @@ export const claimFor = (key: Keypair, name: string) =>
 
 export const opening = (
   claim: WalletClaim,
-  approval: Option.Option<Approval> = Option.none(),
-) => Wallet.use((w) => w.open(claim, approval));
+  approvals: Option.Option<Approvals> = Option.none(),
+) => Wallet.use((w) => w.open(claim, approvals));
 
 export const overviewOf = (addr: AccountAddress) =>
   Wallet.use((w) => w.overview(addr));
@@ -439,21 +469,23 @@ export const findTransfer = (id: TransferId) =>
 export const settleHash = (hash: string) =>
   world.evidence.set(hash, new Applied({ at: DateTime.nowUnsafe() }));
 
+export const settleAttempt = Effect.fn(function* (address: AccountAddress) {
+  const row = Option.getOrThrow(yield* findWallet(address));
+
+  settleHash(Option.getOrThrow(Option.fromNullishOr(row.attemptHash)));
+});
+
 export const create = Effect.fn(function* (key: Keypair, name: string) {
   const claim = claimFor(key, name);
   const draft = yield* opening(claim);
 
   assertTagged(draft, "OpeningDraft");
-  expect((yield* opening(claim, approve(draft.request, key)))._tag).toBe(
+  expect(draft.recovery).toBeDefined();
+  expect((yield* opening(claim, approveOpening(key, draft)))._tag).toBe(
     "OpeningPending",
   );
-
-  const recovery = yield* opening(claim);
-
-  assertTagged(recovery, "RecoveryDraft");
-  expect((yield* opening(claim, approve(recovery.request, key)))._tag).toBe(
-    "Opened",
-  );
+  yield* settleAttempt(claim.address);
+  expect((yield* opening(claim))._tag).toBe("Opened");
 
   return claim;
 });

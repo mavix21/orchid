@@ -24,6 +24,8 @@ export const paymentLifetime = 120;
 export const approvalMargin = 20;
 export const recoveryDelay = 24 * 60 * 60;
 export const recoveryWindow = 7 * 24 * 60 * 60;
+export const recoveryDraftLifetime = 10 * 60;
+export const settledReadGrace = 60;
 
 export const sweepBatchSize = 4;
 

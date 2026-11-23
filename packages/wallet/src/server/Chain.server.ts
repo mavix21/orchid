@@ -24,17 +24,18 @@ import {
   DestinationAddress,
   Approval,
   type Asset,
+  type OpeningDraft,
   PaymentMemo,
   PositiveAmount,
   SigningRequest,
   Amount,
 } from "../contract";
 import {
-  draftOpening,
   draftPayment,
   draftRecovery,
   readEnvelope,
 } from "../stellar/envelopes";
+import { draftOpeningWithRecovery } from "../stellar/opening-drafts";
 import {
   approvalMargin,
   baseFee,
@@ -265,7 +266,8 @@ export class Chain extends Context.Service<
     ): Effect.Effect<Option.Option<Amount>, ChainUnreachable>;
     draftOpening(
       address: AccountAddress,
-    ): Effect.Effect<SigningRequest, ChainUnreachable>;
+      pinSequence: boolean,
+    ): Effect.Effect<OpeningDraft, ChainUnreachable>;
     draftPayment(
       from: AccountAddress,
       to: DestinationAddress,
@@ -352,24 +354,27 @@ export class Chain extends Context.Service<
 
       const draftOpen = Effect.fn("Chain.draftOpening")(function* (
         address: AccountAddress,
+        pinSequence: boolean,
       ) {
-        const [sponsorAccount, current] = yield* Effect.all(
-          [source(sponsorAddress), account(address)],
+        const [sponsorState, current] = yield* Effect.all(
+          [account(sponsorAddress), account(address)],
           { concurrency: rpcReadConcurrency },
         );
 
-        const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
+        if (Option.isNone(sponsorState))
+          return yield* Effect.die(new Error("Account does not exist"));
 
-        return request(
-          draftOpening({
-            source: sponsorAccount,
-            address,
-            minTime: now,
-            maxTime: now + paymentLifetime,
-            createAccount: Option.isNone(current),
-          }),
-          now + paymentLifetime,
-        );
+        return draftOpeningWithRecovery({
+          source: new Account(sponsorAddress, sponsorState.value.sequence),
+          address,
+          reserveSponsor: sponsorAddress,
+          observedSequence: Option.getOrUndefined(
+            Option.map(current, (state) => state.sequence),
+          ),
+          now: Math.floor((yield* Clock.currentTimeMillis) / 1000),
+          latestLedger: sponsorState.value.ledger,
+          pinSequence,
+        });
       });
 
       const draftPay = Effect.fn("Chain.draftPayment")(function* (
