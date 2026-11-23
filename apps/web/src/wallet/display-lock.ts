@@ -1,7 +1,25 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { DisplayState, makeDisplayLock } from "@workspace/wallet";
+import * as Predicate from "effect/Predicate";
 
 export const displayLock = makeDisplayLock(() => Date.now());
+
+export const whenUnlocked = () =>
+  new Promise<void>((resolve) => {
+    const settle = () => {
+      if (!Predicate.isTagged(displayLock.state(), "Unlocked")) return false;
+
+      resolve();
+
+      return true;
+    };
+
+    if (settle()) return;
+
+    const unsubscribe = displayLock.subscribe(() => {
+      if (settle()) unsubscribe();
+    });
+  });
 
 const lockedOnServer = DisplayState.Locked();
 

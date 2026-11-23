@@ -19,6 +19,7 @@ export interface DisplayLock {
   state(): DisplayState;
   subscribe(listener: () => void): () => void;
   begin(): VerificationTicket;
+  valid(ticket: VerificationTicket): boolean;
   unlock(ticket: VerificationTicket): void;
   hide(): void;
   show(): void;
@@ -48,6 +49,7 @@ export function makeDisplayLock(now: () => number): DisplayLock {
       };
     },
     begin: () => new VerificationTicket({ epoch }),
+    valid: (ticket) => ticket.epoch === epoch,
     unlock: (ticket) => {
       if (ticket.epoch === epoch) transition(DisplayState.Unlocked());
     },

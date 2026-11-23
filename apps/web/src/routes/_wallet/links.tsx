@@ -32,6 +32,7 @@ import { type RecoverableLink, lostLinkMessage } from "@/links/outcomes";
 import { ResultButton } from "@/links/link-result";
 import { RecoverDrawer, RecoveryAnswer, useRecovery } from "@/links/recovery";
 import { amountLabel } from "@/send/money";
+import { whenUnlocked } from "@/wallet/display-lock";
 import { unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/_wallet/links")({
@@ -40,6 +41,8 @@ export const Route = createFileRoute("/_wallet/links")({
   pendingComponent: () => <LinksFrame loading />,
   preload: false,
   loader: async ({ context }) => {
+    await whenUnlocked();
+
     const latest = await context.walletClient.resolvePaymentLink();
     const links = await context.walletClient.paymentLinks();
 

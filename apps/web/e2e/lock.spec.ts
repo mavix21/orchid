@@ -50,6 +50,10 @@ test("starts every wallet route locked and unlocks only on a verified assertion"
     await unlockWallet(page);
     await expect(page.getByTestId(content)).toBeVisible({ timeout: 60_000 });
   }
+
+  await device.verifyUser(false);
+  await page.goto("/send/UNHELD");
+  await expect(unlockButton(page)).toBeVisible();
 });
 
 test("masks on hide, resumes within the window, and locks at the window or on a restored page", async ({

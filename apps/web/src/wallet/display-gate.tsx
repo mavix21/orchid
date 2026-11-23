@@ -34,7 +34,11 @@ const refusal = (outcome: Refusal) =>
 export function DisplayGate({ children }: { children: React.ReactNode }) {
   const state = useDisplayState();
 
-  return Predicate.isTagged(state, "Unlocked") ? children : <LockedWallet />;
+  return Predicate.isTagged(state, "Unlocked") ? (
+    children
+  ) : (
+    <LockedWallet key={state._tag} />
+  );
 }
 
 function LockedWallet() {
@@ -53,6 +57,12 @@ function LockedWallet() {
     setProblem(undefined);
 
     const outcome = await walletClient.unlock();
+
+    if (!displayLock.valid(ticket)) {
+      setUnlocking(false);
+
+      return;
+    }
 
     Match.value(outcome).pipe(
       Match.tag("Unlocked", () => displayLock.unlock(ticket)),

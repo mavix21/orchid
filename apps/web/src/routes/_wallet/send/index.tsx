@@ -11,14 +11,18 @@ import { TokenIcon } from "@/components/token-icon";
 import { TopNav } from "@/components/top-nav";
 import { amountLabel, assetCode } from "@/send/money";
 import { SendUnavailable } from "@/send/send-unavailable";
+import { whenUnlocked } from "@/wallet/display-lock";
 import { shownOverview } from "@/wallet/shown-overview";
 
 export const Route = createFileRoute("/_wallet/send/")({
   ssr: false,
   pendingMs: 0,
   pendingComponent: () => <ChooseAssetFrame loading />,
-  loader: async ({ context }) =>
-    shownOverview(await context.walletClient.overview()),
+  loader: async ({ context }) => {
+    await whenUnlocked();
+
+    return shownOverview(await context.walletClient.overview());
+  },
   component: ChooseAsset,
 });
 
