@@ -73,11 +73,6 @@ import {
   UnsupportedDevice,
   WalletOnDevice,
 } from "./outcomes";
-import {
-  ReleaseContents,
-  commitToRelease,
-  commitmentHolds,
-} from "./enrollment-commitment";
 import { PasskeyCancelled } from "./passkeys";
 import { backupSalt, openPhrase, sealPhrase } from "./phrase-seal";
 import { generateSecretPhrase } from "./secret-phrase";
@@ -122,22 +117,9 @@ export function makeEnrollmentEffects(
       return state;
     }
 
-    const record = restored.value;
+    const { enrollment, candidate, review, approvals } = restored.value;
 
-    if (
-      yield* commitmentHolds(new ReleaseContents(record), record.commitment)
-    ) {
-      state = PendingState.Held({
-        enrollment: record.enrollment,
-        candidate: record.candidate,
-        review: record.review,
-        approvals: record.approvals,
-      });
-
-      return state;
-    }
-
-    yield* clearPending;
+    state = PendingState.Held({ enrollment, candidate, review, approvals });
 
     return state;
   });
@@ -414,18 +396,13 @@ export function makeEnrollmentEffects(
       requestsOf(review.draft),
     );
 
-    const contents = new ReleaseContents({
-      enrollment: verified.enrollment,
-      candidate: verified.candidate,
-      review,
-      approvals,
-    });
-
     const written = yield* storage
       .write(
         new PendingRelease({
-          ...contents,
-          commitment: commitToRelease(verified.phrase, contents),
+          enrollment: verified.enrollment,
+          candidate: verified.candidate,
+          review,
+          approvals,
         }),
       )
       .pipe(Effect.result);

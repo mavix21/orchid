@@ -87,7 +87,6 @@ export class PendingRelease extends Schema.TaggedClass<PendingRelease>()(
     candidate: PendingCandidate,
     review: OpeningReview,
     approvals: Approvals,
-    commitment: Schema.Uint8ArrayFromBase64,
   },
 ) {}
 
