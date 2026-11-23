@@ -10,9 +10,10 @@ import {
 } from "@workspace/ui/components/item";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import type {
-  OpenPaymentLink,
+  ListedPaymentLink,
   PaymentLinksOutcome,
   ResolvePaymentLinkOutcome,
+  SavedLinkTarget,
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
@@ -29,6 +30,7 @@ import {
 import { TopNav } from "@/components/top-nav";
 import { type RecoverableLink, lostLinkMessage } from "@/links/outcomes";
 import { ResultButton } from "@/links/link-result";
+import { LinkShareDrawer, useLinkReveal } from "@/links/link-reveal";
 import { RecoveryAnswer, useRecovery } from "@/links/recovery";
 import { amountLabel } from "@/send/money";
 import { whenUnlocked } from "@/wallet/display-lock";
@@ -51,7 +53,7 @@ export const Route = createFileRoute("/_wallet/links")({
 });
 
 type NoticeAction = Data.TaggedEnum<{
-  Recover: { readonly link: RecoverableLink };
+  Recover: { readonly link: SavedLinkTarget; readonly savedOnDevice: boolean };
   Recheck: {};
   Browse: {};
 }>;
@@ -70,19 +72,25 @@ const latestNotice = (
   latest: ResolvePaymentLinkOutcome,
 ): Option.Option<LatestNotice> =>
   Match.valueTags(latest, {
-    ResolvedPaymentLink: (resolved) =>
+    LatestPaymentLink: (resolved) =>
       Option.some(
-        new LatestNotice(
-          "Tu último link ya no se puede compartir",
-          lostLinkMessage,
-          NoticeAction.Recover({ link: resolved }),
-        ),
+        resolved.savedOnDevice
+          ? new LatestNotice(
+              "Tu último link sigue abierto",
+              "Compártelo con tu passkey o recupera el dinero mientras nadie lo use.",
+              NoticeAction.Recover({ link: resolved, savedOnDevice: true }),
+            )
+          : new LatestNotice(
+              "Tu último link ya no se puede compartir",
+              lostLinkMessage,
+              NoticeAction.Recover({ link: resolved, savedOnDevice: false }),
+            ),
       ),
     Pending: () =>
       Option.some(
         new LatestNotice(
           "Tu último link aún se está creando",
-          "Ya no se podrá compartir. Cuando termine, aparecerá aquí y podrás recuperar el dinero.",
+          "Cuando termine, aparecerá aquí para compartirlo o recuperar el dinero.",
           NoticeAction.Recheck(),
         ),
       ),
@@ -114,7 +122,7 @@ const latestNotice = (
   });
 
 const listProblem = (
-  links: Exclude<PaymentLinksOutcome, { _tag: "OpenPaymentLinks" }>,
+  links: Exclude<PaymentLinksOutcome, { _tag: "ListedPaymentLinks" }>,
 ) =>
   Match.valueTags(links, {
     NotOpened: () => "Tu cuenta aún se está activando.",
@@ -129,7 +137,7 @@ const listProblem = (
     InvalidResponse: unavailableMessage,
   });
 
-const createdOn = (link: OpenPaymentLink, withSeconds: boolean) =>
+const createdOn = (link: ListedPaymentLink, withSeconds: boolean) =>
   DateTime.toDate(link.createdAt).toLocaleString("es-PE", {
     day: "numeric",
     month: "short",
@@ -139,10 +147,10 @@ const createdOn = (link: OpenPaymentLink, withSeconds: boolean) =>
     hourCycle: "h23",
   });
 
-const linkLabel = (link: OpenPaymentLink) =>
+const linkLabel = (link: ListedPaymentLink) =>
   `${amountLabel(link.amount, link.asset)} ${createdOn(link, false)}`;
 
-const listedLinks = (links: ReadonlyArray<OpenPaymentLink>) =>
+const listedLinks = (links: ReadonlyArray<ListedPaymentLink>) =>
   links.map((link) => ({
     link,
     created: createdOn(
@@ -190,6 +198,7 @@ function PaymentLinks() {
   const { latest, links } = Route.useLoaderData();
   const router = useRouter();
   const { started, begin, confirm, reset } = useRecovery();
+  const sharing = useLinkReveal();
 
   if (Option.isSome(started))
     return (
@@ -214,16 +223,21 @@ function PaymentLinks() {
 
   return (
     <LinksFrame>
-      {Predicate.isTagged(links, "OpenPaymentLinks") ? (
+      {Predicate.isTagged(links, "ListedPaymentLinks") ? (
         <LinkList
           links={links.links}
           notice={latestNotice(latest)}
           onRecheck={() => void router.invalidate()}
           onChoose={begin}
+          onShare={sharing.open}
         />
       ) : (
         <ListProblem message={listProblem(links)} />
       )}
+      <LinkShareDrawer
+        sharing={sharing}
+        onRecover={(target) => begin(target)}
+      />
     </LinksFrame>
   );
 }
@@ -232,11 +246,13 @@ function LinkList({
   links,
   notice,
   onChoose,
+  onShare,
   onRecheck,
 }: {
-  links: ReadonlyArray<OpenPaymentLink>;
+  links: ReadonlyArray<ListedPaymentLink>;
   notice: Option.Option<LatestNotice>;
   onChoose: (link: RecoverableLink, created?: string) => void;
+  onShare: (link: SavedLinkTarget) => void;
   onRecheck: () => void;
 }) {
   const latest = Option.flatMap(notice, ({ action }) =>
@@ -278,14 +294,26 @@ function LinkList({
               {notice.value.message}
             </p>
             {Match.valueTags(notice.value.action, {
-              Recover: ({ link }) => (
-                <Button
-                  className="w-full"
-                  onClick={() => onChoose(link)}
-                  data-testid="recover-latest-link"
-                >
-                  Recuperar {amountLabel(link.amount, link.asset)}
-                </Button>
+              Recover: ({ link, savedOnDevice }) => (
+                <>
+                  {savedOnDevice ? (
+                    <Button
+                      className="w-full"
+                      onClick={() => onShare(link)}
+                      data-testid="reshare-latest-link"
+                    >
+                      Compartir link
+                    </Button>
+                  ) : null}
+                  <Button
+                    className="w-full"
+                    variant={savedOnDevice ? "secondary" : "default"}
+                    onClick={() => onChoose(link)}
+                    data-testid="recover-latest-link"
+                  >
+                    Recuperar {amountLabel(link.amount, link.asset)}
+                  </Button>
+                </>
               ),
               Recheck: () => (
                 <Button
@@ -317,6 +345,16 @@ function LinkList({
                   <ItemDescription>{created}</ItemDescription>
                 </ItemContent>
                 <ItemActions>
+                  {link.savedOnDevice ? (
+                    <Button
+                      size="sm"
+                      onClick={() => onShare(link)}
+                      aria-label={`Compartir otra vez ${amountLabel(link.amount, link.asset)}, creado el ${created}`}
+                      data-testid="reshare-link"
+                    >
+                      Compartir otra vez
+                    </Button>
+                  ) : null}
                   <Button
                     size="sm"
                     variant="secondary"

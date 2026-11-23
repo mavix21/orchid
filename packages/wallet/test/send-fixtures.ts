@@ -19,7 +19,11 @@ import {
 } from "../src/contract";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import { TransferIntent, type WalletEffects } from "../src/device/client";
-import { DeviceWallet, type SealedKeyStore } from "../src/device/key-store";
+import {
+  type DeviceRecords,
+  DeviceWallet,
+  type SealedKeyStore,
+} from "../src/device/key-store";
 import {
   memoryKeyStore,
   nowSeconds,
@@ -144,22 +148,42 @@ export const sealedDrafting = Effect.fn(function* (
   envelope: (at: number, order: TransferOrder) => UnsignedEnvelope,
   options: Drafting & {
     readonly initial?: DeviceWallet;
-    readonly beforeFirstCommit?: Effect.Effect<void>;
+    readonly beforeReservation?: Effect.Effect<void>;
   } = {},
 ) {
   const { approvals, orderIds, port } = draftingPort(envelope, options);
   const { auth } = yield* installSealedWallet(options.initial ?? actors.wallet);
 
-  let commits = 0;
+  let reservations = 0;
+
+  const reserves = (
+    update: (current: DeviceRecords) => Option.Option<DeviceRecords>,
+  ) =>
+    Effect.zipWith(
+      browserKeyStore.readPublic(),
+      browserKeyStore.readLinks(),
+      (stored, links) =>
+        Option.exists(stored, (wallet) =>
+          Option.exists(
+            update({ wallet, links }),
+            (next) =>
+              wallet.approvedUntil === undefined &&
+              next.wallet.approvedUntil !== undefined,
+          ),
+        ),
+    );
 
   const store: SealedKeyStore = {
     ...browserKeyStore,
-    updatePublic: (update) =>
-      Effect.suspend(() =>
-        commits++ === 0
-          ? (options.beforeFirstCommit ?? Effect.void)
-          : Effect.void,
-      ).pipe(Effect.andThen(browserKeyStore.updatePublic(update))),
+    updateRecords: (update) =>
+      reserves(update).pipe(
+        Effect.flatMap((reserving) =>
+          reserving && reservations++ === 0
+            ? (options.beforeReservation ?? Effect.void)
+            : Effect.void,
+        ),
+        Effect.andThen(browserKeyStore.updateRecords(update)),
+      ),
   };
 
   return {

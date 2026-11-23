@@ -208,7 +208,11 @@ it.live.each(tamperedDrafts)(
         store,
         passkeys,
       ).reviewPaymentLink(
-        new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
+        new PaymentLinkIntent({
+          asset: baseAsset,
+          amount: linkAmount,
+          saveOnDevice: false,
+        }),
       );
 
       expect(outcome).toEqual(new DraftRejected());

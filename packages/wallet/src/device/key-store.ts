@@ -13,6 +13,7 @@ import {
   PinnedCredential,
   type RelyingParty,
 } from "./assertion";
+import type { SealedLinkSecret } from "./link-seal";
 import { LocalPhraseEnvelope, localEnvelopeVersion } from "./local-envelope";
 import { SecretPhrase } from "./secret-phrase";
 
@@ -87,6 +88,16 @@ export interface PublicWalletUpdate {
   readonly updated: boolean;
 }
 
+export interface DeviceRecords {
+  readonly wallet: PublicDeviceWallet;
+  readonly links: ReadonlyArray<SealedLinkSecret>;
+}
+
+export interface DeviceRecordsUpdate {
+  readonly records: DeviceRecords;
+  readonly updated: boolean;
+}
+
 export interface SealedKeyStore {
   readPublic(): Effect.Effect<
     Option.Option<PublicDeviceWallet>,
@@ -109,6 +120,16 @@ export interface SealedKeyStore {
     wallet: SealedDeviceWallet,
     replacing?: "same-address",
   ): Effect.Effect<boolean, KeyStoreUnavailable | CorruptDeviceWallet>;
+  readLinks(): Effect.Effect<
+    ReadonlyArray<SealedLinkSecret>,
+    KeyStoreUnavailable
+  >;
+  updateRecords(
+    update: (current: DeviceRecords) => Option.Option<DeviceRecords>,
+  ): Effect.Effect<
+    Option.Option<DeviceRecordsUpdate>,
+    KeyStoreUnavailable | CorruptDeviceWallet
+  >;
 }
 
 export interface SealedDevice {
@@ -145,6 +166,15 @@ export const sameLinkState = (
   wallet.approvedUntil === expected.approvedUntil &&
   receiptJson(wallet.linkReceipt ?? null) === receiptJson(expected.receipt);
 
+export const clearedLink = (current: PublicDeviceWallet) =>
+  new PublicDeviceWallet({
+    ...current,
+    transfer: undefined,
+    approvedUntil: undefined,
+    linkReceipt: undefined,
+    transferRevision: (current.transferRevision ?? 0) + 1,
+  });
+
 export const clearStoredLink = Effect.fn("Device.clearStoredLink")(function* <
   E,
 >(
@@ -159,15 +189,7 @@ export const clearStoredLink = Effect.fn("Device.clearStoredLink")(function* <
 ) {
   yield* store.updatePublic((current) =>
     sameLinkState(current, expected)
-      ? Option.some(
-          new PublicDeviceWallet({
-            ...current,
-            transfer: undefined,
-            approvedUntil: undefined,
-            linkReceipt: undefined,
-            transferRevision: (current.transferRevision ?? 0) + 1,
-          }),
-        )
+      ? Option.some(clearedLink(current))
       : Option.none(),
   );
 });

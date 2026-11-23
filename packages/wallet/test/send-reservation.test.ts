@@ -146,7 +146,7 @@ it.effect(
         (at) => payment(actors.sender, 21, at),
         {
           lifetime: 21,
-          beforeFirstCommit: writing.open.pipe(
+          beforeReservation: writing.open.pipe(
             Effect.andThen(Effect.sleep("1500 millis")),
           ),
         },
@@ -169,7 +169,11 @@ it.effect(
     }),
 );
 
-const linkIntent = new PaymentLinkIntent({ asset: baseAsset, amount });
+const linkIntent = new PaymentLinkIntent({
+  asset: baseAsset,
+  amount,
+  saveOnDevice: false,
+});
 
 it.live.each([
   {
@@ -203,7 +207,7 @@ it.live.each([
             ? actors.paymentLink({ to: order.to.value, amount, at })
             : payment(),
         {
-          beforeFirstCommit: committing.open.pipe(
+          beforeReservation: committing.open.pipe(
             Effect.andThen(proceed.await),
           ),
         },

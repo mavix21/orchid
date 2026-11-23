@@ -9,6 +9,8 @@ import {
   DestinationAddress,
   IssuedAsset,
   LinkSecret,
+  OpenPaymentLink,
+  type OpenPaymentLinks,
   type AddressBound,
   type AssertionRefused,
   type BackupStored,
@@ -19,6 +21,7 @@ import {
   Recipient,
   type Receipt,
   type ResolveReceiptStep,
+  type ResolvedPaymentLink,
   type Pending,
   type Settled,
   TransferDraft,
@@ -47,6 +50,7 @@ import type {
   WrongCredential,
 } from "./assertion";
 import { BackupState, type CorruptDeviceWallet } from "./key-store";
+import type { LinkSecretCorrupt } from "./link-seal";
 import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";
 
 export class NoWallet extends Schema.TaggedClass<NoWallet>()("NoWallet", {}) {}
@@ -263,12 +267,17 @@ export class PaymentLinkIntent extends Schema.Class<PaymentLinkIntent>(
 )({
   asset: Asset,
   amount: PositiveAmount,
+  saveOnDevice: Schema.Boolean,
 }) {}
 
 export interface PaymentLinkTarget {
   readonly balance: BalanceId;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
+}
+
+export interface SavedLinkTarget extends PaymentLinkTarget {
+  readonly address: AccountAddress;
 }
 
 export class PaymentLinkCreated extends Schema.TaggedClass<PaymentLinkCreated>()(
@@ -283,7 +292,13 @@ export class PaymentLinkCreated extends Schema.TaggedClass<PaymentLinkCreated>()
     network: Schema.String,
     path: Schema.String,
     settledAt: Schema.DateTimeUtcFromString,
+    savedOnDevice: Schema.Boolean,
   },
+) {}
+
+export class LinkOutputMissing extends Schema.TaggedClass<LinkOutputMissing>()(
+  "LinkOutputMissing",
+  {},
 ) {}
 
 export type ReviewPaymentLinkOutcome =
@@ -292,16 +307,42 @@ export type ReviewPaymentLinkOutcome =
 
 export type ConfirmPaymentLinkOutcome =
   | PaymentLinkCreated
+  | LinkOutputMissing
   | Exclude<ConfirmOutcome, Settled>;
 
+export class ListedPaymentLink extends Schema.Class<ListedPaymentLink>(
+  "@workspace/wallet/ListedPaymentLink",
+)({
+  ...OpenPaymentLink.fields,
+  savedOnDevice: Schema.Boolean,
+}) {}
+
+export class ListedPaymentLinks extends Schema.TaggedClass<ListedPaymentLinks>()(
+  "ListedPaymentLinks",
+  { links: Schema.Array(ListedPaymentLink) },
+) {}
+
 export type PaymentLinksOutcome =
-  | PaymentLinksStep
+  | ListedPaymentLinks
+  | Exclude<PaymentLinksStep, OpenPaymentLinks>
   | NoWallet
   | UnsupportedDevice
   | WalletUnavailable;
 
+export class LatestPaymentLink extends Schema.TaggedClass<LatestPaymentLink>()(
+  "LatestPaymentLink",
+  {
+    balance: BalanceId,
+    address: AccountAddress,
+    asset: Asset,
+    amount: PositiveAmount,
+    savedOnDevice: Schema.Boolean,
+  },
+) {}
+
 export type ResolvePaymentLinkOutcome =
-  | ResolveReceiptStep
+  | LatestPaymentLink
+  | Exclude<ResolveReceiptStep, ResolvedPaymentLink>
   | Pending
   | ApprovalOutstanding
   | NoWallet
@@ -339,3 +380,34 @@ export type ConfirmReclaimOutcome =
   | AssertionRejected
   | PrfOutputMissing
   | CorruptDeviceWallet;
+
+export class LinkSecretMissing extends Schema.TaggedClass<LinkSecretMissing>()(
+  "LinkSecretMissing",
+  {},
+) {}
+
+export class PaymentLinkRevealed extends Schema.TaggedClass<PaymentLinkRevealed>()(
+  "PaymentLinkRevealed",
+  {
+    address: AccountAddress,
+    secret: LinkSecret,
+    path: Schema.String,
+    balance: BalanceId,
+    asset: Asset,
+    amount: PositiveAmount,
+  },
+) {}
+
+export type RevealPaymentLinkOutcome =
+  | PaymentLinkRevealed
+  | LinkSecretMissing
+  | LinkSecretCorrupt
+  | PrfOutputMissing
+  | PasskeyCancelled
+  | PasskeyFailed
+  | WrongCredential
+  | AssertionRejected
+  | NoWallet
+  | UnsupportedDevice
+  | CorruptDeviceWallet
+  | WalletUnavailable;

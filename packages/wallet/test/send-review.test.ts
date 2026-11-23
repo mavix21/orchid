@@ -406,7 +406,11 @@ it.live(
       assertTagged(yield* client.overview(), "Holding");
 
       const linkReview = yield* client.reviewPaymentLink(
-        new PaymentLinkIntent({ asset: baseAsset, amount }),
+        new PaymentLinkIntent({
+          asset: baseAsset,
+          amount,
+          saveOnDevice: false,
+        }),
       );
 
       assertTagged(linkReview, "PaymentReview");

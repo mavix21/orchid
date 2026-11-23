@@ -10,12 +10,12 @@ import {
   BalanceGone,
   Holding,
   Offline,
-  OpenPaymentLinks,
+  ListedPaymentLinks,
   Opened,
   PaymentLinkCreated,
   PaymentLinkIntent,
   PositiveAmount,
-  ResolvedPaymentLink,
+  LatestPaymentLink,
   type WalletPort,
   assetKey,
   baseAsset,
@@ -127,7 +127,11 @@ const linkAmount = Schema.decodeSync(PositiveAmount)("5000000");
 
 const created = await fundLinkThroughReview(
   client,
-  new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
+  new PaymentLinkIntent({
+    asset: baseAsset,
+    amount: linkAmount,
+    saveOnDevice: false,
+  }),
 );
 
 assert.ok(
@@ -166,8 +170,8 @@ assert.equal(balanceHeld, 5_000_000n);
 const listed = await client.paymentLinks();
 
 assert.ok(
-  listed instanceof OpenPaymentLinks,
-  `Expected OpenPaymentLinks, got ${listed._tag}`,
+  listed instanceof ListedPaymentLinks,
+  `Expected ListedPaymentLinks, got ${listed._tag}`,
 );
 
 assert.deepEqual(
@@ -219,7 +223,11 @@ const crashedClient = makeWalletClient(
 
 const crashedOutcome = await fundLinkThroughReview(
   crashedClient,
-  new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
+  new PaymentLinkIntent({
+    asset: baseAsset,
+    amount: linkAmount,
+    saveOnDevice: false,
+  }),
 );
 
 assert.ok(
@@ -245,8 +253,8 @@ for (
 }
 
 assert.ok(
-  resolved instanceof ResolvedPaymentLink,
-  `Expected ResolvedPaymentLink, got ${resolved._tag}`,
+  resolved instanceof LatestPaymentLink,
+  `Expected LatestPaymentLink, got ${resolved._tag}`,
 );
 
 const restartCreateTxHash = await latestTxHash(wallet.address);

@@ -40,6 +40,7 @@ import {
   standingNow,
 } from "./reclaim-reviews";
 import { Reserved, approveReviewed } from "./reviewed-approval";
+import { recordsStore, withoutReclaimed } from "./saved-links";
 
 interface ReclaimTurn {
   readonly done: Option.Option<ReviewReclaimOutcome>;
@@ -68,11 +69,42 @@ export function deviceReclaim(
   store: KeyStore,
   reviews: ReclaimReviews,
 ) {
+  const records = recordsStore(store, reviews.device?.store);
+
+  const forgetReclaimed = (
+    order: AssetOrder,
+    outcome: ReviewReclaimOutcome,
+  ) => {
+    const { action } = order;
+
+    return Predicate.isTagged(action, "ClaimBalance") &&
+      (Predicate.isTagged(outcome, "AssetSettled") ||
+        Predicate.isTagged(outcome, "BalanceGone"))
+      ? records
+          .updateRecords(({ wallet, links }) =>
+            wallet.address === order.wallet
+              ? Option.some({
+                  wallet,
+                  links: withoutReclaimed(
+                    links,
+                    wallet.address,
+                    action.balance,
+                  ),
+                })
+              : Option.none(),
+          )
+          .pipe(Effect.asVoid)
+      : Effect.void;
+  };
+
   const advance = (
     order: AssetOrder,
     onDraft: OnDraft,
     released: Option.Option<Approval> = Option.none(),
-  ): Effect.Effect<ReviewReclaimOutcome, WalletUnavailable> =>
+  ): Effect.Effect<
+    ReviewReclaimOutcome,
+    WalletUnavailable | KeyStoreUnavailable
+  > =>
     Effect.gen(function* () {
       let approval = released;
       let attempts = 0;
@@ -120,7 +152,14 @@ export function deviceReclaim(
         ),
       });
 
-      return Option.getOrElse(last.done, () => new DraftRejected());
+      const outcome = Option.getOrElse(
+        last.done,
+        (): ReviewReclaimOutcome => new DraftRejected(),
+      );
+
+      yield* forgetReclaimed(order, outcome);
+
+      return outcome;
     });
 
   const startPreflight = Ref.modify(reviews.state, (current) => [
@@ -284,7 +323,7 @@ export function deviceReclaim(
       never,
       ReviewReclaimOutcome,
       never,
-      WalletUnavailable
+      WalletUnavailable | KeyStoreUnavailable
     >(device, {
       record,
       requests: [presented.draft.request],

@@ -29,6 +29,7 @@ const created = new PaymentLinkCreated({
   network: "testnet",
   path: `/pay#${secret}`,
   settledAt: DateTime.makeUnsafe(0),
+  savedOnDevice: false,
 });
 
 const receipt = { balance, asset: baseAsset, amount };
@@ -48,6 +49,21 @@ it.each([
   );
   expect(concealedStep(step("shared"))).toEqual(
     Option.some(LinkStep.Sent({ link: receipt, delivery: "shared" })),
+  );
+});
+
+it("an unshared link saved on the device keeps its address to re-share, never its secret", () => {
+  expect(
+    concealedStep(
+      LinkStep.Created({
+        link: new PaymentLinkCreated({ ...created, savedOnDevice: true }),
+        delivery: "dismissed",
+      }),
+    ),
+  ).toEqual(
+    Option.some(
+      LinkStep.Saved({ link: { ...receipt, address: created.address } }),
+    ),
   );
 });
 

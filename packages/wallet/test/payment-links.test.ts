@@ -6,29 +6,38 @@ import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
+  type Approval,
   AssetUnsupported,
+  BalanceId,
   ClaimableLimitReached,
+  OpenPaymentLink,
+  OpenPaymentLinks,
   PaymentLinkRecipient,
   PositiveAmount,
   TransferOrder,
   type WalletPort,
   baseAsset,
 } from "../src/contract";
+import type { AssertionCeremony } from "../src/device/assertion";
+import { browserKeyStore } from "../src/device/browser-key-store";
 import {
+  LinkOutputMissing,
   PasskeyCancelled,
   PaymentLinkIntent,
   makeWalletEffects,
 } from "../src/device/client";
 import type { PublicDeviceWallet } from "../src/device/key-store";
+import { SealedLinkSecret, linkPrfInput } from "../src/device/link-seal";
 import { holdingsFromEntries } from "../src/server/ledger-assets.server";
 import { transfers } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { readEnvelope } from "../src/stellar/envelopes";
-import { usdc } from "../src/stellar/network";
+import { network, usdc } from "../src/stellar/network";
 import { memoryKeyStore } from "./device-fixtures";
 import {
   approvingDevice,
   installSealedWallet,
+  putRawEntry,
   sealedKeyStore,
   storedEntry,
   storedKeys,
@@ -57,6 +66,12 @@ import {
 } from "./wallet-harness";
 
 const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");
+
+interface ReleasedState {
+  readonly wallet: PublicDeviceWallet;
+  readonly links: ReadonlyArray<SealedLinkSecret>;
+}
+
 const orderJson = Schema.encodeSync(Schema.fromJsonString(TransferOrder));
 
 useDisposableDatabase();
@@ -64,13 +79,14 @@ useDisposableDatabase();
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect(
-      "funds a link only through a confirmed passkey approval that commits its receipt first, and never exposes the secret",
+      "funds a saved link only through a confirmed passkey approval that commits its receipt and envelope first, re-shares it and never exposes the secret",
       () =>
         Effect.gen(function* () {
           const requestPayloads: Array<string> = [];
           const storeSnapshots: Array<string> = [];
           const logLines: Array<string> = [];
-          const released: Array<PublicDeviceWallet> = [];
+          const released: Array<ReleasedState> = [];
+          let listed: ReadonlyArray<OpenPaymentLink> = [];
 
           const { wallet, sender } = yield* openSender(
             memoryKeyStore(),
@@ -96,13 +112,20 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 storeSnapshots.push(yield* rawEntries);
 
                 if (Option.isSome(approval))
-                  released.push(
-                    Option.getOrThrow(
+                  released.push({
+                    wallet: Option.getOrThrow(
                       yield* Effect.orDie(sealedKeyStore.readPublic()),
                     ),
-                  );
+                    links: yield* Effect.orDie(browserKeyStore.readLinks()),
+                  });
 
                 return yield* settlingTransfer(order, approval);
+              }),
+            paymentLinks: (address) =>
+              Effect.sync(() => {
+                requestPayloads.push(address);
+
+                return new OpenPaymentLinks({ links: listed });
               }),
           };
 
@@ -119,7 +142,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const review = yield* client
             .reviewPaymentLink(
-              new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
+              new PaymentLinkIntent({
+                asset: baseAsset,
+                amount: linkAmount,
+                saveOnDevice: true,
+              }),
             )
             .pipe(Effect.provide(Logger.layer([captureLogger])));
 
@@ -131,6 +158,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             new PasskeyCancelled(),
           );
           expect(released).toEqual([]);
+          expect(yield* browserKeyStore.readLinks()).toEqual([]);
 
           const withheld = Option.getOrThrow(
             yield* sealedKeyStore.readPublic(),
@@ -147,15 +175,98 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(created, "PaymentLinkCreated");
           expect(created.path).toBe(`/l/${created.address}#${created.secret}`);
+          expect(created.savedOnDevice).toBe(true);
+
+          const linkInput = yield* linkPrfInput({
+            network,
+            wallet: sender.address,
+            address: created.address,
+          });
+
           expect(
-            released.map(({ approvedUntil, linkReceipt }) => ({
-              approved: approvedUntil !== undefined,
-              link: linkReceipt?.address,
-              balance: linkReceipt?.balance,
+            Option.map(auth.requested.at(-1) ?? Option.none(), (inputs) =>
+              Option.getOrUndefined(inputs.second),
+            ),
+          ).toEqual(Option.some(linkInput));
+          expect(
+            released.map(({ wallet: state, links }) => ({
+              approved: state.approvedUntil !== undefined,
+              link: state.linkReceipt?.address,
+              balance: state.linkReceipt?.balance,
+              saved: links.map((link) => link.address),
             })),
           ).toEqual([
-            { approved: true, link: created.address, balance: created.balance },
+            {
+              approved: true,
+              link: created.address,
+              balance: created.balance,
+              saved: [created.address],
+            },
           ]);
+
+          const [savedLink] = yield* browserKeyStore.readLinks();
+
+          expect(savedLink?.fundedBalance).toBe(created.balance);
+
+          const ciphertext = Schema.encodeSync(SealedLinkSecret)(
+            Option.getOrThrow(Option.fromNullishOr(savedLink)),
+          ).ciphertext;
+
+          const target = {
+            address: created.address,
+            balance: created.balance,
+            asset: created.asset,
+            amount: created.amount,
+          };
+
+          yield* Effect.promise(async () =>
+            putRawEntry("payment-links", [
+              { version: 1, address: "corrupt" },
+              ...Schema.decodeUnknownSync(Schema.Array(Schema.Unknown))(
+                await storedEntry("payment-links"),
+              ),
+            ]),
+          );
+
+          const revealed = yield* client.revealPaymentLink(target);
+
+          assertTagged(revealed, "PaymentLinkRevealed");
+          expect(revealed.path).toBe(created.path);
+          expect(auth.requested.at(-1)).toEqual(
+            Option.some({ first: linkInput, second: Option.none() }),
+          );
+
+          listed = [
+            new OpenPaymentLink({
+              id: created.id,
+              ...target,
+              createdAt: created.settledAt,
+            }),
+            new OpenPaymentLink({
+              id: created.id,
+              balance: Schema.decodeSync(BalanceId)(
+                `00000000${"7".repeat(64)}`,
+              ),
+              address: addressOf(Keypair.random()),
+              asset: baseAsset,
+              amount: linkAmount,
+              createdAt: created.settledAt,
+            }),
+          ];
+
+          const annotated = yield* client.paymentLinks();
+
+          assertTagged(annotated, "ListedPaymentLinks");
+          expect(annotated.links.map((link) => link.savedOnDevice)).toEqual([
+            true,
+            false,
+          ]);
+
+          listed = [];
+          assertTagged(yield* client.paymentLinks(), "ListedPaymentLinks");
+          expect(
+            (yield* browserKeyStore.readLinks()).map((link) => link.address),
+          ).toEqual([created.address]);
 
           storeSnapshots.push(yield* rawEntries);
 
@@ -167,10 +278,93 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             dbRows.map((row) => ({ ...row, amount: row.amount.toString() })),
           );
 
-          expect(requestPayloads.join("\n")).not.toContain(created.secret);
-          expect(logLines.join("\n")).not.toContain(created.secret);
+          const exposed = [
+            requestPayloads.join("\n"),
+            logLines.join("\n"),
+            serializedRows,
+          ].join("\n");
+
+          expect(exposed).not.toContain(created.secret);
+          expect(exposed).not.toContain(ciphertext);
           expect(storeSnapshots.join("\n")).not.toContain(created.secret);
-          expect(serializedRows).not.toContain(created.secret);
+        }),
+    );
+
+    it.effect(
+      "stops saved funding when only the link output is missing and funds a separately reviewed one-time link",
+      () =>
+        Effect.gen(function* () {
+          const released: Array<Approval> = [];
+
+          const { wallet, sender } = yield* openSender(
+            memoryKeyStore(),
+            "onetimelink",
+          );
+
+          const { auth } = yield* installSealedWallet(sender);
+          const settlingTransfer = settleOnSubmit(wallet, sender.address);
+
+          const ceremony: AssertionCeremony = {
+            assert: (request) =>
+              auth.assertions.assert(request).pipe(
+                Effect.map((platform) => ({
+                  ...platform,
+                  prf: { ...platform.prf, second: Option.none() },
+                })),
+              ),
+          };
+
+          const client = makeWalletEffects(
+            {
+              ...wallet,
+              transfer: (order, approval) => {
+                released.push(...Option.toArray(approval));
+
+                return settlingTransfer(order, approval);
+              },
+            },
+            sealedKeyStore,
+            devicePasskeys,
+            { ...approvingDevice(auth), ceremony },
+          );
+
+          const intent = (saveOnDevice: boolean) =>
+            new PaymentLinkIntent({
+              asset: baseAsset,
+              amount: linkAmount,
+              saveOnDevice,
+            });
+
+          const saved = yield* client.reviewPaymentLink(intent(true));
+
+          assertTagged(saved, "PaymentReview");
+          expect(yield* client.confirmPaymentLink(saved)).toEqual(
+            new LinkOutputMissing(),
+          );
+          expect(released).toEqual([]);
+
+          const withheld = Option.getOrThrow(
+            yield* sealedKeyStore.readPublic(),
+          );
+
+          expect(withheld.approvedUntil).toBeUndefined();
+          expect(withheld.linkReceipt).toBeUndefined();
+
+          const once = yield* client.reviewPaymentLink(intent(false));
+
+          assertTagged(once, "PaymentReview");
+
+          const created = yield* client.confirmPaymentLink(once);
+
+          assertTagged(created, "PaymentLinkCreated");
+          expect(created.savedOnDevice).toBe(false);
+          expect(released).toHaveLength(1);
+          expect(
+            Option.map(auth.requested.at(-1) ?? Option.none(), (inputs) =>
+              Option.isSome(inputs.second),
+            ),
+          ).toEqual(Option.some(false));
+          expect(yield* browserKeyStore.readLinks()).toEqual([]);
         }),
     );
 

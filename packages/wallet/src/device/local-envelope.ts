@@ -65,13 +65,6 @@ export interface LocalPhrasePrfContext {
   readonly salt: Uint8Array;
 }
 
-export interface PaymentLinkPrfContext {
-  readonly network: string;
-  readonly address: AccountAddress;
-  readonly linkAddress: AccountAddress;
-  readonly salt: Uint8Array;
-}
-
 export interface SealLocalEnvelopeInput extends LocalEnvelopeContext {
   readonly phrase: SecretPhrase;
   readonly salt: Uint8Array;
@@ -90,7 +83,7 @@ export type ReopenLocalEnvelopeOutcome =
   | AssertionRejected
   | PrfOutputMissing;
 
-const canonicalTuple = (
+export const canonicalTuple = (
   parts: ReadonlyArray<Uint8Array>,
 ): Uint8Array<ArrayBuffer> => {
   const totalLength = parts.reduce((sum, part) => sum + 4 + part.byteLength, 0);
@@ -110,7 +103,7 @@ const canonicalTuple = (
   return output;
 };
 
-const sha256 = (bytes: Uint8Array<ArrayBuffer>) =>
+export const sha256 = (bytes: Uint8Array<ArrayBuffer>) =>
   Effect.promise(() => crypto.subtle.digest("SHA-256", bytes)).pipe(
     Effect.map((digest) => new Uint8Array(digest)),
   );
@@ -130,21 +123,6 @@ export const localPhrasePrfInput = (
       versionTag,
       encoder.encode(context.network),
       encoder.encode(context.address),
-      context.salt,
-    ]),
-  );
-
-export const paymentLinkPrfInput = (
-  context: PaymentLinkPrfContext,
-): Effect.Effect<Uint8Array<ArrayBuffer>> =>
-  sha256(
-    canonicalTuple([
-      encoder.encode("orchid-prf"),
-      encoder.encode("payment-link"),
-      versionTag,
-      encoder.encode(context.network),
-      encoder.encode(context.address),
-      encoder.encode(context.linkAddress),
       context.salt,
     ]),
   );

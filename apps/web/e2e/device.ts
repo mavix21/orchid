@@ -361,3 +361,72 @@ export const openWallet = async (page: Page, usernameText: string) => {
 
   return address;
 };
+
+export const enrollWallet = async (page: Page, usernameText: string) => {
+  const authenticator = await addAuthenticator(page, true);
+
+  await page.goto("/");
+  await page.getByTestId("start-create").click();
+  await usernameInput(page).fill(usernameText);
+  await submitButton(page).click();
+  await expect(page.getByTestId("enrollment-step")).toHaveAttribute(
+    "data-stage",
+    "activate",
+    { timeout: 30_000 },
+  );
+  await page.getByTestId("enrollment-continue").click();
+  await expect(page.getByTestId("open-send")).toBeVisible({ timeout: 120_000 });
+
+  return { address: await storedWalletAddress(page), authenticator };
+};
+
+export const withoutPrf = async (
+  page: Page,
+  authenticator: Awaited<ReturnType<typeof addAuthenticator>>,
+) => {
+  const { credentials } = await authenticator.session.send(
+    "WebAuthn.getCredentials",
+    { authenticatorId: authenticator.authenticatorId },
+  );
+
+  await authenticator.session.send("WebAuthn.removeVirtualAuthenticator", {
+    authenticatorId: authenticator.authenticatorId,
+  });
+
+  const replacement = await addAuthenticator(page, false);
+
+  await Promise.all(
+    credentials.map((credential) =>
+      replacement.session.send("WebAuthn.addCredential", {
+        authenticatorId: replacement.authenticatorId,
+        credential,
+      }),
+    ),
+  );
+
+  return replacement;
+};
+
+export const storedLinkCiphertexts = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<Array<string>>((resolve, reject) => {
+        const request = indexedDB.open("orchid-device", 1);
+
+        request.addEventListener("error", () => reject(request.error));
+        request.addEventListener("success", () => {
+          const tx = request.result.transaction("entries", "readonly");
+          const get = tx.objectStore("entries").get("payment-links");
+
+          get.addEventListener("error", () => reject(get.error));
+          tx.addEventListener("complete", () => {
+            request.result.close();
+            resolve(
+              Array.isArray(get.result)
+                ? get.result.map((entry) => String(entry.ciphertext))
+                : [],
+            );
+          });
+        });
+      }),
+  );

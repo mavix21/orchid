@@ -4,17 +4,21 @@ import * as Schema from "effect/Schema";
 import { network } from "../stellar/network";
 import {
   CorruptDeviceWallet,
+  type DeviceRecords,
+  type DeviceRecordsUpdate,
   KeyStoreUnavailable,
   PublicDeviceWallet,
   type PublicWalletUpdate,
   SealedDeviceWallet,
   type SealedKeyStore,
 } from "./key-store";
+import { SealedLinkSecret } from "./link-seal";
 import { localEnvelopeVersion, matchesEnvelopeContext } from "./local-envelope";
 
 const databaseName = "orchid-device";
 const entries = "entries";
 const walletEntry = "wallet";
+const linksEntry = "payment-links";
 
 const StoredVersion = Schema.Struct({
   version: Schema.Literal(localEnvelopeVersion),
@@ -22,6 +26,13 @@ const StoredVersion = Schema.Struct({
 
 const isCurrentVersion = Schema.is(StoredVersion);
 const decodeStoredWallet = Schema.decodeUnknownOption(SealedDeviceWallet);
+
+const decodeStoredEntries = Schema.decodeUnknownOption(
+  Schema.Array(Schema.Unknown),
+);
+
+const decodeStoredLink = Schema.decodeUnknownOption(SealedLinkSecret);
+const encodeStoredLink = Schema.encodeSync(SealedLinkSecret);
 
 function settle<A>(request: IDBRequest<A>): Promise<A> {
   return new Promise((resolve, reject) => {
@@ -187,53 +198,101 @@ async function installSealedWallet(
   }
 }
 
-async function updatePublicWallet(
-  update: (current: PublicDeviceWallet) => Option.Option<PublicDeviceWallet>,
-): Promise<Option.Option<PublicWalletUpdate>> {
+const storedLinks = (stored: Option.Option<ReadonlyArray<unknown>>) => {
+  const entries = Option.getOrElse(stored, () => []);
+
+  return {
+    links: entries.flatMap((entry) => Option.toArray(decodeStoredLink(entry))),
+    unreadable: entries.filter((entry) =>
+      Option.isNone(decodeStoredLink(entry)),
+    ),
+  };
+};
+
+async function readLinks(): Promise<ReadonlyArray<SealedLinkSecret>> {
+  const database = await openDatabase();
+
+  try {
+    return storedLinks(
+      decodeStoredEntries(
+        await settle(
+          database.transaction(entries).objectStore(entries).get(linksEntry),
+        ),
+      ),
+    ).links;
+  } finally {
+    database.close();
+  }
+}
+
+async function updateDeviceRecords(
+  update: (current: DeviceRecords) => Option.Option<DeviceRecords>,
+): Promise<Option.Option<DeviceRecordsUpdate>> {
   const database = await openDatabase();
 
   try {
     const transaction = database.transaction(entries, "readwrite");
     const objectStore = transaction.objectStore(entries);
 
-    return await new Promise<Option.Option<PublicWalletUpdate>>(
+    return await new Promise<Option.Option<DeviceRecordsUpdate>>(
       (resolve, reject) => {
-        let result: Option.Option<PublicWalletUpdate> = Option.none();
-        const request = objectStore.get(walletEntry);
+        let result: Option.Option<DeviceRecordsUpdate> = Option.none();
+        const walletRequest = objectStore.get(walletEntry);
+        const linksRequest = objectStore.get(linksEntry);
 
-        request.addEventListener("error", () => reject(request.error));
-        request.addEventListener("success", () => {
+        walletRequest.addEventListener("error", () =>
+          reject(walletRequest.error),
+        );
+        linksRequest.addEventListener("error", () =>
+          reject(linksRequest.error),
+        );
+        linksRequest.addEventListener("success", () => {
           try {
-            if (!isCurrentVersion(request.result)) return;
+            if (!isCurrentVersion(walletRequest.result)) return;
 
-            const stored = decodeStoredWallet(request.result);
+            const stored = decodeStoredWallet(walletRequest.result);
 
             if (Option.isNone(stored)) throw new CorruptDeviceWallet();
 
-            const current = stored.value.public;
+            const { links, unreadable } = storedLinks(
+              decodeStoredEntries(linksRequest.result),
+            );
+
+            const current = { wallet: stored.value.public, links };
             const next = update(current);
 
             if (Option.isNone(next)) {
-              result = Option.some({ wallet: current, updated: false });
+              result = Option.some({ records: current, updated: false });
 
               return;
             }
 
-            if (next.value.address !== current.address)
+            if (next.value.wallet.address !== current.wallet.address)
               throw new Error("Wallet address cannot change");
 
-            objectStore.put(
-              Schema.encodeSync(SealedDeviceWallet)(
-                new SealedDeviceWallet({
-                  version: stored.value.version,
-                  public: next.value,
-                  credential: stored.value.credential,
-                  envelope: stored.value.envelope,
-                }),
-              ),
-              walletEntry,
-            );
-            result = Option.some({ wallet: next.value, updated: true });
+            if (next.value.wallet !== current.wallet)
+              objectStore.put(
+                Schema.encodeSync(SealedDeviceWallet)(
+                  new SealedDeviceWallet({
+                    version: stored.value.version,
+                    public: next.value.wallet,
+                    credential: stored.value.credential,
+                    envelope: stored.value.envelope,
+                  }),
+                ),
+                walletEntry,
+              );
+
+            if (next.value.links !== current.links)
+              objectStore.put(
+                [
+                  ...unreadable,
+                  ...next.value.links.map((link) => encodeStoredLink(link)),
+                ],
+                linksEntry,
+              );
+
+            result = Option.some({ records: next.value, updated: true });
           } catch (error) {
             transaction.abort();
             reject(error);
@@ -250,30 +309,39 @@ async function updatePublicWallet(
   }
 }
 
+const updatePublicWallet = async (
+  update: (current: PublicDeviceWallet) => Option.Option<PublicDeviceWallet>,
+): Promise<Option.Option<PublicWalletUpdate>> =>
+  Option.map(
+    await updateDeviceRecords((current) =>
+      Option.map(update(current.wallet), (wallet) => ({
+        wallet,
+        links: current.links,
+      })),
+    ),
+    ({ records, updated }) => ({ wallet: records.wallet, updated }),
+  );
+
+const failure = (cause: unknown) =>
+  cause instanceof CorruptDeviceWallet
+    ? cause
+    : new KeyStoreUnavailable({ cause });
+
 export const browserKeyStore: SealedKeyStore = {
   readPublic: () =>
     Effect.tryPromise({
       try: readPublicWallet,
-      catch: (cause) =>
-        cause instanceof CorruptDeviceWallet
-          ? cause
-          : new KeyStoreUnavailable({ cause }),
+      catch: failure,
     }),
   updatePublic: (update) =>
     Effect.tryPromise({
       try: () => updatePublicWallet(update),
-      catch: (cause) =>
-        cause instanceof CorruptDeviceWallet
-          ? cause
-          : new KeyStoreUnavailable({ cause }),
+      catch: failure,
     }),
   readSealed: () =>
     Effect.tryPromise({
       try: readSealedWallet,
-      catch: (cause) =>
-        cause instanceof CorruptDeviceWallet
-          ? cause
-          : new KeyStoreUnavailable({ cause }),
+      catch: failure,
     }),
   writeSealed: (wallet) =>
     Effect.tryPromise({
@@ -283,9 +351,16 @@ export const browserKeyStore: SealedKeyStore = {
   installSealed: (wallet, replacing) =>
     Effect.tryPromise({
       try: () => installSealedWallet(wallet, replacing),
-      catch: (cause) =>
-        cause instanceof CorruptDeviceWallet
-          ? cause
-          : new KeyStoreUnavailable({ cause }),
+      catch: failure,
+    }),
+  readLinks: () =>
+    Effect.tryPromise({
+      try: readLinks,
+      catch: (cause) => new KeyStoreUnavailable({ cause }),
+    }),
+  updateRecords: (update) =>
+    Effect.tryPromise({
+      try: () => updateDeviceRecords(update),
+      catch: failure,
     }),
 };

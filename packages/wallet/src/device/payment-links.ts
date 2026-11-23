@@ -3,6 +3,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as Redacted from "effect/Redacted";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import {
@@ -16,25 +17,53 @@ import {
 } from "../contract";
 import { network } from "../stellar/network";
 import {
+  AssertionIntent,
+  AssertionRejected,
+  OperationVerified,
+  verifyPinnedAssertion,
+} from "./assertion";
+import {
   type CorruptDeviceWallet,
   type KeyStore,
   type KeyStoreUnavailable,
   clearStoredLink,
+  clearedLink,
+  sameLinkState,
 } from "./key-store";
+import {
+  LinkSecretCorrupt,
+  LinkSecretOpened,
+  type SealedLinkSecret,
+  linkPrfInput,
+  matchesLinkContext,
+  openLinkSecret,
+  sealLinkSecret,
+} from "./link-seal";
 import {
   ApprovalOutstanding,
   type ConfirmPaymentLinkOutcome,
   DraftRejected,
+  LatestPaymentLink,
+  LinkOutputMissing,
+  LinkSecretMissing,
+  ListedPaymentLink,
+  ListedPaymentLinks,
   NoWallet,
   PaymentLinkCreated,
   type PaymentLinkIntent,
+  PaymentLinkRevealed,
   type PaymentLinksOutcome,
   type PaymentReview,
   type ResolvePaymentLinkOutcome,
+  type RevealPaymentLinkOutcome,
   type ReviewPaymentLinkOutcome,
+  type SavedLinkTarget,
   TransferIntent,
+  UnsupportedDevice,
 } from "./outcomes";
-import { type Reviews, sendTransfer } from "./sending";
+import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";
+import { recordFunded, recordsStore, savedLinkFor } from "./saved-links";
+import { type LinkSaving, type Reviews, sendTransfer } from "./sending";
 
 const clockAllowance = 60;
 
@@ -45,7 +74,11 @@ const nowSeconds = Effect.map(DateTime.now, (now) =>
 export interface HeldLink {
   readonly address: AccountAddress;
   readonly secret: LinkSecret;
+  readonly saveOnDevice: boolean;
 }
+
+const linkPath = (address: AccountAddress, secret: LinkSecret) =>
+  `/l/${address}#${secret}`;
 
 export function devicePaymentLinks(
   port: WalletPort,
@@ -54,6 +87,45 @@ export function devicePaymentLinks(
   held: Ref.Ref<Option.Option<HeldLink>>,
 ) {
   const transfers = sendTransfer(port, store, reviews);
+  const records = recordsStore(store, reviews.device?.store);
+
+  const saving = (
+    wallet: AccountAddress,
+    link: HeldLink,
+  ): Effect.Effect<
+    Option.Option<LinkSaving<LinkOutputMissing | DraftRejected>>
+  > =>
+    link.saveOnDevice
+      ? Effect.map(
+          linkPrfInput({ network, wallet, address: link.address }),
+          (input) =>
+            Option.some({
+              input,
+              seal: (record, output) =>
+                Option.match(output, {
+                  onNone: () => Effect.succeed(new LinkOutputMissing()),
+                  onSome: (prf) =>
+                    sealLinkSecret(
+                      {
+                        network,
+                        wallet: record.public.address,
+                        address: link.address,
+                        credentialId: record.credential.id,
+                      },
+                      link.secret,
+                      prf,
+                    ).pipe(
+                      Effect.map(
+                        Option.getOrElse(
+                          (): SealedLinkSecret | DraftRejected =>
+                            new DraftRejected(),
+                        ),
+                      ),
+                    ),
+                }),
+            }),
+        )
+      : Effect.succeed(Option.none());
 
   const review = Effect.fn("Device.reviewPaymentLink")(function* (
     intent: PaymentLinkIntent,
@@ -76,7 +148,10 @@ export function devicePaymentLinks(
     if (Predicate.isTagged(reviewed, "Settled")) return new DraftRejected();
 
     if (Predicate.isTagged(reviewed, "PaymentReview"))
-      yield* Ref.set(held, Option.some({ address, secret }));
+      yield* Ref.set(
+        held,
+        Option.some({ address, secret, saveOnDevice: intent.saveOnDevice }),
+      );
 
     return reviewed;
   });
@@ -96,13 +171,16 @@ export function devicePaymentLinks(
 
     if (Option.isNone(link)) return new DraftRejected();
 
-    const outcome = yield* transfers.confirmLinkFunding(shown);
+    const outcome = yield* transfers.confirmLinkFunding(
+      shown,
+      Option.getOrUndefined(yield* saving(shown.order.from, link.value)),
+    );
 
     if (!Predicate.isTagged(outcome, "Settled")) return outcome;
 
     if (outcome.claimable === undefined) return new DraftRejected();
 
-    const { address, secret } = link.value;
+    const { address, secret, saveOnDevice } = link.value;
 
     yield* Ref.update(held, (current) =>
       Option.exists(current, (kept) => kept.address === address)
@@ -118,8 +196,9 @@ export function devicePaymentLinks(
       asset: outcome.asset,
       amount: outcome.amount,
       network,
-      path: `/l/${address}#${secret}`,
+      path: linkPath(address, secret),
       settledAt: outcome.settledAt,
+      savedOnDevice: saveOnDevice,
     });
   });
 
@@ -132,7 +211,24 @@ export function devicePaymentLinks(
 
       if (Option.isNone(stored)) return new NoWallet();
 
-      return yield* port.paymentLinks(stored.value.address);
+      const wallet = stored.value.address;
+      const listed = yield* port.paymentLinks(wallet);
+
+      if (!Predicate.isTagged(listed, "OpenPaymentLinks")) return listed;
+
+      const saved = yield* records.readLinks();
+
+      return new ListedPaymentLinks({
+        links: listed.links.map(
+          (link) =>
+            new ListedPaymentLink({
+              ...link,
+              savedOnDevice: Option.isSome(
+                savedLinkFor(saved, wallet, link.address),
+              ),
+            }),
+        ),
+      });
     },
   );
 
@@ -177,9 +273,32 @@ export function devicePaymentLinks(
       const resolved = yield* port.resolvePaymentLink(wallet.address, receipt);
 
       if (Predicate.isTagged(resolved, "ResolvedPaymentLink")) {
-        yield* clearStoredLink(store, clearTarget);
+        const settled = yield* records.updateRecords(
+          ({ wallet: current, links }) =>
+            Option.some({
+              wallet: sameLinkState(current, clearTarget)
+                ? clearedLink(current)
+                : current,
+              links: recordFunded(
+                links,
+                current.address,
+                resolved.address,
+                resolved.balance,
+              ),
+            }),
+        );
 
-        return resolved;
+        return new LatestPaymentLink({
+          balance: resolved.balance,
+          address: resolved.address,
+          asset: resolved.asset,
+          amount: resolved.amount,
+          savedOnDevice: Option.exists(settled, ({ records: kept }) =>
+            Option.isSome(
+              savedLinkFor(kept.links, kept.wallet.address, resolved.address),
+            ),
+          ),
+        });
       }
 
       if (Predicate.isTagged(resolved, "PaymentLinkNotFound")) {
@@ -202,10 +321,90 @@ export function devicePaymentLinks(
     },
   );
 
+  const reveal = Effect.fn("Device.revealPaymentLink")(function* (
+    target: SavedLinkTarget,
+  ): Effect.fn.Return<
+    RevealPaymentLinkOutcome,
+    KeyStoreUnavailable | CorruptDeviceWallet | PasskeyCancelled | PasskeyFailed
+  > {
+    const { device } = reviews;
+
+    if (device === undefined) return new UnsupportedDevice();
+
+    const sealed = yield* device.store.readSealed();
+
+    if (Option.isNone(sealed)) return new NoWallet();
+
+    const { credential } = sealed.value;
+    const wallet = sealed.value.public.address;
+
+    const saved = Option.filter(
+      savedLinkFor(yield* device.store.readLinks(), wallet, target.address),
+      ({ fundedBalance }) =>
+        fundedBalance === undefined || fundedBalance === target.balance,
+    );
+
+    if (Option.isNone(saved)) return new LinkSecretMissing();
+
+    const context = {
+      network,
+      wallet,
+      address: target.address,
+      credentialId: credential.id,
+    };
+
+    if (!matchesLinkContext(saved.value, context))
+      return new LinkSecretCorrupt();
+
+    const verified = yield* verifyPinnedAssertion(
+      device.ceremony,
+      device.relyingParty(),
+      credential,
+      AssertionIntent.Operation({
+        purpose: "disclosure",
+        prf: {
+          first: yield* linkPrfInput(context),
+          second: Option.none(),
+        },
+      }),
+    );
+
+    if (Predicate.isTagged(verified, "EntryVerified"))
+      return new AssertionRejected();
+
+    if (!(verified instanceof OperationVerified)) return verified;
+
+    const opened = yield* openLinkSecret(
+      saved.value,
+      context,
+      verified.prf.first,
+    ).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          Redacted.value(verified.prf.first).fill(0);
+        }),
+      ),
+    );
+
+    if (!(opened instanceof LinkSecretOpened)) return opened;
+
+    const secret = Redacted.value(opened.secret);
+
+    return new PaymentLinkRevealed({
+      address: target.address,
+      secret,
+      path: linkPath(target.address, secret),
+      balance: target.balance,
+      asset: target.asset,
+      amount: target.amount,
+    });
+  });
+
   return {
     review,
     confirm,
     paymentLinks,
     resolvePaymentLink,
+    reveal,
   };
 }
