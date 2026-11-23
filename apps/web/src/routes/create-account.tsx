@@ -233,13 +233,6 @@ function ChooseUsername() {
     }
   };
 
-  useEffect(
-    () => () => {
-      void enrollmentClient.retire();
-    },
-    [],
-  );
-
   useEffect(() => {
     if (Option.isNone(pending)) return;
 
