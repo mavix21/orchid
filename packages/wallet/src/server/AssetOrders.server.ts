@@ -100,11 +100,6 @@ export class AssetOrders extends Context.Service<
       asset: IssuedAsset,
     ): Effect.Effect<void, StoreFailure>;
 
-    settledClaim(
-      wallet: AccountAddress,
-      balance: BalanceId,
-    ): Effect.Effect<boolean, StoreFailure>;
-
     onBalance(
       balance: BalanceId,
     ): Effect.Effect<ReadonlyArray<StoredAssetOrder>, StoreFailure>;
@@ -583,26 +578,6 @@ export class AssetOrders extends Context.Service<
             Clock.currentTimeMillis.pipe(
               Effect.flatMap((now) => untrack(db, wallet, asset, now)),
               Effect.asVoid,
-            ),
-          ),
-        settledClaim: (wallet, balance) =>
-          wrap(
-            Clock.currentTimeMillis.pipe(
-              Effect.flatMap((now) =>
-                db
-                  .select({ id: assetOrders.id })
-                  .from(assetOrders)
-                  .where(
-                    and(
-                      scopeAt(now),
-                      eq(assetOrders.wallet, wallet),
-                      eq(assetOrders.status, "settled"),
-                      eq(assetOrders.balanceId, balance),
-                    ),
-                  )
-                  .limit(1),
-              ),
-              Effect.map((rows) => rows.length > 0),
             ),
           ),
       });

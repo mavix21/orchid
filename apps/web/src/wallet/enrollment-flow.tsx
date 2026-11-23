@@ -277,13 +277,19 @@ export function EnrollmentFlow({
     );
   };
 
+  const receiveFor = (current: EnrollmentPending) =>
+    Option.filter(
+      Option.fromNullishOr(current.receive),
+      (shown) => receive !== undefined && shown.link === receive.link,
+    );
+
   const awaitingReceive = Option.exists(
     pending,
     (current) =>
       receive !== undefined &&
       current.stage === "activate" &&
       current.review !== undefined &&
-      current.receive === undefined,
+      Option.isNone(receiveFor(current)),
   );
 
   useEffect(() => {
@@ -305,15 +311,17 @@ export function EnrollmentFlow({
   useEffect(() => {
     if (Option.isNone(pending)) return;
 
-    const { stage, review, receive: shownReceive } = pending.value;
+    const { stage, review } = pending.value;
+    const shownReceive = receiveFor(pending.value);
 
     if (stage !== "activate" || review === undefined) return;
 
     const deadline = Math.min(
       currentUntil(review),
-      shownReceive === undefined
-        ? Number.POSITIVE_INFINITY
-        : receiveCurrentUntil(shownReceive),
+      Option.match(shownReceive, {
+        onNone: () => Number.POSITIVE_INFINITY,
+        onSome: receiveCurrentUntil,
+      }),
     );
 
     const timer = setTimeout(
@@ -322,7 +330,7 @@ export function EnrollmentFlow({
         void enrollmentClient.pending().then(async (next) => {
           setPending(next);
 
-          if (shownReceive !== undefined) await requestReceive();
+          if (Option.isSome(shownReceive)) await requestReceive();
 
           setStale(false);
         });
@@ -379,7 +387,7 @@ export function EnrollmentFlow({
     const shown = Option.isSome(pending) ? pending.value.review : undefined;
 
     const shownReceive = Option.isSome(pending)
-      ? pending.value.receive
+      ? Option.getOrUndefined(receiveFor(pending.value))
       : undefined;
 
     const verifying =
@@ -441,7 +449,7 @@ export function EnrollmentFlow({
     );
 
   if (Option.isSome(pending)) {
-    const shownReceive = Option.fromNullishOr(pending.value.receive);
+    const shownReceive = receiveFor(pending.value);
 
     const copy = stageCopy(
       pending.value.stage,
