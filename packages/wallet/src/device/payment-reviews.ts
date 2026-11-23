@@ -16,12 +16,15 @@ import {
   orderedFacts,
 } from "./transfer-drafts";
 
-const reviewJson = Schema.encodeSync(Schema.fromJsonString(PaymentReview));
+export const reviewJson = Schema.encodeSync(
+  Schema.fromJsonString(PaymentReview),
+);
+
+export const reviewFromJson = Schema.decodeSync(
+  Schema.fromJsonString(PaymentReview),
+);
 
 type DraftTiming = "current" | "expiring" | "stale";
-
-export const sameReview = (left: PaymentReview, right: PaymentReview) =>
-  reviewJson(left) === reviewJson(right);
 
 export const draftTiming = (
   maxTime: number,
@@ -89,7 +92,7 @@ const standingOf = (
 
   if (
     Option.isNone(derived) ||
-    !sameReview(derived.value.review, shown) ||
+    reviewJson(derived.value.review) !== reviewJson(shown) ||
     approvalOutstanding(wallet, Math.floor(nowMillis / 1000))
   )
     return "stale";

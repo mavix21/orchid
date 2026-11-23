@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
+import * as TestClock from "effect/testing/TestClock";
 import * as Predicate from "effect/Predicate";
 import {
   AddressRecipient,
@@ -154,6 +155,26 @@ it.live.each([
       const { approvals, client } = deviceWith(envelope, options);
 
       expect(yield* client.review(toExchange)).toEqual(new DraftRejected());
+      expect(approvals).toEqual([Option.none(), Option.none()]);
+    }),
+);
+
+it.effect(
+  "spends the order's single redraft once when the replacement also expires",
+  () =>
+    Effect.gen(function* () {
+      let drafted = 0;
+
+      const { approvals, client } = yield* sealedWith((at) =>
+        payment(actors.sender, drafted++ === 0 ? 21 : 10, at),
+      );
+
+      const review = yield* reviewed(client, toExchange);
+
+      yield* TestClock.adjust("3 seconds");
+
+      expect(yield* client.confirm(review)).toEqual(new DraftRejected());
+      expect(yield* client.confirm(review)).toEqual(new DraftRejected());
       expect(approvals).toEqual([Option.none(), Option.none()]);
     }),
 );

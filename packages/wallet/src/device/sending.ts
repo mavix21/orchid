@@ -40,8 +40,9 @@ import {
 import { pendingSteps, pollSchedule } from "./polling";
 import {
   draftTiming,
+  reviewFromJson,
+  reviewJson,
   reviewOf,
-  sameReview,
   standingNow,
 } from "./payment-reviews";
 import { approveReviewed } from "./reviewed-approval";
@@ -68,7 +69,7 @@ interface SendTurn<D> {
 }
 
 export interface Reviews {
-  readonly issued: Ref.Ref<Option.Option<PaymentReview>>;
+  readonly issued: Ref.Ref<Option.Option<string>>;
   readonly device: SealedDevice | undefined;
 }
 
@@ -220,7 +221,10 @@ export function sendTransfer(
           return { done: Option.some(new DraftRejected()) };
 
         if (reviews !== undefined)
-          yield* Ref.set(reviews.issued, Option.some(derived.value.review));
+          yield* Ref.set(
+            reviews.issued,
+            Option.some(reviewJson(derived.value.review)),
+          );
 
         return { done: Option.some(derived.value.review) };
       });
@@ -406,13 +410,18 @@ export function sendTransfer(
   });
 
   const redraft = (
+    issued: Ref.Ref<Option.Option<string>>,
     wallet: PublicDeviceWallet,
     order: TransferOrder,
-    shown: PaymentReview,
+    review: PaymentReview,
   ) =>
-    shown.redrafted
-      ? Effect.succeed(new DraftRejected())
-      : advance(wallet, order, presenting(true));
+    Ref.set(issued, Option.none()).pipe(
+      Effect.andThen(
+        review.redrafted
+          ? Effect.succeed(new DraftRejected())
+          : advance(wallet, order, presenting(true)),
+      ),
+    );
 
   const confirm = Effect.fn("Device.confirm")(function* (
     shown: PaymentReview,
@@ -422,13 +431,17 @@ export function sendTransfer(
   > {
     if (reviews?.device === undefined) return new UnsupportedDevice();
 
-    const { device, issued: issuedReview } = reviews;
+    const { device, issued } = reviews;
+    const snapshot = yield* Ref.get(issued);
 
-    const issuedHere = Effect.map(Ref.get(issuedReview), (issued) =>
-      Option.exists(issued, (review) => sameReview(review, shown)),
+    if (Option.isNone(snapshot) || snapshot.value !== reviewJson(shown))
+      return new DraftRejected();
+
+    const presented = reviewFromJson(snapshot.value);
+
+    const issuedHere = Effect.map(Ref.get(issued), (current) =>
+      Option.contains(current, snapshot.value),
     );
-
-    if (!(yield* issuedHere)) return new DraftRejected();
 
     const sealed = yield* device.store.readSealed();
 
@@ -438,27 +451,27 @@ export function sendTransfer(
     const observed = record.public;
     const order = observed.transfer;
 
-    if (order === undefined || orderJson(order) !== orderJson(shown.order))
+    if (order === undefined || orderJson(order) !== orderJson(presented.order))
       return new DraftRejected();
 
     if (approvalOutstanding(observed, yield* nowSeconds))
       return new ApprovalOutstanding({ order });
 
-    const facts = orderedFacts(observed, order, shown.draft);
+    const facts = orderedFacts(observed, order, presented.draft);
 
     if (Option.isNone(facts)) return new DraftRejected();
 
     const approvedUntil = facts.value.maxTime;
 
-    if ((yield* standingNow(observed, shown)) === "expiring")
-      return yield* redraft(observed, order, shown);
+    if ((yield* standingNow(observed, presented)) === "expiring")
+      return yield* redraft(issued, observed, order, presented);
 
     const approved = yield* approveReviewed(device, {
       record,
-      requests: [shown.draft.request],
+      requests: [presented.draft.request],
       holds: (wallet) =>
         Effect.zipWith(
-          standingNow(wallet, shown),
+          standingNow(wallet, presented),
           issuedHere,
           (standing, issued) =>
             issued && sameOrderSlot(wallet, observed) && standing === "current",
@@ -481,8 +494,8 @@ export function sendTransfer(
 
       return Option.isSome(latest) &&
         sameOrderSlot(latest.value, observed) &&
-        (yield* standingNow(latest.value, shown)) === "expiring"
-        ? yield* redraft(latest.value, order, shown)
+        (yield* standingNow(latest.value, presented)) === "expiring"
+        ? yield* redraft(issued, latest.value, order, presented)
         : approved;
     }
 
