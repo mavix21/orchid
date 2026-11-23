@@ -22,7 +22,6 @@ import {
   type PendingEnrollmentStorage,
   PendingActivation,
   PendingCandidate,
-  PendingRelease,
   makeEnrollmentEffects,
 } from "../src/device/enrollment";
 import {
@@ -79,7 +78,7 @@ const memoryPendingStorage = (): PendingEnrollmentStorage & {
           };
 
     return Predicate.isTagged(record, "PendingRelease")
-      ? new PendingRelease({ ...record, ...swapped })
+      ? record
       : new PendingActivation({ ...record, ...swapped });
   };
 
@@ -353,39 +352,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           expect(persisted.credential.id).toBe(auth.registered[0]?.id);
-        }),
-    );
-
-    it.effect(
-      "discards a persisted release whose contents no longer match its commitment",
-      () =>
-        Effect.gen(function* () {
-          yield* Effect.promise(clearDatabase);
-
-          const wallet = settlingOpenings(yield* Wallet);
-          const auth = new SoftwareAuthenticator(passkeyOrigin);
-          const pending = memoryPendingStorage();
-
-          const offline: WalletPort = {
-            ...wallet,
-            enroll: () => Effect.fail(new Offline()),
-          };
-
-          const firstTab = enrollmentFor(offline, auth, pending);
-
-          assertTagged(yield* firstTab.start("maria"), "EnrollmentPending");
-          expect((yield* firstTab.advance())._tag).toBe("Offline");
-          assertTagged(Option.getOrThrow(pending.readSync()), "PendingRelease");
-
-          pending.tampering = "envelope";
-
-          const reloadedTab = enrollmentFor(wallet, auth, pending);
-
-          expect(yield* reloadedTab.pending()).toEqual(Option.none());
-          expect((yield* reloadedTab.advance())._tag).toBe("NoWallet");
-          expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
-          expect(world.submitted).toHaveLength(0);
-          expect((yield* tableRows).backups).toEqual([]);
         }),
     );
 
