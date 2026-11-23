@@ -8,6 +8,7 @@ import {
 import * as Schema from "effect/Schema";
 
 import {
+  enrollWallet,
   freshUsername,
   openWallet,
   reloadUnlocked,
@@ -39,7 +40,7 @@ test("pays a username in USDC, resumes after a reload and refuses an unpayable a
   await openWallet(await recipientContext.newPage(), recipient);
   await recipientContext.close();
 
-  const sender = await openWallet(page, freshUsername());
+  const { address: sender } = await enrollWallet(page, freshUsername());
 
   await fundWithUsdc(sender, "1");
 
