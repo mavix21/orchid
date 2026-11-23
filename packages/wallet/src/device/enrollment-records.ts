@@ -76,6 +76,7 @@ export class PendingActivation extends Schema.TaggedClass<PendingActivation>()(
   {
     enrollment: BackupEnrollment,
     candidate: PendingCandidate,
+    review: OpeningReview,
   },
 ) {}
 

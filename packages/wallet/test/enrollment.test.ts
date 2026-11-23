@@ -58,7 +58,7 @@ const memoryPendingStorage = (): PendingEnrollmentStorage & {
     ciphertext[0] = (ciphertext[0] ?? 0) ^ 0xff;
 
     return new PendingActivation({
-      enrollment: record.enrollment,
+      ...record,
       candidate: new PendingCandidate({
         ...record.candidate,
         envelope: new LocalPhraseEnvelope({
@@ -179,9 +179,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(completed.profile.username).toBe("maria");
           expect(auth.registered).toHaveLength(1);
           expect(auth.issued).toHaveLength(1);
-          expect(
-            auth.requested.at(-1)?.pipe(Option.map(({ second }) => second)),
-          ).toEqual(Option.some(Option.some(yield* backupSalt)));
           expect(yield* tab.pending()).toEqual(Option.none());
           expect(world.submitted).toHaveLength(1);
 

@@ -2,6 +2,7 @@ import { type Page, expect, test } from "@playwright/test";
 
 import {
   addAuthenticator,
+  countPasskeyPrompts,
   freshUsername,
   storedWalletRecord,
   submitButton,
@@ -41,7 +42,9 @@ test("redirects on the server by whether the device holds a wallet", async ({
 test("creates and opens a wallet with exactly two passkey prompts", async ({
   page,
 }) => {
-  const authenticator = await addAuthenticator(page, true);
+  await addAuthenticator(page, true);
+
+  const prompts = await countPasskeyPrompts(page);
 
   await page.goto("/");
 
@@ -56,8 +59,7 @@ test("creates and opens a wallet with exactly two passkey prompts", async ({
   await expect(step).toBeVisible({ timeout: 30_000 });
   await expect(step).toHaveAttribute("data-stage", "activate");
   expect(await storedWalletRecord(page)).toBe(false);
-
-  const [created] = await authenticator.signCounts();
+  expect(await prompts()).toEqual({ create: 1, get: 0 });
 
   await page.getByTestId("enrollment-continue").click();
 
@@ -65,7 +67,7 @@ test("creates and opens a wallet with exactly two passkey prompts", async ({
   await expect(unlockButton(page)).toBeHidden();
   await expect(page.getByText(`@${username}`)).toBeVisible();
   expect(await storedWalletRecord(page)).toBe(true);
-  expect(await authenticator.signCounts()).toEqual([(created ?? 0) + 1]);
+  expect(await prompts()).toEqual({ create: 1, get: 1 });
 
   await forgetDevice(page);
   await page.goto("/");
