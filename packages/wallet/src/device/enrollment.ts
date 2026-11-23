@@ -72,6 +72,11 @@ import {
   UnsupportedDevice,
   WalletOnDevice,
 } from "./outcomes";
+import {
+  ReleaseContents,
+  commitToRelease,
+  commitmentHolds,
+} from "./enrollment-commitment";
 import { PasskeyCancelled } from "./passkeys";
 import { backupSalt, openPhrase, sealPhrase } from "./phrase-seal";
 import { generateSecretPhrase } from "./secret-phrase";
@@ -110,9 +115,24 @@ export function makeEnrollmentEffects(
             candidate,
             review: Option.some(review),
           }),
-        PendingRelease: ({ enrollment, candidate, review, approvals }) =>
-          PendingState.Held({ enrollment, candidate, review, approvals }),
+        PendingRelease: (record) =>
+          PendingState.Held({
+            enrollment: record.enrollment,
+            candidate: record.candidate,
+            review: record.review,
+            approvals: record.approvals,
+          }),
       });
+
+    if (
+      Option.isSome(restored) &&
+      Predicate.isTagged(restored.value, "PendingRelease") &&
+      !commitmentHolds(
+        new ReleaseContents(restored.value),
+        restored.value.commitment,
+      )
+    )
+      yield* clearPending;
 
     return state;
   });
@@ -188,9 +208,14 @@ export function makeEnrollmentEffects(
     current: Awaiting,
     redrafted: boolean,
   ): Effect.fn.Return<EnrollWalletOutcome> {
-    const consumed =
-      redrafted ||
-      (Option.isSome(current.review) && current.review.value.redrafted);
+    if (
+      !redrafted &&
+      Option.isSome(current.review) &&
+      current.review.value.redrafted
+    )
+      return yield* clearPending.pipe(Effect.as(new DraftRejected()));
+
+    const consumed = redrafted;
 
     const requested = yield* requestReview(current, consumed).pipe(
       Effect.result,
@@ -379,13 +404,18 @@ export function makeEnrollmentEffects(
       requestsOf(review.draft),
     );
 
+    const contents = new ReleaseContents({
+      enrollment: verified.enrollment,
+      candidate: verified.candidate,
+      review,
+      approvals,
+    });
+
     const written = yield* storage
       .write(
         new PendingRelease({
-          enrollment: verified.enrollment,
-          candidate: verified.candidate,
-          review,
-          approvals,
+          ...contents,
+          commitment: commitToRelease(verified.phrase, contents),
         }),
       )
       .pipe(Effect.result);
@@ -407,12 +437,19 @@ export function makeEnrollmentEffects(
 
   const activate = Effect.fn("Device.activateEnrollment")(function* (
     current: Awaiting,
+    initiated: number,
+    displayedUntil: number | undefined,
   ): Effect.fn.Return<EnrollWalletOutcome> {
     if (Option.isNone(current.review) || !(yield* hasLiveReview(current)))
       return yield* refreshReview(current, false);
 
     const { review } = current;
-    const initiated = epoch;
+
+    if (
+      displayedUntil !== undefined &&
+      notice(current).currentUntil !== displayedUntil
+    )
+      return notice(current);
 
     const verified = yield* verifyPinnedAssertion(
       deps.assertions,
@@ -523,22 +560,23 @@ export function makeEnrollmentEffects(
     return yield* refreshReview(created, false);
   });
 
-  const advance = Effect.fn("Device.advanceEnrollment")(
-    function* (): Effect.fn.Return<EnrollWalletOutcome> {
-      const current = yield* loadPending;
+  const advance = Effect.fn("Device.advanceEnrollment")(function* (
+    initiated: number,
+    displayedUntil: number | undefined,
+  ): Effect.fn.Return<EnrollWalletOutcome> {
+    const current = yield* loadPending;
 
-      const blocked = yield* installedConflict(current);
+    const blocked = yield* installedConflict(current);
 
-      if (Option.isSome(blocked)) return blocked.value;
+    if (Option.isSome(blocked)) return blocked.value;
 
-      return yield* PendingState.$match(current, {
-        Idle: () => Effect.succeed(new NoWallet()),
-        Created: activate,
-        Sealed: activate,
-        Held: release,
-      });
-    },
-  );
+    return yield* PendingState.$match(current, {
+      Idle: () => Effect.succeed(new NoWallet()),
+      Created: (awaiting) => activate(awaiting, initiated, displayedUntil),
+      Sealed: (awaiting) => activate(awaiting, initiated, displayedUntil),
+      Held: release,
+    });
+  });
 
   const pending = Effect.fn("Device.pendingEnrollment")(function* () {
     const current = yield* loadPending;
@@ -567,7 +605,11 @@ export function makeEnrollmentEffects(
   return {
     pending: () => lock.withPermit(pending()),
     start: (usernameText) => lock.withPermit(start(usernameText)),
-    advance: () => lock.withPermit(advance()),
+    advance: (displayedUntil) => {
+      const initiated = epoch;
+
+      return lock.withPermit(advance(initiated, displayedUntil));
+    },
     retire: () =>
       Effect.sync(() => {
         epoch += 1;
@@ -583,7 +625,8 @@ export function makeEnrollmentClient(
   return {
     pending: () => Effect.runPromise(effects.pending()),
     start: (usernameText) => Effect.runPromise(effects.start(usernameText)),
-    advance: () => Effect.runPromise(effects.advance()),
+    advance: (displayedUntil) =>
+      Effect.runPromise(effects.advance(displayedUntil)),
     retire: () => Effect.runPromise(effects.retire()),
   };
 }
