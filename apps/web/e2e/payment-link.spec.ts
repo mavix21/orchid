@@ -118,7 +118,7 @@ Object.defineProperty(navigator, "clipboard", { configurable: true, value: { wri
   expect(signedBefore).toBeGreaterThan(0);
 
   await reviewLink(page);
-  await page.getByTestId("once-link").click();
+  await page.getByTestId("save-link").click();
   await expect(page.getByTestId("link-review")).toHaveAttribute(
     "data-saved",
     "false",

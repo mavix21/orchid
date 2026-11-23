@@ -523,7 +523,7 @@ export function SendFlow({
   asset: Asset;
   available: Amount;
   transfer: Option.Option<TransferId>;
-  nav: (locked: boolean) => React.ReactNode;
+  nav: (locked: boolean, edit?: () => void) => React.ReactNode;
   onTransfer: (id: Option.Option<TransferId>) => void;
 }) {
   const task = useWalletTask();

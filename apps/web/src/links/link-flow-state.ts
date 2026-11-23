@@ -43,8 +43,7 @@ export type LinkEvent = Data.TaggedEnum<{
 
 export const LinkEvent = Data.taggedEnum<LinkEvent>();
 
-const expired =
-  "El link anterior venció y lo preparamos de nuevo. Revísalo y confirma otra vez.";
+const expired = "El link venció. Lo preparamos de nuevo: toca Crear link.";
 
 const afterCreate = (
   step: Data.TaggedEnum.Value<LinkStep, "Creating">,
@@ -69,22 +68,16 @@ const afterCreate = (
       }),
     ),
     Match.tag("PasskeyCancelled", () =>
-      withheld("No usaste tu passkey, así que no creamos el link."),
+      withheld("No creamos el link porque no usaste tu passkey."),
     ),
     Match.tag("PasskeyFailed", () =>
-      withheld(
-        "No pudimos usar tu passkey y no creamos el link. Inténtalo de nuevo.",
-      ),
+      withheld("No pudimos usar tu passkey. Inténtalo de nuevo."),
     ),
     Match.tag("WrongCredential", () =>
-      withheld(
-        "Usaste una passkey distinta y no creamos el link. Confirma con la passkey de tu cuenta.",
-      ),
+      withheld("Usaste otra passkey. Usa la de tu cuenta."),
     ),
     Match.tag("AssertionRejected", () =>
-      withheld(
-        "No pudimos verificar tu passkey y no creamos el link. Confirma con tu huella, rostro o PIN del dispositivo.",
-      ),
+      withheld("No pudimos verificar tu passkey. Usa tu huella, rostro o PIN."),
     ),
     Match.orElse((outcome) =>
       LinkStep.Refused({ intent: step.intent, confirmed: true, outcome }),
@@ -108,14 +101,21 @@ export const reduceLinkFlow = (
       Predicate.isTagged(step, "Entering")
         ? to(entering(Option.some(problem)))
         : state,
-    ReviewStarted: ({ intent }) =>
-      Predicate.isTagged(step, "Entering") ||
-      Predicate.isTagged(step, "Reviewed") ||
-      Predicate.isTagged(step, "Refused")
+    ReviewStarted: ({ intent }) => {
+      if (Predicate.isTagged(step, "Reviewed"))
+        return to(LinkStep.Renewing({ intent, review: step.review }));
+
+      return Predicate.isTagged(step, "Entering") ||
+        Predicate.isTagged(step, "Refused")
         ? to(LinkStep.Reviewing({ intent }))
-        : state,
+        : state;
+    },
     ReviewAnswered: ({ answer }) => {
-      if (!Predicate.isTagged(step, "Reviewing")) return state;
+      if (
+        !Predicate.isTagged(step, "Reviewing") &&
+        !Predicate.isTagged(step, "Renewing")
+      )
+        return state;
 
       return to(
         Predicate.isTagged(answer, "PaymentReview")
@@ -133,6 +133,7 @@ export const reduceLinkFlow = (
     },
     Edited: () =>
       Predicate.isTagged(step, "Reviewed") ||
+      Predicate.isTagged(step, "Renewing") ||
       Predicate.isTagged(step, "Refused")
         ? to(entering())
         : state,
@@ -183,6 +184,7 @@ export const holdsUnsharedLink = (step: LinkStep) =>
     Entering: () => false,
     Reviewing: () => false,
     Reviewed: () => false,
+    Renewing: () => false,
     Creating: () => true,
     Refused: () => false,
     Created: ({ link, delivery }) =>

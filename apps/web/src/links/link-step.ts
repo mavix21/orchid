@@ -25,6 +25,10 @@ export type LinkStep = Data.TaggedEnum<{
     readonly review: PaymentReview;
     readonly problem: Option.Option<string>;
   };
+  Renewing: {
+    readonly intent: PaymentLinkIntent;
+    readonly review: PaymentReview;
+  };
   Creating: {
     readonly intent: PaymentLinkIntent;
     readonly review: PaymentReview;
@@ -72,6 +76,7 @@ export const concealedStep = (step: LinkStep): Option.Option<LinkStep> =>
     Entering: () => Option.none(),
     Reviewing: () => Option.none(),
     Reviewed: () => Option.none(),
+    Renewing: () => Option.none(),
     Creating: () => Option.none(),
     Refused: () => Option.none(),
     Created: ({ link, delivery }) => Option.some(keptReceipt(link, delivery)),

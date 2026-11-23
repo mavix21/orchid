@@ -1,7 +1,15 @@
 import { LinkIcon, ShareIcon } from "lucide-react";
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useEffectEvent, useReducer, useRef } from "react";
 import { Link, useBlocker } from "@tanstack/react-router";
+import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
+import {
+  Field,
+  FieldContent,
+  FieldLabel,
+  FieldTitle,
+} from "@workspace/ui/components/field";
+import { Switch } from "@workspace/ui/components/switch";
 import {
   type Amount,
   type Asset,
@@ -9,7 +17,6 @@ import {
   PaymentLinkIntent,
   type PaymentReview,
   type SavedLinkTarget,
-  formatAmount,
   parseAmount,
 } from "@workspace/wallet";
 import * as DateTime from "effect/DateTime";
@@ -44,7 +51,7 @@ import {
   keepConcealed,
 } from "./concealed-link";
 import { type Delivery, delivered, entering } from "./link-step";
-import { AssetLine, FullValue, RecoveryAnswer, useRecovery } from "./recovery";
+import { RecoveryAnswer, useRecovery } from "./recovery";
 import {
   LinkEvent,
   holdsUnsharedLink,
@@ -58,8 +65,8 @@ import {
 } from "./link-reveal";
 import { type ShareResult, copyLink, shareLink } from "./share-link";
 
-const oneTime = (intent: PaymentLinkIntent) =>
-  new PaymentLinkIntent({ ...intent, saveOnDevice: false });
+const withSaving = (intent: PaymentLinkIntent, saveOnDevice: boolean) =>
+  new PaymentLinkIntent({ ...intent, saveOnDevice });
 
 function LinkAmountStep({
   amount,
@@ -141,66 +148,80 @@ function LinkAmountStep({
   );
 }
 
+const renewalLeadMillis = 30_000;
+const renewalFloorMillis = 5_000;
+
 function LinkReview({
   intent,
   review,
   problem,
+  renewing,
+  onSave,
+  onRenew,
   onCreate,
-  onOnce,
-  onEdit,
 }: {
   intent: PaymentLinkIntent;
   review: PaymentReview;
   problem: Option.Option<string>;
+  renewing: boolean;
+  onSave: (saveOnDevice: boolean) => void;
+  onRenew: () => void;
   onCreate: () => void;
-  onOnce: () => void;
-  onEdit: () => void;
 }) {
+  const renew = useEffectEvent(onRenew);
+
+  useEffect(() => {
+    if (renewing) return;
+
+    const untilExpiry =
+      DateTime.toEpochMillis(review.expiresAt) -
+      DateTime.toEpochMillis(DateTime.nowUnsafe());
+
+    const timer = setTimeout(
+      renew,
+      Math.max(untilExpiry - renewalLeadMillis, renewalFloorMillis),
+    );
+
+    return () => clearTimeout(timer);
+  }, [review, renewing]);
+
   return (
     <>
-      <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-        <h1 className="font-display text-h1">Revisa tu link</h1>
-        <dl
-          aria-label="Resumen del link"
-          data-testid="link-review"
-          data-saved={intent.saveOnDevice}
-          className="flex flex-col divide-y divide-border rounded-lg border border-border px-4"
-        >
-          <ReviewRow label="Monto">{formatAmount(review.amount)}</ReviewRow>
-          <ReviewRow label="Moneda">
-            <AssetLine asset={review.asset} />
-          </ReviewRow>
-          <ReviewRow label="Quién lo recibe">
-            <span className="flex flex-col items-end">
-              <span>Quien abra el link</span>
-              <FullValue>{review.to}</FullValue>
-            </span>
-          </ReviewRow>
-          <ReviewRow label="Cuenta">
-            <FullValue>{review.order.from}</FullValue>
-          </ReviewRow>
-          <ReviewRow label="Red">Stellar {review.network}</ReviewRow>
-          <ReviewRow label="Confirma antes de">
-            {DateTime.toDate(review.expiresAt).toLocaleTimeString("es-PE", {
-              timeStyle: "short",
-            })}
-          </ReviewRow>
+      <main
+        className="flex flex-1 flex-col gap-6 px-5 pt-2"
+        data-testid="link-review"
+        data-saved={intent.saveOnDevice}
+      >
+        <header className="flex flex-col items-center gap-2 pt-6 text-center">
+          <h1 className="text-body text-muted-foreground">Revisa tu link</h1>
+          <p className="font-display text-display">
+            {amountLabel(review.amount, review.asset)}
+          </p>
+          {review.network === "testnet" ? (
+            <Badge variant="neutral">Testnet</Badge>
+          ) : null}
+        </header>
+        <dl className="flex flex-col rounded-lg border border-border px-4">
           <ReviewRow label="Comisión">Gratis</ReviewRow>
-          <ReviewRow label="Guardar el link">
-            {intent.saveOnDevice ? "En este dispositivo" : "No, solo ahora"}
-          </ReviewRow>
         </dl>
         <p className="text-body text-muted-foreground">
-          Cualquiera que tenga el link puede recibir el dinero. Compártelo solo
-          con quien quieres pagarle. Mientras nadie lo use, puedes recuperarlo.
-          Tu passkey confirma que eres tú, pero no muestra los datos del link.
-          Revísalos aquí antes de crearlo.
+          Quien tenga el link recibe el dinero. Puedes recuperarlo mientras
+          nadie lo use.
         </p>
-        <p className="text-body text-muted-foreground">
-          {intent.saveOnDevice
-            ? "Guardamos el link cifrado solo en este dispositivo para que puedas compartirlo otra vez con tu passkey."
-            : "No guardaremos el link: compártelo apenas esté listo."}
-        </p>
+        <FieldLabel htmlFor="save-link">
+          <Field orientation="horizontal">
+            <FieldContent>
+              <FieldTitle>Guardar para compartir de nuevo</FieldTitle>
+            </FieldContent>
+            <Switch
+              id="save-link"
+              checked={intent.saveOnDevice}
+              readOnly={renewing}
+              onCheckedChange={onSave}
+              data-testid="save-link"
+            />
+          </Field>
+        </FieldLabel>
         {Option.isSome(problem) ? (
           <p role="alert" className="text-body text-destructive">
             {problem.value}
@@ -211,23 +232,11 @@ function LinkReview({
         <Button
           className="w-full"
           onClick={onCreate}
+          disabled={renewing}
           data-testid="confirm-link"
         >
           Crear link
         </Button>
-        <Button className="w-full" variant="secondary" onClick={onEdit}>
-          Editar
-        </Button>
-        {intent.saveOnDevice ? (
-          <Button
-            className="w-full"
-            variant="ghost"
-            onClick={onOnce}
-            data-testid="once-link"
-          >
-            Crear sin guardarlo
-          </Button>
-        ) : null}
       </ScreenActions>
     </>
   );
@@ -253,10 +262,7 @@ function LinkReceipt({
       <p className="font-display text-h1 text-muted-foreground">
         {amountLabel(created.amount, created.asset)}
       </p>
-      <ScreenNote>
-        Compártelo con quien quieres pagarle. Quien abra el link podrá recibir
-        el dinero.
-      </ScreenNote>
+      <ScreenNote>Compártelo con quien quieres pagarle.</ScreenNote>
       <DeliveryNote delivery={delivery} />
     </ScreenStatus>
   );
@@ -407,8 +413,7 @@ function SavedLink({ link }: { link: SavedLinkTarget }) {
           {amountLabel(link.amount, link.asset)}
         </p>
         <ScreenNote>
-          Puedes compartirlo de nuevo con tu passkey o recuperar el dinero
-          mientras nadie lo use.
+          Compártelo de nuevo o recupera el dinero mientras nadie lo use.
         </ScreenNote>
       </ScreenStatus>
       <ScreenActions>
@@ -445,7 +450,7 @@ export function LinkFlow({
 }: {
   asset: Asset;
   available: Amount;
-  nav: (locked: boolean) => React.ReactNode;
+  nav: (locked: boolean, edit?: () => void) => React.ReactNode;
   onChangeDestination: () => void;
 }) {
   const task = useWalletTask();
@@ -489,6 +494,8 @@ export function LinkFlow({
     );
   };
 
+  const edit = () => send(LinkEvent.Edited());
+
   const check = () => {
     send(LinkEvent.CheckStarted());
     task.run(walletEffects.resolvePaymentLink(), (answer) =>
@@ -504,6 +511,23 @@ export function LinkFlow({
     void handOff(link).then((result) => send(LinkEvent.ShareEnded({ result })));
   };
 
+  const reviewed = (
+    intent: PaymentLinkIntent,
+    review: PaymentReview,
+    problem: Option.Option<string>,
+    renewing: boolean,
+  ) => (
+    <LinkReview
+      intent={intent}
+      review={review}
+      problem={problem}
+      renewing={renewing}
+      onSave={(saveOnDevice) => prepare(withSaving(intent, saveOnDevice))}
+      onRenew={() => prepare(intent)}
+      onCreate={() => create(review)}
+    />
+  );
+
   const created = (link: PaymentLinkCreated, delivery: Delivery) => (
     <LinkCreated
       created={link}
@@ -517,7 +541,13 @@ export function LinkFlow({
 
   return (
     <>
-      {nav(locked)}
+      {nav(
+        locked,
+        Predicate.isTagged(state.step, "Reviewed") ||
+          Predicate.isTagged(state.step, "Renewing")
+          ? edit
+          : undefined,
+      )}
       {Match.valueTags(state.step, {
         Entering: ({ problem }) => (
           <LinkAmountStep
@@ -532,16 +562,10 @@ export function LinkFlow({
           />
         ),
         Reviewing: () => <LinkWorking label="Preparando tu link…" />,
-        Reviewed: ({ intent, review, problem }) => (
-          <LinkReview
-            intent={intent}
-            review={review}
-            problem={problem}
-            onCreate={() => create(review)}
-            onOnce={() => prepare(oneTime(intent))}
-            onEdit={() => send(LinkEvent.Edited())}
-          />
-        ),
+        Reviewed: ({ intent, review, problem }) =>
+          reviewed(intent, review, problem, false),
+        Renewing: ({ intent, review }) =>
+          reviewed(intent, review, Option.none(), true),
         Creating: () => (
           <LinkWorking
             label="Creando tu link…"
@@ -558,7 +582,9 @@ export function LinkFlow({
             <LinkResultScreen outcome={outcome._tag} screen={screen}>
               {Match.value(screen.action).pipe(
                 Match.when("once", () => (
-                  <ResultButton onClick={() => prepare(oneTime(intent))}>
+                  <ResultButton
+                    onClick={() => prepare(withSaving(intent, false))}
+                  >
                     Crear sin guardarlo
                   </ResultButton>
                 )),
@@ -568,9 +594,7 @@ export function LinkFlow({
                   </ResultButton>
                 )),
                 Match.when("edit", () => (
-                  <ResultButton onClick={() => send(LinkEvent.Edited())}>
-                    Cambiar monto
-                  </ResultButton>
+                  <ResultButton onClick={edit}>Cambiar monto</ResultButton>
                 )),
                 Match.when("check", () => (
                   <ResultButton onClick={check}>Revisar de nuevo</ResultButton>

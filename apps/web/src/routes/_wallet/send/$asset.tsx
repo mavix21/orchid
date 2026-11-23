@@ -52,12 +52,22 @@ function SendAsset() {
   const { transfer } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
 
-  const nav = (locked: boolean) => (
+  const nav = (locked: boolean, edit?: () => void) => (
     <TopNav
       title={balance ? `Enviar ${assetCode(balance.asset)}` : "Enviar"}
       label="Atrás"
       icon={<ChevronLeftIcon absoluteStrokeWidth />}
-      link={<Link to="/send" />}
+      link={
+        <Link
+          to="/send"
+          onClick={(event) => {
+            if (edit === undefined) return;
+
+            event.preventDefault();
+            edit();
+          }}
+        />
+      }
       disabled={locked}
     />
   );
