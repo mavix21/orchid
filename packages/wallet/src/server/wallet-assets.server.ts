@@ -12,7 +12,6 @@ import {
   AssetDraft,
   AssetBusy,
   AssetUnsupported,
-  BalanceGone,
   InvalidAddress,
   NotClaimable,
   NotOpened,
@@ -137,16 +136,7 @@ export const assetFlow = Effect.gen(function* () {
       const entries = yield* chain.claimable([action.balance]);
       const entry = entries[0];
 
-      if (!entry) {
-        const reclaimed = yield* orders.settledClaim(
-          order.wallet,
-          action.balance,
-        );
-
-        return new BalanceGone({
-          status: reclaimed ? "reclaimed" : "unresolved",
-        });
-      }
+      if (!entry) return yield* links.balanceGone(action.balance);
 
       const claimant = entry.claimants.find(
         (item) => item.destination === order.wallet,

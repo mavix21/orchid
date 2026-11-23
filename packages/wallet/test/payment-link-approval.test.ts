@@ -4,6 +4,7 @@ import {
   Claimant,
   Keypair,
   Operation,
+  Transaction,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
@@ -378,24 +379,68 @@ const receiveDraft = (overrides: Partial<LinkReceiveInput>, at: number) =>
     ...overrides,
   });
 
+const withExtraPayment = (at: number) => {
+  const drafted = TransactionBuilder.fromXDR(
+    receiveDraft({}, at),
+    networkPassphrase,
+  );
+
+  if (!(drafted instanceof Transaction))
+    throw new Error("Receive draft must be a transaction");
+
+  return Schema.decodeSync(UnsignedEnvelope)(
+    TransactionBuilder.cloneFrom(drafted, { fee: baseFee })
+      .addOperation(
+        Operation.payment({
+          source: addressOf(receivedLink),
+          destination: actors.stranger,
+          asset: usdc,
+          amount: "1",
+        }),
+      )
+      .build()
+      .toXDR(),
+  );
+};
+
 const tamperedReceives: ReadonlyArray<
-  readonly [string, Partial<LinkReceiveInput>]
+  readonly [string, (at: number) => UnsignedEnvelope]
 > = [
-  ["paying another destination", { destination: actors.stranger }],
-  ["creating another link account", { link: actors.stranger }],
-  ["claiming another balance", { balance: otherBalance }],
-  ["paying another amount", { amount: otherAmount }],
-  ["paying another asset", { asset: NativeAsset.make({}) }],
-  ["handing cleanup to another sponsor", { reserveSponsor: actors.stranger }],
+  [
+    "paying another destination",
+    (at) => receiveDraft({ destination: actors.stranger }, at),
+  ],
+  [
+    "creating another link account",
+    (at) => receiveDraft({ link: actors.stranger }, at),
+  ],
+  [
+    "claiming another balance",
+    (at) => receiveDraft({ balance: otherBalance }, at),
+  ],
+  ["paying another amount", (at) => receiveDraft({ amount: otherAmount }, at)],
+  [
+    "paying another asset",
+    (at) => receiveDraft({ asset: NativeAsset.make({}) }, at),
+  ],
+  [
+    "handing cleanup to another sponsor",
+    (at) => receiveDraft({ reserveSponsor: actors.stranger }, at),
+  ],
   [
     "using the link account as channel",
-    { channel: new Account(addressOf(receivedLink), "100") },
+    (at) =>
+      receiveDraft(
+        { channel: new Account(addressOf(receivedLink), "100") },
+        at,
+      ),
   ],
+  ["with an extra operation", withExtraPayment],
 ];
 
 it.live.each(tamperedReceives)(
   "link receive review rejects a draft %s unsigned",
-  ([, overrides]) =>
+  ([, build]) =>
     Effect.gen(function* () {
       const approvals: Array<Option.Option<Approval>> = [];
 
@@ -417,7 +462,7 @@ it.live.each(tamperedReceives)(
 
             return new AssetDraft({
               request: new SigningRequest({
-                envelope: receiveDraft(overrides, at),
+                envelope: build(at),
                 expiresAt: DateTime.makeUnsafe((at + 120) * 1000),
               }),
             });

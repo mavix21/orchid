@@ -5,6 +5,7 @@ import * as Predicate from "effect/Predicate";
 import {
   type AccountAddress,
   type Approval,
+  type BalanceId,
   AssetDraft,
   type AssetOrder,
   type AssetPending,
@@ -137,6 +138,34 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       return "unresolved";
     };
 
+    const settleOnBalance = Effect.fn("Wallet.settleOnBalance")(function* (
+      balance: BalanceId,
+    ) {
+      const authorized = (yield* orders.onBalance(balance)).filter(
+        (stored): stored is AssetAuthorized =>
+          Predicate.isTagged(stored, "AssetAuthorized"),
+      );
+
+      const receivePending = yield* Effect.forEach(authorized, (stored) =>
+        Effect.map(
+          settled(stored),
+          (receipt) =>
+            receiving(stored) && Predicate.isTagged(receipt, "AssetPending"),
+        ),
+      );
+
+      return {
+        checking: receivePending.some(Boolean),
+        current: yield* orders.onBalance(balance),
+      };
+    });
+
+    const balanceGone = (balance: BalanceId) =>
+      Effect.map(
+        settleOnBalance(balance),
+        ({ current }) => new BalanceGone({ status: goneStatus(current) }),
+      );
+
     const paymentLink = Effect.fn("Wallet.paymentLink")(function* (
       link: AccountAddress,
     ): Effect.fn.Return<PaymentLinkStep, StoreFailure | ChainUnreachable> {
@@ -147,20 +176,11 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
       if (Option.isNone(funded)) return new PaymentLinkNotFound();
 
-      const recorded = yield* orders.onBalance(funded.value.balance);
-
-      const receipts = yield* Effect.forEach(
-        recorded.filter(
-          (stored): stored is AssetAuthorized =>
-            Predicate.isTagged(stored, "AssetAuthorized") && receiving(stored),
-        ),
-        settled,
+      const { checking, current } = yield* settleOnBalance(
+        funded.value.balance,
       );
 
-      if (
-        receipts.some((receipt) => Predicate.isTagged(receipt, "AssetPending"))
-      )
-        return new PaymentLinkChecking();
+      if (checking) return new PaymentLinkChecking();
 
       const { matched } = yield* liveLink(link, funded.value);
 
@@ -171,8 +191,6 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
           amount: funded.value.amount,
           sender: funded.value.sender,
         });
-
-      const current = yield* orders.onBalance(funded.value.balance);
 
       yield* Effect.forEach(
         current.filter(
@@ -232,9 +250,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       if (!matched)
         return present
           ? new NotClaimable({ claimableAt: Option.none() })
-          : new BalanceGone({
-              status: goneStatus(yield* orders.onBalance(action.balance)),
-            });
+          : yield* balanceGone(action.balance);
 
       const { asset, amount } = funded.value;
 
@@ -348,5 +364,5 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       yield* Effect.forEach(pending, cleanUp, { discard: true });
     });
 
-    return { receive, paymentLink, settled, cleanUpReceived };
+    return { receive, paymentLink, settled, balanceGone, cleanUpReceived };
   });

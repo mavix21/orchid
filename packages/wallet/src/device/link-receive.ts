@@ -1,4 +1,4 @@
-import { Keypair } from "@stellar/stellar-sdk";
+import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -61,7 +61,11 @@ export const linkSecretFor = (
   fragment: string,
 ): Option.Option<LinkSecret> =>
   Schema.decodeUnknownOption(LinkSecret)(fragment).pipe(
-    Option.filter((secret) => Keypair.fromSecret(secret).publicKey() === link),
+    Option.filter(
+      (secret) =>
+        StrKey.isValidEd25519SecretSeed(secret) &&
+        Keypair.fromSecret(secret).publicKey() === link,
+    ),
   );
 
 export const receiveReviewOf = (

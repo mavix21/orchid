@@ -1,5 +1,5 @@
 import { Database } from "@workspace/db";
-import { and, desc, eq, isNotNull, isNull, or } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import * as Option from "effect/Option";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
@@ -206,6 +206,7 @@ export const receivedPaymentLinksFor = Effect.fn(
         eq(assetOrders.network, transfers.network),
         eq(assetOrders.testnetEpoch, transfers.testnetEpoch),
         eq(assetOrders.status, "settled"),
+        sql`${assetOrders.order}::jsonb -> 'action' ->> '_tag' = 'ReceiveLink'`,
       ),
     )
     .where(
