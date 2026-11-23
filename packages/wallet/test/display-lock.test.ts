@@ -1,5 +1,9 @@
 import { expect, it } from "@effect/vitest";
-import { type DisplayLock, makeDisplayLock } from "../src/device/display-lock";
+import {
+  type DisplayLock,
+  type HiddenSinceStore,
+  makeDisplayLock,
+} from "../src/device/display-lock";
 
 const resumeWindow = 60_000;
 
@@ -8,11 +12,24 @@ interface Tab {
   readonly lock: DisplayLock;
 }
 
-const tabAt = (): Tab => {
-  const clock = { now: 1_000_000 };
+const sessionStore = (): HiddenSinceStore => {
+  let stored: number | undefined;
 
-  return { clock, lock: makeDisplayLock(() => clock.now) };
+  return {
+    read: () => stored,
+    write: (hiddenSince) => {
+      stored = hiddenSince;
+    },
+    clear: () => {
+      stored = undefined;
+    },
+  };
 };
+
+const tabAt = (
+  store: HiddenSinceStore = sessionStore(),
+  clock = { now: 1_000_000 },
+): Tab => ({ clock, lock: makeDisplayLock(() => clock.now, store) });
 
 const unlockedTab = () => {
   const tab = tabAt();
@@ -138,4 +155,90 @@ it.each([
   lock.entryVerified(attempt);
 
   expect(lock.state()._tag).toBe("Locked");
+});
+
+const reloadedAfter = (
+  milliseconds: number,
+  leaveTab: (lock: DisplayLock) => void,
+) => {
+  const store = sessionStore();
+  const { clock, lock } = tabAt(store);
+
+  lock.unlock(lock.begin());
+  leaveTab(lock);
+  clock.now += milliseconds;
+
+  const reloaded = tabAt(store, clock).lock;
+
+  reloaded.show();
+
+  return reloaded.state()._tag;
+};
+
+it.each([
+  {
+    away: "just under the resume window",
+    millis: resumeWindow - 1,
+    expected: "Unlocked",
+  },
+  {
+    away: "exactly the resume window",
+    millis: resumeWindow,
+    expected: "Locked",
+  },
+  { away: "a clock set backwards", millis: -1, expected: "Locked" },
+] as const)(
+  "a tab reloaded after being hidden for $away ends up $expected",
+  ({ millis, expected }) => {
+    expect(reloadedAfter(millis, (lock) => lock.hide())).toBe(expected);
+  },
+);
+
+it.each([
+  ["it was hidden before unlocking", (lock: DisplayLock) => lock.hide()],
+  [
+    "the page was restored from cache",
+    (lock: DisplayLock) => {
+      lock.unlock(lock.begin());
+      lock.hide();
+      lock.relock();
+    },
+  ],
+] as const)("a tab reloaded after %s stays locked", (_, leaveTab) => {
+  const store = sessionStore();
+  const { clock, lock } = tabAt(store);
+
+  leaveTab(lock);
+
+  expect(tabAt(store, clock).lock.state()._tag).toBe("Locked");
+});
+
+it("a reloaded tab that stays hidden resumes only if it returns within the window of the original hide", () => {
+  const store = sessionStore();
+  const { clock, lock } = tabAt(store);
+
+  lock.unlock(lock.begin());
+  lock.hide();
+  clock.now += 30_000;
+
+  const reloaded = tabAt(store, clock).lock;
+
+  expect(reloaded.state()._tag).toBe("Masked");
+
+  reloaded.hide();
+  clock.now += 29_999;
+  reloaded.show();
+
+  expect(reloaded.state()._tag).toBe("Unlocked");
+});
+
+it("a tab that came back does not resume again on a later reload", () => {
+  const store = sessionStore();
+  const { clock, lock } = tabAt(store);
+
+  lock.unlock(lock.begin());
+  lock.hide();
+  lock.show();
+
+  expect(tabAt(store, clock).lock.state()._tag).toBe("Locked");
 });

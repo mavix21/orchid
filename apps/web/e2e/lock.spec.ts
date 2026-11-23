@@ -38,6 +38,8 @@ test("starts every wallet route locked and unlocks only on a verified assertion"
 }) => {
   const device = await seedWallet(page, freshUsername());
 
+  await page.addInitScript(() => sessionStorage.clear());
+
   for (const [path, content] of walletRoutes) {
     await device.verifyUser(false);
     await page.goto(path);
@@ -74,6 +76,25 @@ test("masks on hide, resumes within the window, and locks on a restored page", a
   await expect(content).toBeVisible();
 
   await restorePageFromCache(page);
+  await expect(unlockButton(page)).toBeVisible();
+  await expect(content).toHaveCount(0);
+});
+
+test("resumes a reloaded tab within the window and locks it after", async ({
+  page,
+}) => {
+  await openWallet(page, freshUsername());
+
+  const content = page.getByTestId("open-send");
+  const start = Date.now();
+
+  await page.clock.setFixedTime(start);
+  await page.reload();
+  await expect(content).toBeVisible();
+
+  await setVisibility(page, "hidden");
+  await page.clock.setFixedTime(start + resumeWindow);
+  await page.reload();
   await expect(unlockButton(page)).toBeVisible();
   await expect(content).toHaveCount(0);
 });

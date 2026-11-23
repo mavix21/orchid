@@ -33,17 +33,34 @@ export interface DisplayLock {
   relock(): void;
 }
 
+export interface HiddenSinceStore {
+  read(): number | undefined;
+  write(hiddenSince: number): void;
+  clear(): void;
+}
+
 interface PendingEntry {
   readonly id: number;
   readonly verified: boolean;
 }
 
-export function makeDisplayLock(now: () => number): DisplayLock {
-  let current: DisplayState = DisplayState.Locked();
+export function makeDisplayLock(
+  now: () => number,
+  store: HiddenSinceStore,
+): DisplayLock {
+  const restoredHiddenSince = store.read();
+
+  let hiddenSince = restoredHiddenSince;
+
+  let current: DisplayState =
+    restoredHiddenSince === undefined
+      ? DisplayState.Locked()
+      : DisplayState.Masked();
+
   let epoch = 0;
   let attempts = 0;
   let pending: PendingEntry | undefined;
-  let hiddenSince: number | undefined;
+
   const listeners = new Set<() => void>();
 
   const transition = (next: DisplayState) => {
@@ -105,6 +122,8 @@ export function makeDisplayLock(now: () => number): DisplayLock {
 
       if (Predicate.isTagged(current, "Unlocked"))
         transition(DisplayState.Masked());
+
+      if (Predicate.isTagged(current, "Masked")) store.write(hiddenSince);
     },
     show: () => {
       if (hiddenSince === undefined) return;
@@ -112,6 +131,7 @@ export function makeDisplayLock(now: () => number): DisplayLock {
       const resumed = awayWithinWindow(hiddenSince);
 
       hiddenSince = undefined;
+      store.clear();
 
       if (!resumed) pending = undefined;
 
@@ -128,6 +148,7 @@ export function makeDisplayLock(now: () => number): DisplayLock {
       epoch += 1;
       pending = undefined;
       hiddenSince = undefined;
+      store.clear();
       transition(DisplayState.Locked());
     },
   };
