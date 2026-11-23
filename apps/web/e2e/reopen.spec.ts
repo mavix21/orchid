@@ -9,7 +9,6 @@ import {
   storedWalletAddress,
   submitButton,
   usernameInput,
-  visit,
 } from "./device";
 
 test("authorizes a recovered wallet with one passkey tap and lands on its home", async ({
@@ -30,7 +29,7 @@ test("authorizes a recovered wallet with one passkey tap and lands on its home",
     Schema.decodeSync(AccountAddress)(await storedWalletAddress(page)),
   );
 
-  await visit(page, "/home");
+  await page.goto("/home");
 
   await expect(page.getByTestId("opening-username")).toBeVisible();
   await expect(page.getByText(`@${username}`)).toBeVisible();

@@ -11,14 +11,13 @@ import {
   storedText,
   submitButton,
   usernameInput,
-  visit,
   withoutPrf,
 } from "./device";
 
 const linkPath = /\/l\/(G[A-Z2-7]{55})#(S[A-Z2-7]{55})$/;
 
 const reviewLink = async (page: Page) => {
-  await visit(page, "/send");
+  await page.goto("/send");
   await page.getByTestId(`send-asset-USDC:${usdc.getIssuer()}`).click();
   await page.getByTestId("choose-link").click();
   await page.getByRole("textbox").fill("0.5");
@@ -69,7 +68,7 @@ Object.defineProperty(navigator, "clipboard", { configurable: true, value: { wri
   expect(envelopes).toHaveLength(1);
 
   await page.getByTestId("finish-link").click();
-  await visit(page, "/send");
+  await page.goto("/send");
   await page.getByTestId("open-links").click();
   await expect(page.getByTestId("reshare-link")).toHaveCount(1, {
     timeout: 30_000,
@@ -215,7 +214,7 @@ test("receives a link into a wallet created on the link page with two passkey pr
   expect(requests.join("\n")).not.toContain(secret);
   expect(await storedText(recipient)).not.toContain(secret);
 
-  await visit(page, "/links");
+  await page.goto("/links");
   await expect(
     page.locator(
       `[data-testid="received-link"][data-address="${linkAddress}"]`,

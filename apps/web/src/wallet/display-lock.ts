@@ -1,8 +1,48 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { DisplayState, makeDisplayLock } from "@workspace/wallet";
+import {
+  DisplayState,
+  type HiddenSinceStore,
+  makeDisplayLock,
+} from "@workspace/wallet";
+import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 
-export const displayLock = makeDisplayLock(() => Date.now());
+const hiddenSinceKey = "orchid-display-hidden-since";
+
+const decodeHiddenSince = Schema.decodeOption(Schema.FiniteFromString);
+
+const sessionHiddenSince: HiddenSinceStore = {
+  read: () => {
+    try {
+      return Option.fromNullishOr(sessionStorage.getItem(hiddenSinceKey)).pipe(
+        Option.flatMap(decodeHiddenSince),
+        Option.getOrUndefined,
+      );
+    } catch {
+      return undefined;
+    }
+  },
+  write: (hiddenSince) => {
+    try {
+      sessionStorage.setItem(hiddenSinceKey, String(hiddenSince));
+    } catch {
+      return;
+    }
+  },
+  clear: () => {
+    try {
+      sessionStorage.removeItem(hiddenSinceKey);
+    } catch {
+      return;
+    }
+  },
+};
+
+export const displayLock = makeDisplayLock(
+  () => Date.now(),
+  sessionHiddenSince,
+);
 
 export const whenUnlocked = (signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
@@ -56,10 +96,12 @@ export function useDisplayLockLifecycle() {
 
     const onPageShow = (event: PageTransitionEvent) => {
       if (event.persisted) displayLock.relock();
-      else displayLock.show();
+      else if (document.visibilityState === "visible") displayLock.show();
     };
 
     const onPageHide = () => displayLock.hide();
+
+    if (document.visibilityState === "visible") displayLock.show();
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pageshow", onPageShow);

@@ -350,7 +350,7 @@ export const visit = async (page: Page, path: string) => {
 
 export const reloadUnlocked = async (page: Page) => {
   await page.reload();
-  await unlockWallet(page);
+  await expect(unlockButton(page)).toBeHidden({ timeout: 30_000 });
 };
 
 export const openWallet = async (page: Page, usernameText: string) => {

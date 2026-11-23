@@ -13,7 +13,6 @@ import {
   openWallet,
   reloadUnlocked,
   serverFunction,
-  visit,
 } from "./device";
 import { fundWithUsdc, usdc } from "@workspace/wallet/testnet";
 
@@ -44,7 +43,7 @@ test("pays a username in USDC, resumes after a reload and refuses an unpayable a
 
   await fundWithUsdc(sender, "1");
 
-  await visit(page, "/send");
+  await page.goto("/send");
   await page.getByTestId(`send-asset-USDC:${usdc.getIssuer()}`).click();
 
   await choose(page, "username");
@@ -83,7 +82,7 @@ test("pays a username in USDC, resumes after a reload and refuses an unpayable a
   await page.getByTestId("result-home").click();
   await expect(page).toHaveURL("/home");
 
-  await visit(page, "/send");
+  await page.goto("/send");
   await page.getByTestId(`send-asset-USDC:${usdc.getIssuer()}`).click();
   await choose(page, "username");
   await fill(page, recipient, "5");
