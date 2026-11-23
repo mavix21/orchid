@@ -40,8 +40,8 @@ export const Route = createFileRoute("/_wallet/links")({
   pendingMs: 0,
   pendingComponent: () => <LinksFrame loading />,
   preload: false,
-  loader: async ({ context }) => {
-    await whenUnlocked();
+  loader: async ({ context, abortController }) => {
+    await whenUnlocked(abortController.signal);
 
     const latest = await context.walletClient.resolvePaymentLink();
     const links = await context.walletClient.paymentLinks();

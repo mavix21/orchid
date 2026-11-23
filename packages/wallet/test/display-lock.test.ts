@@ -63,9 +63,13 @@ it("refuses a verification that completes after the page was hidden", () => {
   const { lock } = lockAt();
   const ticket = lock.begin();
 
+  expect(lock.valid(ticket)).toBe(true);
+
   lock.hide();
   lock.show();
   lock.unlock(ticket);
+
+  expect(lock.valid(ticket)).toBe(false);
 
   expect(lock.state()._tag).toBe("Locked");
 });

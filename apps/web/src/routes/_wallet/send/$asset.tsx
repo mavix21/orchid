@@ -28,8 +28,8 @@ export const Route = createFileRoute("/_wallet/send/$asset")({
   ssr: false,
   validateSearch: Schema.toStandardSchemaV1(TransferSearch),
   shouldReload: false,
-  loader: async ({ context, params }) => {
-    await whenUnlocked();
+  loader: async ({ context, params, abortController }) => {
+    await whenUnlocked(abortController.signal);
 
     const overview = shownOverview(await context.walletClient.overview());
 

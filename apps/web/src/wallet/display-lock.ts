@@ -4,21 +4,38 @@ import * as Predicate from "effect/Predicate";
 
 export const displayLock = makeDisplayLock(() => Date.now());
 
-export const whenUnlocked = () =>
-  new Promise<void>((resolve) => {
-    const settle = () => {
-      if (!Predicate.isTagged(displayLock.state(), "Unlocked")) return false;
+export const whenUnlocked = (signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
 
+      return;
+    }
+
+    if (Predicate.isTagged(displayLock.state(), "Unlocked")) {
       resolve();
 
-      return true;
+      return;
+    }
+
+    const stop = () => {
+      unsubscribe();
+      signal.removeEventListener("abort", abandon);
     };
 
-    if (settle()) return;
+    const abandon = () => {
+      stop();
+      reject(signal.reason);
+    };
 
     const unsubscribe = displayLock.subscribe(() => {
-      if (settle()) unsubscribe();
+      if (!Predicate.isTagged(displayLock.state(), "Unlocked")) return;
+
+      stop();
+      resolve();
     });
+
+    signal.addEventListener("abort", abandon);
   });
 
 const lockedOnServer = DisplayState.Locked();

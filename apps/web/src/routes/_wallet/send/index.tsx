@@ -18,8 +18,8 @@ export const Route = createFileRoute("/_wallet/send/")({
   ssr: false,
   pendingMs: 0,
   pendingComponent: () => <ChooseAssetFrame loading />,
-  loader: async ({ context }) => {
-    await whenUnlocked();
+  loader: async ({ context, abortController }) => {
+    await whenUnlocked(abortController.signal);
 
     return shownOverview(await context.walletClient.overview());
   },
