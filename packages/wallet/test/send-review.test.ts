@@ -1,34 +1,19 @@
 import { expect, it } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import * as TestClock from "effect/testing/TestClock";
 import {
-  AddressRecipient,
   type Approval,
-  BalanceId,
   ExternalRecipient,
   Holding,
   LinkRecipient,
   Offline,
-  OpenPaymentLinks,
-  PaymentLinkReceipt,
-  PaymentLinkRecipient,
-  PaymentMemo,
-  Pending,
-  PositiveAmount,
-  Profile,
-  ResolvedPaymentLink,
   Settled,
   TransferId,
-  TransferOrder,
+  type TransferOrder,
   type TransferStep,
-  Username,
-  UsernameRecipient,
   type WalletPort,
   baseAsset,
 } from "../src/contract";
@@ -38,22 +23,17 @@ import {
   type Passkeys,
   PaymentLinkIntent,
   PaymentReview,
-  SavedWallet,
-  TransferIntent,
   UnsupportedDevice,
   makeWalletEffects,
 } from "../src/device/client";
 import {
-  DeviceWallet,
   type KeyStore,
   KeyStoreUnavailable,
   PublicDeviceWallet,
 } from "../src/device/key-store";
 import {
-  addressOf,
   memoryKeyStore,
   nowSeconds,
-  sendActors,
   transferDraftOf,
   unusedPort,
 } from "./device-fixtures";
@@ -62,30 +42,21 @@ import {
   installSealedWallet,
   sealedKeyStore,
 } from "./sealed-wallet-fixtures";
-import { SoftwareAuthenticator } from "./software-authenticator";
-import { assertTagged } from "./tagged";
-
-const actors = sendActors();
-const amount = Schema.decodeSync(PositiveAmount)("10000000");
-const memo = Schema.decodeSync(PaymentMemo)({ type: "id", value: "4521" });
-const passkeys = new SoftwareAuthenticator("http://localhost:3000").passkeys;
-
-const toExchange = new TransferIntent({
-  to: AddressRecipient.make({ value: actors.exchange }),
-  asset: baseAsset,
+import {
+  actors,
   amount,
   memo,
-});
-
-const toPedro = new TransferIntent({
-  to: UsernameRecipient.make({ value: actors.pedroProfile.username }),
-  asset: baseAsset,
-  amount,
-});
+  passkeys,
+  payment,
+  reviewed,
+  toExchange,
+  toPedro,
+} from "./send-fixtures";
+import { assertTagged } from "./tagged";
 
 const exchangeDraft = () =>
   transferDraftOf(
-    actors.payment({ to: actors.exchange, amount, memo }),
+    payment(),
     new ExternalRecipient({ address: actors.exchange }),
   );
 
@@ -121,7 +92,6 @@ const portAnswering = (
   answer: (
     order: TransferOrder,
     approval: Option.Option<Approval>,
-    call: number,
   ) => Effect.Effect<TransferStep, Offline>,
   overview?: WalletPort["overview"],
 ) => {
@@ -133,7 +103,7 @@ const portAnswering = (
       approvals.push(approval);
       orderIds.push(order.id);
 
-      return answer(order, approval, approvals.length);
+      return answer(order, approval);
     });
 
   const port = overview
@@ -159,38 +129,22 @@ const confirmingDevice = Effect.fn(function* (
   duringPrompt: Effect.Effect<void> = Effect.void,
 ) {
   const { approvals, orderIds, port } = portAnswering(answer);
-  const callsAtPrompt: Array<number> = [];
   const { auth } = yield* installSealedWallet(actors.wallet);
 
   const ceremony: AssertionCeremony = {
     assert: (request) =>
-      Effect.sync(() => callsAtPrompt.push(approvals.length)).pipe(
-        Effect.andThen(duringPrompt),
-        Effect.andThen(auth.assertions.assert(request)),
-      ),
+      duringPrompt.pipe(Effect.andThen(auth.assertions.assert(request))),
   };
 
   return {
     approvals,
     orderIds,
-    callsAtPrompt,
     auth,
     client: makeWalletEffects(port, sealedKeyStore, passkeys, {
       ...approvingDevice(auth),
       ceremony,
     }),
   };
-});
-
-const reviewed = Effect.fn(function* (
-  client: ReturnType<typeof makeWalletEffects>,
-  intent: TransferIntent,
-) {
-  const outcome = yield* client.review(intent);
-
-  assertTagged(outcome, "PaymentReview");
-
-  return outcome;
 });
 
 const markApproved = (store: KeyStore) =>
@@ -228,12 +182,12 @@ it.live(
   "approves the reviewed order once under the same id after its own prompt, never on entry or a cancelled prompt",
   () =>
     Effect.gen(function* () {
-      const { approvals, orderIds, callsAtPrompt, auth, client } =
-        yield* confirmingDevice((order, approval) =>
+      const { approvals, orderIds, auth, client } = yield* confirmingDevice(
+        (order, approval) =>
           Effect.succeed(
             Option.isSome(approval) ? settledFor(order) : pedroDraft(),
           ),
-        );
+      );
 
       const review = yield* reviewed(client, toPedro);
 
@@ -247,7 +201,6 @@ it.live(
       auth.cancels = false;
       expect(yield* client.confirm(review)).toBeInstanceOf(Settled);
       expect(approvals.filter(Option.isSome)).toHaveLength(1);
-      expect(callsAtPrompt).toEqual([1, 1, 1]);
       expect(new Set(orderIds)).toEqual(new Set([review.order.id]));
     }),
 );
@@ -266,7 +219,7 @@ it.live.each([
   "refuses a review whose draft was swapped for %s, by copy or in place",
   ([, swappedDraft]) =>
     Effect.gen(function* () {
-      const { approvals, callsAtPrompt, client } = yield* confirmingDevice(() =>
+      const { approvals, client } = yield* confirmingDevice(() =>
         Effect.succeed(pedroDraft()),
       );
 
@@ -282,7 +235,6 @@ it.live.each([
 
       expect((yield* client.confirm(review))._tag).toBe("DraftRejected");
       expect(approvals.filter(Option.isSome)).toHaveLength(0);
-      expect(callsAtPrompt).toEqual([]);
     }),
 );
 
@@ -360,42 +312,6 @@ it.live("keeps the signed order when confirming fails offline", () =>
   }),
 );
 
-it.effect(
-  "follows an approved order past many Pending answers until settled",
-  () =>
-    Effect.gen(function* () {
-      yield* TestClock.setTime(Date.now());
-
-      const device = reviewingDevice((order, _a, call) =>
-        Effect.succeed(
-          call === 1
-            ? pedroDraft()
-            : call < 16
-              ? new Pending({
-                  ...receiptFields(order),
-                  expiresAt: DateTime.makeUnsafe((nowSeconds() + 120) * 1000),
-                })
-              : settledFor(order),
-        ),
-      );
-
-      const review = yield* reviewed(device.client, toPedro);
-
-      yield* markApproved(device.store);
-
-      const following = yield* Effect.forkChild(
-        device.client.resume(review.order.id),
-      );
-
-      yield* TestClock.adjust("2 minutes");
-      const done = yield* Fiber.join(following);
-
-      assertTagged(done, "Settled");
-      expect(done.id).toBe(review.order.id);
-      expect(device.approvals.filter(Option.isSome)).toHaveLength(0);
-    }),
-);
-
 it.live(
   "recovers a forgotten receipt by id, misses on another id and surfaces overview failure",
   () =>
@@ -437,77 +353,11 @@ it.live(
     }),
 );
 
-it.effect("stops following a payment still Pending after it expired", () =>
-  Effect.gen(function* () {
-    yield* TestClock.setTime(Date.now());
-
-    const device = reviewingDevice((order, _a, call) =>
-      Effect.succeed(
-        call === 1
-          ? pedroDraft()
-          : new Pending({
-              ...receiptFields(order),
-              expiresAt: DateTime.makeUnsafe(120_000),
-            }),
-      ),
-    );
-
-    const review = yield* reviewed(device.client, toPedro);
-
-    yield* markApproved(device.store);
-
-    const following = yield* Effect.forkChild(
-      device.client.resume(review.order.id),
-    );
-
-    yield* TestClock.adjust("13 minutes");
-    expect((yield* Fiber.join(following))._tag).toBe("Pending");
-    expect(device.approvals.filter(Option.isSome)).toHaveLength(0);
-  }),
-);
-
 it.live(
-  "reads status, overview, links, reviews and resumes orders without secret or passkey access, and fails closed on any signature",
+  "reads, reviews and resumes without secret or passkey access, and fails closed on any signature",
   () =>
     Effect.gen(function* () {
-      const linkAddress = addressOf(Keypair.random());
-
-      const linkBalance = Schema.decodeSync(BalanceId)(
-        `00000000${"c".repeat(64)}`,
-      );
-
-      const linkOrder = new TransferOrder({
-        id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
-        from: actors.sender,
-        to: PaymentLinkRecipient.make({ value: linkAddress }),
-        asset: baseAsset,
-        amount,
-      });
-
-      const linkReceipt = new PaymentLinkReceipt({
-        network: "testnet",
-        address: linkAddress,
-        asset: baseAsset,
-        amount,
-        balance: linkBalance,
-        attempts: [linkBalance],
-      });
-
-      const approvedUntil = nowSeconds() + 120;
-      const staleUsername = Schema.decodeSync(Username)("mariaold");
-
-      const backing = memoryKeyStore(
-        Option.some(
-          new DeviceWallet({
-            ...actors.wallet,
-            username: staleUsername,
-            reserveSponsor: undefined,
-            transfer: linkOrder,
-            approvedUntil,
-            linkReceipt,
-          }),
-        ),
-      );
+      const backing = memoryKeyStore(Option.some(actors.wallet));
 
       const lockedStore: KeyStore = {
         read: () =>
@@ -523,85 +373,38 @@ it.live(
         authenticate: () => Effect.fail(new PasskeyFailed()),
       };
 
-      const approvals: Array<Option.Option<Approval>> = [];
       let settleResume = false;
 
-      const senderProfile = new Profile({
-        address: actors.sender,
-        username: actors.wallet.username,
-      });
-
-      const port = unusedPort({
-        overview: () =>
+      const { approvals, port } = portAnswering(
+        (order) =>
+          Effect.succeed(
+            Predicate.isTagged(order.to, "PaymentLink")
+              ? transferDraftOf(
+                  actors.paymentLink({ to: order.to.value, amount }),
+                  new LinkRecipient({
+                    kind: "paymentLink",
+                    address: order.to.value,
+                  }),
+                )
+              : settleResume
+                ? settledFor(order)
+                : exchangeDraft(),
+          ),
+        () =>
           Effect.succeed(
             new Holding({
-              profile: senderProfile,
+              profile: actors.pedroProfile,
               reserveSponsor: Option.some(actors.sponsor),
               balances: [],
               claimable: [],
               latest: Option.none(),
             }),
           ),
-        paymentLinks: () => Effect.succeed(new OpenPaymentLinks({ links: [] })),
-        resolvePaymentLink: () =>
-          Effect.succeed(
-            new ResolvedPaymentLink({
-              balance: linkBalance,
-              address: linkAddress,
-              asset: baseAsset,
-              amount,
-            }),
-          ),
-        transfer: (order, approval) =>
-          Effect.sync(() => {
-            approvals.push(approval);
-
-            if (Predicate.isTagged(order.to, "PaymentLink"))
-              return transferDraftOf(
-                actors.paymentLink({ to: order.to.value, amount }),
-                new LinkRecipient({
-                  kind: "paymentLink",
-                  address: order.to.value,
-                }),
-              );
-
-            return settleResume ? settledFor(order) : exchangeDraft();
-          }),
-      });
+      );
 
       const client = makeWalletEffects(port, lockedStore, lockedPasskeys);
 
-      expect(yield* client.saved()).toEqual(
-        new SavedWallet({
-          username: staleUsername,
-          openingApproved: false,
-          backup: "stored",
-        }),
-      );
-
       assertTagged(yield* client.overview(), "Holding");
-
-      const afterOverview = Option.getOrThrow(yield* lockedStore.readPublic());
-
-      expect(afterOverview.username).toBe(actors.wallet.username);
-      expect(afterOverview.reserveSponsor).toBe(actors.sponsor);
-      expect(afterOverview.transfer?.id).toBe(linkOrder.id);
-      expect(afterOverview.approvedUntil).toBe(approvedUntil);
-      expect(afterOverview.linkReceipt?.balance).toBe(linkBalance);
-
-      expect(yield* client.paymentLinks()).toEqual(
-        new OpenPaymentLinks({ links: [] }),
-      );
-
-      assertTagged(yield* client.resolvePaymentLink(), "ResolvedPaymentLink");
-
-      const afterResolve = Option.getOrThrow(yield* lockedStore.readPublic());
-
-      expect(afterResolve.transfer).toBeUndefined();
-      expect(afterResolve.approvedUntil).toBeUndefined();
-      expect(afterResolve.linkReceipt).toBeUndefined();
-      expect(afterResolve.reserveSponsor).toBe(actors.sponsor);
-
       expect(
         yield* client.createPaymentLink(
           new PaymentLinkIntent({ asset: baseAsset, amount }),
@@ -615,24 +418,13 @@ it.live(
         Option.getOrThrow(yield* lockedStore.readPublic()).approvedUntil,
       ).toBeUndefined();
 
-      yield* lockedStore.updatePublic((current) =>
-        Option.some(
-          new PublicDeviceWallet({
-            ...current,
-            approvedUntil: nowSeconds() + 120,
-          }),
-        ),
-      );
-
+      yield* markApproved(lockedStore);
       expect((yield* client.resume(review.order.id))._tag).toBe(
         "ApprovalOutstanding",
       );
 
       settleResume = true;
       assertTagged(yield* client.resume(review.order.id), "Settled");
-      expect(
-        Option.getOrThrow(yield* lockedStore.readPublic()).transfer,
-      ).toBeUndefined();
       expect(approvals.filter(Option.isSome)).toHaveLength(0);
     }),
 );

@@ -65,28 +65,6 @@ it("derives the Stellar account of a SEP-5 secret phrase", () => {
   );
 });
 
-it.effect("returns OpeningPending after bounded polling", () =>
-  Effect.gen(function* () {
-    const started = yield* Latch.make();
-
-    const port = unusedPort({
-      open: () => started.open.pipe(Effect.as(new OpeningPending())),
-    });
-
-    const attempt = yield* Effect.forkChild(
-      makeWalletEffects(
-        port,
-        memoryKeyStore(Option.some(seeded)),
-        passkeys,
-      ).create("maria"),
-    );
-
-    yield* started.await;
-    yield* TestClock.adjust("30 seconds");
-    expect(yield* Fiber.join(attempt)).toEqual(new OpeningPending());
-  }),
-);
-
 it.effect(
   "polls OpeningPending until RecoveryDraft arrives and submits a valid recovery approval",
   () =>

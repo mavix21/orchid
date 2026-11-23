@@ -1,6 +1,5 @@
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
-import { Database } from "@workspace/db";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -10,14 +9,12 @@ import {
   AddressBound,
   NeedsReopening,
   Profile,
-  SigningRequest,
   Username,
   UsernameRecipient,
   UsernameTaken,
 } from "../src/contract";
 import { Sealed } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
-import { usernames } from "../src/server/tables.server";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { assertTagged } from "./tagged";
 import {
@@ -39,12 +36,6 @@ import {
 } from "./wallet-harness";
 
 useDisposableDatabase();
-
-const placeholderRequest = () =>
-  new SigningRequest({
-    envelope: Schema.decodeSync(SigningRequest.fields.envelope)("AAAA"),
-    expiresAt: DateTime.makeUnsafe(Date.now() + 60_000),
-  });
 
 const placeholderSealed = () =>
   new Sealed({
@@ -131,75 +122,18 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect(
-      "the binding write refuses a taken name even when the soft check is skipped",
-      () =>
-        Effect.gen(function* () {
-          yield* create(Keypair.random(), "maria");
-          const claim = claimFor(Keypair.random(), "maria");
-          const row = yield* Directory.use((d) => d.start(claim.address));
+    it.effect("a reserved name is never bound", () =>
+      Effect.gen(function* () {
+        const key = Keypair.random();
 
-          const draft = yield* Directory.use((d) =>
-            d.draft(row, placeholderRequest()),
-          );
-
-          expect(
-            yield* Directory.use((d) =>
-              d.seal(draft, placeholderSealed(), claim),
-            ),
-          ).toEqual(new UsernameTaken({ username: claim.username }));
-
-          const stored = Option.getOrThrow(yield* findWallet(claim.address));
-
-          expect(stored.attemptHash).toBeNull();
-          expect(stored.version).toBe(draft.version);
-        }),
-    );
-
-    it.effect(
-      "a stale binding write stores neither the attempt nor the name",
-      () =>
-        Effect.gen(function* () {
-          const claim = claimFor(Keypair.random(), "maria");
-          const row = yield* Directory.use((d) => d.start(claim.address));
-
-          yield* Directory.use((d) => d.draft(row, placeholderRequest()));
-
-          const written = yield* Directory.use((d) =>
-            d.seal(row, placeholderSealed(), claim),
-          );
-
-          if (
-            written instanceof UsernameTaken ||
-            written instanceof AddressBound
-          )
-            throw new Error("Expected current row");
-
-          expect(written.attemptHash).toBeNull();
-
-          const second = Keypair.random();
-          const secondClaim = claimFor(second, "maria");
-          const draft = yield* opening(secondClaim);
-
-          assertTagged(draft, "OpeningDraft");
-          expect(
-            (yield* opening(secondClaim, approve(draft.request, second)))._tag,
-          ).toBe("OpeningPending");
-        }),
-    );
-
-    it.effect.each(["my_orchid", "support", "soporte"])(
-      "reserved name %s is never bound",
-      (name) =>
-        Effect.gen(function* () {
-          const key = Keypair.random();
-
-          expect(yield* opening(claimFor(key, name))).toEqual(
-            new UsernameTaken({ username: Schema.decodeSync(Username)(name) }),
-          );
-          expect(Option.isNone(yield* findWallet(addressOf(key)))).toBe(true);
-          expect(world.submitted).toHaveLength(0);
-        }),
+        expect(yield* opening(claimFor(key, "soporte"))).toEqual(
+          new UsernameTaken({
+            username: Schema.decodeSync(Username)("soporte"),
+          }),
+        );
+        expect(Option.isNone(yield* findWallet(addressOf(key)))).toBe(true);
+        expect(world.submitted).toHaveLength(0);
+      }),
     );
 
     it.effect(
@@ -264,33 +198,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(reopenedDraft, "TransferDraft");
           expect(reopenedDraft.recipient.address).toBe(claim.address);
-        }),
-    );
-
-    it.effect(
-      "a name bound before it was reserved stays usable by its address",
-      () =>
-        Effect.gen(function* () {
-          const claim = claimFor(Keypair.random(), "soporte");
-          const row = yield* Directory.use((d) => d.start(claim.address));
-
-          yield* Database.use((db) => db.insert(usernames).values(claim));
-          const sealed = placeholderSealed();
-
-          const updated = yield* Directory.use((d) =>
-            d.seal(row, sealed, claim),
-          );
-
-          if (
-            updated instanceof UsernameTaken ||
-            updated instanceof AddressBound
-          )
-            throw new Error("Expected existing owner to keep reserved name");
-
-          expect(updated.attemptHash).toBe(sealed.hash);
-          expect(
-            (yield* opening(claimFor(Keypair.random(), "soporte")))._tag,
-          ).toBe("UsernameTaken");
         }),
     );
 

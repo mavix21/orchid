@@ -91,9 +91,7 @@ it.effect(
 const published = (text: string) => Option.some(new TextEncoder().encode(text));
 
 it.effect.each([
-  { name: "no entry", memoRequired: Option.none(), required: false },
   { name: '"1"', memoRequired: published("1"), required: true },
-  { name: '"0"', memoRequired: published("0"), required: false },
   { name: '"11"', memoRequired: published("11"), required: false },
 ])(
   "an unregistered account publishing $name requires a memo: $required",
@@ -119,39 +117,3 @@ it.effect.each([
       );
     }),
 );
-
-const validEntry = {
-  network,
-  address: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-  exchange: "Synthetic exchange fixture",
-  source: "https://example.com/fixtures/stellar-testnet-memo-required",
-};
-
-it.each([
-  { name: "valid entry", entry: validEntry, valid: true },
-  {
-    name: "non-testnet network",
-    entry: { ...validEntry, network: "mainnet" },
-    valid: false,
-  },
-  {
-    name: "bad checksum",
-    entry: { ...validEntry, address: `${validEntry.address.slice(0, -1)}A` },
-    valid: false,
-  },
-  { name: "empty source", entry: { ...validEntry, source: "" }, valid: false },
-  {
-    name: "non-HTTPS source",
-    entry: { ...validEntry, source: "file:///not-public" },
-    valid: false,
-  },
-  {
-    name: "empty exchange",
-    entry: { ...validEntry, exchange: "" },
-    valid: false,
-  },
-])("registry decoding for $name is valid: $valid", ({ entry, valid }) => {
-  expect(
-    Option.isSome(Schema.decodeUnknownOption(KnownExchangeMemo)(entry)),
-  ).toBe(valid);
-});

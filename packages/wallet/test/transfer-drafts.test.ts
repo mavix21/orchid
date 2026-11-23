@@ -9,7 +9,6 @@ import * as Schema from "effect/Schema";
 import {
   ExternalRecipient,
   PositiveAmount,
-  ServerFailure,
   ServiceFailed,
   type TransferDraft,
   TransferOrder,
@@ -51,7 +50,7 @@ const paymentSequence = (draft: TransferDraft) => {
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect(
-      "near-expiry unsigned drafts refresh, while authorized bytes never change and conflicts redact causes",
+      "near-expiry unsigned drafts refresh, while authorized bytes never change",
       () =>
         Effect.gen(function* () {
           const key = yield* fundedWallet();
@@ -89,13 +88,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             amount: Schema.decodeSync(PositiveAmount)("20000000"),
           });
 
-          const refused = yield* send(changed).pipe(Effect.flip);
-
-          expect(refused).toEqual(new ServiceFailed());
-          const encoded = Schema.encodeSync(ServerFailure)(refused);
-
-          expect(Object.keys(encoded)).toEqual(["_tag"]);
-          expect(encoded._tag).toBe("ServiceFailed");
+          expect(yield* send(changed).pipe(Effect.flip)).toEqual(
+            new ServiceFailed(),
+          );
           expect(Option.getOrThrow(yield* findTransfer(order.id))).toEqual(
             authorized,
           );

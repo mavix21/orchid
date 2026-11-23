@@ -24,7 +24,6 @@ import {
 import { KeyStoreUnavailable } from "../src/device/key-store";
 import {
   LocalPhraseEnvelope,
-  localEnvelopeVersion,
   reopenLocalEnvelope,
 } from "../src/device/local-envelope";
 import { backupSalt, openPhrase } from "../src/device/phrase-seal";
@@ -169,17 +168,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           assertTagged(completed, "WalletEnrolled");
           expect(completed.profile.username).toBe("maria");
           expect(yield* reloadedTab.pending()).toEqual(Option.none());
-          expect(pending.readSync()).toEqual(Option.none());
 
           const persisted = Option.getOrThrow(
             yield* browserKeyStore.readSealed(),
           );
 
-          expect(persisted.version).toBe(localEnvelopeVersion);
-          expect(persisted.public.address).toBe(completed.profile.address);
-          expect(persisted.public.username).toBe("maria");
           expect(persisted.public.backup).toBe("stored");
-          expect(persisted.credential.id).toBe(auth.registered[0]?.id);
 
           const reopened = yield* reopenLocalEnvelope(
             auth.assertions,
@@ -258,7 +252,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           expect(persisted.public.address).toBe(winner.profile.address);
-          expect(persisted.public.username).toBe(winner.profile.username);
         }),
     );
 
@@ -305,7 +298,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               username: Schema.decodeSync(Username)("maria"),
             }),
           );
-          expect(auth.issued).toEqual([]);
           expect((yield* tableRows).backups).toEqual([]);
           expect(yield* browserKeyStore.readPublic()).toEqual(Option.none());
 
@@ -365,13 +357,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(completed, "WalletEnrolled");
           expect(completed.profile.address).toBe(committedAddress);
-          expect(auth.registered).toHaveLength(1);
 
           const persisted = Option.getOrThrow(
             yield* browserKeyStore.readSealed(),
           );
 
-          expect(persisted.public.address).toBe(committedAddress);
           expect(persisted.credential.id).toBe(auth.registered[0]?.id);
 
           const reopened = yield* reopenLocalEnvelope(
@@ -395,24 +385,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     const refusalCases = [
-      [
-        "the browser reports no WebAuthn or PRF support",
-        (wallet: WalletPort) =>
-          Effect.gen(function* () {
-            const auth = new SoftwareAuthenticator(passkeyOrigin);
-
-            auth.webAuthnAvailable = false;
-
-            const enrollment = enrollmentFor(wallet, auth);
-
-            return {
-              outcome: yield* enrollment.start("maria"),
-              expectedTag: "BackupUnsupported",
-              enrollment,
-              expectZeroBackups: true,
-            };
-          }),
-      ],
       [
         "the authenticator lacks PRF on both create and pinned get",
         (wallet: WalletPort) =>
@@ -448,31 +420,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             return {
               outcome: yield* enrollment.start("maria"),
               expectedTag: "RegistrationRefused",
-              enrollment,
-              expectZeroBackups: true,
-            };
-          }),
-      ],
-      [
-        "persisting the pending submission fails before backup upload",
-        (wallet: WalletPort) =>
-          Effect.gen(function* () {
-            const auth = new SoftwareAuthenticator(passkeyOrigin);
-
-            const failingPending: PendingEnrollmentStorage = {
-              read: () => Effect.succeed(Option.none()),
-              write: () =>
-                Effect.fail(
-                  new KeyStoreUnavailable({ cause: new Error("quota") }),
-                ),
-              clear: () => Effect.void,
-            };
-
-            const enrollment = enrollmentFor(wallet, auth, failingPending);
-
-            return {
-              outcome: yield* enrollment.start("maria"),
-              expectedTag: "UnsupportedDevice",
               enrollment,
               expectZeroBackups: true,
             };

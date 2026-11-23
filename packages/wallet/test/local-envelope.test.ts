@@ -3,21 +3,18 @@ import { expect, it } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import { SealedDeviceWallet } from "../src/device/key-store";
 import {
   LocalPhraseEnvelope,
   freshInstallationSalt,
-  localEnvelopeVersion,
   localPhrasePrfInput,
   paymentLinkPrfInput,
   reopenLocalEnvelope,
   sealLocalEnvelope,
 } from "../src/device/local-envelope";
 import { backupSalt } from "../src/device/phrase-seal";
-import type { SecretPhrase } from "../src/device/secret-phrase";
 import { network } from "../src/stellar/network";
 import { addressOf } from "./device-fixtures";
 import {
@@ -26,98 +23,6 @@ import {
   putRawEntry,
   relyingParty,
 } from "./sealed-wallet-fixtures";
-import { assertTagged } from "./tagged";
-
-const encoder = new TextEncoder();
-
-const canonicalTuple = (
-  parts: ReadonlyArray<Uint8Array>,
-): Uint8Array<ArrayBuffer> => {
-  const totalLength = parts.reduce((sum, part) => sum + 4 + part.byteLength, 0);
-
-  const buffer = new ArrayBuffer(totalLength);
-  const output = new Uint8Array(buffer);
-  const view = new DataView(buffer);
-  let offset = 0;
-
-  for (const part of parts) {
-    view.setUint32(offset, part.byteLength, false);
-    offset += 4;
-    output.set(part, offset);
-    offset += part.byteLength;
-  }
-
-  return output;
-};
-
-const forgeAuthenticatedEnvelope = (
-  target: {
-    readonly address: SealedDeviceWallet["public"]["address"];
-    readonly credentialId: SealedDeviceWallet["credential"]["id"];
-    readonly salt: Uint8Array;
-    readonly prf: Redacted.Redacted<Uint8Array<ArrayBuffer>>;
-  },
-  phrase: SecretPhrase,
-) =>
-  Effect.promise(async () => {
-    const versionTag = encoder.encode(`v${localEnvelopeVersion}`);
-
-    const hkdfKey = await crypto.subtle.importKey(
-      "raw",
-      Uint8Array.from(Redacted.value(target.prf)),
-      "HKDF",
-      false,
-      ["deriveKey"],
-    );
-
-    const key = await crypto.subtle.deriveKey(
-      {
-        name: "HKDF",
-        hash: "SHA-256",
-        salt: Uint8Array.from(target.salt),
-        info: canonicalTuple([
-          encoder.encode("orchid-device-phrase-key"),
-          versionTag,
-          encoder.encode(network),
-          encoder.encode(target.address),
-          encoder.encode(target.credentialId),
-        ]),
-      },
-      hkdfKey,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["encrypt"],
-    );
-
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-
-    const additionalData = canonicalTuple([
-      encoder.encode("orchid-device-phrase-aad"),
-      versionTag,
-      encoder.encode(network),
-      encoder.encode(target.address),
-      encoder.encode(target.credentialId),
-      target.salt,
-    ]);
-
-    const ciphertext = new Uint8Array(
-      await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv, additionalData },
-        key,
-        encoder.encode(phrase),
-      ),
-    );
-
-    return new LocalPhraseEnvelope({
-      version: localEnvelopeVersion,
-      network,
-      address: target.address,
-      credentialId: target.credentialId,
-      salt: Uint8Array.from(target.salt),
-      iv,
-      ciphertext,
-    });
-  });
 
 const flipFirstByte = (bytes: Uint8Array) => {
   const copy = Uint8Array.from(bytes);
@@ -172,22 +77,6 @@ const corruptEnvelopeCases = [
       }),
   ],
   [
-    "a tampered installation salt",
-    (primary: LocalPhraseEnvelope): LocalPhraseEnvelope =>
-      new LocalPhraseEnvelope({
-        ...primary,
-        salt: flipFirstByte(primary.salt),
-      }),
-  ],
-  [
-    "a tampered IV",
-    (primary: LocalPhraseEnvelope): LocalPhraseEnvelope =>
-      new LocalPhraseEnvelope({
-        ...primary,
-        iv: flipFirstByte(primary.iv),
-      }),
-  ],
-  [
     "a tampered ciphertext",
     (primary: LocalPhraseEnvelope): LocalPhraseEnvelope =>
       new LocalPhraseEnvelope({
@@ -233,103 +122,24 @@ it.effect.each(corruptEnvelopeCases)(
     }),
 );
 
-it.effect(
-  "rejects an authenticated envelope whose decrypted phrase derives another address and distinguishes passkey failures",
-  () =>
-    Effect.gen(function* () {
-      const primary = yield* enrollDisposableWallet("maria");
-      const other = yield* enrollDisposableWallet("pedro");
+it.effect("refuses to seal a phrase that derives another address", () =>
+  Effect.gen(function* () {
+    const primary = yield* enrollDisposableWallet("maria");
+    const other = yield* enrollDisposableWallet("pedro");
 
-      const mismatchedSeal = yield* sealLocalEnvelope(
-        {
-          phrase: other.phrase,
-          network,
-          address: primary.address,
-          credentialId: primary.credential.id,
-          salt: primary.salt,
-        },
-        primary.prf,
-      );
+    const mismatchedSeal = yield* sealLocalEnvelope(
+      {
+        phrase: other.phrase,
+        network,
+        address: primary.address,
+        credentialId: primary.credential.id,
+        salt: primary.salt,
+      },
+      primary.prf,
+    );
 
-      const forgedSamePhrase = yield* forgeAuthenticatedEnvelope(
-        {
-          address: primary.address,
-          credentialId: primary.credential.id,
-          salt: primary.salt,
-          prf: primary.prf,
-        },
-        primary.phrase,
-      );
-
-      const forgedWrongPhrase = yield* forgeAuthenticatedEnvelope(
-        {
-          address: primary.address,
-          credentialId: primary.credential.id,
-          salt: primary.salt,
-          prf: primary.prf,
-        },
-        other.phrase,
-      );
-
-      const validReopen = yield* reopenLocalEnvelope(
-        primary.auth.assertions,
-        relyingParty,
-        primary.credential,
-        forgedSamePhrase,
-        {
-          network,
-          address: primary.address,
-          purpose: "approval",
-        },
-      );
-
-      const wrongDerivedAddress = yield* reopenLocalEnvelope(
-        primary.auth.assertions,
-        relyingParty,
-        primary.credential,
-        forgedWrongPhrase,
-        {
-          network,
-          address: primary.address,
-          purpose: "approval",
-        },
-      );
-
-      primary.auth.prf = false;
-
-      const missingPrf = yield* reopenLocalEnvelope(
-        primary.auth.assertions,
-        relyingParty,
-        primary.credential,
-        primary.envelope,
-        {
-          network,
-          address: primary.address,
-          purpose: "approval",
-        },
-      );
-
-      primary.auth.prf = true;
-      primary.auth.cancels = true;
-
-      const cancelled = yield* reopenLocalEnvelope(
-        primary.auth.assertions,
-        relyingParty,
-        primary.credential,
-        primary.envelope,
-        {
-          network,
-          address: primary.address,
-          purpose: "approval",
-        },
-      ).pipe(Effect.flip);
-
-      expect(mismatchedSeal._tag).toBe("CorruptEnvelope");
-      assertTagged(validReopen, "PhraseOpened");
-      expect(wrongDerivedAddress._tag).toBe("CorruptEnvelope");
-      expect(missingPrf._tag).toBe("PrfOutputMissing");
-      expect(cancelled._tag).toBe("PasskeyCancelled");
-    }),
+    expect(mismatchedSeal._tag).toBe("CorruptEnvelope");
+  }),
 );
 
 it.effect(

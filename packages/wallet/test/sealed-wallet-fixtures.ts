@@ -16,7 +16,6 @@ import {
   publicWalletOf,
 } from "../src/device/key-store";
 import {
-  type LocalPhraseEnvelope,
   freshInstallationSalt,
   localEnvelopeVersion,
   localPhrasePrfInput,
@@ -46,22 +45,11 @@ export type RawStoredEntry =
       readonly iv: string;
       readonly phrase: string;
     }
-  | (Omit<typeof SealedDeviceWallet.Encoded, "version"> & {
-      readonly version: number;
-    })
   | (Omit<typeof SealedDeviceWallet.Encoded, "credential"> & {
       readonly credential: {
         readonly id: string;
         readonly publicKey: string;
         readonly algorithm: string;
-      };
-    })
-  | (Omit<typeof SealedDeviceWallet.Encoded, "envelope"> & {
-      readonly envelope: Omit<
-        typeof LocalPhraseEnvelope.Encoded,
-        "ciphertext"
-      > & {
-        readonly ciphertext: string;
       };
     })
   | typeof SealedDeviceWallet.Encoded

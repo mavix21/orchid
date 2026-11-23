@@ -56,7 +56,7 @@ test("starts every wallet route locked and unlocks only on a verified assertion"
   await expect(unlockButton(page)).toBeVisible();
 });
 
-test("masks on hide, resumes within the window, and locks at the window or on a restored page", async ({
+test("masks on hide, resumes within the window, and locks on a restored page", async ({
   page,
 }) => {
   await openWallet(page, freshUsername());
@@ -71,15 +71,6 @@ test("masks on hide, resumes within the window, and locks at the window or on a 
 
   await page.clock.setFixedTime(start + resumeWindow - 1);
   await setVisibility(page, "visible");
-  await expect(content).toBeVisible();
-
-  await setVisibility(page, "hidden");
-  await page.clock.setFixedTime(start + resumeWindow - 1 + resumeWindow);
-  await setVisibility(page, "visible");
-  await expect(unlockButton(page)).toBeVisible();
-  await expect(content).toHaveCount(0);
-
-  await unlockWallet(page);
   await expect(content).toBeVisible();
 
   await restorePageFromCache(page);

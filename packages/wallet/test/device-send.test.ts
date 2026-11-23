@@ -4,8 +4,6 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
-  AssetCode,
-  IssuedAsset,
   Offline,
   PositiveAmount,
   Settled,
@@ -15,57 +13,33 @@ import {
   baseAsset,
 } from "../src/contract";
 import { TransferIntent, makeWalletEffects } from "../src/device/client";
-import { DeviceWallet, type KeyStore } from "../src/device/key-store";
-import { Wallet } from "../src/server/Wallet.server";
-import {
-  enrolledDeviceWallet,
-  memoryKeyStore,
-  savedWallet,
-} from "./device-fixtures";
+import { DeviceWallet } from "../src/device/key-store";
+import { memoryKeyStore } from "./device-fixtures";
 import {
   approvingDevice,
   installSealedWallet,
   sealedKeyStore,
 } from "./sealed-wallet-fixtures";
-import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 import {
-  accountState,
-  addressOf,
-  amount,
   create,
+  devicePasskeys,
+  euro,
+  euroLine,
   holdingsFor,
-  passkeyOrigin,
+  openSender,
   reserveSponsor,
   settleHash,
+  settleOnSubmit,
   useDisposableDatabase,
   walletTestLayer,
   world,
 } from "./wallet-harness";
 
-const passkeys = new SoftwareAuthenticator(passkeyOrigin).passkeys;
-
-const euro = IssuedAsset.make({
-  code: Schema.decodeSync(AssetCode)("EUR"),
-  issuer: addressOf(Keypair.random()),
-});
-
 const toPedro = new TransferIntent({
   to: UsernameRecipient.make({ value: Schema.decodeSync(Username)("pedro") }),
   asset: baseAsset,
   amount: Schema.decodeSync(PositiveAmount)("10000000"),
-});
-
-const openSender = Effect.fn(function* (store: KeyStore) {
-  const wallet = yield* Wallet;
-
-  yield* store.write(enrolledDeviceWallet("maria"));
-  yield* makeWalletEffects(wallet, store, passkeys).create("maria");
-  const sender = yield* savedWallet(store);
-
-  world.accounts.set(sender.address, accountState());
-
-  return { wallet, sender };
 });
 
 const reviewedAndConfirmed = Effect.fn(function* (
@@ -78,19 +52,6 @@ const reviewedAndConfirmed = Effect.fn(function* (
 
   return yield* client.confirm(review);
 });
-
-const settleOnSubmission =
-  (wallet: WalletPort): WalletPort["transfer"] =>
-  (order, approval) =>
-    wallet.transfer(order, approval).pipe(
-      Effect.tap(() =>
-        Effect.sync(() => {
-          const sealed = world.submitted.at(-1);
-
-          if (Option.isSome(approval) && sealed) settleHash(sealed.hash);
-        }),
-      ),
-    );
 
 useDisposableDatabase();
 
@@ -119,7 +80,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               makeWalletEffects(
                 reloaded,
                 sealedKeyStore,
-                passkeys,
+                devicePasskeys,
                 approvingDevice(auth),
               ),
               toPedro,
@@ -140,7 +101,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const replayed = yield* makeWalletEffects(
             wallet,
             sealedKeyStore,
-            passkeys,
+            devicePasskeys,
             approvingDevice(auth),
           ).review(toPedro);
 
@@ -155,23 +116,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         Effect.gen(function* () {
           yield* create(Keypair.random(), "pedro");
           const { wallet, sender } = yield* openSender(memoryKeyStore());
-          const held = amount("50000000");
 
           world.holdings.set(
             sender.address,
             holdingsFor(sender.address, {
               reserveSponsor: Option.some(reserveSponsor),
-              lines: [
-                {
-                  asset: euro,
-                  balance: held,
-                  spendable: held,
-                  capacity: held,
-                  authorized: true,
-                  clawbackEnabled: false,
-                  sponsored: true,
-                },
-              ],
+              lines: [euroLine("50000000")],
             }),
           );
 
@@ -181,13 +131,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const settledPort: WalletPort = {
             ...wallet,
-            transfer: settleOnSubmission(wallet),
+            transfer: settleOnSubmit(wallet, sender.address),
           };
 
           const client = makeWalletEffects(
             settledPort,
             sealedKeyStore,
-            passkeys,
+            devicePasskeys,
             approvingDevice(auth),
           );
 

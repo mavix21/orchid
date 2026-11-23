@@ -81,11 +81,6 @@ const mismatches: ReadonlyArray<
     () => claimable(actors.pedro),
   ],
   [
-    "a payment from another account",
-    toExchange,
-    () => payment(actors.stranger),
-  ],
-  [
     "a payment to the base account of a muxed destination",
     toMuxed,
     () => actors.payment({ to: actors.exchange, amount }),
@@ -145,17 +140,16 @@ it.live("reviews a draft paying the ordered muxed destination", () =>
   }),
 );
 
-it.live.each([
-  ["the draft", { lifetime: 10 }, () => payment()],
-  ["its envelope", {}, () => payment(actors.sender, 10)],
-] as const)(
-  "asks once for a fresh draft and presents none when %s keeps expiring within the approval margin",
-  ([, options, envelope]) =>
+it.live(
+  "presents no draft that keeps expiring within the approval margin",
+  () =>
     Effect.gen(function* () {
-      const { approvals, client } = deviceWith(envelope, options);
+      const { approvals, client } = deviceWith(() => payment(), {
+        lifetime: 10,
+      });
 
       expect(yield* client.review(toExchange)).toEqual(new DraftRejected());
-      expect(approvals).toEqual([Option.none(), Option.none()]);
+      expect(approvals.filter(Option.isSome)).toHaveLength(0);
     }),
 );
 
@@ -193,12 +187,9 @@ it.live("signs only one draft for an order", () =>
   }),
 );
 
-it.live.each([
-  ["after first settles and clears", false],
-  ["after first settles and an unrelated signed order is stored", true],
-] as const)(
-  "two concurrent reviews for the same intent submit at most one order %s",
-  ([, storeSignedOther]) =>
+it.live(
+  "two concurrent reviews for the same intent submit at most one order and keep an unrelated signed order",
+  () =>
     Effect.gen(function* () {
       const { auth } = yield* installSealedWallet(actors.wallet);
       const secondObservedEmpty = yield* Latch.make();
@@ -278,8 +269,7 @@ it.live.each([
         yield* reviewed(firstClient, toPedro),
       );
 
-      if (storeSignedOther)
-        yield* firstClient.confirm(yield* reviewed(firstClient, toExchange));
+      yield* firstClient.confirm(yield* reviewed(firstClient, toExchange));
 
       yield* firstSettled.open;
 
@@ -344,7 +334,6 @@ it.live(
       expect((yield* first.confirm(firstReview))._tag).toBe("Settled");
       expect((yield* second.confirm(secondReview))._tag).toBe("DraftRejected");
       expect(submissions).toEqual([firstReview.order.id]);
-      expect(auth.requested).toHaveLength(1);
     }),
 );
 

@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, expect } from "@effect/vitest";
 import {
   Account,
+  Claimant,
   FeeBumpTransaction,
   Keypair,
   TransactionBuilder,
@@ -10,13 +11,12 @@ import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
-import * as Deferred from "effect/Deferred";
-import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Latch from "effect/Latch";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
@@ -28,6 +28,9 @@ import {
   AddressRecipient,
   Amount,
   Approval,
+  AssetCode,
+  BalanceId,
+  IssuedAsset,
   PositiveAmount,
   type Recipient,
   SigningRequest,
@@ -35,8 +38,11 @@ import {
   TransferOrder,
   Username,
   WalletClaim,
+  type WalletPort,
   baseAsset,
 } from "../src/contract";
+import { DeviceWallet, type KeyStore } from "../src/device/key-store";
+import { signingKey } from "../src/device/signing";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import {
@@ -72,13 +78,14 @@ import {
   signingPayload,
 } from "../src/stellar/envelopes";
 import { networkPassphrase } from "../src/stellar/network";
-import { addressOf } from "./device-fixtures";
+import { addressOf, enrolledDeviceWallet } from "./device-fixtures";
 import {
   httpClientAnswering,
   jsonResponse,
   rpcMethod,
   testRpcUrl,
 } from "./rpc-answering";
+import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 
 export { addressOf };
@@ -511,58 +518,86 @@ export const authorizeTransfer = Effect.fn(function* (
   return { draft, authorized: stored };
 });
 
-const BackendPid = Schema.Struct({ pid: Schema.Number });
+export const euro = IssuedAsset.make({
+  code: Schema.decodeSync(AssetCode)("EUR"),
+  issuer: addressOf(Keypair.random()),
+});
 
-export const runAcrossLockWait = <A, E, R, L, TxE>(options: {
-  readonly locktype: "advisory" | "relation" | "transactionid";
-  readonly advance: Duration.Input;
-  readonly acquire: (
-    tx: Parameters<Parameters<Database["Service"]["transaction"]>[0]>[0],
-  ) => Effect.Effect<L, TxE>;
-  readonly run: Effect.Effect<A, E, R>;
-}) =>
-  Effect.gen(function* () {
-    const db = yield* Database;
-    const now = yield* Clock.currentTimeMillis;
+export const euroLine = (
+  balance: string,
+  overrides: { readonly capacity?: Amount } = {},
+) => ({
+  asset: euro,
+  balance: amount(balance),
+  spendable: amount(balance),
+  capacity: overrides.capacity ?? amount("9223372036854775807"),
+  authorized: true,
+  clawbackEnabled: false,
+  sponsored: true,
+});
 
-    const result = yield* Effect.gen(function* () {
-      yield* TestClock.setTime(now);
-      const blockerPid = yield* Deferred.make<number>();
-      const releaseLock = yield* Latch.make();
+export const devicePasskeys = new SoftwareAuthenticator(passkeyOrigin).passkeys;
 
-      const holder = yield* db
-        .transaction((tx) =>
-          Effect.gen(function* () {
-            const pid = Schema.decodeUnknownSync(BackendPid)(
-              (yield* tx.execute(sql`select pg_backend_pid() as pid`)).rows[0],
-            ).pid;
-
-            yield* options.acquire(tx);
-            yield* Deferred.succeed(blockerPid, pid);
-            yield* releaseLock.await;
-          }),
-        )
-        .pipe(Effect.forkChild);
-
-      const pid = yield* Deferred.await(blockerPid);
-      const attempt = yield* Effect.forkChild(options.run);
-
-      while (
-        (yield* db.execute(
-          sql`select 1 from pg_locks where locktype = ${options.locktype} and not granted and ${pid} = any(pg_blocking_pids(pid))`,
-        )).rows.length === 0
-      )
-        yield* Effect.yieldNow;
-
-      yield* TestClock.adjust(options.advance);
-      yield* releaseLock.open;
-      yield* Fiber.join(holder);
-
-      return yield* Fiber.join(attempt);
-    }).pipe(Effect.provide(TestClock.layer()));
-
-    return { result, now };
+export const openSender = Effect.fn(function* (
+  store: KeyStore,
+  name = "maria",
+) {
+  const sender = new DeviceWallet({
+    ...enrolledDeviceWallet(name),
+    reserveSponsor,
   });
+
+  yield* create(signingKey(sender.phrase), name);
+  yield* store.write(sender);
+  world.accounts.set(sender.address, accountState());
+
+  return { wallet: yield* Wallet, sender };
+});
+
+export const settleOnSubmit =
+  (wallet: WalletPort, sender: AccountAddress): WalletPort["transfer"] =>
+  (order, approval) =>
+    wallet.transfer(order, approval).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          const sealed = world.submitted.at(-1);
+
+          if (Option.isNone(approval) || !sealed) return;
+
+          settleHash(sealed.hash);
+
+          const outer = TransactionBuilder.fromXDR(
+            sealed.envelope,
+            networkPassphrase,
+          );
+
+          const inner =
+            outer instanceof FeeBumpTransaction
+              ? outer.innerTransaction
+              : outer;
+
+          if (
+            inner.operations[1]?.type === "createClaimableBalance" &&
+            Predicate.isTagged(order.to, "PaymentLink")
+          ) {
+            const balance = Schema.decodeSync(BalanceId)(
+              inner.getClaimableBalanceId(1),
+            );
+
+            world.claimables.set(balance, {
+              balance,
+              asset: order.asset,
+              amount: order.amount,
+              sponsored: true,
+              claimants: [
+                new Claimant(order.to.value, Claimant.predicateUnconditional()),
+                new Claimant(sender, Claimant.predicateUnconditional()),
+              ],
+            });
+          }
+        }),
+      ),
+    );
 
 export function useDisposableDatabase() {
   beforeAll(async () => {

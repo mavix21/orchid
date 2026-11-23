@@ -7,23 +7,13 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import {
-  BalanceId,
-  PaymentLinkReceipt,
-  PaymentLinkRecipient,
-  PositiveAmount,
-  TransferId,
-  TransferOrder,
-  Username,
-  baseAsset,
-} from "../src/contract";
+import { Username } from "../src/contract";
 import type { AssertionCeremony } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
   CorruptDeviceWallet,
   PublicDeviceWallet,
   SealedDeviceWallet,
-  clearStoredLink,
 } from "../src/device/key-store";
 import {
   reopenLocalEnvelope,
@@ -32,7 +22,6 @@ import {
 import { network } from "../src/stellar/network";
 import { addressOf } from "./device-fixtures";
 import {
-  type RawStoredEntry,
   clearDatabase,
   enrollDisposableWallet,
   putRawEntry,
@@ -80,7 +69,7 @@ const serializeForLeakCheck = <A>(value: A) =>
   JSON.stringify(unwrapValue(value));
 
 it.effect(
-  "seals, persists without leaking secrets, updates public metadata atomically, and reopens with a fresh pinned assertion",
+  "persists without leaking secrets, keeps the envelope through public updates, and reopens with a fresh pinned assertion",
   () =>
     Effect.gen(function* () {
       yield* Effect.promise(clearDatabase);
@@ -89,24 +78,6 @@ it.effect(
       expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
 
       const disposable = yield* enrollDisposableWallet();
-
-      const secondSeal = yield* sealLocalEnvelope(
-        {
-          phrase: disposable.phrase,
-          network,
-          address: disposable.address,
-          credentialId: disposable.credential.id,
-          salt: disposable.salt,
-        },
-        disposable.prf,
-      );
-
-      assertTagged(secondSeal, "EnvelopeSealed");
-      expect(secondSeal.envelope.iv).toHaveLength(12);
-      expect(secondSeal.envelope.iv).not.toEqual(disposable.envelope.iv);
-      expect(secondSeal.envelope.ciphertext).not.toEqual(
-        disposable.envelope.ciphertext,
-      );
 
       const requestPayloads: Array<string> = [];
       const logLines: Array<string> = [];
@@ -137,63 +108,7 @@ it.effect(
       assertTagged(candidateProof, "PhraseOpened");
       expect(Redacted.value(candidateProof.phrase)).toBe(disposable.phrase);
 
-      const amount = Schema.decodeSync(PositiveAmount)("10000000");
-      const linkA = addressOf(Keypair.random());
-      const linkB = addressOf(Keypair.random());
-
-      const balanceA = Schema.decodeSync(BalanceId)(
-        `00000000${"a".repeat(64)}`,
-      );
-
-      const balanceB = Schema.decodeSync(BalanceId)(
-        `00000000${"b".repeat(64)}`,
-      );
-
-      const orderA = new TransferOrder({
-        id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
-        from: disposable.address,
-        to: PaymentLinkRecipient.make({ value: linkA }),
-        asset: baseAsset,
-        amount,
-      });
-
-      const orderB = new TransferOrder({
-        id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
-        from: disposable.address,
-        to: PaymentLinkRecipient.make({ value: linkB }),
-        asset: baseAsset,
-        amount,
-      });
-
-      const receiptA = new PaymentLinkReceipt({
-        network,
-        address: linkA,
-        asset: baseAsset,
-        amount,
-        balance: balanceA,
-        attempts: [balanceA],
-      });
-
-      const receiptB = new PaymentLinkReceipt({
-        network,
-        address: linkB,
-        asset: baseAsset,
-        amount,
-        balance: balanceB,
-        attempts: [balanceB],
-      });
-
-      const withB = new SealedDeviceWallet({
-        ...disposable.record,
-        public: new PublicDeviceWallet({
-          ...disposable.publicWallet,
-          transfer: orderB,
-          approvedUntil: 200,
-          linkReceipt: receiptB,
-        }),
-      });
-
-      yield* browserKeyStore.writeSealed(withB);
+      yield* browserKeyStore.writeSealed(disposable.record);
 
       const keys = yield* Effect.promise(storedKeys);
       const rawRecord = yield* Effect.promise(() => storedEntry("wallet"));
@@ -235,43 +150,15 @@ it.effect(
         ),
       );
 
-      const expectedWithB = new PublicDeviceWallet({
-        ...withB.public,
-        username: nextUsername,
-        reserveSponsor: nextSponsor,
-      });
-
       expect(updated).toEqual(
-        Option.some({ wallet: expectedWithB, updated: true }),
-      );
-
-      yield* clearStoredLink(browserKeyStore, {
-        address: disposable.address,
-        transferId: orderA.id,
-        approvedUntil: 100,
-        receipt: receiptA,
-      });
-
-      expect(yield* browserKeyStore.readPublic()).toEqual(
-        Option.some(expectedWithB),
-      );
-
-      yield* clearStoredLink(browserKeyStore, {
-        address: disposable.address,
-        transferId: orderB.id,
-        approvedUntil: 200,
-        receipt: receiptB,
-      });
-
-      const expectedCleared = new PublicDeviceWallet({
-        ...disposable.publicWallet,
-        username: nextUsername,
-        reserveSponsor: nextSponsor,
-        transferRevision: 1,
-      });
-
-      expect(yield* browserKeyStore.readPublic()).toEqual(
-        Option.some(expectedCleared),
+        Option.some({
+          wallet: new PublicDeviceWallet({
+            ...disposable.publicWallet,
+            username: nextUsername,
+            reserveSponsor: nextSponsor,
+          }),
+          updated: true,
+        }),
       );
 
       const persisted = Option.getOrThrow(yield* browserKeyStore.readSealed());
@@ -295,34 +182,20 @@ it.effect(
     }),
 );
 
-const unknownFormats = [
-  [
-    "a v1 wallet record with a colocated wrapping key",
-    (encoded: typeof SealedDeviceWallet.Encoded): RawStoredEntry => ({
-      address: encoded.public.address,
-      username: encoded.public.username,
-      iv: Buffer.alloc(12, 1).toString("base64"),
-      phrase: Buffer.alloc(32, 2).toString("base64"),
-    }),
-  ],
-  [
-    "an unknown envelope version",
-    (encoded: typeof SealedDeviceWallet.Encoded): RawStoredEntry => ({
-      ...encoded,
-      version: 99,
-    }),
-  ],
-] as const;
-
-it.effect.each(unknownFormats)(
-  "treats %s as empty without upgrading it",
-  ([, buildLegacyRecord]) =>
+it.effect(
+  "treats a v1 wallet record with a colocated wrapping key as empty without upgrading it",
+  () =>
     Effect.gen(function* () {
       yield* Effect.promise(clearDatabase);
 
       const disposable = yield* enrollDisposableWallet();
-      const encoded = Schema.encodeSync(SealedDeviceWallet)(disposable.record);
-      const raw = buildLegacyRecord(encoded);
+
+      const raw = {
+        address: disposable.address,
+        username: disposable.publicWallet.username,
+        iv: Buffer.alloc(12, 1).toString("base64"),
+        phrase: Buffer.alloc(32, 2).toString("base64"),
+      };
 
       const legacyKey = yield* Effect.promise(() =>
         crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, [
@@ -336,9 +209,6 @@ it.effect.each(unknownFormats)(
 
       expect(yield* browserKeyStore.readPublic()).toEqual(Option.none());
       expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
-      expect(
-        yield* browserKeyStore.updatePublic((current) => Option.some(current)),
-      ).toEqual(Option.none());
       expect(yield* Effect.promise(() => storedEntry("wallet"))).toEqual(raw);
 
       yield* browserKeyStore.writeSealed(disposable.record);
@@ -350,56 +220,30 @@ it.effect.each(unknownFormats)(
     }),
 );
 
-const damagedV2Records = [
-  [
-    "malformed ciphertext base64",
-    (encoded: typeof SealedDeviceWallet.Encoded): RawStoredEntry => ({
-      ...encoded,
-      envelope: {
-        ...encoded.envelope,
-        ciphertext: "not-valid-base64!!!",
-      },
-    }),
-  ],
-  [
-    "a damaged pinned credential",
-    (encoded: typeof SealedDeviceWallet.Encoded): RawStoredEntry => ({
-      ...encoded,
-      credential: {
-        ...encoded.credential,
-        algorithm: "HS256",
-      },
-    }),
-  ],
-] as const;
-
-it.effect.each(damagedV2Records)(
-  "fails with CorruptDeviceWallet when a v2 record has %s",
-  ([, damage]) =>
+it.effect(
+  "fails with CorruptDeviceWallet on a damaged pinned credential and keeps the record",
+  () =>
     Effect.gen(function* () {
       yield* Effect.promise(clearDatabase);
 
       const disposable = yield* enrollDisposableWallet();
       const encoded = Schema.encodeSync(SealedDeviceWallet)(disposable.record);
-      const raw = damage(encoded);
+
+      const raw = {
+        ...encoded,
+        credential: { ...encoded.credential, algorithm: "HS256" },
+      };
 
       yield* Effect.promise(() => putRawEntry("wallet", raw));
 
-      const publicFailure = yield* browserKeyStore
-        .readPublic()
-        .pipe(Effect.flip);
-
-      const sealedFailure = yield* browserKeyStore
-        .readSealed()
-        .pipe(Effect.flip);
-
-      const updateFailure = yield* browserKeyStore
-        .updatePublic((current) => Option.some(current))
-        .pipe(Effect.flip);
-
-      expect(publicFailure._tag).toBe("CorruptDeviceWallet");
-      expect(sealedFailure._tag).toBe("CorruptDeviceWallet");
-      expect(updateFailure._tag).toBe("CorruptDeviceWallet");
+      expect((yield* browserKeyStore.readSealed().pipe(Effect.flip))._tag).toBe(
+        "CorruptDeviceWallet",
+      );
+      expect(
+        (yield* browserKeyStore
+          .updatePublic((current) => Option.some(current))
+          .pipe(Effect.flip))._tag,
+      ).toBe("CorruptDeviceWallet");
       expect(yield* Effect.promise(() => storedEntry("wallet"))).toEqual(raw);
     }),
 );

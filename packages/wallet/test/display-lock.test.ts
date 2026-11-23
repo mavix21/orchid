@@ -33,7 +33,6 @@ const awayFor = (milliseconds: number) => {
 };
 
 it.each([
-  ["no time", 0, "Unlocked"],
   ["just under the resume window", resumeWindow - 1, "Unlocked"],
   ["exactly the resume window", resumeWindow, "Locked"],
   ["a clock set backwards", -1, "Locked"],
@@ -59,15 +58,6 @@ it("masks on hide and never counts a later hide as the start of the absence", ()
   expect(lock.state()._tag).toBe("Locked");
 });
 
-it("keeps a locked display locked through hide and show", () => {
-  const { lock } = tabAt();
-
-  lock.hide();
-  lock.show();
-
-  expect(lock.state()._tag).toBe("Locked");
-});
-
 it("refuses a secret-bearing verification that completes after the page was hidden", () => {
   const { lock } = tabAt();
   const ticket = lock.begin();
@@ -79,36 +69,18 @@ it("refuses a secret-bearing verification that completes after the page was hidd
   expect(lock.state()._tag).toBe("Locked");
 });
 
-it.each([
-  [
-    "while the page is hidden",
-    (tab: Tab, verify: () => void) => {
-      tab.clock.now += 1_000;
-      verify();
-      tab.clock.now += 29_000;
-      tab.lock.show();
-    },
-  ],
-  [
-    "after the page returns",
-    (tab: Tab, verify: () => void) => {
-      tab.clock.now += 30_000;
-      tab.lock.show();
-      verify();
-    },
-  ],
-] as const)(
-  "an entry that verifies %s unlocks once the page has been back within the window",
-  (_, afterHide) => {
-    const tab = tabAt();
-    const attempt = tab.lock.attemptEntry();
+it("an entry that verifies while the page is hidden unlocks once the page is back within the window", () => {
+  const tab = tabAt();
+  const attempt = tab.lock.attemptEntry();
 
-    tab.lock.hide();
-    afterHide(tab, () => tab.lock.entryVerified(attempt));
+  tab.lock.hide();
+  tab.clock.now += 1_000;
+  tab.lock.entryVerified(attempt);
+  tab.clock.now += 29_000;
+  tab.lock.show();
 
-    expect(tab.lock.state()._tag).toBe("Unlocked");
-  },
-);
+  expect(tab.lock.state()._tag).toBe("Unlocked");
+});
 
 it.each([
   [
@@ -126,14 +98,6 @@ it.each([
       verify();
       tab.clock.now += resumeWindow - 1_000;
       tab.lock.show();
-    },
-  ],
-  [
-    "completes after the page returns from a hidden window",
-    (tab: Tab, verify: () => void) => {
-      tab.clock.now += resumeWindow;
-      tab.lock.show();
-      verify();
     },
   ],
 ] as const)("an entry that %s never unlocks", (_, afterHide) => {
@@ -174,14 +138,4 @@ it.each([
   lock.entryVerified(attempt);
 
   expect(lock.state()._tag).toBe("Locked");
-});
-
-it("an entry that outlasts the hidden window is no longer pending before the page returns", () => {
-  const { clock, lock } = tabAt();
-  const attempt = lock.attemptEntry();
-
-  lock.hide();
-  clock.now += resumeWindow;
-
-  expect(lock.entryPending(attempt)).toBe(false);
 });

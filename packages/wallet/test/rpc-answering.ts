@@ -60,7 +60,7 @@ const bodyText = (req: HttpClientRequest.HttpClientRequest) =>
 export const rpcMethod = (req: HttpClientRequest.HttpClientRequest) =>
   Schema.decodeSync(MethodReq)(bodyText(req)).method;
 
-export const ledgerKeys = (req: HttpClientRequest.HttpClientRequest) =>
+const ledgerKeys = (req: HttpClientRequest.HttpClientRequest) =>
   Schema.decodeSync(KeysReq)(bodyText(req)).params.keys;
 
 export const submittedTransaction = (

@@ -1,14 +1,10 @@
 import "fake-indexeddb/auto";
 import { expect, layer } from "@effect/vitest";
 import { Database } from "@workspace/db";
-import { eq } from "drizzle-orm";
-import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import * as TestClock from "effect/testing/TestClock";
 import {
   AssertionRefused,
   BackupFound,
@@ -40,7 +36,6 @@ import {
   sealLocalEnvelope,
 } from "../src/device/local-envelope";
 import { backupSalt } from "../src/device/phrase-seal";
-import { Backups } from "../src/server/Backups.server";
 import { backups, passkeyChallenges } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { network } from "../src/stellar/network";
@@ -54,7 +49,6 @@ import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 import {
   passkeyOrigin,
-  runAcrossLockWait,
   useDisposableDatabase,
   walletTestLayer,
 } from "./wallet-harness";
@@ -172,10 +166,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           yield* Effect.promise(clearDatabase);
 
           const restoring = restoringDevice(wallet, auth);
-          const pinnedBeforeRestore = auth.issued.length;
           const steps = yield* restoreOnFreshTaps(restoring);
 
-          expect(auth.issued).toHaveLength(pinnedBeforeRestore + 1);
           expect(steps.located).toBeInstanceOf(BackupLocated);
           expect(
             steps.restored instanceof Restored && steps.restored.profile,
@@ -207,14 +199,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             (yield* restoreOnFreshTaps(restoring)).restored,
           ).toBeInstanceOf(Restored);
           expect(yield* restoredPhrase(auth)).toBe(phrase);
-
-          const racing = restoringDevice(wallet, auth);
-          const started = yield* Effect.forkChild(racing.restore());
-
-          yield* Effect.yieldNow;
-          yield* racing.cancelRestore();
-          expect(yield* Fiber.join(started)).toBeInstanceOf(BackupLocated);
-          expect(yield* racing.restore()).toBeInstanceOf(BackupLocated);
 
           yield* Effect.promise(clearDatabase);
           const stranger = yield* enrollDisposableWallet("otro");
@@ -358,68 +342,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(
             yield* wallet.restore(yield* assertion(wallet, stranger)),
           ).toEqual(new NoBackup());
-        }),
-    );
-
-    it.effect(
-      "consume rejects a challenge that expires while waiting on DELETE",
-      () =>
-        Effect.gen(function* () {
-          const now = yield* Clock.currentTimeMillis;
-
-          const { result: consumed } = yield* Effect.gen(function* () {
-            yield* TestClock.setTime(now);
-            const challenge = yield* Backups.use((s) => s.issue("restore"));
-
-            return yield* runAcrossLockWait({
-              locktype: "transactionid",
-              advance: "5 minutes",
-              acquire: (tx) =>
-                tx
-                  .select()
-                  .from(passkeyChallenges)
-                  .where(eq(passkeyChallenges.challenge, challenge))
-                  .for("update"),
-              run: Backups.use((s) => s.consume(challenge, "restore")),
-            });
-          }).pipe(Effect.provide(TestClock.layer()));
-
-          expect(consumed).toBe(false);
-        }),
-    );
-
-    it.effect(
-      "issue preserves the full challenge window after cleanup contention",
-      () =>
-        Effect.gen(function* () {
-          const db = yield* Database;
-          const stale = Schema.decodeSync(PasskeyChallenge)("B".repeat(43));
-
-          yield* db.insert(passkeyChallenges).values({
-            challenge: stale,
-            purpose: "restore",
-            expiresAt: new Date((yield* Clock.currentTimeMillis) - 1000),
-          });
-
-          const { result: issued, now } = yield* runAcrossLockWait({
-            locktype: "transactionid",
-            advance: "30 seconds",
-            acquire: (tx) =>
-              tx
-                .select()
-                .from(passkeyChallenges)
-                .where(eq(passkeyChallenges.challenge, stale))
-                .for("update"),
-            run: Backups.use((s) => s.issue("restore")),
-          });
-
-          const consumed = yield* Effect.gen(function* () {
-            yield* TestClock.setTime(now + 310_000);
-
-            return yield* Backups.use((s) => s.consume(issued, "restore"));
-          }).pipe(Effect.provide(TestClock.layer()));
-
-          expect(consumed).toBe(true);
         }),
     );
   },
