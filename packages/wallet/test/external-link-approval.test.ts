@@ -29,6 +29,7 @@ import {
   ExternalLinkIntent,
   makeWalletEffects,
 } from "../src/device/client";
+import { signingPayload } from "../src/stellar/envelopes";
 import {
   type LinkReceiveInput,
   draftLinkReceive,
@@ -105,7 +106,10 @@ const tamperedExternalDrafts: ReadonlyArray<
   readonly [
     string,
     (at: number) => UnsignedEnvelope,
-    { readonly memoRequired?: boolean },
+    {
+      readonly memoRequired?: boolean;
+      readonly intentMemo?: PaymentMemo | undefined;
+    },
   ]
 > = [
   [
@@ -117,6 +121,11 @@ const tamperedExternalDrafts: ReadonlyArray<
     "dropping the requested memo",
     (at) => externalDraft({ memo: undefined }, at),
     {},
+  ],
+  [
+    "claiming memoRequired without a memo",
+    (at) => externalDraft({ memo: undefined }, at),
+    { memoRequired: true, intentMemo: undefined },
   ],
   [
     "coercing a text memo into MEMO_ID",
@@ -210,7 +219,7 @@ it.live.each(tamperedExternalDrafts)(
         link.secret(),
         new ExternalLinkIntent({
           destination: actors.stranger,
-          memo: textMemo,
+          memo: "intentMemo" in options ? options.intentMemo : textMemo,
         }),
       );
 
@@ -223,7 +232,7 @@ it.live(
   "external link claim signs with the link key without any wallet on device and round-trips explicit MEMO_ID",
   () =>
     Effect.gen(function* () {
-      const submitted: Array<Approval> = [];
+      let submitted = Option.none<Approval>();
 
       const port = unusedPort({
         paymentLink: () =>
@@ -238,7 +247,7 @@ it.live(
         claimPaymentLink: (order, approval) =>
           Effect.sync(() => {
             if (Option.isSome(approval)) {
-              submitted.push(approval.value);
+              submitted = approval;
 
               return new ExternalLinkSettled({
                 id: order.id,
@@ -282,7 +291,12 @@ it.live(
       );
 
       assertTagged(settled, "ExternalLinkSettled");
-      expect(submitted).toHaveLength(1);
+      expect(
+        link.verify(
+          signingPayload(reviewed.draft.request.envelope),
+          Option.getOrThrow(submitted).signature,
+        ),
+      ).toBe(true);
     }),
 );
 

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -102,18 +102,23 @@ export function ExternalClaimFlow({
   const sent = amountLabel(open.amount, open.asset);
   const muxed = isMuxedDestination(form.destination);
 
+  useEffect(() => {
+    if (!Predicate.isTagged(step, "Form") || Option.isNone(step.problem))
+      return;
+
+    if (step.problem.value.field === "destination")
+      destinationRef.current?.focus();
+    else memoRef.current?.focus();
+  }, [step]);
+
   const applyResult = (result: ExternalClaimResult) =>
     setStep(
       Match.valueTags(result, {
-        Field: ({ problem }) => {
-          if (problem.field === "destination") destinationRef.current?.focus();
-          else memoRef.current?.focus();
-
-          return ExternalStep.Form({
+        Field: ({ problem }) =>
+          ExternalStep.Form({
             problem: Option.some(problem),
             lookupError: Option.none(),
-          });
-        },
+          }),
         RetryLookup: ({ message }) =>
           ExternalStep.Form({
             problem: Option.none(),
@@ -229,7 +234,7 @@ export function ExternalClaimFlow({
                   autoComplete="off"
                   autoCapitalize="none"
                   spellCheck={false}
-                  autoFocus
+                  autoFocus={Option.isNone(memoProblem)}
                   aria-invalid={Option.isSome(destinationProblem) || undefined}
                   aria-describedby={
                     Option.isSome(destinationProblem)

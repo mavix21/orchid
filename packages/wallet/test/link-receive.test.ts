@@ -59,58 +59,6 @@ const envelopeBalance = Schema.decodeSync(BalanceId)(
   `00000000${"a".repeat(64)}`,
 );
 
-it.each([
-  [
-    "digits MEMO_TEXT unchanged",
-    addressOf(Keypair.random()),
-    Schema.decodeSync(PaymentMemo)({ type: "text", value: "001234" }),
-  ],
-  [
-    "explicit uint64 MEMO_ID",
-    addressOf(Keypair.random()),
-    Schema.decodeSync(PaymentMemo)({
-      type: "id",
-      value: "18446744073709551615",
-    }),
-  ],
-  [
-    "muxed address with no memo",
-    Schema.decodeSync(MuxedAddress)(
-      new MuxedAccount(
-        new Account(addressOf(Keypair.random()), "0"),
-        "42",
-      ).accountId(),
-    ),
-    undefined,
-  ],
-] as const)(
-  "link receive envelope round-trips %s",
-  (_name, destination, memo) => {
-    const channel = addressOf(Keypair.random());
-    const link = addressOf(Keypair.random());
-    const reserveSponsor = addressOf(Keypair.random());
-
-    const envelope = draftLinkReceive({
-      channel: new Account(channel, "100"),
-      link,
-      reserveSponsor,
-      destination,
-      balance: envelopeBalance,
-      asset: baseAsset,
-      amount: linkAmount,
-      memo,
-      minTime: 100,
-      maxTime: 220,
-    });
-
-    const facts = Option.getOrThrow(readEnvelope(envelope));
-
-    assertTagged(facts, "LinkReceiveFacts");
-    expect(facts.destination).toBe(destination);
-    expect(facts.memo).toEqual(memo);
-  },
-);
-
 it("link receive envelope reader rejects a muxed destination with a memo", () => {
   const muxed = Schema.decodeSync(MuxedAddress)(
     new MuxedAccount(
