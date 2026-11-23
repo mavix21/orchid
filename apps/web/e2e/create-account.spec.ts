@@ -10,8 +10,9 @@ import {
   usernameInput,
 } from "./device";
 
-const forgetDevice = (page: Page) =>
-  page.evaluate(
+const forgetDevice = async (page: Page) => {
+  await page.context().clearCookies();
+  await page.evaluate(
     () =>
       new Promise<void>((resolve, reject) => {
         const request = indexedDB.deleteDatabase("orchid-device");
@@ -20,6 +21,7 @@ const forgetDevice = (page: Page) =>
         request.addEventListener("error", () => reject(request.error));
       }),
   );
+};
 
 test("redirects on the server by whether the device holds a wallet", async ({
   request,

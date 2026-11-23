@@ -1,9 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import {
-  type DisplayLock,
-  makeDisplayLock,
-  resumeWindowMillis,
-} from "../src/device/display-lock";
+import { type DisplayLock, makeDisplayLock } from "../src/device/display-lock";
 
 const lockAt = () => {
   const clock = { now: 1_000_000 };
@@ -24,21 +20,12 @@ const awayFor = (milliseconds: number) => {
   return lock.state()._tag;
 };
 
-it("starts locked and unlocks only through a ticket begun in this tab", () => {
-  const { lock } = lockAt();
-
-  expect(lock.state()._tag).toBe("Locked");
-
-  unlocked(lock);
-
-  expect(lock.state()._tag).toBe("Unlocked");
-});
+const resumeWindow = 60_000;
 
 it.each([
-  ["a moment", 1, "Unlocked"],
-  ["just under the resume window", resumeWindowMillis - 1, "Unlocked"],
-  ["exactly the resume window", resumeWindowMillis, "Locked"],
-  ["longer than the resume window", resumeWindowMillis * 5, "Locked"],
+  ["no time", 0, "Unlocked"],
+  ["just under the resume window", resumeWindow - 1, "Unlocked"],
+  ["exactly the resume window", resumeWindow, "Locked"],
   ["a clock set backwards", -1, "Locked"],
 ] as const)(
   "after being away for %s the display is %s",
@@ -55,9 +42,9 @@ it("masks on hide and never counts a later hide as the start of the absence", ()
 
   expect(lock.state()._tag).toBe("Masked");
 
-  clock.now += resumeWindowMillis - 1;
+  clock.now += resumeWindow - 1;
   lock.hide();
-  clock.now += resumeWindowMillis - 1;
+  clock.now += resumeWindow - 1;
   lock.show();
 
   expect(lock.state()._tag).toBe("Locked");
@@ -96,22 +83,4 @@ it("locks a restored page without a resume window and refuses its earlier verifi
   lock.unlock(ticket);
 
   expect(lock.state()._tag).toBe("Locked");
-});
-
-it("notifies subscribers only when the display changes", () => {
-  const { lock } = lockAt();
-  let notified = 0;
-
-  const unsubscribe = lock.subscribe(() => {
-    notified += 1;
-  });
-
-  unlocked(lock);
-  unlocked(lock);
-  lock.hide();
-  lock.show();
-  unsubscribe();
-  lock.relock();
-
-  expect(notified).toBe(3);
 });

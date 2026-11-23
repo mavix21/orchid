@@ -18,6 +18,7 @@ import { BalanceHeader } from "@/components/balance-header";
 import { HomeSkeleton } from "@/components/home-skeleton";
 import { Screen } from "@/components/screen";
 import { recentActivity } from "@/fixtures/activity";
+import { whenUnlocked } from "@/wallet/display-lock";
 import { shownOverview } from "@/wallet/shown-overview";
 import {
   retryable,
@@ -30,6 +31,8 @@ export const Route = createFileRoute("/_wallet/_app/home")({
   pendingMs: 0,
   pendingComponent: HomeSkeleton,
   loader: async ({ context }) => {
+    await whenUnlocked();
+
     const [overview, saved] = await Promise.all([
       context.walletClient.overview(),
       context.walletClient.saved(),
