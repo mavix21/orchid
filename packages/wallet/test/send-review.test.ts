@@ -252,20 +252,32 @@ it.live(
     }),
 );
 
-it.live("refuses a review whose draft is not the one it shows", () =>
-  Effect.gen(function* () {
-    const { approvals, callsAtPrompt, client } = yield* confirmingDevice(() =>
-      Effect.succeed(pedroDraft()),
-    );
+it.live.each([
+  ["a claimable", () => pedroClaimable()],
+  [
+    "a payment with the same facts and another sequence",
+    () =>
+      transferDraftOf(
+        actors.payment({ to: actors.pedro, amount, sequence: "200" }),
+        actors.pedroProfile,
+      ),
+  ],
+] as const)(
+  "refuses a review whose draft was swapped for %s",
+  ([, swappedDraft]) =>
+    Effect.gen(function* () {
+      const { approvals, callsAtPrompt, client } = yield* confirmingDevice(() =>
+        Effect.succeed(pedroDraft()),
+      );
 
-    const review = yield* reviewed(client, toPedro);
+      const review = yield* reviewed(client, toPedro);
 
-    const swapped = new PaymentReview({ ...review, draft: pedroClaimable() });
+      const swapped = new PaymentReview({ ...review, draft: swappedDraft() });
 
-    expect((yield* client.confirm(swapped))._tag).toBe("DraftRejected");
-    expect(approvals.filter(Option.isSome)).toHaveLength(0);
-    expect(callsAtPrompt).toEqual([]);
-  }),
+      expect((yield* client.confirm(swapped))._tag).toBe("DraftRejected");
+      expect(approvals.filter(Option.isSome)).toHaveLength(0);
+      expect(callsAtPrompt).toEqual([]);
+    }),
 );
 
 it.live(
@@ -346,6 +358,8 @@ it.effect(
   "follows an approved order past many Pending answers until settled",
   () =>
     Effect.gen(function* () {
+      yield* TestClock.setTime(Date.now());
+
       const device = reviewingDevice((order, _a, call) =>
         Effect.succeed(
           call === 1
@@ -419,6 +433,8 @@ it.live(
 
 it.effect("stops following a payment still Pending after it expired", () =>
   Effect.gen(function* () {
+    yield* TestClock.setTime(Date.now());
+
     const device = reviewingDevice((order, _a, call) =>
       Effect.succeed(
         call === 1

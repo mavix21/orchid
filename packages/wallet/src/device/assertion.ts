@@ -1,6 +1,7 @@
 import { type AuthenticationJSON, server } from "@passwordless-id/webauthn";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
@@ -178,24 +179,47 @@ export const verifyPinnedAssertion = Effect.fn("Device.verifyPinnedAssertion")(
       }),
     });
 
-    if (platform.assertion.id !== credential.id) return new WrongCredential();
+    const outcome = Effect.gen(function* () {
+      if (platform.assertion.id !== credential.id) return new WrongCredential();
 
-    const verified = yield* verifySignedAssertion(
-      credential,
-      relyingParty,
-      challenge,
-      platform.assertion,
-    ).pipe(Effect.option);
+      const verified = yield* verifySignedAssertion(
+        credential,
+        relyingParty,
+        challenge,
+        platform.assertion,
+      ).pipe(Effect.option);
 
-    if (Option.isNone(verified)) return new AssertionRejected();
+      if (Option.isNone(verified)) return new AssertionRejected();
 
-    return AssertionIntent.$match(intent, {
-      Entry: () => new EntryVerified(),
-      Operation: ({ purpose, prf }) =>
-        Option.match(releasedOutputs(prf, platform.prf), {
-          onNone: () => new PrfOutputMissing(),
-          onSome: (outputs) => new OperationVerified({ purpose, prf: outputs }),
-        }),
+      return AssertionIntent.$match(intent, {
+        Entry: () => new EntryVerified(),
+        Operation: ({ purpose, prf }) =>
+          Option.match(releasedOutputs(prf, platform.prf), {
+            onNone: () => new PrfOutputMissing(),
+            onSome: (outputs) =>
+              new OperationVerified({ purpose, prf: outputs }),
+          }),
+      });
     });
+
+    return yield* outcome.pipe(
+      Effect.onExit((exit) =>
+        Effect.sync(() => {
+          const handedOver =
+            Exit.isSuccess(exit) && exit.value instanceof OperationVerified
+              ? [
+                  Redacted.value(exit.value.prf.first),
+                  ...Option.toArray(
+                    Option.map(exit.value.prf.second, Redacted.value),
+                  ),
+                ]
+              : [];
+
+          for (const output of [platform.prf.first, platform.prf.second])
+            if (Option.isSome(output) && !handedOver.includes(output.value))
+              output.value.fill(0);
+        }),
+      ),
+    );
   },
 );

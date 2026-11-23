@@ -18,7 +18,26 @@ import {
 
 const reviewJson = Schema.encodeSync(Schema.fromJsonString(PaymentReview));
 
-type ReviewStanding = "current" | "expiring" | "stale";
+type DraftTiming = "current" | "expiring" | "stale";
+
+export const sameReview = (left: PaymentReview, right: PaymentReview) =>
+  reviewJson(left) === reviewJson(right);
+
+export const draftTiming = (
+  maxTime: number,
+  draft: TransferDraft,
+  nowMillis: number,
+): DraftTiming => {
+  if (maxTime > Math.floor(nowMillis / 1000) + paymentLifetime + clockAllowance)
+    return "stale";
+
+  const deadline = Math.min(
+    maxTime * 1000,
+    DateTime.toEpochMillis(draft.request.expiresAt),
+  );
+
+  return deadline - nowMillis >= approvalMargin * 1000 ? "current" : "expiring";
+};
 
 const reviewFrom = (
   order: TransferOrder,
@@ -60,29 +79,22 @@ const standingOf = (
   wallet: PublicDeviceWallet,
   shown: PaymentReview,
   nowMillis: number,
-): ReviewStanding => {
+): DraftTiming => {
   const order = wallet.transfer;
 
   if (order === undefined || orderJson(order) !== orderJson(shown.order))
     return "stale";
 
   const derived = reviewOf(wallet, order, shown.draft, shown.redrafted);
-  const now = Math.floor(nowMillis / 1000);
 
   if (
     Option.isNone(derived) ||
-    reviewJson(derived.value.review) !== reviewJson(shown) ||
-    approvalOutstanding(wallet, now) ||
-    derived.value.facts.maxTime > now + paymentLifetime + clockAllowance
+    !sameReview(derived.value.review, shown) ||
+    approvalOutstanding(wallet, Math.floor(nowMillis / 1000))
   )
     return "stale";
 
-  const deadline = Math.min(
-    derived.value.facts.maxTime * 1000,
-    DateTime.toEpochMillis(shown.draft.request.expiresAt),
-  );
-
-  return deadline - nowMillis >= approvalMargin * 1000 ? "current" : "expiring";
+  return draftTiming(derived.value.facts.maxTime, shown.draft, nowMillis);
 };
 
 export const standingNow = (wallet: PublicDeviceWallet, shown: PaymentReview) =>

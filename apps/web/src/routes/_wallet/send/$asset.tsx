@@ -79,13 +79,12 @@ function SendAsset() {
               available={balance.amount}
               transfer={Option.fromNullishOr(transfer)}
               nav={nav}
-              onTransfer={(id) => {
-                if (Option.getOrUndefined(id) !== transfer)
-                  void navigate({
-                    search: { transfer: Option.getOrUndefined(id) },
-                    replace: true,
-                  });
-              }}
+              onTransfer={(id) =>
+                void navigate({
+                  search: { transfer: Option.getOrUndefined(id) },
+                  replace: true,
+                })
+              }
             />
           ) : (
             nav(false)

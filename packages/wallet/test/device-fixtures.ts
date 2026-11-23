@@ -171,13 +171,17 @@ export const sendActors = () => {
       readonly amount: PositiveAmount;
       readonly asset?: Asset;
       readonly memo?: PaymentMemo;
+      readonly sequence?: string;
       readonly lifetime?: number;
       readonly at?: number;
     }) => {
       const at = opts.at ?? nowSeconds();
 
       return draftPayment({
-        source: new Account(opts.source ?? wallet.address, "100"),
+        source: new Account(
+          opts.source ?? wallet.address,
+          opts.sequence ?? "100",
+        ),
         to: opts.to,
         asset: opts.asset ?? baseAsset,
         amount: opts.amount,

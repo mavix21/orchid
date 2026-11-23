@@ -161,20 +161,38 @@ it.effect(
     }),
 );
 
-it.effect.each(rejectedCeremonies)("rejects %s", ([, tamper]) =>
-  Effect.gen(function* () {
-    const { auth, credential } = yield* enrolled;
-    const ceremony = yield* tamper(auth, credential);
+it.effect.each(rejectedCeremonies)(
+  "rejects %s and wipes any PRF output it returned",
+  ([, tamper]) =>
+    Effect.gen(function* () {
+      const { auth, credential } = yield* enrolled;
+      const ceremony = yield* tamper(auth, credential);
+      const returned: Array<Uint8Array> = [];
 
-    const outcome = yield* verifyPinnedAssertion(
-      ceremony,
-      relyingParty,
-      credential,
-      AssertionIntent.Entry(),
-    );
+      const capturing: AssertionCeremony = {
+        assert: (request) =>
+          ceremony.assert(request).pipe(
+            Effect.tap((platform) =>
+              Effect.sync(() => {
+                returned.push(
+                  ...Option.toArray(platform.prf.first),
+                  ...Option.toArray(platform.prf.second),
+                );
+              }),
+            ),
+          ),
+      };
 
-    expect(outcome._tag).toBe("AssertionRejected");
-  }),
+      const outcome = yield* verifyPinnedAssertion(
+        capturing,
+        relyingParty,
+        credential,
+        approval("wallet"),
+      );
+
+      expect(outcome._tag).toBe("AssertionRejected");
+      expect(returned.filter((output) => output.some(Boolean))).toEqual([]);
+    }),
 );
 
 it.effect(
