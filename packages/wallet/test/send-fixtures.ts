@@ -95,7 +95,7 @@ interface Drafting {
 }
 
 const draftingPort = (
-  envelope: (at: number) => UnsignedEnvelope,
+  envelope: (at: number, order: TransferOrder) => UnsignedEnvelope,
   options: Drafting,
 ) => {
   const approvals: Array<Option.Option<Approval>> = [];
@@ -113,7 +113,7 @@ const draftingPort = (
           options.answer?.(approval) ?? Option.none(),
           () =>
             transferDraftOf(
-              envelope(at),
+              envelope(at, order),
               recipientOf(order),
               options.lifetime ?? 120,
               at,
@@ -126,7 +126,7 @@ const draftingPort = (
 };
 
 export const memoryDrafting = (
-  envelope: (at: number) => UnsignedEnvelope,
+  envelope: (at: number, order: TransferOrder) => UnsignedEnvelope,
   options: Drafting & { readonly initial?: DeviceWallet } = {},
 ) => {
   const { approvals, orderIds, port } = draftingPort(envelope, options);
@@ -141,7 +141,7 @@ export const memoryDrafting = (
 };
 
 export const sealedDrafting = Effect.fn(function* (
-  envelope: (at: number) => UnsignedEnvelope,
+  envelope: (at: number, order: TransferOrder) => UnsignedEnvelope,
   options: Drafting & {
     readonly initial?: DeviceWallet;
     readonly beforeFirstCommit?: Effect.Effect<void>;

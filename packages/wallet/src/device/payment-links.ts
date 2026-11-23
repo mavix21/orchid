@@ -65,8 +65,6 @@ export function devicePaymentLinks(
     const address = Schema.decodeSync(AccountAddress)(generated.publicKey());
     const secret = Schema.decodeSync(LinkSecret)(generated.secret());
 
-    yield* Ref.set(held, Option.some({ address, secret }));
-
     const reviewed = yield* transfers.reviewLinkFunding(
       new TransferIntent({
         to: PaymentLinkRecipient.make({ value: address }),
@@ -75,9 +73,12 @@ export function devicePaymentLinks(
       }),
     );
 
-    return Predicate.isTagged(reviewed, "Settled")
-      ? new DraftRejected()
-      : reviewed;
+    if (Predicate.isTagged(reviewed, "Settled")) return new DraftRejected();
+
+    if (Predicate.isTagged(reviewed, "PaymentReview"))
+      yield* Ref.set(held, Option.some({ address, secret }));
+
+    return reviewed;
   });
 
   const confirm = Effect.fn("Device.confirmPaymentLink")(function* (

@@ -231,6 +231,36 @@ export const createLinkResult = (
     InvalidResponse: (failure) => unavailable(failure, checkFirst),
   });
 
+const unprepared = new LinkScreen(
+  "No pudimos preparar tu link",
+  `Inténtalo de nuevo. ${untouched}`,
+  "again",
+);
+
+const interrupted = (failure: WalletUnavailable) =>
+  new LinkScreen(
+    "Algo se interrumpió",
+    `${unavailableMessage(failure)} ${untouched}`,
+    "again",
+  );
+
+export const preparedLinkResult = (
+  outcome: CreateRefusal,
+  asset: Asset,
+): LinkScreen<CreateAction> =>
+  Match.value(outcome).pipe(
+    Match.tags({
+      DeviceFailure: () => unprepared,
+      DraftRejected: () => unprepared,
+      Offline: interrupted,
+      ServerUnreachable: interrupted,
+      LedgerUnreachable: interrupted,
+      ServiceFailed: interrupted,
+      InvalidResponse: interrupted,
+    }),
+    Match.orElse((refusal) => createLinkResult(refusal, asset)),
+  );
+
 export type CheckRefusal =
   | Exclude<ResolvePaymentLinkOutcome, ResolvedPaymentLink>
   | DeviceFailure;

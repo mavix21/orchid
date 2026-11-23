@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import {
@@ -12,8 +13,14 @@ import {
   Pending,
   TransferId,
   TransferOrder,
+  baseAsset,
 } from "../src/contract";
-import { TransferIntent, makeWalletEffects } from "../src/device/client";
+import {
+  PaymentLinkIntent,
+  TransferIntent,
+  type WalletEffects,
+  makeWalletEffects,
+} from "../src/device/client";
 import { DeviceWallet, PublicDeviceWallet } from "../src/device/key-store";
 import {
   memoryKeyStore,
@@ -26,6 +33,7 @@ import { sealedKeyStore } from "./sealed-wallet-fixtures";
 import { assertTagged } from "./tagged";
 import {
   actors,
+  amount,
   memoryDrafting,
   otherAmount,
   passkeys,
@@ -161,19 +169,47 @@ it.effect(
     }),
 );
 
-it.live(
-  "an interrupt arriving while the reservation commits releases nothing and withdraws it",
-  () =>
+const linkIntent = new PaymentLinkIntent({ asset: baseAsset, amount });
+
+it.live.each([
+  {
+    name: "a transfer",
+    confirmation: (client: WalletEffects) =>
+      reviewed(client, toExchange).pipe(Effect.flatMap(client.confirm)),
+  },
+  {
+    name: "a payment link",
+    confirmation: (client: WalletEffects) =>
+      client
+        .reviewPaymentLink(linkIntent)
+        .pipe(
+          Effect.flatMap((review) =>
+            Predicate.isTagged(review, "PaymentReview")
+              ? client.confirmPaymentLink(review)
+              : Effect.succeed(review),
+          ),
+        ),
+  },
+])(
+  "an interrupt arriving while the reservation for $name commits releases nothing and withdraws it",
+  ({ confirmation }) =>
     Effect.gen(function* () {
       const committing = yield* Latch.make();
       const proceed = yield* Latch.make();
 
-      const { approvals, client } = yield* sealedWith(() => payment(), {
-        beforeFirstCommit: committing.open.pipe(Effect.andThen(proceed.await)),
-      });
+      const { approvals, client } = yield* sealedWith(
+        (at, order) =>
+          Predicate.isTagged(order.to, "PaymentLink")
+            ? actors.paymentLink({ to: order.to.value, amount, at })
+            : payment(),
+        {
+          beforeFirstCommit: committing.open.pipe(
+            Effect.andThen(proceed.await),
+          ),
+        },
+      );
 
-      const review = yield* reviewed(client, toExchange);
-      const confirming = yield* Effect.forkChild(client.confirm(review));
+      const confirming = yield* Effect.forkChild(confirmation(client));
 
       yield* committing.await;
 
@@ -182,10 +218,11 @@ it.live(
       yield* proceed.open;
       yield* Fiber.join(interrupting);
 
+      const withdrawn = Option.getOrThrow(yield* sealedKeyStore.readPublic());
+
       expect(approvals.filter(Option.isSome)).toHaveLength(0);
-      expect(
-        Option.getOrThrow(yield* sealedKeyStore.readPublic()).approvedUntil,
-      ).toBeUndefined();
+      expect(withdrawn.approvedUntil).toBeUndefined();
+      expect(withdrawn.linkReceipt).toBeUndefined();
     }),
 );
 

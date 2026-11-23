@@ -30,6 +30,7 @@ export type LinkStep = Data.TaggedEnum<{
   };
   Refused: {
     readonly intent: PaymentLinkIntent;
+    readonly confirmed: boolean;
     readonly outcome: CreateRefusal;
   };
   Created: { readonly link: PaymentLinkCreated; readonly delivery: Delivery };
