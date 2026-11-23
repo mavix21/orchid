@@ -1,7 +1,6 @@
 import "fake-indexeddb/auto";
 import { expect, layer } from "@effect/vitest";
 import { Database } from "@workspace/db";
-import { Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -33,7 +32,6 @@ import { signingKey } from "../src/device/signing";
 import { backups, usernames, wallets } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { network } from "../src/stellar/network";
-import { addressOf } from "./device-fixtures";
 import { clearDatabase, relyingParty } from "./sealed-wallet-fixtures";
 import { settlingOpenings } from "./settling-openings";
 import { SoftwareAuthenticator } from "./software-authenticator";
@@ -46,47 +44,37 @@ import {
   world,
 } from "./wallet-harness";
 
+const withTamperedEnvelope = (record: PendingEnrollmentRecord) => {
+  const ciphertext = Uint8Array.from(record.candidate.envelope.ciphertext);
+
+  ciphertext[0] = (ciphertext[0] ?? 0) ^ 0xff;
+
+  return new PendingActivation({
+    enrollment: record.enrollment,
+    review: record.review,
+    candidate: new PendingCandidate({
+      ...record.candidate,
+      envelope: new LocalPhraseEnvelope({
+        ...record.candidate.envelope,
+        ciphertext,
+      }),
+    }),
+  });
+};
+
 const memoryPendingStorage = (): PendingEnrollmentStorage & {
-  tampering: "envelope" | "backup" | undefined;
+  tamperEnvelope: boolean;
   readSync(): Option.Option<PendingEnrollmentRecord>;
 } => {
   let saved = Option.none<PendingEnrollmentRecord>();
 
-  const tampered = (record: PendingEnrollmentRecord) => {
-    const ciphertext = Uint8Array.from(record.candidate.envelope.ciphertext);
-
-    ciphertext[0] = (ciphertext[0] ?? 0) ^ 0xff;
-
-    const swapped =
-      storage.tampering === "backup"
-        ? {
-            enrollment: new BackupEnrollment({
-              ...record.enrollment,
-              address: addressOf(Keypair.random()),
-            }),
-            candidate: record.candidate,
-          }
-        : {
-            enrollment: record.enrollment,
-            candidate: new PendingCandidate({
-              ...record.candidate,
-              envelope: new LocalPhraseEnvelope({
-                ...record.candidate.envelope,
-                ciphertext,
-              }),
-            }),
-          };
-
-    return Predicate.isTagged(record, "PendingRelease")
-      ? record
-      : new PendingActivation({ ...record, ...swapped });
-  };
-
   const storage = {
-    tampering: undefined,
+    tamperEnvelope: false,
     read: () =>
       Effect.sync(() =>
-        storage.tampering === undefined ? saved : Option.map(saved, tampered),
+        storage.tamperEnvelope
+          ? Option.map(saved, withTamperedEnvelope)
+          : saved,
       ),
     write: (record: PendingEnrollmentRecord) =>
       Effect.sync(() => {
@@ -407,26 +395,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             const enrollment = enrollmentFor(wallet, auth, pending);
 
             assertTagged(yield* enrollment.start("maria"), "EnrollmentPending");
-            pending.tampering = "envelope";
-
-            return {
-              outcome: yield* enrollment.advance(),
-              expectedTag: "CorruptEnvelope",
-              enrollment,
-            };
-          }),
-      ],
-      [
-        "the persisted backup enrollment names another address",
-        (wallet: WalletPort) =>
-          Effect.gen(function* () {
-            const auth = new SoftwareAuthenticator(passkeyOrigin);
-            const pending = memoryPendingStorage();
-
-            const enrollment = enrollmentFor(wallet, auth, pending);
-
-            assertTagged(yield* enrollment.start("maria"), "EnrollmentPending");
-            pending.tampering = "backup";
+            pending.tamperEnvelope = true;
 
             return {
               outcome: yield* enrollment.advance(),

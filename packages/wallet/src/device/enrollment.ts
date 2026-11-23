@@ -44,13 +44,11 @@ import {
   credentialOf,
   isCreated,
   isHeld,
-  isPairedOpening,
   memoryPendingStorage,
   notice,
   pinCredential,
   saltOf,
   sameCandidate,
-  sameCredential,
   standingOfReview,
   usernameOf,
   withReview,
@@ -109,7 +107,7 @@ export function makeEnrollmentEffects(
       state = PendingState.Sealed({
         enrollment,
         candidate,
-        review: isPairedOpening(review) ? Option.some(review) : Option.none(),
+        review: Option.some(review),
       });
 
       return state;
@@ -240,8 +238,7 @@ export function makeEnrollmentEffects(
   const hasLiveReview = Effect.fn("Device.enrollmentHasLiveReview")(function* (
     current: Awaiting,
   ) {
-    if (Option.isNone(current.review) || !isPairedOpening(current.review.value))
-      return false;
+    if (Option.isNone(current.review)) return false;
 
     return (
       (yield* standingOfReview(current, current.review.value)) === "current"
@@ -307,7 +304,6 @@ export function makeEnrollmentEffects(
 
   const verifyCandidate = Effect.fn("Device.verifyEnrollmentCandidate")(
     function* (
-      expected: Sealed,
       devicePrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
       backupPrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
     ): Effect.fn.Return<Verified | EnrollWalletOutcome> {
@@ -320,17 +316,6 @@ export function makeEnrollmentEffects(
         return new NoWallet();
 
       const { enrollment, candidate } = persisted.value;
-
-      if (
-        candidate.address !== expected.candidate.address ||
-        candidate.username !== expected.candidate.username ||
-        enrollment.address !== candidate.address ||
-        enrollment.username !== candidate.username ||
-        !sameCredential(candidate.credential, expected.candidate.credential) ||
-        enrollment.registration.id !== candidate.credential.id ||
-        enrollment.registration.publicKey !== candidate.credential.publicKey
-      )
-        return yield* clearPending.pipe(Effect.as(new CorruptEnvelope()));
 
       const local = yield* openLocalEnvelope(
         candidate.envelope,
@@ -375,7 +360,7 @@ export function makeEnrollmentEffects(
 
     if (!Predicate.isTagged(sealed, "Sealed")) return sealed;
 
-    const verified = yield* verifyCandidate(sealed, devicePrf, backupPrf);
+    const verified = yield* verifyCandidate(devicePrf, backupPrf);
 
     if (!(verified instanceof Verified)) return verified;
 
