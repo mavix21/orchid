@@ -10,12 +10,8 @@ import {
   CredentialId,
   LinkSecret,
 } from "../contract";
-import {
-  aesGcmTagLength,
-  canonicalTuple,
-  envelopeIvLength,
-  sha256,
-} from "./local-envelope";
+import { canonicalTuple, sha256 } from "./canonical-digest";
+import { aesGcmTagLength, envelopeIvLength } from "./local-envelope";
 
 export const linkSealVersion = 1;
 

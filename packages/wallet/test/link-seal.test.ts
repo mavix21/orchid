@@ -12,7 +12,7 @@ import {
   openLinkSecret,
   sealLinkSecret,
 } from "../src/device/link-seal";
-import { canonicalTuple } from "../src/device/local-envelope";
+import { canonicalTuple } from "../src/device/canonical-digest";
 import { network } from "../src/stellar/network";
 import { addressOf } from "./device-fixtures";
 import { assertTagged } from "./tagged";
