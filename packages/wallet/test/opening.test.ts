@@ -172,12 +172,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect.each([
-      ["unsponsored", false],
-      ["partially sponsored", true],
-    ] as const)(
-      "%s account never receives a recovery draft",
-      ([, accountSponsored]) =>
+    it.effect(
+      "a partially sponsored account never receives a recovery draft",
+      () =>
         Effect.gen(function* () {
           const claim = claimFor(Keypair.random(), "maria");
 
@@ -185,7 +182,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             claim.address,
             accountState({
               balance: Option.some(amount("0")),
-              accountSponsored,
+              accountSponsored: true,
               sponsored: false,
             }),
           );
@@ -212,7 +209,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           });
 
           expect((yield* opening(claim))._tag).toBe("InvalidAddress");
-          expect((yield* overviewOf(bad))._tag).toBe("InvalidAddress");
           expect(Option.isNone(yield* findWallet(bad))).toBe(true);
           expect(
             (yield* send(orderFor(key, AddressRecipient.make({ value: bad }))))

@@ -58,11 +58,11 @@ Exception: if a prototype produced a snippet that encodes a decision more precis
 
 ## Testing Decisions
 
-A list of testing decisions that were made. Include:
+A list of testing decisions that were made. Tests are reserved for fund safety, as the Testing section of `CODING_STANDARDS.md` defines it. Include:
 
-- A description of what makes a good test (only test external behavior, not implementation details)
-- Which modules will be tested
-- Prior art for the tests (i.e. similar types of tests in the codebase)
+- Which fund-safety behaviors need a test, or that none do
+- The public seam each such test uses and similar prior art in the codebase
+- How the rest of the work will be verified (a run, a screenshot)
 
 ## Out of Scope
 

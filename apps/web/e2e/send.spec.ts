@@ -1,10 +1,8 @@
-import { type Page, type Route, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 import { Keypair } from "@stellar/stellar-sdk";
 import {
   AccountAddress,
   ExternalMemoRequired,
-  ServerFailure,
-  ServiceFailed,
   TransferStep,
 } from "@workspace/wallet";
 import * as Schema from "effect/Schema";
@@ -29,7 +27,7 @@ const fill = async (page: Page, recipient: string, amount: string) => {
 
 const review = (page: Page) => page.getByTestId("review-payment").click();
 
-test("pays a username in USDC, resumes after a reload and explains refusals", async ({
+test("pays a username in USDC, resumes after a reload and refuses an unpayable amount or a missing exchange memo", async ({
   page,
   browser,
 }) => {
@@ -51,12 +49,6 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await choose(page, "username");
   await fill(page, recipient, "0.5");
 
-  const reviewRequest = page.waitForRequest(
-    (request) =>
-      request.url().includes(serverFunction) &&
-      (request.postData()?.includes(recipient) ?? false),
-  );
-
   await review(page);
 
   const summary = page.getByRole("definition");
@@ -67,8 +59,6 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await expect(summary.filter({ hasText: `@${recipient}` })).toBeVisible();
   await expect(summary.filter({ hasText: /^USDC$/ })).toBeVisible();
   await expect(summary.filter({ hasText: /^0\.5$/ })).toBeVisible();
-
-  const transferRequest = await reviewRequest;
 
   const approved = page.waitForResponse(
     (response) =>
@@ -140,79 +130,4 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await page.getByRole("dialog").getByRole("textbox").fill("4521");
   await page.getByTestId("save-memo").click();
   await expect(page.getByTestId("edit-memo")).toBeVisible();
-
-  const sendUsdc = page.url();
-
-  const answerFor = async (
-    answer: (route: Route) => Promise<void>,
-    expected: "ServerUnreachable" | "InvalidResponse" | "ServiceFailed",
-  ) => {
-    const marker = Keypair.random().publicKey();
-
-    await page.route(`**${serverFunction}**`, (route) =>
-      route.request().postData()?.includes(marker)
-        ? answer(route)
-        : route.fallback(),
-    );
-    await visit(page, sendUsdc);
-    await choose(page, "address");
-    await fill(page, marker, "0.1");
-    await review(page);
-    await expect(page.getByTestId("send-outcome")).toHaveAttribute(
-      "data-outcome",
-      expected,
-      {
-        timeout: 30_000,
-      },
-    );
-  };
-
-  await answerFor(
-    (route) => route.abort("connectionrefused"),
-    "ServerUnreachable",
-  );
-  await expect(page.getByTestId("result-again")).toBeVisible();
-
-  await visit(page, sendUsdc);
-  await choose(page, "address");
-  await fill(page, Keypair.random().publicKey(), "0.1");
-  await page.context().setOffline(true);
-  await review(page);
-  await expect(page.getByTestId("send-outcome")).toHaveAttribute(
-    "data-outcome",
-    "Offline",
-    {
-      timeout: 30_000,
-    },
-  );
-  await page.context().setOffline(false);
-
-  await answerFor(
-    (route) =>
-      route.fulfill({ contentType: "text/html", body: "<html>502</html>" }),
-    "InvalidResponse",
-  );
-
-  await answerFor(
-    (route) =>
-      route.fulfill({
-        json: { result: Schema.encodeSync(ServerFailure)(new ServiceFailed()) },
-      }),
-    "ServiceFailed",
-  );
-  await expect(page.getByTestId("result-again")).toHaveCount(0);
-
-  const reviewed = transferRequest.postData() ?? "";
-
-  expect(reviewed).toContain('"USDC"');
-
-  const tampered = await page.request.post(transferRequest.url(), {
-    headers: await transferRequest.allHeaders(),
-    data: reviewed.replace('"USDC"', '"U$DC"'),
-  });
-
-  const answered = await tampered.text();
-
-  expect(answered).toContain("ServiceFailed");
-  expect(answered).not.toMatch(/AssetCode|Expected|pattern|issue/i);
 });

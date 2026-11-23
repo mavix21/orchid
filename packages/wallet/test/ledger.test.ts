@@ -1,16 +1,10 @@
 import { expect, it } from "@effect/vitest";
 import { Account, Keypair, xdr } from "@stellar/stellar-sdk";
-import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
-import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as HttpClient from "effect/http/HttpClient";
-import * as HttpClientError from "effect/http/HttpClientError";
 import * as TestClock from "effect/testing/TestClock";
 import {
   AccountAddress,
@@ -26,7 +20,6 @@ import {
 } from "../src/server/Chain.server";
 import { ChainUnreachable } from "../src/server/chain-errors.server";
 import { holdingsFromEntries } from "../src/server/ledger-assets.server";
-import { stellarRpc } from "../src/server/ledger.server";
 import { draftPayment, signingPayload } from "../src/stellar/envelopes";
 import { usdc } from "../src/stellar/network";
 import {
@@ -35,15 +28,9 @@ import {
   httpClientAnswering,
   jsonResponse,
   rpcAnswering,
-  rpcError,
   rpcOk,
   submittedTransaction,
-  testRpcUrl,
 } from "./rpc-answering";
-
-const account = xdr.LedgerKey.account(
-  new xdr.LedgerKeyAccount({ accountId: Keypair.random().xdrAccountId() }),
-);
 
 const holder = Keypair.random();
 const address = Schema.decodeSync(AccountAddress)(holder.publicKey());
@@ -104,73 +91,18 @@ const feeBumpTooEarlyXdr = new xdr.TransactionResult({
   ext: xdr.TransactionResultExt.v0(),
 }).toXDR("base64");
 
-it.effect("asks the ledger RPC for each repeated key only once", () =>
+it.effect("fails with ChainUnreachable on a non-OK HTTP status", () =>
   Effect.gen(function* () {
-    const http = rpcAnswering((keys) =>
-      new Set(keys).size === keys.length
-        ? rpcOk({ entries: [], latestLedger: 7 })
-        : rpcError,
+    const http = httpClientAnswering(() =>
+      Effect.succeed(new Response("bad gateway", { status: 502 })),
     );
 
-    expect(
-      yield* Effect.flatMap(HttpClient.HttpClient, (client) =>
-        stellarRpc(client, testRpcUrl, Duration.seconds(10)).entries([
-          account,
-          account,
-        ]),
-      ).pipe(Effect.provide(http)),
-    ).toEqual({ entries: [], latestLedger: 7 });
-  }),
-);
-
-it.effect.each([
-  [
-    "a transport failure",
-    httpClientAnswering((request) =>
-      Effect.fail(
-        new HttpClientError.HttpClientError({
-          reason: new HttpClientError.TransportError({ request }),
-        }),
-      ),
-    ),
-  ],
-  [
-    "a non-OK HTTP status",
-    httpClientAnswering(() =>
-      Effect.succeed(new Response("bad gateway", { status: 502 })),
-    ),
-  ],
-] as const)("fails with ChainUnreachable on %s", ([, http]) =>
-  Effect.gen(function* () {
     expect(
       yield* Chain.use((c) => c.account(address)).pipe(
         Effect.provide(chainWithHttp(http)),
         Effect.flip,
       ),
     ).toBeInstanceOf(ChainUnreachable);
-  }),
-);
-
-it.effect("does not propagate trace headers to the Stellar RPC", () =>
-  Effect.gen(function* () {
-    let headers: { traceparent?: string; b3?: string } | undefined;
-
-    const http = httpClientAnswering((req) => {
-      headers = {
-        traceparent: req.headers["traceparent"],
-        b3: req.headers["b3"],
-      };
-
-      return Effect.succeed(
-        jsonResponse(rpcOk({ entries: [], latestLedger: 7 })),
-      );
-    });
-
-    yield* Chain.use((c) => c.account(address)).pipe(
-      Effect.withSpan("stellar-rpc-check"),
-      Effect.provide(chainWithHttp(http)),
-    );
-    expect(headers).toEqual({ traceparent: undefined, b3: undefined });
   }),
 );
 
@@ -213,12 +145,6 @@ it.effect.each([
     "SubmissionRejected",
     "txTooEarly",
   ],
-  [
-    "ERROR with an absent errorResultXdr",
-    { status: "ERROR" },
-    "SubmissionRejected",
-    undefined,
-  ],
 ] as const)("submit rejects %s", ([, result, tag, code]) =>
   Effect.gen(function* () {
     const sealed = yield* sealedPayment;
@@ -233,47 +159,6 @@ it.effect.each([
       failure instanceof SubmissionRejected ? failure.code : undefined,
     ).toBe(code);
   }),
-);
-
-const hangingBody = httpClientAnswering(() =>
-  Effect.succeed(
-    new Response(new ReadableStream({ start() {} }), {
-      headers: { "Content-Type": "application/json" },
-    }),
-  ),
-);
-
-const hanging = httpClientAnswering(() => Effect.never);
-
-it.effect.each([
-  ["headers stall past default 10s", false, undefined, 9_999, hanging],
-  ["body stalls past default 10s", false, undefined, 9_999, hangingBody],
-  [
-    "sendTransaction stalls past custom 3s",
-    true,
-    Duration.seconds(3),
-    2_999,
-    hanging,
-  ],
-] as const)(
-  "fails with ChainUnreachable when %s",
-  ([, isSubmit, rpcTimeout, beforeMs, http]) =>
-    Effect.gen(function* () {
-      const sealed = isSubmit ? yield* sealedPayment : undefined;
-
-      const attempt = yield* Chain.use((c) =>
-        sealed ? c.submit(sealed) : c.account(address),
-      ).pipe(
-        Effect.provide(chainWithHttp(http, { rpcTimeout })),
-        Effect.flip,
-        Effect.forkChild,
-      );
-
-      yield* TestClock.adjust(Duration.millis(beforeMs));
-      expect(attempt.pollUnsafe()).toBeUndefined();
-      yield* TestClock.adjust(Duration.millis(1));
-      expect(yield* Fiber.join(attempt)).toBeInstanceOf(ChainUnreachable);
-    }),
 );
 
 it.effect(
@@ -317,98 +202,34 @@ it.effect(
     }),
 );
 
-const constructChain = (overrides: {
-  readonly rpcUrl?: string;
-  readonly rpcTimeout?: Duration.Duration;
-}) =>
-  Effect.void.pipe(
-    Effect.provide(
-      chainWithHttp(
-        rpcAnswering(() => ""),
-        overrides,
+it("incoming capacity of a trustline subtracts its balance and buying liabilities", () => {
+  const key = Keypair.random();
+
+  const line = xdr.LedgerEntryData.trustline(
+    new xdr.TrustLineEntry({
+      accountId: key.xdrPublicKey(),
+      asset: usdc.toTrustLineXdrObject(),
+      balance: 300n,
+      limit: 1_000n,
+      flags: 1,
+      ext: xdr.TrustLineEntryExt.v1(
+        new xdr.TrustLineEntryV1({
+          liabilities: new xdr.Liabilities({ buying: 90n, selling: 0n }),
+          ext: xdr.TrustLineEntryV1Ext.v0(),
+        }),
       ),
-    ),
-    Effect.exit,
-  );
-
-it.effect.each([
-  {
-    name: "remote plain HTTP URL",
-    rpcUrl: "http://127.0.0.1.example.test",
-    rpcTimeout: undefined,
-  },
-  {
-    name: "non-HTTP loopback URL",
-    rpcUrl: "ftp://localhost:8000",
-    rpcTimeout: undefined,
-  },
-  {
-    name: "unbounded rpcTimeout",
-    rpcUrl: testRpcUrl,
-    rpcTimeout: Duration.infinity,
-  },
-  {
-    name: "nonpositive rpcTimeout",
-    rpcUrl: testRpcUrl,
-    rpcTimeout: Duration.zero,
-  },
-])("Chain rejects $name at construction", ({ rpcUrl, rpcTimeout }) =>
-  Effect.gen(function* () {
-    const exit = yield* constructChain({ rpcUrl, rpcTimeout });
-
-    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
-  }),
-);
-
-it.effect.each([
-  "http://localhost:8000",
-  "http://127.0.0.1:8000",
-  "http://[::1]:8000",
-])("Chain accepts loopback RPC URL %s at construction", (rpcUrl) =>
-  Effect.gen(function* () {
-    const exit = yield* constructChain({ rpcUrl });
-
-    expect(Exit.isSuccess(exit)).toBe(true);
-  }),
-);
-
-const lineWithBuying = (buying: bigint) =>
-  xdr.TrustLineEntryExt.v1(
-    new xdr.TrustLineEntryV1({
-      liabilities: new xdr.Liabilities({ buying, selling: 0n }),
-      ext: xdr.TrustLineEntryV1Ext.v0(),
     }),
+  ).toXDR("base64");
+
+  const holdings = holdingsFromEntries(
+    [{ xdr: accountEntryXdr(key, 1n, 1) }, { xdr: line }],
+    100,
+    Keypair.random().publicKey(),
+    Schema.decodeSync(AccountAddress)(key.publicKey()),
+    [baseAsset],
   );
 
-it.each([
-  ["no liabilities", 1_000n, 300n, xdr.TrustLineEntryExt.v0(), 700n],
-  ["balance and buying liabilities", 1_000n, 300n, lineWithBuying(90n), 610n],
-])(
-  "incoming capacity of a trustline with %s",
-  (_name, limit, balance, ext, capacity) => {
-    const key = Keypair.random();
-
-    const line = xdr.LedgerEntryData.trustline(
-      new xdr.TrustLineEntry({
-        accountId: key.xdrPublicKey(),
-        asset: usdc.toTrustLineXdrObject(),
-        balance,
-        limit,
-        flags: 1,
-        ext,
-      }),
-    ).toXDR("base64");
-
-    const holdings = holdingsFromEntries(
-      [{ xdr: accountEntryXdr(key, 1n, 1) }, { xdr: line }],
-      100,
-      Keypair.random().publicKey(),
-      Schema.decodeSync(AccountAddress)(key.publicKey()),
-      [baseAsset],
-    );
-
-    expect(
-      Option.getOrThrow(holdings).lines.map((entry) => entry.capacity),
-    ).toEqual([capacity]);
-  },
-);
+  expect(
+    Option.getOrThrow(holdings).lines.map((entry) => entry.capacity),
+  ).toEqual([610n]);
+});

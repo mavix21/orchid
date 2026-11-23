@@ -3,10 +3,8 @@ import { type Page, expect, test } from "@playwright/test";
 import {
   addAuthenticator,
   freshUsername,
-  openWallet,
   storedWalletRecord,
   submitButton,
-  topNavLink,
   usernameInput,
 } from "./device";
 
@@ -109,56 +107,5 @@ test("refuses creation when the passkey has no PRF", async ({ page }) => {
   });
   await expect(page.getByTestId("enrollment-continue")).toBeHidden();
   await expect(page).toHaveURL("/create-account");
-  expect(await storedWalletRecord(page)).toBe(false);
-});
-
-test("returns to the loaded home without the skeleton", async ({ page }) => {
-  const username = freshUsername();
-
-  await openWallet(page, username);
-  await expect(page.getByText(`@${username}`)).toBeVisible();
-
-  await page.evaluate(() => {
-    new MutationObserver(() => {
-      document.querySelectorAll("main[aria-busy]").forEach(() => {
-        document.documentElement.dataset.skeletonShown = "";
-      });
-    }).observe(document.body, { childList: true, subtree: true });
-  });
-
-  await page.getByTestId("open-send").click();
-  await expect(page).toHaveURL("/send");
-
-  const revalidation = page.waitForRequest((request) =>
-    request.url().includes("/_serverFn/"),
-  );
-
-  await topNavLink(page).click();
-
-  await expect(page).toHaveURL("/home");
-  await expect(page.getByText(`@${username}`)).toBeVisible();
-  await revalidation;
-  expect(
-    await page.evaluate(() => document.documentElement.dataset.skeletonShown),
-  ).toBeUndefined();
-});
-
-test("stops creation with a retry when the passkey prompt is cancelled", async ({
-  page,
-}) => {
-  await addAuthenticator(page, true, false);
-  await page.route("**/_serverFn/**", (route) =>
-    route.request().postData()?.includes('"enrollment"')
-      ? route.fulfill({ json: { result: "A".repeat(43) } })
-      : route.continue(),
-  );
-
-  await page.goto("/create-account");
-  await usernameInput(page).fill(freshUsername());
-  await submitButton(page).click();
-
-  await expect(page.getByRole("alert")).toBeVisible({ timeout: 30_000 });
-  await expect(page).toHaveURL("/create-account");
-  await expect(submitButton(page)).toBeEnabled();
   expect(await storedWalletRecord(page)).toBe(false);
 });

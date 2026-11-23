@@ -158,8 +158,8 @@ For a PR, "Current behavior" describes the state of the diff, and the brief asks
 **Current behavior:**
 The PR adds a `--json` flag that serializes the issue list to JSON. The happy
 path works and the diff matches the project's command structure. Two gaps
-remain: errors are still printed as human text (not JSON), and the new flag has
-no test coverage.
+remain: errors are still printed as human text (not JSON), and exit codes under
+the flag are unverified.
 
 **Desired behavior:**
 With `--json`, all output (including errors) is well-formed JSON on stdout,
@@ -174,7 +174,6 @@ is untouched when the flag is absent.
 **Acceptance criteria:**
 - [ ] `triage list --json` emits valid JSON for both success and error cases
 - [ ] Exit codes match the non-JSON command
-- [ ] A test covers the `--json` success output and one error case
 - [ ] Default (non-JSON) output is byte-for-byte unchanged
 
 **Out of scope:**

@@ -94,8 +94,6 @@ export const usernameInput = (page: Page) => page.getByRole("textbox");
 
 export const submitButton = (page: Page) => page.getByTestId("create-submit");
 
-export const topNavLink = (page: Page) => page.getByTestId("top-nav-action");
-
 export const serverFunction = "/_serverFn/";
 
 const e2eContainer = "orchid-e2e-database";

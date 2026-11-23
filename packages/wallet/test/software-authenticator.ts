@@ -94,7 +94,6 @@ export class SoftwareAuthenticator {
   private current: SoftwareCredential | undefined;
   prf = true;
   prfOnCreate = true;
-  webAuthnAvailable = true;
   cancels = false;
   userVerified = true;
   readonly issued: Array<PasskeyAssertion> = [];
@@ -196,8 +195,6 @@ export class SoftwareAuthenticator {
           Option.Option<PlatformRegistration>,
           PasskeyCancelled | PasskeyFailed
         > => {
-          if (!this.webAuthnAvailable) return Effect.succeed(Option.none());
-
           if (this.cancels) return Effect.fail(new PasskeyCancelled());
 
           const { credential, registration } = this.createRegistration(

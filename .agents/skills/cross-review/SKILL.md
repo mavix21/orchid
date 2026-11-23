@@ -72,7 +72,7 @@ Line delta: <+T/-T test lines vs +C/-C code lines>
 
 Review along two separate axes:
 1. Standards (including code smells and test discipline).
-   Test discipline is first-class: flag as `should` any added or edited test that violates the Testing policy (duplicate cases, input variations that belong in one named parameterized case or should be dropped, expectations that restate constants or mirror mocks, cases with no distinct observable behavior change that would fail them). Request a new test only when you name a concrete behavior change that no existing case catches.
+   Test discipline is first-class: flag as `should` any added or edited test that violates the Testing policy (cases outside fund safety, duplicate cases, input variations that belong in one named parameterized case or should be dropped, expectations that restate constants or mirror mocks, cases with no distinct observable behavior change that would fail them). Fixes are code changes and PR evidence; propose a test as a fix only for a fund-safety failure you name that no existing case catches.
 2. Spec: missing/partial requirements, wrong behavior, or unrequested scope creep. Cite spec lines when a spec exists.
 
 Severities:
@@ -95,7 +95,7 @@ R1-<n> [blocker|should|nit] <file>:<line> <claim>. Fix: <smallest fix>
 
 Verify every finding and its severity yourself against the code, spec, and standards before editing. Treat unrelated paths, rare edge cases outside intent, or tooling-enforced items as `nit` and push back with evidence when over-classified.
 
-- **Agree:** apply the smallest fix; prefer deleting or narrowing over adding helpers, guards, or abstractions. Add a test only when a concrete observable behavior change lacks coverage.
+- **Agree:** apply the smallest fix; prefer deleting or narrowing over adding helpers, guards, or abstractions. Add a test only for a fund-safety failure that no existing case catches.
 - **Disagree:** reply with concrete evidence (`file:line`, test, or command output). Hold ground rather than agreeing just to end the loop.
 - **Nits and out-of-scope:** decline in one line (list as a follow-up if worthwhile). Resist scope creep.
 

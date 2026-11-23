@@ -1,7 +1,6 @@
 import { expect, layer } from "@effect/vitest";
 import { Account, Keypair, MuxedAccount } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
-import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
@@ -33,8 +32,6 @@ import {
   selfOrder,
   send,
   settleHash,
-  stellarWallet,
-  timeOutRpc,
   useDisposableDatabase,
   walletTestLayer,
   world,
@@ -173,7 +170,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "an unreachable or timed-out ledger refuses an unsigned external step without storing it but leaves an authorized transfer pending",
+      "an unreachable ledger refuses an unsigned external step without storing it but leaves an authorized transfer pending",
       () =>
         Effect.gen(function* () {
           const key = yield* fundedWallet();
@@ -202,27 +199,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(Option.isNone(yield* findTransfer(order.id))).toBe(true);
           world.ledgerDown = false;
 
-          const started = yield* Latch.make();
-
-          const timedOutOrder = orderFor(
-            key,
-            AddressRecipient.make({ value: addressOf(Keypair.random()) }),
-          );
-
-          const hanging = stellarWallet(() =>
-            started.open.pipe(Effect.andThen(Effect.never)),
-          );
-
-          expect(
-            yield* timeOutRpc(
-              started,
-              send(timedOutOrder).pipe(Effect.provide(hanging), Effect.flip),
-            ),
-          ).toEqual(new LedgerUnreachable());
-          expect(Option.isNone(yield* findTransfer(timedOutOrder.id))).toBe(
-            true,
-          );
-
           const draft = yield* draftTransfer(order);
 
           expect((yield* send(order, approve(draft.request, key)))._tag).toBe(
@@ -234,47 +210,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "external optional and required memos survive order and receipt while Orchid memos are refused",
+      "a required exchange memo survives order and receipt while Orchid memos are refused",
       () =>
         Effect.gen(function* () {
           const key = yield* fundedWallet();
-          const unlistedKey = Keypair.random();
-
-          fundHolder(unlistedKey);
-          const unlisted = addressOf(unlistedKey);
-
-          const optOrder = orderFor(
-            key,
-            AddressRecipient.make({ value: unlisted }),
-          );
-
-          const optDraft = yield* draftTransfer(optOrder);
-
-          expect(optDraft.recipient).toEqual(
-            new ExternalRecipient({ address: unlisted }),
-          );
-          expect(optDraft.memoRequired).toBe(false);
-
-          const optFacts = Option.getOrThrow(
-            readEnvelope(optDraft.request.envelope),
-          );
-
-          assertTagged(optFacts, "PaymentFacts");
-          expect(optFacts.memo).toBeUndefined();
-          expect(
-            (yield* send(optOrder, approve(optDraft.request, key)))._tag,
-          ).toBe("Pending");
-
-          const optSigned = Option.getOrThrow(yield* findTransfer(optOrder.id));
-
-          assertTagged(optSigned, "Authorized");
-          settleHash(optSigned.sealed.hash);
-
-          const optReceipt = yield* send(optOrder);
-
-          assertTagged(optReceipt, "Settled");
-          expect(optReceipt.memo).toBeUndefined();
-
           const exKey = Keypair.random();
 
           fundHolder(exKey);

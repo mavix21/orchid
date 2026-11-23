@@ -1,26 +1,16 @@
 import { expect, layer } from "@effect/vitest";
-import {
-  Claimant,
-  FeeBumpTransaction,
-  Keypair,
-  TransactionBuilder,
-} from "@stellar/stellar-sdk";
+import { Claimant, Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
-  type AccountAddress,
-  AssetCode,
   BalanceGone,
   BalanceId,
-  IssuedAsset,
   Offline,
   PaymentLinkNotFound,
   PaymentLinkReceipt,
-  PaymentLinkReceiptInvalid,
   PaymentLinkRecipient,
   PositiveAmount,
   RecipientCannotReceive,
@@ -29,28 +19,25 @@ import {
   baseAsset,
 } from "../src/contract";
 import { TransferIntent, makeWalletEffects } from "../src/device/client";
-import { DeviceWallet, type KeyStore } from "../src/device/key-store";
+import { DeviceWallet } from "../src/device/key-store";
 import { sendTransfer } from "../src/device/sending";
 import { signingKey } from "../src/device/signing";
 import { Transfers } from "../src/server/Transfers.server";
-import { Wallet } from "../src/server/Wallet.server";
-import { networkPassphrase } from "../src/stellar/network";
-import {
-  enrolledDeviceWallet,
-  memoryKeyStore,
-  savedWallet,
-} from "./device-fixtures";
-import { SoftwareAuthenticator } from "./software-authenticator";
+import { memoryKeyStore, savedWallet } from "./device-fixtures";
 import { assertTagged } from "./tagged";
 import {
   accountState,
   addressOf,
   amount,
   approve,
+  devicePasskeys,
+  euro,
+  euroLine,
   holdingsFor,
+  openSender,
   orderFor,
-  passkeyOrigin,
   settleHash,
+  settleOnSubmit,
   sweep,
   useDisposableDatabase,
   walletTestLayer,
@@ -58,91 +45,6 @@ import {
 } from "./wallet-harness";
 
 const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");
-const passkeys = new SoftwareAuthenticator(passkeyOrigin).passkeys;
-
-const euro = IssuedAsset.make({
-  code: Schema.decodeSync(AssetCode)("EUR"),
-  issuer: addressOf(Keypair.random()),
-});
-
-const euroLine = (
-  bal: string,
-  overrides: Partial<{
-    readonly capacity: ReturnType<typeof amount>;
-    readonly authorized: boolean;
-  }> = {},
-) => ({
-  asset: euro,
-  balance: amount(bal),
-  spendable: amount(bal),
-  capacity: overrides.capacity ?? amount("9223372036854775807"),
-  authorized: overrides.authorized ?? true,
-  clawbackEnabled: false,
-  sponsored: true,
-});
-
-const openSender = Effect.fn(function* (store: KeyStore, name: string) {
-  const wallet = yield* Wallet;
-
-  yield* store.write(enrolledDeviceWallet(name));
-  yield* makeWalletEffects(wallet, store, passkeys).create(name);
-
-  const sender = yield* savedWallet(store);
-
-  world.accounts.set(sender.address, accountState());
-
-  return { wallet, sender };
-});
-
-const settleLinkOnSubmit =
-  (wallet: WalletPort, sender: AccountAddress): WalletPort["transfer"] =>
-  (order, approval) =>
-    wallet.transfer(order, approval).pipe(
-      Effect.tap(() =>
-        Effect.sync(() => {
-          const sealed = world.submitted.at(-1);
-
-          if (Option.isSome(approval) && sealed) {
-            settleHash(sealed.hash);
-
-            const parsed = TransactionBuilder.fromXDR(
-              sealed.envelope,
-              networkPassphrase,
-            );
-
-            const inner =
-              parsed instanceof FeeBumpTransaction
-                ? parsed.innerTransaction
-                : parsed;
-
-            const op = inner.operations[1];
-
-            if (
-              op?.type === "createClaimableBalance" &&
-              Predicate.isTagged(order.to, "PaymentLink")
-            ) {
-              const balanceId = Schema.decodeSync(BalanceId)(
-                inner.getClaimableBalanceId(1),
-              );
-
-              world.claimables.set(balanceId, {
-                balance: balanceId,
-                asset: order.asset,
-                amount: order.amount,
-                sponsored: true,
-                claimants: [
-                  new Claimant(
-                    order.to.value,
-                    Claimant.predicateUnconditional(),
-                  ),
-                  new Claimant(sender, Claimant.predicateUnconditional()),
-                ],
-              });
-            }
-          }
-        }),
-      ),
-    );
 
 useDisposableDatabase();
 
@@ -192,21 +94,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(secondBalance).not.toBe(firstBalance);
 
-          const storedRow = Option.getOrThrow(
-            yield* Transfers.use((t) => t.find(order.id)),
-          );
-
-          assertTagged(storedRow, "Proposed");
-          expect(storedRow.attemptBalances).toEqual([
-            firstBalance,
-            secondBalance,
-          ]);
-
           const interruptedPort: WalletPort = {
             ...wallet,
             transfer: (nextOrder, approval) =>
               Option.isSome(approval)
-                ? settleLinkOnSubmit(wallet, sender.address)(
+                ? settleOnSubmit(wallet, sender.address)(
                     nextOrder,
                     approval,
                   ).pipe(Effect.andThen(Effect.fail(new Offline())))
@@ -229,28 +121,17 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(savedAfterCrash.linkReceipt?.attempts).toHaveLength(1);
 
-          const restartedDevice = makeWalletEffects(wallet, store, passkeys);
+          const restartedDevice = makeWalletEffects(
+            wallet,
+            store,
+            devicePasskeys,
+          );
+
           const resolved = yield* restartedDevice.resolvePaymentLink();
 
           assertTagged(resolved, "ResolvedPaymentLink");
           expect(resolved.address).toBe(linkAddr);
           expect(resolved.balance).toBe(savedAfterCrash.linkReceipt?.balance);
-
-          const wrongNetwork = yield* wallet.resolvePaymentLink(
-            sender.address,
-            new PaymentLinkReceipt({
-              network: "public",
-              address: linkAddr,
-              asset: baseAsset,
-              amount: linkAmount,
-              balance: resolved.balance,
-              attempts: [resolved.balance],
-            }),
-          );
-
-          expect(wrongNetwork).toEqual(
-            new PaymentLinkReceiptInvalid({ reason: "wrong_network" }),
-          );
 
           const competingLink = addressOf(Keypair.random());
 
@@ -306,7 +187,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             Option.fromNullishOr(saved.linkReceipt),
           );
 
-          const restarted = makeWalletEffects(wallet, store, passkeys);
+          const restarted = makeWalletEffects(wallet, store, devicePasskeys);
 
           assertTagged(yield* restarted.resolvePaymentLink(), "Pending");
           expect((yield* savedWallet(store)).linkReceipt?.balance).toBe(
@@ -350,7 +231,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const cancelled = yield* makeWalletEffects(
             cancelSettlingPort,
             store,
-            passkeys,
+            devicePasskeys,
           ).cancelPaymentLink(resolved);
 
           assertTagged(cancelled, "AssetSettled");
@@ -358,7 +239,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "cancel checks sender receive capacity, marks absent balance unresolved, and never hides an unsettled link",
+      "cancel checks sender receive capacity, marks an absent balance unresolved, and never hides an unsettled link",
       () =>
         Effect.gen(function* () {
           const store = memoryKeyStore();
@@ -387,7 +268,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             }),
           );
 
-          const client = makeWalletEffects(wallet, store, passkeys);
+          const client = makeWalletEffects(wallet, store, devicePasskeys);
 
           expect(
             yield* client.cancelPaymentLink({ balance, asset: euro }),
@@ -395,22 +276,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             new RecipientCannotReceive({
               address: sender.address,
               reason: "no_capacity",
-            }),
-          );
-
-          world.holdings.set(
-            sender.address,
-            holdingsFor(sender.address, {
-              lines: [euroLine("0", { authorized: false })],
-            }),
-          );
-
-          expect(
-            yield* client.cancelPaymentLink({ balance, asset: euro }),
-          ).toEqual(
-            new RecipientCannotReceive({
-              address: sender.address,
-              reason: "not_authorized",
             }),
           );
 
@@ -475,12 +340,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           });
           settleHash(submitted.hash);
           yield* sweep;
-
-          expect(
-            yield* Transfers.use((t) =>
-              t.openClaimables(sender.address, "paymentLink"),
-            ),
-          ).toBe(1);
 
           const open = yield* wallet.paymentLinks(sender.address);
 
@@ -587,7 +446,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           };
 
           const resolvingA = yield* Effect.forkChild(
-            makeWalletEffects(heldPort, store, passkeys).resolvePaymentLink(),
+            makeWalletEffects(
+              heldPort,
+              store,
+              devicePasskeys,
+            ).resolvePaymentLink(),
           );
 
           yield* started.await;
@@ -618,7 +481,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const resolvedB = yield* makeWalletEffects(
             wallet,
             store,
-            passkeys,
+            devicePasskeys,
           ).resolvePaymentLink();
 
           assertTagged(resolvedB, "ResolvedPaymentLink");

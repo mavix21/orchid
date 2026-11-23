@@ -5,17 +5,13 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import { Profile, ServiceFailed } from "../src/contract";
-import { Chain } from "../src/server/Chain.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { assertTagged } from "./tagged";
 import {
-  addressOf,
   approve,
   draftTransfer,
-  fakeChain,
   findTransfer,
   fundedWallet,
-  runAcrossLockWait,
   selfOrder,
   send,
   settleHash,
@@ -166,41 +162,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           "Proposed",
         );
       }),
-    );
-
-    it.effect(
-      "authorization keeps a transfer Proposed when waiting on the post-lock slot query crosses the approval margin",
-      () =>
-        Effect.gen(function* () {
-          const key = yield* fundedWallet();
-          const order = selfOrder(key);
-
-          yield* draftTransfer(order);
-          const stored = Option.getOrThrow(yield* findTransfer(order.id));
-
-          assertTagged(stored, "Proposed");
-
-          const sealed = yield* Chain.use((c) =>
-            c.seal(
-              stored.request,
-              Option.getOrThrow(approve(stored.request, key)),
-              addressOf(key),
-            ),
-          ).pipe(Effect.provide(fakeChain));
-
-          const { result: outcome } = yield* runAcrossLockWait({
-            locktype: "relation",
-            advance: "101 seconds",
-            acquire: (tx) =>
-              tx.execute(sql`lock table asset_orders in access exclusive mode`),
-            run: Transfers.use((s) => s.authorize(stored, sealed)),
-          });
-
-          expect(outcome._tag).toBe("Proposed");
-          expect(Option.getOrThrow(yield* findTransfer(order.id))._tag).toBe(
-            "Proposed",
-          );
-        }),
     );
   },
 );

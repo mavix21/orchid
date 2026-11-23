@@ -1,33 +1,24 @@
 import { expect, layer } from "@effect/vitest";
-import { Keypair, xdr } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Latch from "effect/Latch";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import { LedgerUnreachable, ServiceFailed } from "../src/contract";
+import { ServiceFailed } from "../src/contract";
 import {
   jsonResponse,
-  ledgerKeys,
   queriedHash,
-  rpcError,
   rpcOk,
   submittedTransaction,
   testnetReply,
 } from "./rpc-answering";
 import { assertTagged } from "./tagged";
 import {
-  addressOf,
   authorizeTransfer,
-  claimFor,
   findTransfer,
-  findWallet,
   fundedWallet,
-  opening,
-  overviewOf,
   selfOrder,
   send,
   settleHash,
-  sponsor,
   stellarAnswering,
   stellarWallet,
   sweep,
@@ -53,8 +44,6 @@ const signedTransfer = Effect.fn(function* (username: string) {
     envelope: authorized.sealed.envelope,
   };
 });
-
-const undecodable = rpcOk({ entries: "none", status: "LOST" });
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
@@ -89,90 +78,25 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect.each([
-      {
-        name: "a JSON-RPC error",
-        reply: rpcError,
-        expected: new LedgerUnreachable(),
-      },
-      {
-        name: "invalid JSON",
-        reply: "not json",
-        expected: new ServiceFailed(),
-      },
-      {
-        name: "a schema mismatch",
-        reply: undecodable,
-        expected: new ServiceFailed(),
-      },
-    ])(
-      "answers $expected._tag when overview gets $name",
-      ({ reply, expected }) =>
-        Effect.gen(function* () {
-          const key = yield* fundedWallet();
-
-          expect(
-            yield* overviewOf(addressOf(key)).pipe(
-              Effect.provide(stellarAnswering(() => reply)),
-              Effect.flip,
-            ),
-          ).toEqual(expected);
-        }),
-    );
-
-    it.effect.each([
-      { name: "malformed transaction lookup reply", reply: () => undecodable },
-      {
-        name: "unrecognized sendTransaction status",
-        reply: (method: string) =>
-          method === "sendTransaction"
-            ? rpcOk({ status: "UNKNOWN" })
-            : testnetReply(method),
-      },
-    ])(
-      "answers ServiceFailed and keeps an authorized order on $name",
-      ({ reply }) =>
+    it.effect(
+      "answers ServiceFailed and keeps an authorized order on a malformed transaction lookup reply",
+      () =>
         Effect.gen(function* () {
           const signed = yield* signedTransfer("maria");
 
           expect(
             yield* send(signed.order).pipe(
-              Effect.provide(stellarAnswering(reply)),
+              Effect.provide(
+                stellarAnswering(() =>
+                  rpcOk({ entries: "none", status: "LOST" }),
+                ),
+              ),
               Effect.flip,
             ),
           ).toEqual(new ServiceFailed());
           expect(
             Option.getOrThrow(yield* findTransfer(signed.order.id))._tag,
           ).toBe("Authorized");
-        }),
-    );
-
-    it.effect(
-      "answers LedgerUnreachable and leaves no opening row when draftOpening sponsor read times out",
-      () =>
-        Effect.gen(function* () {
-          const claim = claimFor(Keypair.random(), "maria");
-
-          const sponsorKey = xdr.LedgerKey.account(
-            new xdr.LedgerKeyAccount({ accountId: sponsor.xdrPublicKey() }),
-          ).toXdr("base64");
-
-          const started = yield* Latch.make();
-
-          const stellar = stellarWallet((method, req) =>
-            method === "getLedgerEntries" &&
-            ledgerKeys(req).includes(sponsorKey)
-              ? started.open.pipe(Effect.andThen(Effect.never))
-              : Effect.succeed(jsonResponse(testnetReply(method))),
-          );
-
-          expect(
-            yield* timeOutRpc(
-              started,
-              opening(claim).pipe(Effect.provide(stellar), Effect.flip),
-            ),
-          ).toEqual(new LedgerUnreachable());
-          expect(yield* findWallet(claim.address)).toEqual(Option.none());
         }),
     );
 

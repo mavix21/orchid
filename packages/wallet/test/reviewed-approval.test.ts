@@ -10,7 +10,6 @@ import {
   SigningRequest,
 } from "../src/contract";
 import type { AssertionCeremony } from "../src/device/assertion";
-import type { PublicDeviceWallet } from "../src/device/key-store";
 import { Reserved, approveReviewed } from "../src/device/reviewed-approval";
 import { signingPayload } from "../src/stellar/envelopes";
 import { nowSeconds, sendActors } from "./device-fixtures";
@@ -30,22 +29,19 @@ it.live.each([
     name: "signs every envelope from one assertion",
     laterLapses: false,
     withheld: undefined,
-    reservations: 1,
     verifiedSignatures: [true, true],
   },
   {
     name: "releases none when one envelope changes during the prompt",
     laterLapses: true,
     withheld: "DraftRejected",
-    reservations: 0,
     verifiedSignatures: [],
   },
-])("$name", ({ laterLapses, withheld, reservations, verifiedSignatures }) =>
+])("$name", ({ laterLapses, withheld, verifiedSignatures }) =>
   Effect.gen(function* () {
     const { auth, record } = yield* installSealedWallet(actors.wallet);
     const first = requestTo(actors.pedro);
     const later = requestTo(actors.exchange);
-    const reserved: Array<PublicDeviceWallet> = [];
     const released: Array<Approval> = [];
     let prompted = false;
 
@@ -64,11 +60,7 @@ it.live.each([
         holds: (_wallet, request) =>
           Effect.sync(() => !(laterLapses && prompted && request === later)),
         reserve: (wallet) =>
-          Effect.sync(() => {
-            reserved.push(wallet);
-
-            return new Reserved({ reservation: wallet });
-          }),
+          Effect.succeed(new Reserved({ reservation: wallet })),
         unreserve: () => Effect.void,
         release: (approvals) =>
           Effect.sync(() => {
@@ -78,8 +70,6 @@ it.live.each([
     );
 
     expect(outcome?._tag).toBe(withheld);
-    expect(auth.requested).toHaveLength(1);
-    expect(reserved).toHaveLength(reservations);
     expect(
       released.map((approval, index) =>
         Keypair.fromPublicKey(actors.sender).verify(

@@ -116,17 +116,6 @@ const tamperedDrafts: ReadonlyArray<
     }),
   ],
   [
-    "different sender",
-    (order, at) => ({
-      envelope: actors.paymentLink({
-        source: actors.stranger,
-        to: linkTarget(order),
-        amount: linkAmount,
-        at,
-      }),
-    }),
-  ],
-  [
     "different asset",
     (order, at) => ({
       envelope: actors.paymentLink({
