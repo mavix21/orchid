@@ -51,7 +51,7 @@ export class EnrollmentPending extends Schema.TaggedClass<EnrollmentPending>()(
   {
     stage: EnrollmentStage,
     username: Username,
-    currentUntil: Schema.optional(Schema.Number),
+    review: Schema.optional(OpeningReview),
   },
 ) {}
 
@@ -138,11 +138,11 @@ export interface EnrollmentDependencies {
 export interface EnrollmentEffects {
   pending(): Effect.Effect<Option.Option<EnrollmentPending>>;
   start(usernameText: string): Effect.Effect<EnrollWalletOutcome>;
-  advance(displayedUntil?: number): Effect.Effect<EnrollWalletOutcome>;
+  advance(shown?: OpeningReview): Effect.Effect<EnrollWalletOutcome>;
 }
 
 export interface EnrollmentClient {
   pending(): Promise<Option.Option<EnrollmentPending>>;
   start(usernameText: string): Promise<EnrollWalletOutcome>;
-  advance(displayedUntil?: number): Promise<EnrollWalletOutcome>;
+  advance(shown?: OpeningReview): Promise<EnrollWalletOutcome>;
 }

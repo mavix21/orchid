@@ -156,7 +156,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(started, "EnrollmentPending");
           expect(started.stage).toBe("activate");
-          expect(started.currentUntil).toBeDefined();
+          expect((yield* tab.advance())._tag).toBe("EnrollmentPending");
           expect(auth.issued).toHaveLength(0);
           expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
 
@@ -167,14 +167,16 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(world.submitted).toHaveLength(0);
 
           auth.cancels = true;
-          expect((yield* tab.advance())._tag).toBe("PasskeyCancelled");
+          expect((yield* tab.advance(started.review))._tag).toBe(
+            "PasskeyCancelled",
+          );
           expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
           expect(world.submitted).toHaveLength(0);
           expect(yield* tab.pending()).toEqual(Option.some(started));
 
           auth.cancels = false;
 
-          const completed = yield* tab.advance();
+          const completed = yield* tab.advance(started.review);
 
           assertTagged(completed, "WalletEnrolled");
           expect(completed.profile.username).toBe("maria");
@@ -234,11 +236,17 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const firstTab = enrollmentFor(wallet, firstAuth);
           const secondTab = enrollmentFor(wallet, secondAuth);
 
-          assertTagged(yield* firstTab.start("maria"), "EnrollmentPending");
-          assertTagged(yield* secondTab.start("pedro"), "EnrollmentPending");
+          const firstStarted = yield* firstTab.start("maria");
+          const secondStarted = yield* secondTab.start("pedro");
+
+          assertTagged(firstStarted, "EnrollmentPending");
+          assertTagged(secondStarted, "EnrollmentPending");
 
           const outcomes = yield* Effect.all(
-            [firstTab.advance(), secondTab.advance()],
+            [
+              firstTab.advance(firstStarted.review),
+              secondTab.advance(secondStarted.review),
+            ],
             { concurrency: "unbounded" },
           );
 
@@ -291,8 +299,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const firstTab = enrollmentFor(flakyPort, auth, pending);
 
-          assertTagged(yield* firstTab.start("maria"), "EnrollmentPending");
-          expect((yield* firstTab.advance())._tag).toBe("Offline");
+          const started = yield* firstTab.start("maria");
+
+          assertTagged(started, "EnrollmentPending");
+          expect((yield* firstTab.advance(started.review))._tag).toBe(
+            "Offline",
+          );
           expect(auth.issued).toHaveLength(1);
 
           const committed = yield* tableRows;
@@ -354,10 +366,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
             const enrollment = enrollmentFor(wallet, auth);
 
-            assertTagged(yield* enrollment.start("maria"), "EnrollmentPending");
+            const started = yield* enrollment.start("maria");
+
+            assertTagged(started, "EnrollmentPending");
 
             return {
-              outcome: yield* enrollment.advance(),
+              outcome: yield* enrollment.advance(started.review),
               expectedTag: "BackupUnsupported",
               enrollment,
             };
@@ -376,10 +390,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
             const enrollment = enrollmentFor(wallet, auth, undefined, unlisted);
 
-            assertTagged(yield* enrollment.start("maria"), "EnrollmentPending");
+            const started = yield* enrollment.start("maria");
+
+            assertTagged(started, "EnrollmentPending");
 
             return {
-              outcome: yield* enrollment.advance(),
+              outcome: yield* enrollment.advance(started.review),
               expectedTag: "RegistrationRefused",
               enrollment,
             };
@@ -394,11 +410,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
             const enrollment = enrollmentFor(wallet, auth, pending);
 
-            assertTagged(yield* enrollment.start("maria"), "EnrollmentPending");
+            const started = yield* enrollment.start("maria");
+
+            assertTagged(started, "EnrollmentPending");
             pending.tamperEnvelope = true;
 
             return {
-              outcome: yield* enrollment.advance(),
+              outcome: yield* enrollment.advance(started.review),
               expectedTag: "CorruptEnvelope",
               enrollment,
             };

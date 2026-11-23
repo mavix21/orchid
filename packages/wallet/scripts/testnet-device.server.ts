@@ -139,7 +139,7 @@ const openWallet = async (
     `Expected EnrollmentPending, got ${started._tag}`,
   );
 
-  const enrolled = await Effect.runPromise(enrollment.advance());
+  const enrolled = await Effect.runPromise(enrollment.advance(started.review));
 
   assert.ok(
     Predicate.isTagged(enrolled, "WalletEnrolled"),

@@ -61,7 +61,7 @@ import {
   openLocalEnvelope,
   sealLocalEnvelope,
 } from "./local-envelope";
-import { requestsOf } from "./opening-drafts";
+import { requestsOf, reviewJson } from "./opening-drafts";
 import {
   BackupUnsupported,
   DraftRejected,
@@ -404,17 +404,14 @@ export function makeEnrollmentEffects(
 
   const activate = Effect.fn("Device.activateEnrollment")(function* (
     current: Awaiting,
-    displayedUntil: number | undefined,
+    shown: OpeningReview | undefined,
   ): Effect.fn.Return<EnrollWalletOutcome> {
     if (Option.isNone(current.review) || !(yield* hasLiveReview(current)))
       return yield* refreshReview(current, false);
 
     const { review } = current;
 
-    if (
-      displayedUntil !== undefined &&
-      notice(current).currentUntil !== displayedUntil
-    )
+    if (shown === undefined || reviewJson(shown) !== reviewJson(review.value))
       return notice(current);
 
     const verified = yield* verifyPinnedAssertion(
@@ -516,7 +513,7 @@ export function makeEnrollmentEffects(
   });
 
   const advance = Effect.fn("Device.advanceEnrollment")(function* (
-    displayedUntil: number | undefined,
+    shown: OpeningReview | undefined,
   ): Effect.fn.Return<EnrollWalletOutcome> {
     const current = yield* loadPending;
 
@@ -526,8 +523,8 @@ export function makeEnrollmentEffects(
 
     return yield* PendingState.$match(current, {
       Idle: () => Effect.succeed(new NoWallet()),
-      Created: (awaiting) => activate(awaiting, displayedUntil),
-      Sealed: (awaiting) => activate(awaiting, displayedUntil),
+      Created: (awaiting) => activate(awaiting, shown),
+      Sealed: (awaiting) => activate(awaiting, shown),
       Held: release,
     });
   });
@@ -559,7 +556,7 @@ export function makeEnrollmentEffects(
   return {
     pending: () => lock.withPermit(pending()),
     start: (usernameText) => lock.withPermit(start(usernameText)),
-    advance: (displayedUntil) => lock.withPermit(advance(displayedUntil)),
+    advance: (shown) => lock.withPermit(advance(shown)),
   };
 }
 
@@ -571,7 +568,6 @@ export function makeEnrollmentClient(
   return {
     pending: () => Effect.runPromise(effects.pending()),
     start: (usernameText) => Effect.runPromise(effects.start(usernameText)),
-    advance: (displayedUntil) =>
-      Effect.runPromise(effects.advance(displayedUntil)),
+    advance: (shown) => Effect.runPromise(effects.advance(shown)),
   };
 }
