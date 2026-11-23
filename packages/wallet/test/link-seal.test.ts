@@ -105,6 +105,19 @@ it.effect.each([
     expected: context,
   },
   {
+    name: "a record sealed under another credential",
+    tampered: Effect.map(
+      sealed,
+      (record) =>
+        new SealedLinkSecret({
+          ...record,
+          credentialId: Schema.decodeSync(CredentialId)("b3RoZXI"),
+        }),
+    ),
+    output: prf,
+    expected: context,
+  },
+  {
     name: "a record relabelled to another link address",
     tampered: Effect.map(
       sealed,
