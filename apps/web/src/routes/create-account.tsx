@@ -22,7 +22,12 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
 import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
-import { Screen, ScreenActions, ScreenNote } from "@/components/screen";
+import {
+  Screen,
+  ScreenActions,
+  ScreenNote,
+  ScreenStatus,
+} from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { UserAvatar } from "@/components/user-avatar";
 import { me } from "@/fixtures/account";
@@ -109,8 +114,18 @@ const stageCopy = (stage: EnrollmentStage, username: string) =>
     Match.exhaustive,
   );
 
+function AccountMedia({ username }: { username: string }) {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <UserAvatar profile={me} size="xl" />
+      <p className="text-label-lg">@{username}</p>
+    </div>
+  );
+}
+
 function ChooseUsername() {
   const [hydrated, setHydrated] = useState(false);
+  const [deviceChecked, setDeviceChecked] = useState(false);
   const { walletClient } = Route.useRouteContext();
   const [username, setUsername] = useState("");
   const [touched, setTouched] = useState(false);
@@ -149,6 +164,8 @@ function ChooseUsername() {
     void Promise.all([walletClient.saved(), enrollmentClient.pending()]).then(
       ([saved, currentPending]) => {
         if (!current) return;
+
+        setDeviceChecked(true);
 
         if (Predicate.isTagged(saved, "SavedWallet")) {
           setUsername(saved.username);
@@ -249,6 +266,18 @@ function ChooseUsername() {
     if (Option.isNone(typedIssue)) void startEnrollment(username);
   };
 
+  if (!deviceChecked)
+    return (
+      <Screen>
+        <TopNav
+          title="Crea tu cuenta"
+          label="Atrás"
+          icon={<ChevronLeftIcon />}
+          link={<Link to="/" />}
+        />
+      </Screen>
+    );
+
   if (Option.isSome(enrolledUsername))
     return (
       <Screen>
@@ -258,24 +287,17 @@ function ChooseUsername() {
           icon={<ChevronLeftIcon />}
           link={<Link to="/" />}
         />
-        <main
+        <ScreenStatus
+          title={`Tu passkey protege @${enrolledUsername.value}`}
+          media={<AccountMedia username={enrolledUsername.value} />}
           data-testid="enrollment-complete"
-          className="flex flex-1 flex-col gap-6 px-5 pt-2"
         >
-          <div className="flex flex-col gap-2">
-            <h1 className="font-display text-h1 text-balance">
-              Tu passkey protege @{enrolledUsername.value}
-            </h1>
-            <ScreenNote>
-              El respaldo y la comprobación local con passkey terminaron bien.
-              La apertura de la cuenta permanecerá pausada hasta habilitar la
-              autorización revisada.
-            </ScreenNote>
-          </div>
-          <div className="flex justify-center">
-            <UserAvatar profile={me} size="xl" />
-          </div>
-        </main>
+          <ScreenNote>
+            El respaldo y la comprobación local con passkey terminaron bien. La
+            apertura de la cuenta permanecerá pausada hasta habilitar la
+            autorización revisada.
+          </ScreenNote>
+        </ScreenStatus>
       </Screen>
     );
 
@@ -291,26 +313,19 @@ function ChooseUsername() {
           link={<Link to="/" disabled={busy} />}
           disabled={busy}
         />
-        <main
+        <ScreenStatus
+          title={copy.title}
+          media={<AccountMedia username={pending.value.username} />}
           data-testid="enrollment-step"
           data-stage={pending.value.stage}
-          className="flex flex-1 flex-col gap-6 px-5 pt-2"
         >
-          <div className="flex flex-col gap-2">
-            <h1 className="font-display text-h1 text-balance">{copy.title}</h1>
-            <p className="text-body text-muted-foreground">
-              {copy.description}
-            </p>
-          </div>
-          <div className="flex justify-center">
-            <UserAvatar profile={me} size="xl" />
-          </div>
+          <ScreenNote>{copy.description}</ScreenNote>
           {problem ? (
             <p role="alert" className="text-body text-destructive">
               {problem}
             </p>
           ) : null}
-        </main>
+        </ScreenStatus>
         <ScreenActions>
           <Button
             className="w-full"

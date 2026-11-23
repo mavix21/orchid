@@ -2,7 +2,12 @@ import { useState, useSyncExternalStore } from "react";
 import { Button } from "@workspace/ui/components/button";
 import * as Match from "effect/Match";
 
-import { Screen, ScreenActions, ScreenNote } from "@/components/screen";
+import {
+  Screen,
+  ScreenActions,
+  ScreenNote,
+  ScreenStatus,
+} from "@/components/screen";
 import {
   type EmbeddedApp,
   androidDefaultBrowserLink,
@@ -48,19 +53,16 @@ export function PasskeyBrowserGate({
 function OutdatedIosScreen() {
   return (
     <Screen>
-      <main
+      <ScreenStatus
+        title="Este dispositivo no es compatible"
         data-testid="outdated-ios"
-        className="flex flex-1 flex-col gap-2 px-5 pt-16"
       >
-        <h1 className="font-display text-h1 text-balance">
-          Este dispositivo no es compatible
-        </h1>
         <ScreenNote>
           Orchid necesita iOS 18.4 o más reciente para proteger tu cuenta con
           una passkey. Actualiza desde Ajustes, General, Actualización de
           software.
         </ScreenNote>
-      </main>
+      </ScreenStatus>
     </Screen>
   );
 }

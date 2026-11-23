@@ -6,6 +6,7 @@ import {
 import type { WalletClient } from "@workspace/wallet";
 
 import appCss from "@workspace/ui/globals.css?url";
+import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
 import { ThemeProvider } from "@/components/theme-provider";
 import { useDisplayLockLifecycle } from "@/wallet/display-lock";
 
@@ -33,12 +34,11 @@ export const Route = createRootRouteWithContext<{
     ],
   }),
   notFoundComponent: () => (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-2 px-5 pt-16">
-      <h1 className="font-display text-h1">404</h1>
-      <p className="text-body text-muted-foreground">
-        No encontramos esta página.
-      </p>
-    </main>
+    <Screen>
+      <ScreenStatus title="404">
+        <ScreenNote>No encontramos esta página.</ScreenNote>
+      </ScreenStatus>
+    </Screen>
   ),
   shellComponent: RootDocument,
 });

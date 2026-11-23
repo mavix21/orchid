@@ -16,7 +16,7 @@ import * as Option from "effect/Option";
 import { ActivityRow } from "@/components/activity-row";
 import { BalanceHeader } from "@/components/balance-header";
 import { HomeSkeleton } from "@/components/home-skeleton";
-import { Screen } from "@/components/screen";
+import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
 import { recentActivity } from "@/fixtures/activity";
 import { whenUnlocked } from "@/wallet/display-lock";
 import { shownOverview } from "@/wallet/shown-overview";
@@ -218,10 +218,9 @@ function Unavailable({ failure }: { failure: WalletUnavailable }) {
     <Problem message={notice.message} />
   ) : (
     <Screen>
-      <main className="flex flex-1 flex-col justify-end gap-2 px-5 pb-30">
-        <h1 className="font-display text-h1">No pudimos cargar tu cuenta</h1>
-        <p className="text-body text-muted-foreground">{notice.message}</p>
-      </main>
+      <ScreenStatus title="No pudimos cargar tu cuenta">
+        <ScreenNote>{notice.message}</ScreenNote>
+      </ScreenStatus>
     </Screen>
   );
 }
@@ -255,13 +254,12 @@ function Notice({
 }) {
   return (
     <Screen>
-      <main className="flex flex-1 flex-col justify-end gap-2 px-5 pb-30">
-        <h1 className="font-display text-h1">{title}</h1>
-        <p className="text-body text-muted-foreground">{message}</p>
+      <ScreenStatus title={title}>
+        <ScreenNote>{message}</ScreenNote>
         <Button className="mt-4 w-full" disabled={busy} onClick={onAction}>
           {action}
         </Button>
-      </main>
+      </ScreenStatus>
     </Screen>
   );
 }

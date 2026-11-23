@@ -5,7 +5,12 @@ import type { EntryAttempt, UnlockOutcome } from "@workspace/wallet";
 import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 
-import { Screen, ScreenActions, ScreenNote } from "@/components/screen";
+import {
+  Screen,
+  ScreenActions,
+  ScreenNote,
+  ScreenStatus,
+} from "@/components/screen";
 import { displayLock, useDisplayState } from "./display-lock";
 import { unavailableMessage } from "./unavailable";
 import { markWalletOnDevice } from "./wallet-cookie";
@@ -88,8 +93,7 @@ function LockedWallet() {
 
   return (
     <Screen>
-      <main className="flex flex-1 flex-col justify-end gap-2 px-5 pb-6">
-        <h1 className="font-display text-h1">Tu cuenta está bloqueada</h1>
+      <ScreenStatus title="Tu cuenta está bloqueada">
         <ScreenNote>
           Desbloquéala con tu passkey. Puedes usar tu huella, tu rostro o el PIN
           de tu dispositivo.
@@ -99,7 +103,7 @@ function LockedWallet() {
             {problem}
           </p>
         ) : null}
-      </main>
+      </ScreenStatus>
       <ScreenActions>
         <Button
           className="w-full"
