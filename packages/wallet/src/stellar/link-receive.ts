@@ -11,6 +11,8 @@ import {
   AccountAddress,
   Asset,
   BalanceId,
+  DestinationAddress,
+  PaymentMemo,
   PositiveAmount,
   UnsignedEnvelope,
   formatAmount,
@@ -18,6 +20,8 @@ import {
 } from "../contract";
 import { fromStellarAsset, toStellarAsset } from "./assets";
 import { bounds } from "./bounds";
+import { isMuxed } from "./destination";
+import { fromStellarMemo, toStellarMemo } from "./memo";
 import { baseFee, networkPassphrase } from "./network";
 
 export class LinkReceiveFacts extends Schema.TaggedClass<LinkReceiveFacts>()(
@@ -27,10 +31,11 @@ export class LinkReceiveFacts extends Schema.TaggedClass<LinkReceiveFacts>()(
     channel: AccountAddress,
     link: AccountAddress,
     reserveSponsor: AccountAddress,
-    destination: AccountAddress,
+    destination: DestinationAddress,
     balance: BalanceId,
     asset: Asset,
     amount: PositiveAmount,
+    memo: Schema.optional(PaymentMemo),
   },
 ) {}
 
@@ -38,10 +43,11 @@ export interface LinkReceiveInput {
   readonly channel: Account;
   readonly link: AccountAddress;
   readonly reserveSponsor: AccountAddress;
-  readonly destination: AccountAddress;
+  readonly destination: DestinationAddress;
   readonly balance: BalanceId;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
+  readonly memo?: PaymentMemo;
   readonly minTime: number;
   readonly maxTime: number;
 }
@@ -54,6 +60,7 @@ export function draftLinkReceive(input: LinkReceiveInput): UnsignedEnvelope {
   const builder = new TransactionBuilder(input.channel, {
     fee: baseFee,
     networkPassphrase,
+    memo: toStellarMemo(input.memo),
   })
     .addOperation(
       Operation.beginSponsoringFutureReserves({
@@ -153,15 +160,24 @@ export function readLinkReceive(
 
   if (Option.isNone(amount)) return Option.none();
 
+  const destination = Schema.decodeSync(DestinationAddress)(
+    payment.destination,
+  );
+
+  const memo = fromStellarMemo(tx.memo);
+
+  if (isMuxed(destination) && memo !== undefined) return Option.none();
+
   const facts = new LinkReceiveFacts({
     ...fields,
     channel: Schema.decodeSync(AccountAddress)(tx.source),
     link: Schema.decodeSync(AccountAddress)(sponsoring.sponsoredId),
     reserveSponsor: Schema.decodeSync(AccountAddress)(sponsoring.source),
-    destination: Schema.decodeSync(AccountAddress)(payment.destination),
+    destination,
     balance: Schema.decodeSync(BalanceId)(claim.balanceId),
     asset: fromStellarAsset(payment.asset),
     amount: amount.value,
+    memo,
   });
 
   return draftLinkReceive({

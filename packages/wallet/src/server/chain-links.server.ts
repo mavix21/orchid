@@ -12,6 +12,8 @@ import {
   AccountAddress,
   type Asset,
   type BalanceId,
+  type DestinationAddress,
+  type PaymentMemo,
   type PositiveAmount,
   SigningRequest,
 } from "../contract";
@@ -28,10 +30,11 @@ export interface LinkChain {
   readonly channel: AccountAddress;
   draftLinkReceive(
     link: AccountAddress,
-    destination: AccountAddress,
+    destination: DestinationAddress,
     balance: BalanceId,
     asset: Asset,
     amount: PositiveAmount,
+    memo?: PaymentMemo,
   ): Effect.Effect<SigningRequest, ChainUnreachable>;
   cleanUpLink(link: AccountAddress): Effect.Effect<boolean, ChainUnreachable>;
 }
@@ -58,10 +61,11 @@ export const linkChain = (
     channel,
     draftLinkReceive: Effect.fn("Chain.draftLinkReceive")(function* (
       link: AccountAddress,
-      destination: AccountAddress,
+      destination: DestinationAddress,
       balance: BalanceId,
       asset: Asset,
       amount: PositiveAmount,
+      memo?: PaymentMemo,
     ) {
       const { minTime, maxTime } = yield* lifetime;
 
@@ -74,6 +78,7 @@ export const linkChain = (
           balance,
           asset,
           amount,
+          memo,
           minTime,
           maxTime,
         }),

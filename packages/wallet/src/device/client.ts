@@ -24,12 +24,15 @@ import {
 } from "./key-store";
 import {
   type BackUpOutcome,
+  type ConfirmExternalLinkOutcome,
   type ConfirmOpeningOutcome,
   type ConfirmOutcome,
   type ConfirmReclaimOutcome,
   type ConfirmLinkReceiveOutcome,
   type ConfirmPaymentLinkOutcome,
   type DeviceOverview,
+  type ExternalLinkIntent,
+  type ExternalLinkReview,
   type LinkReceiveReview,
   NoWallet,
   type PaymentLinkIntent,
@@ -41,6 +44,7 @@ import {
   type ReclaimReview,
   type ResolvePaymentLinkOutcome,
   type RevealPaymentLinkOutcome,
+  type ReviewExternalLinkOutcome,
   type ReviewPaymentLinkOutcome,
   type SavedLinkTarget,
   type RestoreOutcome,
@@ -101,6 +105,15 @@ export interface WalletClient {
     review: LinkReceiveReview,
     fragment: string,
   ): Promise<ConfirmLinkReceiveOutcome>;
+  reviewExternalLinkClaim(
+    link: AccountAddress,
+    fragment: string,
+    intent: ExternalLinkIntent,
+  ): Promise<ReviewExternalLinkOutcome>;
+  confirmExternalLinkClaim(
+    review: ExternalLinkReview,
+    fragment: string,
+  ): Promise<ConfirmExternalLinkOutcome>;
 }
 
 export interface WalletEffects {
@@ -140,6 +153,15 @@ export interface WalletEffects {
     review: LinkReceiveReview,
     fragment: string,
   ): Effect.Effect<ConfirmLinkReceiveOutcome>;
+  reviewExternalLinkClaim(
+    link: AccountAddress,
+    fragment: string,
+    intent: ExternalLinkIntent,
+  ): Effect.Effect<ReviewExternalLinkOutcome>;
+  confirmExternalLinkClaim(
+    review: ExternalLinkReview,
+    fragment: string,
+  ): Effect.Effect<ConfirmExternalLinkOutcome>;
 }
 
 export function makeWalletEffects(
@@ -163,6 +185,11 @@ export function makeWalletEffects(
   });
 
   const receiveIssue = Ref.makeUnsafe<ClaimIssue>({
+    ticket: 0,
+    issued: Option.none(),
+  });
+
+  const externalIssue = Ref.makeUnsafe<ClaimIssue>({
     ticket: 0,
     issued: Option.none(),
   });
@@ -193,6 +220,14 @@ export function makeWalletEffects(
   const receiving = loadFromServer(() => import("./link-receive")).pipe(
     Effect.map(({ deviceLinkReceive }) =>
       deviceLinkReceive(port, store, { state: receiveIssue, device }),
+    ),
+  );
+
+  const externalClaim = loadFromServer(
+    () => import("./external-link-claim"),
+  ).pipe(
+    Effect.map(({ deviceExternalLinkClaim }) =>
+      deviceExternalLinkClaim(port, externalIssue),
     ),
   );
 
@@ -339,6 +374,17 @@ export function makeWalletEffects(
       }),
     );
 
+  const networkOnly = <A>(program: Effect.Effect<A, WalletUnavailable>) =>
+    program.pipe(
+      Effect.catchTags({
+        Offline: (failure) => Effect.succeed(failure),
+        ServerUnreachable: (failure) => Effect.succeed(failure),
+        LedgerUnreachable: (failure) => Effect.succeed(failure),
+        ServiceFailed: (failure) => Effect.succeed(failure),
+        InvalidResponse: (failure) => Effect.succeed(failure),
+      }),
+    );
+
   return {
     saved: () =>
       saved().pipe(
@@ -463,6 +509,18 @@ export function makeWalletEffects(
           ),
         ),
       ),
+    reviewExternalLinkClaim: (link, fragment, intent) =>
+      networkOnly(
+        externalClaim.pipe(
+          Effect.flatMap(({ review }) => review(link, fragment, intent)),
+        ),
+      ),
+    confirmExternalLinkClaim: (shown, fragment) =>
+      networkOnly(
+        externalClaim.pipe(
+          Effect.flatMap(({ confirm }) => confirm(shown, fragment)),
+        ),
+      ),
   };
 }
 
@@ -503,5 +561,11 @@ export function makeWalletClient(
       Effect.runPromise(effects.reviewLinkReceive(link, fragment)),
     confirmLinkReceive: (shown, fragment) =>
       Effect.runPromise(effects.confirmLinkReceive(shown, fragment)),
+    reviewExternalLinkClaim: (link, fragment, intent) =>
+      Effect.runPromise(
+        effects.reviewExternalLinkClaim(link, fragment, intent),
+      ),
+    confirmExternalLinkClaim: (shown, fragment) =>
+      Effect.runPromise(effects.confirmExternalLinkClaim(shown, fragment)),
   };
 }

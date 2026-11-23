@@ -292,7 +292,7 @@ export const fakeChain = Layer.effect(
             ...w,
           }),
         ),
-      draftLinkReceive: (link, destination, balance, a, val) =>
+      draftLinkReceive: (link, destination, balance, a, val, memo) =>
         draftWith((w) =>
           draftLinkReceive({
             channel: sourceOf(real.channel),
@@ -302,6 +302,7 @@ export const fakeChain = Layer.effect(
             balance,
             asset: a,
             amount: val,
+            memo,
             ...w,
           }),
         ),

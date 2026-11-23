@@ -104,9 +104,7 @@ export const assetOrders = pgTable(
   "asset_orders",
   {
     id: uuid().primaryKey(),
-    wallet: text()
-      .notNull()
-      .references(() => wallets.address),
+    wallet: text().references(() => wallets.address),
     order: text().notNull(),
 
     opens: text(),
@@ -128,7 +126,9 @@ export const assetOrders = pgTable(
   (table) => [
     uniqueIndex("asset_orders_one_in_flight")
       .on(table.wallet, table.network, table.testnetEpoch)
-      .where(sql`${table.status} = 'authorized'`),
+      .where(
+        sql`${table.status} = 'authorized' and ${table.wallet} is not null`,
+      ),
     check(
       "asset_orders_signed_has_hash",
       sql`${table.status} = 'proposed' or ${table.hash} is not null`,

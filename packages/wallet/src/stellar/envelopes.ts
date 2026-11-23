@@ -1,6 +1,5 @@
 import {
   Account,
-  Memo,
   Operation,
   Transaction,
   TransactionBuilder,
@@ -21,6 +20,7 @@ import { type AssetFacts, readAssetEnvelope } from "./asset-envelopes";
 import { fromStellarAsset, toStellarAsset } from "./assets";
 import { bounds } from "./bounds";
 import { type LinkReceiveFacts, readLinkReceive } from "./link-receive";
+import { fromStellarMemo, toStellarMemo } from "./memo";
 import { baseFee, networkPassphrase, usdc } from "./network";
 
 export type EnvelopeFacts =
@@ -146,12 +146,7 @@ export function draftPayment(input: PaymentInput): UnsignedEnvelope {
     new TransactionBuilder(input.source, {
       fee: baseFee,
       networkPassphrase,
-      memo:
-        input.memo?.type === "text"
-          ? Memo.text(input.memo.value)
-          : input.memo
-            ? Memo.id(input.memo.value)
-            : Memo.none(),
+      memo: toStellarMemo(input.memo),
     })
       .addOperation(
         Operation.payment({
@@ -240,23 +235,7 @@ export function readEnvelope(
     }
 
     if (first?.type === "payment") {
-      const memo = tx.memo;
-      const value = memo.value;
-
-      const reference =
-        memo.type === "none"
-          ? undefined
-          : Schema.decodeUnknownSync(PaymentMemo)({
-              type: memo.type,
-              value:
-                value instanceof Uint8Array
-                  ? new TextDecoder("utf-8", {
-                      fatal: true,
-                      ignoreBOM: true,
-                    }).decode(value)
-                  : value,
-            });
-
+      const reference = fromStellarMemo(tx.memo);
       const payment = reference ? { memo: reference } : {};
       const amount = parseAmount(first.amount);
       const asset = fromStellarAsset(first.asset);

@@ -5,15 +5,18 @@ import * as Predicate from "effect/Predicate";
 import {
   type AccountAddress,
   type Approval,
+  AssetOrder,
   type BalanceId,
   AssetDraft,
-  type AssetOrder,
   type AssetPending,
   type AssetSettled,
   type AssetFailed,
   type AssetStep,
   BalanceGone,
   type BalanceGoneStatus,
+  type ExternalLinkFailed,
+  type ExternalLinkPending,
+  type ExternalLinkSettled,
   InvalidAddress,
   LinkUnclaimable,
   NotClaimable,
@@ -35,27 +38,61 @@ import {
   type AssetAuthorized,
   type AssetConcluded,
   AssetOrders,
+  type ConcludedReceipt,
   type StoredAssetOrder,
 } from "./AssetOrders.server";
 import { Chain, type ChainUnreachable } from "./Chain.server";
-import type { StoreFailure } from "./Directory.server";
+import { StoreFailure } from "./Directory.server";
 import { selectRecoverablePaymentLinks } from "./ledger-assets.server";
 import { type FundedLink, Transfers } from "./Transfers.server";
+import { externalLinkClaimFlow } from "./wallet-link-external.server";
 import { live } from "./wallet-reads.server";
+
+type ReconciledStep =
+  | AssetPending
+  | AssetSettled
+  | AssetFailed
+  | ExternalLinkPending
+  | ExternalLinkSettled
+  | ExternalLinkFailed;
 
 type Reconcile = (
   stored: AssetAuthorized,
-) => Effect.Effect<
-  AssetPending | AssetSettled | AssetFailed,
-  StoreFailure | ChainUnreachable
->;
+) => Effect.Effect<ReconciledStep, StoreFailure | ChainUnreachable>;
 
 const receiving = (stored: StoredAssetOrder) =>
-  Predicate.isTagged(stored.order.action, "ReceiveLink");
+  Predicate.isTagged(stored.order.action, "ReceiveLink") ||
+  Predicate.isTagged(stored.order.action, "ReceiveLinkExternal");
 
 const settledHere = (stored: StoredAssetOrder) =>
   Predicate.isTagged(stored, "AssetConcluded") &&
-  Predicate.isTagged(stored.receipt, "AssetSettled");
+  (Predicate.isTagged(stored.receipt, "AssetSettled") ||
+    Predicate.isTagged(stored.receipt, "ExternalLinkSettled"));
+
+const walletReceipt = (
+  receipt: ConcludedReceipt,
+): Effect.Effect<AssetSettled | AssetFailed, StoreFailure> =>
+  Predicate.isTagged(receipt, "AssetSettled") ||
+  Predicate.isTagged(receipt, "AssetFailed")
+    ? Effect.succeed(receipt)
+    : Effect.fail(
+        new StoreFailure({
+          cause: new Error("Wallet link receive produced an external receipt"),
+        }),
+      );
+
+const walletStep = (
+  step: ReconciledStep,
+): Effect.Effect<AssetPending | AssetSettled | AssetFailed, StoreFailure> =>
+  Predicate.isTagged(step, "AssetPending") ||
+  Predicate.isTagged(step, "AssetSettled") ||
+  Predicate.isTagged(step, "AssetFailed")
+    ? Effect.succeed(step)
+    : Effect.fail(
+        new StoreFailure({
+          cause: new Error("Wallet link receive produced an external step"),
+        }),
+      );
 
 export const linkReceiveFlow = (reconcile: Reconcile) =>
   Effect.gen(function* () {
@@ -89,8 +126,10 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       const { action } = concluded.order;
 
       if (
-        !Predicate.isTagged(action, "ReceiveLink") ||
-        !Predicate.isTagged(concluded.receipt, "AssetSettled")
+        (!Predicate.isTagged(action, "ReceiveLink") &&
+          !Predicate.isTagged(action, "ReceiveLinkExternal")) ||
+        (!Predicate.isTagged(concluded.receipt, "AssetSettled") &&
+          !Predicate.isTagged(concluded.receipt, "ExternalLinkSettled"))
       )
         return;
 
@@ -100,13 +139,12 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
     const settled = (
       stored: AssetAuthorized,
-    ): Effect.Effect<
-      AssetPending | AssetSettled | AssetFailed,
-      StoreFailure | ChainUnreachable
-    > =>
+    ): Effect.Effect<ReconciledStep, StoreFailure | ChainUnreachable> =>
       reconcile(stored).pipe(
         Effect.tap((receipt) =>
-          Predicate.isTagged(receipt, "AssetSettled") && receiving(stored)
+          (Predicate.isTagged(receipt, "AssetSettled") ||
+            Predicate.isTagged(receipt, "ExternalLinkSettled")) &&
+          receiving(stored)
             ? orders
                 .find(stored.order.id)
                 .pipe(
@@ -133,7 +171,9 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
         claims.some((entry) =>
           Option.match(claimer, {
             onNone: () => true,
-            onSome: (wallet) => entry.order.wallet === wallet,
+            onSome: (wallet) =>
+              entry.order instanceof AssetOrder &&
+              entry.order.wallet === wallet,
           }),
         )
       )
@@ -155,7 +195,9 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
         Effect.map(
           settled(stored),
           (receipt) =>
-            receiving(stored) && Predicate.isTagged(receipt, "AssetPending"),
+            receiving(stored) &&
+            (Predicate.isTagged(receipt, "AssetPending") ||
+              Predicate.isTagged(receipt, "ExternalLinkPending")),
         ),
       );
 
@@ -234,6 +276,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
         facts.value.link === action.link &&
         facts.value.balance === action.balance &&
         facts.value.destination === order.wallet &&
+        facts.value.memo === undefined &&
         assetKey(facts.value.asset) === assetKey(funded.asset) &&
         facts.value.amount === funded.amount &&
         BigInt(channel.value.sequence) + 1n === BigInt(facts.value.sequence)
@@ -339,8 +382,9 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
           SlotOccupied: () =>
             Effect.succeed(new AssetDraft({ request: stored.request })),
           WalletInactive: () => Effect.succeed(new NotOpened()),
-          AssetAuthorized: settled,
-          AssetConcluded: (concluded) => Effect.succeed(concluded.receipt),
+          AssetAuthorized: (entry) =>
+            settled(entry).pipe(Effect.flatMap(walletStep)),
+          AssetConcluded: (concluded) => walletReceipt(concluded.receipt),
           AssetProposed: (next) =>
             Effect.succeed(new AssetDraft({ request: next.request })),
         });
@@ -361,8 +405,9 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
           : yield* orders.propose(order, request);
 
       return yield* Match.valueTags(stored, {
-        AssetAuthorized: settled,
-        AssetConcluded: (concluded) => Effect.succeed(concluded.receipt),
+        AssetAuthorized: (entry) =>
+          settled(entry).pipe(Effect.flatMap(walletStep)),
+        AssetConcluded: (concluded) => walletReceipt(concluded.receipt),
         AssetProposed: (next) =>
           Effect.succeed(new AssetDraft({ request: next.request })),
       });
@@ -374,5 +419,19 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       yield* Effect.forEach(pending, cleanUp, { discard: true });
     });
 
-    return { receive, paymentLink, settled, balanceGone, cleanUpReceived };
+    const claimExternal = yield* externalLinkClaimFlow({
+      liveLink,
+      settleOnBalance,
+      balanceGone,
+      settled,
+    });
+
+    return {
+      receive,
+      claimExternal,
+      paymentLink,
+      settled,
+      balanceGone,
+      cleanUpReceived,
+    };
   });

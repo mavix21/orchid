@@ -7,6 +7,7 @@ import {
   AssetDraft,
   AssetFailed,
   AssetOrder,
+  AssetOrderId,
   AssetPending,
   AssetSettled,
   AssetUnsupported,
@@ -404,6 +405,65 @@ export const PaymentLinkStep = Schema.Union([
 
 export type PaymentLinkStep = typeof PaymentLinkStep.Type;
 
+export class ExternalLinkOrder extends Schema.Class<ExternalLinkOrder>(
+  "@workspace/wallet/ExternalLinkOrder",
+)({
+  id: AssetOrderId,
+  link: AccountAddress,
+  balance: BalanceId,
+  destination: DestinationAddress,
+  memo: Schema.optional(PaymentMemo),
+}) {}
+
+export class ExternalLinkDraft extends Schema.TaggedClass<ExternalLinkDraft>()(
+  "ExternalLinkDraft",
+  {
+    request: SigningRequest,
+    memoRequired: Schema.Boolean,
+  },
+) {}
+
+export class ExternalLinkPending extends Schema.TaggedClass<ExternalLinkPending>()(
+  "ExternalLinkPending",
+  {
+    id: AssetOrderId,
+    expiresAt: Schema.DateTimeUtcFromString,
+  },
+) {}
+
+export class ExternalLinkSettled extends Schema.TaggedClass<ExternalLinkSettled>()(
+  "ExternalLinkSettled",
+  {
+    id: AssetOrderId,
+    settledAt: Schema.DateTimeUtcFromString,
+  },
+) {}
+
+export class ExternalLinkFailed extends Schema.TaggedClass<ExternalLinkFailed>()(
+  "ExternalLinkFailed",
+  {
+    id: AssetOrderId,
+    reason: Schema.Literals(["expired", "rejected"]),
+  },
+) {}
+
+export const ExternalLinkStep = Schema.Union([
+  ExternalLinkDraft,
+  ExternalLinkPending,
+  ExternalLinkSettled,
+  ExternalLinkFailed,
+  InvalidAddress,
+  ExternalMemoRequired,
+  MemoNotAllowed,
+  RecipientCannotReceive,
+  NotClaimable,
+  BalanceGone,
+  LinkUnclaimable,
+  PaymentLinkChecking,
+]);
+
+export type ExternalLinkStep = typeof ExternalLinkStep.Type;
+
 export class Balance extends Schema.Class<Balance>("@workspace/wallet/Balance")(
   {
     asset: Asset,
@@ -501,6 +561,10 @@ export interface WalletPort<E = WalletUnavailable> {
   ): Effect.Effect<AssetStep, E>;
   paymentLinks(address: AccountAddress): Effect.Effect<PaymentLinksStep, E>;
   paymentLink(link: AccountAddress): Effect.Effect<PaymentLinkStep, E>;
+  claimPaymentLink(
+    order: ExternalLinkOrder,
+    approval: Option.Option<Approval>,
+  ): Effect.Effect<ExternalLinkStep, E>;
   resolvePaymentLink(
     sender: AccountAddress,
     receipt: PaymentLinkReceipt,

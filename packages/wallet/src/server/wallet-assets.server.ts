@@ -32,8 +32,10 @@ import { maxSponsoredTrustlines, usdc } from "../stellar/network";
 import {
   AssetOrders,
   AssetAuthorized,
-  AssetOrderJson,
+  type ConcludedReceipt,
+  StoredOrderJson,
   assetPending,
+  orderPending,
 } from "./AssetOrders.server";
 import {
   type Applied,
@@ -69,16 +71,44 @@ export const assetFlow = Effect.gen(function* () {
       Undecided: () =>
         chain
           .submit(stored.sealed)
-          .pipe(Effect.ignore, Effect.as(assetPending(stored))),
+          .pipe(Effect.ignore, Effect.as(orderPending(stored))),
     });
   });
 
   const links = yield* linkReceiveFlow(reconcileOrder);
 
   const reconcile = (stored: AssetAuthorized) =>
-    Predicate.isTagged(stored.order.action, "ReceiveLink")
+    Predicate.isTagged(stored.order.action, "ReceiveLink") ||
+    Predicate.isTagged(stored.order.action, "ReceiveLinkExternal")
       ? links.settled(stored)
       : reconcileOrder(stored);
+
+  const walletReceipt = (receipt: ConcludedReceipt) =>
+    Predicate.isTagged(receipt, "AssetSettled") ||
+    Predicate.isTagged(receipt, "AssetFailed")
+      ? Effect.succeed(receipt)
+      : Effect.fail(
+          new StoreFailure({
+            cause: new Error("Wallet asset order produced an external receipt"),
+          }),
+        );
+
+  const reconcileWallet = (stored: AssetAuthorized) =>
+    reconcile(stored).pipe(
+      Effect.flatMap((step) =>
+        Predicate.isTagged(step, "AssetPending") ||
+        Predicate.isTagged(step, "AssetSettled") ||
+        Predicate.isTagged(step, "AssetFailed")
+          ? Effect.succeed(step)
+          : Effect.fail(
+              new StoreFailure({
+                cause: new Error(
+                  "Wallet asset order produced an external step",
+                ),
+              }),
+            ),
+      ),
+    );
 
   const manage = Effect.fn("Wallet.manage")(function* (
     order: AssetOrder,
@@ -102,18 +132,19 @@ export const assetFlow = Effect.gen(function* () {
 
     if (Option.isSome(existing)) {
       if (
-        Schema.encodeSync(AssetOrderJson)(existing.value.order) !==
-        Schema.encodeSync(AssetOrderJson)(order)
+        !(existing.value.order instanceof AssetOrder) ||
+        Schema.encodeSync(StoredOrderJson)(existing.value.order) !==
+          Schema.encodeSync(StoredOrderJson)(order)
       )
         return yield* new StoreFailure({
           cause: new Error("Asset order id cannot identify a different order"),
         });
 
       if (Predicate.isTagged(existing.value, "AssetConcluded"))
-        return existing.value.receipt;
+        return yield* walletReceipt(existing.value.receipt);
 
       if (Predicate.isTagged(existing.value, "AssetAuthorized"))
-        return yield* reconcile(existing.value);
+        return yield* reconcileWallet(existing.value);
     }
 
     const paying = yield* transfers.latestFrom(order.wallet);
@@ -247,8 +278,8 @@ export const assetFlow = Effect.gen(function* () {
           SlotOccupied: () =>
             Effect.succeed(new AssetDraft({ request: stored.request })),
           WalletInactive: () => Effect.succeed(new NotOpened()),
-          AssetAuthorized: reconcile,
-          AssetConcluded: (concluded) => Effect.succeed(concluded.receipt),
+          AssetAuthorized: reconcileWallet,
+          AssetConcluded: (concluded) => walletReceipt(concluded.receipt),
           AssetProposed: (proposed) =>
             Effect.succeed(new AssetDraft({ request: proposed.request })),
         });
@@ -264,8 +295,8 @@ export const assetFlow = Effect.gen(function* () {
         : yield* orders.propose(order, request);
 
     return yield* Match.valueTags(stored, {
-      AssetAuthorized: reconcile,
-      AssetConcluded: (concluded) => Effect.succeed(concluded.receipt),
+      AssetAuthorized: reconcileWallet,
+      AssetConcluded: (concluded) => walletReceipt(concluded.receipt),
       AssetProposed: (proposed) =>
         Effect.succeed(new AssetDraft({ request: proposed.request })),
     });
@@ -273,6 +304,7 @@ export const assetFlow = Effect.gen(function* () {
 
   return {
     manage,
+    claimPaymentLink: links.claimExternal,
     reconcile,
     paymentLink: links.paymentLink,
     cleanUpReceivedLinks: links.cleanUpReceived,

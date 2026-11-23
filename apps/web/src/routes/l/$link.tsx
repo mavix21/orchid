@@ -24,6 +24,7 @@ import {
   ScreenNote,
   ScreenStatus,
 } from "@/components/screen";
+import { ExternalClaimFlow } from "@/links/external-claim-flow";
 import {
   LinkResultScreen,
   LinkWorking,
@@ -52,6 +53,7 @@ export const Route = createFileRoute("/l/$link")({
 type ReceiveStep = Data.TaggedEnum<{
   Reading: {};
   Offered: { readonly open: PaymentLinkOpen };
+  ExternalClaiming: { readonly open: PaymentLinkOpen };
   Enrolling: { readonly open: PaymentLinkOpen };
   Preparing: { readonly open: PaymentLinkOpen };
   Reviewing: {
@@ -235,8 +237,25 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
           >
             Recibir en mi Orchid
           </Button>
+          <Button
+            className="w-full"
+            variant="secondary"
+            data-testid="claim-external"
+            onClick={() => setStep(ReceiveStep.ExternalClaiming({ open }))}
+          >
+            Enviar a otra dirección
+          </Button>
         </ScreenActions>
       </Screen>
+    ),
+    ExternalClaiming: ({ open }) => (
+      <ExternalClaimFlow
+        link={link}
+        open={open}
+        fragment={fragment}
+        onBack={() => setStep(ReceiveStep.Offered({ open }))}
+        onRecheck={read}
+      />
     ),
     Enrolling: ({ open }) => (
       <PasskeyBrowserGate>

@@ -14,6 +14,8 @@ import {
   type AssetStep,
   AssetOrderId,
   LinkSecret,
+  type PaymentLinkOpen,
+  type PaymentLinkStep,
   ReceiveLink,
   type WalletPort,
   type WalletUnavailable,
@@ -92,6 +94,7 @@ export const receiveReviewOf = (
     wallet.reserveSponsor === undefined ||
     receive.reserveSponsor !== wallet.reserveSponsor ||
     receive.destination !== wallet.address ||
+    receive.memo !== undefined ||
     receive.link !== action.link ||
     action.link !== target.link ||
     receive.link === wallet.address ||
@@ -150,7 +153,7 @@ export const openLink = Effect.fn("Device.openLink")(function* (
   link: AccountAddress,
   fragment: string,
 ): Effect.fn.Return<
-  OpenedLink | Exclude<PaymentLinkOutcome, { _tag: "PaymentLinkOpen" }>,
+  OpenedLink | Exclude<PaymentLinkStep, PaymentLinkOpen> | LinkSecretMismatch,
   WalletUnavailable
 > {
   if (Option.isNone(linkSecretFor(link, fragment)))
