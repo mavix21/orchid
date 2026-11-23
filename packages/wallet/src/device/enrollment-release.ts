@@ -106,12 +106,17 @@ export const enrollmentRelease = (
   const release = Effect.fn("Device.releaseEnrollment")(function* (
     held: Held,
   ): Effect.fn.Return<EnrollWalletOutcome> {
-    const installed = yield* deps.store.readSealed().pipe(Effect.option);
+    const installed = yield* deps.store.readSealed().pipe(Effect.result);
+
+    if (Result.isFailure(installed))
+      return Match.valueTags(installed.failure, {
+        CorruptDeviceWallet: (corrupt) => corrupt,
+        KeyStoreUnavailable: () => new UnsupportedDevice(),
+      });
 
     const backupStored =
-      Option.isSome(installed) &&
-      Option.isSome(installed.value) &&
-      sameCandidate(installed.value.value, held.candidate);
+      Option.isSome(installed.success) &&
+      sameCandidate(installed.success.value, held.candidate);
 
     if (!backupStored) {
       const enrolled = yield* deps.port
