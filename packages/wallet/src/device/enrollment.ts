@@ -288,7 +288,7 @@ export function makeEnrollmentEffects(
         Option.isNone(persisted) ||
         !Predicate.isTagged(persisted.value, "PendingActivation")
       )
-        return new NoWallet();
+        return yield* clearPending.pipe(Effect.as(new NoWallet()));
 
       const { enrollment, candidate } = persisted.value;
 

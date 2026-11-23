@@ -298,14 +298,14 @@ function ChooseUsername() {
     setProblem(undefined);
     setUnsupportedPrf(false);
 
+    const shown = Option.isSome(pending) ? pending.value.review : undefined;
+
     const verifying =
       Option.isSome(pending) && pending.value.stage === "activate";
 
     const ticket = displayLock.begin();
 
-    const outcome = await enrollmentClient.advance(
-      Option.isSome(pending) ? pending.value.review : undefined,
-    );
+    const outcome = await enrollmentClient.advance(shown);
 
     if (
       verifying &&
@@ -317,6 +317,7 @@ function ChooseUsername() {
     await handleOutcome(outcome);
 
     if (
+      shown !== undefined &&
       Predicate.isTagged(outcome, "EnrollmentPending") &&
       outcome.stage === "activate"
     )

@@ -46,23 +46,6 @@ export const enrollmentRelease = (
     function* (
       held: Held,
     ): Effect.fn.Return<Option.Option<EnrollWalletOutcome>> {
-      const installed = yield* deps.store.readSealed().pipe(Effect.result);
-
-      if (Result.isFailure(installed))
-        return Option.some<EnrollWalletOutcome>(
-          Match.valueTags(installed.failure, {
-            CorruptDeviceWallet: (corrupt) => corrupt,
-            KeyStoreUnavailable: () => new UnsupportedDevice(),
-          }),
-        );
-
-      if (Option.isSome(installed.success))
-        return sameCandidate(installed.success.value, held.candidate)
-          ? Option.none()
-          : yield* clearPending.pipe(
-              Effect.as(Option.some<EnrollWalletOutcome>(new WalletOnDevice())),
-            );
-
       const reserveSponsor = reserveSponsorOf(held.review.draft);
 
       if (Option.isNone(reserveSponsor))
@@ -113,11 +96,13 @@ export const enrollmentRelease = (
         KeyStoreUnavailable: () => new UnsupportedDevice(),
       });
 
-    const backupStored =
+    if (
       Option.isSome(installed.success) &&
-      sameCandidate(installed.success.value, held.candidate);
+      !sameCandidate(installed.success.value, held.candidate)
+    )
+      return yield* clearPending.pipe(Effect.as(new WalletOnDevice()));
 
-    if (!backupStored) {
+    if (Option.isNone(installed.success)) {
       const enrolled = yield* deps.port
         .enroll(held.enrollment)
         .pipe(Effect.result);
@@ -138,11 +123,11 @@ export const enrollmentRelease = (
 
       if (Option.isSome(refused))
         return yield* clearPending.pipe(Effect.as(refused.value));
+
+      const blocked = yield* installCandidate(held);
+
+      if (Option.isSome(blocked)) return blocked.value;
     }
-
-    const blocked = yield* installCandidate(held);
-
-    if (Option.isSome(blocked)) return blocked.value;
 
     const claim = claimOf(held);
 
