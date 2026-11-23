@@ -182,6 +182,36 @@ it.effect(
     }),
 );
 
+it.effect("applies overlapping public updates without losing either", () =>
+  Effect.gen(function* () {
+    yield* Effect.promise(clearDatabase);
+
+    const disposable = yield* enrollDisposableWallet();
+
+    yield* browserKeyStore.installSealed(disposable.record);
+
+    const bumpRevision = (current: PublicDeviceWallet) =>
+      Option.some(
+        new PublicDeviceWallet({
+          ...current,
+          transferRevision: (current.transferRevision ?? 0) + 1,
+        }),
+      );
+
+    yield* Effect.all(
+      [
+        browserKeyStore.updatePublic(bumpRevision),
+        browserKeyStore.updatePublic(bumpRevision),
+      ],
+      { concurrency: "unbounded" },
+    );
+
+    expect(
+      Option.getOrThrow(yield* browserKeyStore.readPublic()).transferRevision,
+    ).toBe(2);
+  }),
+);
+
 it.effect(
   "treats a v1 wallet record with a colocated wrapping key as empty without upgrading it",
   () =>
