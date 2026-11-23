@@ -54,6 +54,7 @@ type OnDraft = (
 ) => Effect.Effect<Option.Option<ReviewOpeningOutcome>>;
 
 interface SponsorReservation {
+  readonly wallet: PublicDeviceWallet;
   readonly address: AccountAddress;
   readonly sponsor: AccountAddress;
   readonly previous: AccountAddress | undefined;
@@ -78,7 +79,7 @@ export function deviceOpening(
           username: wallet.username,
           address: wallet.address,
           draft,
-          redrafted,
+          redrafted: redrafted || refreshed,
         });
 
         const standing = yield* standingNow(wallet, review);
@@ -246,7 +247,10 @@ export function deviceOpening(
     );
 
   const afterRelease = (shown: OpeningReview): OnDraft => {
-    const stage = presenting(false);
+    const stage = presenting(
+      Predicate.isTagged(shown.draft, "RecoveryDraft") && shown.redrafted,
+    );
+
     const again = presenting(true);
 
     return (wallet, draft) =>
@@ -324,6 +328,7 @@ export function deviceOpening(
                   committed.value.wallet.reserveSponsor === sponsor.value
                   ? new Reserved({
                       reservation: {
+                        wallet: committed.value.wallet,
                         address: wallet.address,
                         sponsor: sponsor.value,
                         previous: wallet.reserveSponsor,
@@ -348,8 +353,12 @@ export function deviceOpening(
               : Option.none(),
           )
           .pipe(Effect.asVoid),
-      release: (approvals) =>
-        observe(observed, Option.some(approvals), afterRelease(presented)),
+      release: (approvals, reservation) =>
+        observe(
+          reservation.wallet,
+          Option.some(approvals),
+          afterRelease(presented),
+        ),
     });
 
     if (Predicate.isTagged(approved, "DraftRejected")) {

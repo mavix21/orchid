@@ -4,14 +4,16 @@ import { join } from "node:path";
 import { expect, it } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import { Database, databaseLayer } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import {
   type Approvals,
+  Opened,
   OpeningDraft,
   OpeningPending,
+  Profile,
   UsernameTaken,
   type WalletClaim,
 } from "../src/contract";
@@ -23,6 +25,7 @@ import {
   approveOpening,
   claimFor,
   dbLayer,
+  settleHash,
   walletForDb,
 } from "./wallet-harness";
 
@@ -193,6 +196,15 @@ it.live(
         yield* reopen(claim, approveOpening(recoveredKey, draft)),
       ).toBeInstanceOf(OpeningPending);
 
-      expect(yield* reopen(claim)).toBeInstanceOf(OpeningPending);
+      const stored = yield* Database.use((db) =>
+        db.select().from(wallets).where(eq(wallets.address, claim.address)),
+      ).pipe(Effect.provide(scratchLayer));
+
+      settleHash(
+        Option.getOrThrow(Option.fromNullishOr(stored[0]?.attemptHash)),
+      );
+      expect(yield* reopen(claim)).toEqual(
+        new Opened({ profile: new Profile(claim) }),
+      );
     }),
 );
