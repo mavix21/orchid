@@ -12,14 +12,11 @@ import {
   TransferOrder,
   assetKey,
 } from "../contract";
-import type {
-  ClaimableFacts,
-  PaymentLinkFacts,
-} from "../stellar/asset-envelopes";
-import { type PaymentFacts, readEnvelope } from "../stellar/envelopes";
+import type { PaymentLinkFacts } from "../stellar/asset-envelopes";
+import { readEnvelope } from "../stellar/envelopes";
 import { network } from "../stellar/network";
 import { type PublicDeviceWallet, receiptJson } from "./key-store";
-import type { PaymentReview, TransferIntent } from "./outcomes";
+import type { TransferIntent } from "./outcomes";
 
 export const clockAllowance = 60;
 
@@ -155,14 +152,3 @@ export const orderedFacts = (
 
   return matches ? Option.some(drafted) : Option.none();
 };
-
-export const reviewed =
-  (review: Option.Option<PaymentReview>) =>
-  (facts: PaymentFacts | ClaimableFacts | PaymentLinkFacts) =>
-    Option.match(review, {
-      onNone: () => true,
-      onSome: (shown) =>
-        facts.to === shown.to &&
-        (Predicate.isTagged(facts, "ClaimableFacts") ||
-          Predicate.isTagged(facts, "PaymentLinkFacts")) === shown.claimable,
-    });

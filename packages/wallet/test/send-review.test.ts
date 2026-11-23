@@ -4,6 +4,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import {
@@ -12,6 +13,7 @@ import {
   BalanceId,
   ExternalRecipient,
   Holding,
+  LinkRecipient,
   Offline,
   OpenPaymentLinks,
   PaymentLinkReceipt,
@@ -30,9 +32,12 @@ import {
   type WalletPort,
   baseAsset,
 } from "../src/contract";
+import type { AssertionCeremony } from "../src/device/assertion";
 import {
   PasskeyFailed,
   type Passkeys,
+  PaymentLinkIntent,
+  PaymentReview,
   SavedWallet,
   TransferIntent,
   UnsupportedDevice,
@@ -48,11 +53,15 @@ import {
   addressOf,
   memoryKeyStore,
   nowSeconds,
-  savedWallet,
   sendActors,
   transferDraftOf,
   unusedPort,
 } from "./device-fixtures";
+import {
+  approvingDevice,
+  installSealedWallet,
+  sealedKeyStore,
+} from "./sealed-wallet-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 
@@ -106,7 +115,9 @@ const settledFor = (order: TransferOrder) =>
     settledAt: DateTime.makeUnsafe(Date.now()),
   });
 
-const deviceAnswering = (
+const storedWallet = Effect.map(sealedKeyStore.readPublic(), Option.getOrThrow);
+
+const portAnswering = (
   answer: (
     order: TransferOrder,
     approval: Option.Option<Approval>,
@@ -116,7 +127,6 @@ const deviceAnswering = (
 ) => {
   const approvals: Array<Option.Option<Approval>> = [];
   const orderIds: Array<string> = [];
-  const store = memoryKeyStore(Option.some(actors.wallet));
 
   const transfer: WalletPort["transfer"] = (order, approval) =>
     Effect.suspend(() => {
@@ -130,13 +140,47 @@ const deviceAnswering = (
     ? unusedPort({ overview, transfer })
     : unusedPort({ transfer });
 
+  return { approvals, orderIds, port };
+};
+
+const reviewingDevice = (...args: Parameters<typeof portAnswering>) => {
+  const { approvals, port } = portAnswering(...args);
+  const store = memoryKeyStore(Option.some(actors.wallet));
+
+  return {
+    approvals,
+    store,
+    client: makeWalletEffects(port, store, passkeys),
+  };
+};
+
+const confirmingDevice = Effect.fn(function* (
+  answer: Parameters<typeof portAnswering>[0],
+  duringPrompt: Effect.Effect<void> = Effect.void,
+) {
+  const { approvals, orderIds, port } = portAnswering(answer);
+  const callsAtPrompt: Array<number> = [];
+  const { auth } = yield* installSealedWallet(actors.wallet);
+
+  const ceremony: AssertionCeremony = {
+    assert: (request) =>
+      Effect.sync(() => callsAtPrompt.push(approvals.length)).pipe(
+        Effect.andThen(duringPrompt),
+        Effect.andThen(auth.assertions.assert(request)),
+      ),
+  };
+
   return {
     approvals,
     orderIds,
-    client: makeWalletEffects(port, store, passkeys),
-    store,
+    callsAtPrompt,
+    auth,
+    client: makeWalletEffects(port, sealedKeyStore, passkeys, {
+      ...approvingDevice(auth),
+      ceremony,
+    }),
   };
-};
+});
 
 const reviewed = Effect.fn(function* (
   client: ReturnType<typeof makeWalletEffects>,
@@ -149,19 +193,21 @@ const reviewed = Effect.fn(function* (
   return outcome;
 });
 
-const markApproved = Effect.fn(function* (
-  store: ReturnType<typeof memoryKeyStore>,
-) {
-  const current = yield* savedWallet(store);
-
-  yield* store
-    .write(new DeviceWallet({ ...current, approvedUntil: nowSeconds() + 120 }))
+const markApproved = (store: KeyStore) =>
+  store
+    .updatePublic((current) =>
+      Option.some(
+        new PublicDeviceWallet({
+          ...current,
+          approvedUntil: nowSeconds() + 120,
+        }),
+      ),
+    )
     .pipe(Effect.orDie);
-});
 
 it.live("reviews the envelope's facts without approving the draft", () =>
   Effect.gen(function* () {
-    const { approvals, client } = deviceAnswering(() =>
+    const { approvals, client } = reviewingDevice(() =>
       Effect.succeed(exchangeDraft()),
     );
 
@@ -178,41 +224,82 @@ it.live("reviews the envelope's facts without approving the draft", () =>
   }),
 );
 
-it.live("approves the reviewed order once under the same id", () =>
+it.live(
+  "approves the reviewed order once under the same id after its own prompt, never on entry or a cancelled prompt",
+  () =>
+    Effect.gen(function* () {
+      const { approvals, orderIds, callsAtPrompt, auth, client } =
+        yield* confirmingDevice((order, approval) =>
+          Effect.succeed(
+            Option.isSome(approval) ? settledFor(order) : pedroDraft(),
+          ),
+        );
+
+      const review = yield* reviewed(client, toPedro);
+
+      expect(review).toMatchObject({ to: actors.pedro, username: "pedro" });
+      expect((yield* client.unlock())._tag).toBe("Unlocked");
+
+      auth.cancels = true;
+      expect((yield* client.confirm(review))._tag).toBe("PasskeyCancelled");
+      expect((yield* storedWallet).approvedUntil).toBeUndefined();
+
+      auth.cancels = false;
+      expect(yield* client.confirm(review)).toBeInstanceOf(Settled);
+      expect(approvals.filter(Option.isSome)).toHaveLength(1);
+      expect(callsAtPrompt).toEqual([1, 1, 1]);
+      expect(new Set(orderIds)).toEqual(new Set([review.order.id]));
+    }),
+);
+
+it.live("refuses a review whose draft is not the one it shows", () =>
   Effect.gen(function* () {
-    const { approvals, orderIds, client } = deviceAnswering((order, approval) =>
-      Effect.succeed(
-        Option.isSome(approval) ? settledFor(order) : pedroDraft(),
-      ),
+    const { approvals, callsAtPrompt, client } = yield* confirmingDevice(() =>
+      Effect.succeed(pedroDraft()),
     );
 
     const review = yield* reviewed(client, toPedro);
 
-    expect(review).toMatchObject({ to: actors.pedro, username: "pedro" });
-    expect(yield* client.confirm(review)).toBeInstanceOf(Settled);
-    expect(approvals.filter(Option.isSome)).toHaveLength(1);
-    expect(new Set(orderIds)).toEqual(new Set([review.order.id]));
+    const swapped = new PaymentReview({ ...review, draft: pedroClaimable() });
+
+    expect((yield* client.confirm(swapped))._tag).toBe("DraftRejected");
+    expect(approvals.filter(Option.isSome)).toHaveLength(0);
+    expect(callsAtPrompt).toEqual([]);
   }),
 );
 
-it.live("refuses a payment reviewed that turns into a claimable", () =>
-  Effect.gen(function* () {
-    const { approvals, client } = deviceAnswering((_o, _a, call) =>
-      Effect.succeed(call === 1 ? pedroDraft() : pedroClaimable()),
-    );
+it.live(
+  "refuses a confirmation whose order another tab replaced during the prompt",
+  () =>
+    Effect.gen(function* () {
+      const replacing = makeWalletEffects(
+        unusedPort({ transfer: () => Effect.succeed(exchangeDraft()) }),
+        sealedKeyStore,
+        passkeys,
+      );
 
-    const review = yield* reviewed(client, toPedro);
+      const { approvals, client } = yield* confirmingDevice(
+        () => Effect.succeed(pedroDraft()),
+        replacing.review(toExchange).pipe(Effect.asVoid),
+      );
 
-    expect((yield* client.confirm(review))._tag).toBe("DraftRejected");
-    expect(approvals.filter(Option.isSome)).toHaveLength(0);
-  }),
+      const review = yield* reviewed(client, toPedro);
+
+      expect((yield* client.confirm(review))._tag).toBe("DraftRejected");
+      expect(approvals.filter(Option.isSome)).toHaveLength(0);
+
+      const kept = yield* storedWallet;
+
+      expect(kept.transfer?.to).toEqual(toExchange.to);
+      expect(kept.approvedUntil).toBeUndefined();
+    }),
 );
 
 it.live(
   "resume ignores an unapproved draft and reports an unsubmitted approval as outstanding",
   () =>
     Effect.gen(function* () {
-      const { approvals, client, store } = deviceAnswering(
+      const { approvals, client, store } = reviewingDevice(
         () => Effect.succeed(pedroDraft()),
         () =>
           Effect.succeed(
@@ -239,7 +326,7 @@ it.live(
 
 it.live("keeps the signed order when confirming fails offline", () =>
   Effect.gen(function* () {
-    const { client, store } = deviceAnswering((_o, approval) =>
+    const { client } = yield* confirmingDevice((_o, approval) =>
       Option.isSome(approval)
         ? Effect.fail(new Offline())
         : Effect.succeed(pedroDraft()),
@@ -248,7 +335,7 @@ it.live("keeps the signed order when confirming fails offline", () =>
     const review = yield* reviewed(client, toPedro);
 
     expect(yield* client.confirm(review)).toEqual(new Offline());
-    const kept = yield* savedWallet(store);
+    const kept = yield* storedWallet;
 
     expect(kept.transfer?.id).toBe(review.order.id);
     expect(kept.approvedUntil).toBeDefined();
@@ -259,7 +346,7 @@ it.effect(
   "follows an approved order past many Pending answers until settled",
   () =>
     Effect.gen(function* () {
-      const device = deviceAnswering((order, _a, call) =>
+      const device = reviewingDevice((order, _a, call) =>
         Effect.succeed(
           call === 1
             ? pedroDraft()
@@ -296,7 +383,7 @@ it.live(
       let settled: Option.Option<Settled> = Option.none();
       let offline = false;
 
-      const device = deviceAnswering(
+      const device = reviewingDevice(
         () => Effect.succeed(pedroDraft()),
         () =>
           offline
@@ -332,7 +419,7 @@ it.live(
 
 it.effect("stops following a payment still Pending after it expired", () =>
   Effect.gen(function* () {
-    const device = deviceAnswering((order, _a, call) =>
+    const device = reviewingDevice((order, _a, call) =>
       Effect.succeed(
         call === 1
           ? pedroDraft()
@@ -358,7 +445,7 @@ it.effect("stops following a payment still Pending after it expired", () =>
 );
 
 it.live(
-  "reads status, overview, links, reviews and resumes orders without secret or passkey access",
+  "reads status, overview, links, reviews and resumes orders without secret or passkey access, and fails closed on any signature",
   () =>
     Effect.gen(function* () {
       const linkAddress = addressOf(Keypair.random());
@@ -447,6 +534,15 @@ it.live(
           Effect.sync(() => {
             approvals.push(approval);
 
+            if (Predicate.isTagged(order.to, "PaymentLink"))
+              return transferDraftOf(
+                actors.paymentLink({ to: order.to.value, amount }),
+                new LinkRecipient({
+                  kind: "paymentLink",
+                  address: order.to.value,
+                }),
+              );
+
             return settleResume ? settledFor(order) : exchangeDraft();
           }),
       });
@@ -483,6 +579,12 @@ it.live(
       expect(afterResolve.approvedUntil).toBeUndefined();
       expect(afterResolve.linkReceipt).toBeUndefined();
       expect(afterResolve.reserveSponsor).toBe(actors.sponsor);
+
+      expect(
+        yield* client.createPaymentLink(
+          new PaymentLinkIntent({ asset: baseAsset, amount }),
+        ),
+      ).toEqual(new UnsupportedDevice());
 
       const review = yield* reviewed(client, toExchange);
 

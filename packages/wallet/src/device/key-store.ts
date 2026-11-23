@@ -8,7 +8,11 @@ import {
   TransferOrder,
   Username,
 } from "../contract";
-import { PinnedCredential } from "./assertion";
+import {
+  type AssertionCeremony,
+  PinnedCredential,
+  type RelyingParty,
+} from "./assertion";
 import { LocalPhraseEnvelope, localEnvelopeVersion } from "./local-envelope";
 import { SecretPhrase } from "./secret-phrase";
 
@@ -105,6 +109,12 @@ export interface SealedKeyStore {
     wallet: SealedDeviceWallet,
     replacing?: "same-address",
   ): Effect.Effect<boolean, KeyStoreUnavailable | CorruptDeviceWallet>;
+}
+
+export interface SealedDevice {
+  readonly store: SealedKeyStore;
+  readonly ceremony: AssertionCeremony;
+  readonly relyingParty: () => RelyingParty;
 }
 
 export interface KeyStore {

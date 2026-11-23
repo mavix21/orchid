@@ -12,15 +12,18 @@ import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
+  type ConfirmOutcome,
   type CreateOutcome,
   DeviceWallet,
   Holding,
+  type KeyStore,
+  KeyStoreUnavailable,
   Opened,
   PositiveAmount,
+  PublicDeviceWallet,
   Restored,
-  type SealedDeviceWallet,
+  SealedDeviceWallet,
   type SealedKeyStore,
-  type SendOutcome,
   Settled,
   TransferIntent,
   Username,
@@ -70,7 +73,21 @@ const memorySealedKeyStore = (): SealedKeyStore => {
 
   return {
     readPublic: () => Effect.sync(() => Option.map(saved, (s) => s.public)),
-    updatePublic: () => Effect.sync(() => Option.none()),
+    updatePublic: (update) =>
+      Effect.sync(() =>
+        Option.map(saved, (stored) => {
+          const next = update(stored.public);
+
+          if (Option.isNone(next))
+            return { wallet: stored.public, updated: false };
+
+          saved = Option.some(
+            new SealedDeviceWallet({ ...stored, public: next.value }),
+          );
+
+          return { wallet: next.value, updated: true };
+        }),
+      ),
     readSealed: () => Effect.sync(() => saved),
     writeSealed: (wallet) =>
       Effect.sync(() => {
@@ -91,6 +108,15 @@ const relyingParty = {
   origin: passkeyOrigin,
   rpId: new URL(passkeyOrigin).hostname,
 };
+
+const publicKeyStore = (sealed: SealedKeyStore): KeyStore => ({
+  read: () =>
+    Effect.fail(new KeyStoreUnavailable({ cause: "secret requires passkey" })),
+  write: () =>
+    Effect.fail(new KeyStoreUnavailable({ cause: "secret requires passkey" })),
+  readPublic: () => Effect.orDie(sealed.readPublic()),
+  updatePublic: (update) => Effect.orDie(sealed.updatePublic(update)),
+});
 
 const openWallet = async (
   port: WalletPort,
@@ -168,7 +194,7 @@ const openWallet = async (
 
   assert.ok(opened instanceof Opened, `Expected Opened, got ${opened._tag}`);
 
-  return opened;
+  return { opened, sealed };
 };
 
 assert.equal((await server.getNetwork()).passphrase, networkPassphrase);
@@ -190,7 +216,7 @@ const freshUsername = () =>
 
 const username = freshUsername();
 
-const outcome = await openWallet(
+const { opened: outcome, sealed: enrolled } = await openWallet(
   walletPort,
   authenticator,
   device,
@@ -329,14 +355,48 @@ const payment = new TransferIntent({
   amount: Schema.decodeSync(PositiveAmount)("5000000"),
 });
 
-let sent: SendOutcome = await client.send(payment);
+const payingStore = memorySealedKeyStore();
+
+await Effect.runPromise(
+  payingStore.installSealed(
+    new SealedDeviceWallet({
+      ...enrolled,
+      public: new PublicDeviceWallet({
+        address: wallet.address,
+        username: wallet.username,
+        reserveSponsor: wallet.reserveSponsor,
+        backup: wallet.backup,
+      }),
+    }),
+  ),
+);
+
+const payingClient = makeWalletClient(
+  walletPort,
+  publicKeyStore(payingStore),
+  authenticator.passkeys,
+  {
+    store: payingStore,
+    ceremony: authenticator.assertions,
+    relyingParty: () => relyingParty,
+  },
+);
+
+const review = await payingClient.review(payment);
+
+assert.ok(
+  Predicate.isTagged(review, "PaymentReview"),
+  `Expected PaymentReview, got ${review._tag}`,
+);
+
+let sent: ConfirmOutcome = await payingClient.confirm(review);
 
 for (
   let attempt = 0;
   attempt < 3 && Predicate.isTagged(sent, "Pending");
   attempt++
 )
-  sent = await client.send(payment);
+  sent = await payingClient.resume(review.order.id);
 
 assert.ok(sent instanceof Settled, `Expected Settled, got ${sent._tag}`);
 
@@ -410,7 +470,7 @@ console.log(
         "raw extXdr identifies Orchid as account and trustline sponsor; 0 XLM, num_sponsored 3",
         "stored recovery signed by the derived key and merging into the reserve sponsor",
         "overview returns Holding with a zero USDC balance",
-        "the device client approved a USDC payment draft between two Orchid usernames and it settled on testnet",
+        "the device client approved a reviewed USDC payment draft between two Orchid usernames with its own passkey assertion and it settled on testnet",
         "a second device restores the same secret phrase and username from the passkey backup",
       ],
     },

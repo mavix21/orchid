@@ -30,6 +30,7 @@ import {
 } from "../src/contract";
 import { TransferIntent, makeWalletEffects } from "../src/device/client";
 import { DeviceWallet, type KeyStore } from "../src/device/key-store";
+import { sendTransfer } from "../src/device/sending";
 import { signingKey } from "../src/device/signing";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
@@ -212,36 +213,21 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 : wallet.transfer(nextOrder, approval),
           };
 
-          const firstDevice = makeWalletEffects(
-            interruptedPort,
-            store,
-            passkeys,
-          );
-
-          const review = yield* firstDevice.review(
-            new TransferIntent({
-              to: PaymentLinkRecipient.make({ value: linkAddr }),
-              asset: baseAsset,
-              amount: linkAmount,
-            }),
-          );
-
-          assertTagged(review, "PaymentReview");
-
-          const receiptBeforeConfirm = (yield* savedWallet(store)).linkReceipt;
-
-          expect(receiptBeforeConfirm?.attempts).toHaveLength(1);
-
-          world.accounts.set(
-            sender.address,
-            accountState({ sequence: "3002" }),
-          );
-
-          expect(yield* firstDevice.confirm(review)).toEqual(new Offline());
+          expect(
+            yield* Effect.flip(
+              sendTransfer(interruptedPort, store).send(
+                new TransferIntent({
+                  to: PaymentLinkRecipient.make({ value: linkAddr }),
+                  asset: baseAsset,
+                  amount: linkAmount,
+                }),
+              ),
+            ),
+          ).toEqual(new Offline());
 
           const savedAfterCrash = yield* savedWallet(store);
 
-          expect(savedAfterCrash.linkReceipt?.attempts).toHaveLength(2);
+          expect(savedAfterCrash.linkReceipt?.attempts).toHaveLength(1);
 
           const restartedDevice = makeWalletEffects(wallet, store, passkeys);
           const resolved = yield* restartedDevice.resolvePaymentLink();
@@ -302,15 +288,15 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 : wallet.transfer(nextOrder, approval),
           };
 
-          const firstDevice = makeWalletEffects(pendingPort, store, passkeys);
-
           expect(
-            yield* firstDevice.send(
-              new TransferIntent({
-                to: PaymentLinkRecipient.make({ value: linkAddr }),
-                asset: baseAsset,
-                amount: linkAmount,
-              }),
+            yield* Effect.flip(
+              sendTransfer(pendingPort, store).send(
+                new TransferIntent({
+                  to: PaymentLinkRecipient.make({ value: linkAddr }),
+                  asset: baseAsset,
+                  amount: linkAmount,
+                }),
+              ),
             ),
           ).toEqual(new Offline());
 
