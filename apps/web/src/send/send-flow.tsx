@@ -18,6 +18,7 @@ import * as Predicate from "effect/Predicate";
 
 import { OptionRow } from "@/components/option-row";
 import { ScreenActions, ScreenStatus } from "@/components/screen";
+import { concealedLinkFor } from "@/links/concealed-link";
 import { LinkFlow } from "@/links/link-flow";
 import { walletEffects } from "@/wallet";
 
@@ -427,7 +428,10 @@ export function SendFlow({
     reduceSendFlow,
     transfer,
     Option.match({
-      onNone: () => SendStep.Choosing(),
+      onNone: () =>
+        Option.isSome(concealedLinkFor(asset))
+          ? SendStep.Linking()
+          : SendStep.Choosing(),
       onSome: (id) => SendStep.Tracking({ id, draft: Option.none() }),
     }),
   );

@@ -14,11 +14,7 @@ class HeldUrl {
   }
 }
 
-export async function shareLink(
-  created: PaymentLinkCreated,
-): Promise<ShareResult> {
-  const held = new HeldUrl(new URL(created.path, window.location.origin).href);
-
+const present = async (text: string, held: HeldUrl): Promise<ShareResult> => {
   const stopWatching = displayLock.subscribe(() => {
     if (!Predicate.isTagged(displayLock.state(), "Unlocked")) held.release();
   });
@@ -28,7 +24,7 @@ export async function shareLink(
       try {
         await navigator.share({
           title: "Link de pago de Orchid",
-          text: `Te envié ${amountLabel(created.amount, created.asset)} con Orchid. Abre el link para recibirlo.`,
+          text,
           url: held.url,
         });
 
@@ -52,4 +48,14 @@ export async function shareLink(
     stopWatching();
     held.release();
   }
+};
+
+export function shareLink(created: PaymentLinkCreated): Promise<ShareResult> {
+  if (!Predicate.isTagged(displayLock.state(), "Unlocked"))
+    return Promise.resolve("unavailable");
+
+  return present(
+    `Te envié ${amountLabel(created.amount, created.asset)} con Orchid. Abre el link para recibirlo.`,
+    new HeldUrl(new URL(created.path, window.location.origin).href),
+  );
 }

@@ -79,7 +79,9 @@ export function makeDisplayLock(now: () => number): DisplayLock {
 
       return new EntryAttempt({ id: attempts });
     },
-    entryPending: (attempt) => pending?.id === attempt.id,
+    entryPending: (attempt) =>
+      pending?.id === attempt.id &&
+      (hiddenSince === undefined || awayWithinWindow(hiddenSince)),
     entryVerified: (attempt) => {
       if (pending?.id !== attempt.id) return;
 

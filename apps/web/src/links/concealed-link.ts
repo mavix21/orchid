@@ -1,4 +1,6 @@
+import { type Asset, assetKey } from "@workspace/wallet";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 
 import { type LinkStep, concealedStep } from "./link-step";
 
@@ -8,7 +10,13 @@ export const keepConcealed = (step: LinkStep) => {
   kept = concealedStep(step);
 };
 
-export const concealedLink = () => kept;
+export const concealedLinkFor = (asset: Asset): Option.Option<LinkStep> =>
+  Option.filter(
+    kept,
+    (step) =>
+      (Predicate.isTagged(step, "Lost") || Predicate.isTagged(step, "Sent")) &&
+      assetKey(step.link.asset) === assetKey(asset),
+  );
 
 export const forgetConcealed = () => {
   kept = Option.none();
