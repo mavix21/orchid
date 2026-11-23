@@ -3,20 +3,18 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 
 import {
-  type Asset,
   type ConfirmReclaimOutcome,
   type ReclaimReview,
   type ReviewReclaimOutcome,
-  formatAmount,
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
+import { ReviewHero } from "@/components/review-hero";
 import { ScreenActions } from "@/components/screen";
-import { assetCode } from "@/send/money";
-import { ReviewRow } from "@/send/payment-review";
+import { amountLabel } from "@/send/money";
 import { type Answer, useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
 
@@ -70,7 +68,7 @@ type RecoveryEvent = Data.TaggedEnum<{
 const RecoveryEvent = Data.taggedEnum<RecoveryEvent>();
 
 const expired =
-  "La recuperación anterior venció y la preparamos de nuevo. Revísala y confirma otra vez.";
+  "La recuperación venció. La preparamos de nuevo: toca Recuperar dinero.";
 
 const confirmed = (
   state: Data.TaggedEnum.Value<Recovery, "Confirming">,
@@ -92,21 +90,17 @@ const confirmed = (
       }),
     ),
     Match.tag("PasskeyCancelled", () =>
-      withdrawn("No usaste tu passkey, así que no recuperamos el dinero."),
+      withdrawn("No recuperamos el dinero porque no usaste tu passkey."),
     ),
     Match.tag("PasskeyFailed", () =>
-      withdrawn(
-        "No pudimos usar tu passkey y no recuperamos el dinero. Inténtalo de nuevo.",
-      ),
+      withdrawn("No pudimos usar tu passkey. Inténtalo de nuevo."),
     ),
     Match.tag("WrongCredential", () =>
-      withdrawn(
-        "Usaste una passkey distinta y no recuperamos el dinero. Confirma con la passkey de tu cuenta.",
-      ),
+      withdrawn("Usaste otra passkey. Usa la de tu cuenta."),
     ),
     Match.tag("AssertionRejected", () =>
       withdrawn(
-        "No pudimos verificar tu passkey y no recuperamos el dinero. Confirma con tu huella, rostro o PIN del dispositivo.",
+        "No pudimos verificar tu passkey. Usa tu huella, rostro o PIN.",
       ),
     ),
     Match.orElse((outcome) =>
@@ -183,25 +177,12 @@ export function FullValue({ children }: { children: string }) {
   return <span className="font-mono text-caption break-all">{children}</span>;
 }
 
-export function AssetLine({ asset }: { asset: Asset }) {
-  return (
-    <span className="flex flex-col items-end">
-      <span>{assetCode(asset)}</span>
-      {Predicate.isTagged(asset, "Issued") ? (
-        <FullValue>{asset.issuer}</FullValue>
-      ) : null}
-    </span>
-  );
-}
-
 function ReclaimReviewScreen({
-  chosen,
   review,
   problem,
   onConfirm,
   onCancel,
 }: {
-  chosen: ChosenLink;
   review: ReclaimReview;
   problem: Option.Option<string>;
   onConfirm: () => void;
@@ -209,47 +190,17 @@ function ReclaimReviewScreen({
 }) {
   return (
     <>
-      <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-        <h1 className="font-display text-h1">Revisa tu recuperación</h1>
-        <dl
-          aria-label="Resumen de la recuperación"
-          className="flex flex-col divide-y divide-border rounded-lg border border-border px-4"
-        >
-          <ReviewRow label="Acción">Recuperar el dinero de un link</ReviewRow>
-          <ReviewRow label="Activo">
-            <AssetLine asset={review.asset} />
-          </ReviewRow>
-          <ReviewRow label="Monto">{formatAmount(review.amount)}</ReviewRow>
-          <ReviewRow label="Link">
-            <span className="flex flex-col items-end">
-              <FullValue>{review.balance}</FullValue>
-              {Option.isSome(chosen.created) ? (
-                <span className="text-caption text-muted-foreground">
-                  Creado el {chosen.created.value}
-                </span>
-              ) : null}
-            </span>
-          </ReviewRow>
-          <ReviewRow label="Cuenta">
-            <FullValue>{review.order.wallet}</FullValue>
-          </ReviewRow>
-          <ReviewRow label="Red">Stellar {review.network}</ReviewRow>
-          {review.opensTrustline === undefined ? null : (
-            <ReviewRow label="Moneda nueva">
-              <span className="flex flex-col items-end">
-                <AssetLine asset={review.opensTrustline} />
-                <span className="text-caption text-muted-foreground">
-                  Se activa en tu cuenta para recibirla
-                </span>
-              </span>
-            </ReviewRow>
-          )}
-          <ReviewRow label="Comisión">Orchid paga la comisión</ReviewRow>
-        </dl>
+      <main
+        data-testid="reclaim-review"
+        className="flex flex-1 flex-col gap-6 px-5 pt-2"
+      >
+        <ReviewHero
+          title="Revisa tu recuperación"
+          amount={amountLabel(review.amount, review.asset)}
+          network={review.network}
+        />
         <p className="text-body text-muted-foreground">
-          El link dejará de funcionar. Si nadie lo usó, el dinero vuelve a tu
-          cuenta. Tu passkey confirma que eres tú, pero no muestra los datos de
-          la operación. Revísalos aquí antes de confirmar.
+          El link deja de funcionar y el dinero vuelve a tu cuenta.
         </p>
         {Option.isSome(problem) ? (
           <p role="alert" className="text-body text-destructive">
@@ -266,7 +217,7 @@ function ReclaimReviewScreen({
           Recuperar dinero
         </Button>
         <Button className="w-full" variant="secondary" onClick={onCancel}>
-          Mantener el link
+          Volver
         </Button>
       </ScreenActions>
     </>
@@ -289,9 +240,8 @@ export function RecoveryAnswer({
   return Match.valueTags(recovery, {
     Reviewing: () => <LinkWorking label="Preparando tu recuperación…" />,
     Confirming: () => <LinkWorking label="Recuperando tu dinero…" />,
-    Reviewed: ({ chosen, review, problem }) => (
+    Reviewed: ({ review, problem }) => (
       <ReclaimReviewScreen
-        chosen={chosen}
         review={review}
         problem={problem}
         onConfirm={onConfirm}

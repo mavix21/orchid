@@ -18,7 +18,6 @@ import {
   type ExternalLinkIntent,
   type ExternalLinkReview,
   type PaymentLinkOpen,
-  formatAmount,
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as Match from "effect/Match";
@@ -26,6 +25,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 
+import { ReviewHero } from "@/components/review-hero";
 import { Screen, ScreenActions } from "@/components/screen";
 import {
   LinkResultScreen,
@@ -34,7 +34,7 @@ import {
   ResultLink,
 } from "@/links/link-result";
 import type { LinkScreen } from "@/links/outcomes";
-import { AssetLine, FullValue } from "@/links/recovery";
+import { FullValue } from "@/links/recovery";
 import { memoByteLimit, memoBytes } from "@/send/intent";
 import { amountLabel } from "@/send/money";
 import { ReviewRow } from "@/send/payment-review";
@@ -343,13 +343,16 @@ export function ExternalClaimFlow({
     Reviewing: ({ review: shown, notice }) => (
       <Screen>
         <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-          <h1 className="font-display text-h1">Revisa tu envío</h1>
+          <ReviewHero
+            title={`De @${shown.sender.username}`}
+            amount={amountLabel(shown.amount, shown.asset)}
+            network={shown.network}
+          />
           <dl
             aria-label="Resumen del envío"
             data-testid="external-claim-review"
             className="flex flex-col divide-y divide-border rounded-lg border border-border px-4"
           >
-            <ReviewRow label="De">@{shown.sender.username}</ReviewRow>
             <ReviewRow label="Para">
               <span className="flex flex-col items-end">
                 <FullValue>{shown.destination}</FullValue>
@@ -360,10 +363,6 @@ export function ExternalClaimFlow({
                 ) : null}
               </span>
             </ReviewRow>
-            <ReviewRow label="Activo">
-              <AssetLine asset={shown.asset} />
-            </ReviewRow>
-            <ReviewRow label="Monto">{formatAmount(shown.amount)}</ReviewRow>
             {shown.memo === undefined ? null : (
               <ReviewRow label="Memo">
                 <span className="break-all whitespace-pre-wrap">
@@ -371,12 +370,10 @@ export function ExternalClaimFlow({
                 </span>
               </ReviewRow>
             )}
-            <ReviewRow label="Red">Stellar {shown.network}</ReviewRow>
-            <ReviewRow label="Comisión">Orchid paga la comisión</ReviewRow>
+            <ReviewRow label="Comisión">Gratis</ReviewRow>
           </dl>
           <p className="text-body text-muted-foreground">
-            El dinero del link se enviará a esta dirección y el link dejará de
-            funcionar. Revisa los datos antes de confirmar.
+            El link deja de funcionar y el dinero va a esa dirección.
           </p>
           {Option.isSome(notice) ? (
             <p role="alert" className="text-body text-destructive">

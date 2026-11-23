@@ -8,7 +8,6 @@ import {
   type LinkReceiveReview,
   type PaymentLinkOpen,
   type WalletEnrolled,
-  formatAmount,
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
@@ -18,6 +17,8 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
 import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
+import { OrchidBloom, PetalShower, Rise } from "@/components/orchid-bloom";
+import { ReviewHero } from "@/components/review-hero";
 import {
   Screen,
   ScreenActions,
@@ -37,9 +38,7 @@ import {
   type ReceiveConclusion,
   receiveScreen,
 } from "@/links/receive-outcomes";
-import { AssetLine, FullValue } from "@/links/recovery";
 import { amountLabel } from "@/send/money";
-import { ReviewRow } from "@/send/payment-review";
 import { DeviceFailure, useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
 import { enrollmentEffects } from "@/wallet/enrollment";
@@ -64,6 +63,7 @@ type ReceiveStep = Data.TaggedEnum<{
   Concluded: {
     readonly outcome: string;
     readonly screen: LinkScreen<ReceiveAction>;
+    readonly received: string;
   };
 }>;
 
@@ -75,6 +75,7 @@ const concluded = (outcome: ReceiveConclusion, received: string) =>
   ReceiveStep.Concluded({
     outcome: outcome._tag,
     screen: receiveScreen(outcome, received),
+    received,
   });
 
 const retriesReview = (answer: ReceiveConclusion) =>
@@ -221,14 +222,22 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
     ),
     Offered: ({ open }) => (
       <Screen>
-        <ScreenStatus
-          title={amountLabel(open.amount, open.asset)}
+        <main
           data-testid="link-offer"
+          className="flex flex-1 flex-col px-5 pt-2"
         >
-          <ScreenNote>
-            @{open.sender.username} te envió este dinero con un link de Orchid.
-          </ScreenNote>
-        </ScreenStatus>
+          <section className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl bg-accent px-5 py-10 text-center text-accent-foreground">
+            <Rise>
+              <OrchidBloom stage="bud" className="size-56 text-primary" />
+            </Rise>
+            <Rise delay={0.15} className="flex flex-col items-center gap-1">
+              <p className="text-label">@{open.sender.username} te envió</p>
+              <p className="font-display text-display">
+                {amountLabel(open.amount, open.asset)}
+              </p>
+            </Rise>
+          </section>
+        </main>
         <ScreenActions>
           <Button
             className="w-full"
@@ -286,28 +295,17 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
     ),
     Reviewing: ({ review: shown, problem }) => (
       <Screen>
-        <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-          <h1 className="font-display text-h1">Revisa tu cobro</h1>
-          <dl
-            aria-label="Resumen del cobro"
-            data-testid="receive-review"
-            className="flex flex-col divide-y divide-border rounded-lg border border-border px-4"
-          >
-            <ReviewRow label="De">@{shown.sender.username}</ReviewRow>
-            <ReviewRow label="Activo">
-              <AssetLine asset={shown.asset} />
-            </ReviewRow>
-            <ReviewRow label="Monto">{formatAmount(shown.amount)}</ReviewRow>
-            <ReviewRow label="Para">
-              <FullValue>{shown.order.wallet}</FullValue>
-            </ReviewRow>
-            <ReviewRow label="Red">Stellar {shown.network}</ReviewRow>
-            <ReviewRow label="Comisión">Orchid paga la comisión</ReviewRow>
-          </dl>
+        <main
+          data-testid="receive-review"
+          className="flex flex-1 flex-col gap-6 px-5 pt-2"
+        >
+          <ReviewHero
+            title={`De @${shown.sender.username}`}
+            amount={amountLabel(shown.amount, shown.asset)}
+            network={shown.network}
+          />
           <p className="text-body text-muted-foreground">
-            El dinero del link pasará a tu cuenta y el link dejará de funcionar.
-            Tu passkey confirma que eres tú, pero no muestra los datos de la
-            operación. Revísalos aquí antes de confirmar.
+            El dinero pasa a tu cuenta y el link deja de funcionar.
           </p>
           {Option.isSome(problem) ? (
             <p role="alert" className="text-body text-destructive">
@@ -328,29 +326,61 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
     ),
     Confirming: () => (
       <Screen>
-        <LinkWorking label="Recibiendo tu dinero…" />
+        <ScreenStatus
+          title="Recibiendo tu dinero…"
+          media={<OrchidBloom stage="bud" className="size-32 text-primary" />}
+        />
       </Screen>
     ),
-    Concluded: ({ outcome, screen }) => (
-      <Screen>
-        <LinkResultScreen outcome={outcome} screen={screen}>
-          {Match.value(screen.action).pipe(
-            Match.when("home", () => (
-              <ResultLink link={<Link to="/home" />}>Ir a mi cuenta</ResultLink>
-            )),
-            Match.when("again", () => (
-              <ResultButton onClick={read}>Reintentar</ResultButton>
-            )),
-            Match.when("check", () => (
-              <ResultButton onClick={read}>Revisar de nuevo</ResultButton>
-            )),
-            Match.when("done", () => (
-              <ResultLink link={<Link to="/" />}>Ir al inicio</ResultLink>
-            )),
-            Match.exhaustive,
-          )}
-        </LinkResultScreen>
-      </Screen>
-    ),
+    Concluded: ({ outcome, screen, received }) =>
+      outcome === "AssetSettled" ? (
+        <Screen>
+          <main
+            data-testid="link-outcome"
+            data-outcome={outcome}
+            className="flex flex-1 flex-col gap-4 px-5 pt-2"
+          >
+            <section className="relative flex flex-1 flex-col items-center justify-center gap-3 overflow-hidden rounded-xl bg-primary px-5 py-10 text-center text-primary-foreground">
+              <PetalShower />
+              <OrchidBloom
+                stage="bloom"
+                className="size-44 text-primary-foreground"
+              />
+              <Rise delay={0.9} className="flex flex-col items-center gap-1">
+                <p className="text-label">Recibiste</p>
+                <p className="font-display text-display">{received}</p>
+              </Rise>
+            </section>
+            <p className="text-center text-body text-muted-foreground">
+              {screen.message}
+            </p>
+          </main>
+          <ScreenActions>
+            <ResultLink link={<Link to="/home" />}>Ir a mi cuenta</ResultLink>
+          </ScreenActions>
+        </Screen>
+      ) : (
+        <Screen>
+          <LinkResultScreen outcome={outcome} screen={screen}>
+            {Match.value(screen.action).pipe(
+              Match.when("home", () => (
+                <ResultLink link={<Link to="/home" />}>
+                  Ir a mi cuenta
+                </ResultLink>
+              )),
+              Match.when("again", () => (
+                <ResultButton onClick={read}>Reintentar</ResultButton>
+              )),
+              Match.when("check", () => (
+                <ResultButton onClick={read}>Revisar de nuevo</ResultButton>
+              )),
+              Match.when("done", () => (
+                <ResultLink link={<Link to="/" />}>Ir al inicio</ResultLink>
+              )),
+              Match.exhaustive,
+            )}
+          </LinkResultScreen>
+        </Screen>
+      ),
   });
 }

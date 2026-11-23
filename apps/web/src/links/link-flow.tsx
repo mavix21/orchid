@@ -1,7 +1,6 @@
 import { LinkIcon, ShareIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useReducer, useRef } from "react";
 import { Link, useBlocker } from "@tanstack/react-router";
-import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
 import {
   Field,
@@ -24,6 +23,7 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
+import { ReviewHero } from "@/components/review-hero";
 import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
 import { AmountPad } from "@/send/amount-pad";
 import { amountLabel } from "@/send/money";
@@ -192,15 +192,11 @@ function LinkReview({
         data-testid="link-review"
         data-saved={intent.saveOnDevice}
       >
-        <header className="flex flex-col items-center gap-2 pt-6 text-center">
-          <h1 className="text-body text-muted-foreground">Revisa tu link</h1>
-          <p className="font-display text-display">
-            {amountLabel(review.amount, review.asset)}
-          </p>
-          {review.network === "testnet" ? (
-            <Badge variant="neutral">Testnet</Badge>
-          ) : null}
-        </header>
+        <ReviewHero
+          title="Revisa tu link"
+          amount={amountLabel(review.amount, review.asset)}
+          network={review.network}
+        />
         <dl className="flex flex-col rounded-lg border border-border px-4">
           <ReviewRow label="Comisión">Gratis</ReviewRow>
         </dl>

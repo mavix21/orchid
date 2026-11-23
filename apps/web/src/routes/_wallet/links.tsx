@@ -78,7 +78,7 @@ const latestNotice = (
         resolved.savedOnDevice
           ? new LatestNotice(
               "Tu último link sigue abierto",
-              "Compártelo con tu passkey o recupera el dinero mientras nadie lo use.",
+              "Compártelo de nuevo o recupera el dinero mientras nadie lo use.",
               NoticeAction.Recover({ link: resolved, savedOnDevice: true }),
             )
           : new LatestNotice(
