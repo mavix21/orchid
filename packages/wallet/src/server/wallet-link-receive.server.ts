@@ -1,0 +1,352 @@
+import * as Effect from "effect/Effect";
+import * as Match from "effect/Match";
+import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
+import {
+  type AccountAddress,
+  type Approval,
+  AssetDraft,
+  type AssetOrder,
+  type AssetPending,
+  type AssetSettled,
+  type AssetFailed,
+  type AssetStep,
+  BalanceGone,
+  type BalanceGoneStatus,
+  InvalidAddress,
+  LinkUnclaimable,
+  NotClaimable,
+  NotOpened,
+  PaymentLinkChecking,
+  PaymentLinkNotFound,
+  PaymentLinkOpen,
+  type PaymentLinkStep,
+  PaymentLinkUnresolved,
+  PaymentLinkUsed,
+  type ReceiveLink,
+  RecipientCannotReceive,
+  type SigningRequest,
+  assetKey,
+  baseAsset,
+} from "../contract";
+import { readEnvelope } from "../stellar/envelopes";
+import {
+  type AssetAuthorized,
+  type AssetConcluded,
+  AssetOrders,
+  type StoredAssetOrder,
+} from "./AssetOrders.server";
+import { Chain, type ChainUnreachable } from "./Chain.server";
+import type { StoreFailure } from "./Directory.server";
+import { selectRecoverablePaymentLinks } from "./ledger-assets.server";
+import { type FundedLink, Transfers } from "./Transfers.server";
+import { live } from "./wallet-reads.server";
+
+type Reconcile = (
+  stored: AssetAuthorized,
+) => Effect.Effect<
+  AssetPending | AssetSettled | AssetFailed,
+  StoreFailure | ChainUnreachable
+>;
+
+const receiving = (stored: StoredAssetOrder) =>
+  Predicate.isTagged(stored.order.action, "ReceiveLink");
+
+const settledHere = (stored: StoredAssetOrder) =>
+  Predicate.isTagged(stored, "AssetConcluded") &&
+  Predicate.isTagged(stored.receipt, "AssetSettled");
+
+export const linkReceiveFlow = (reconcile: Reconcile) =>
+  Effect.gen(function* () {
+    const chain = yield* Chain;
+    const orders = yield* AssetOrders;
+    const transfers = yield* Transfers;
+
+    const liveLink = Effect.fn("Wallet.liveLink")(function* (
+      link: AccountAddress,
+      funded: FundedLink,
+    ) {
+      const entries = yield* chain.claimable([funded.balance]);
+
+      const matched = selectRecoverablePaymentLinks(
+        entries,
+        funded.sender.address,
+      ).some(
+        (entry) =>
+          entry.balance === funded.balance &&
+          entry.address === link &&
+          assetKey(entry.asset) === assetKey(funded.asset) &&
+          entry.amount === funded.amount,
+      );
+
+      return { matched, present: entries.length > 0 };
+    });
+
+    const cleanUp = Effect.fn("Wallet.cleanUpReceivedLink")(function* (
+      concluded: AssetConcluded,
+    ) {
+      const { action } = concluded.order;
+
+      if (
+        !Predicate.isTagged(action, "ReceiveLink") ||
+        !Predicate.isTagged(concluded.receipt, "AssetSettled")
+      )
+        return;
+
+      if (yield* chain.cleanUpLink(action.link))
+        yield* orders.linkCleaned(concluded.order.id);
+    });
+
+    const settled = (
+      stored: AssetAuthorized,
+    ): Effect.Effect<
+      AssetPending | AssetSettled | AssetFailed,
+      StoreFailure | ChainUnreachable
+    > =>
+      reconcile(stored).pipe(
+        Effect.tap((receipt) =>
+          Predicate.isTagged(receipt, "AssetSettled") && receiving(stored)
+            ? orders
+                .find(stored.order.id)
+                .pipe(
+                  Effect.flatMap((found) =>
+                    Option.isSome(found) &&
+                    Predicate.isTagged(found.value, "AssetConcluded")
+                      ? cleanUp(found.value).pipe(Effect.ignore)
+                      : Effect.void,
+                  ),
+                )
+            : Effect.void,
+        ),
+      );
+
+    const goneStatus = (
+      stored: ReadonlyArray<StoredAssetOrder>,
+    ): BalanceGoneStatus => {
+      const done = stored.filter(settledHere);
+
+      if (done.some(receiving)) return "claimed";
+
+      if (
+        done.some((entry) =>
+          Predicate.isTagged(entry.order.action, "ClaimBalance"),
+        )
+      )
+        return "reclaimed";
+
+      return "unresolved";
+    };
+
+    const paymentLink = Effect.fn("Wallet.paymentLink")(function* (
+      link: AccountAddress,
+    ): Effect.fn.Return<PaymentLinkStep, StoreFailure | ChainUnreachable> {
+      if (!chain.validAddress(link))
+        return new InvalidAddress({ address: link });
+
+      const funded = yield* transfers.fundedLink(link);
+
+      if (Option.isNone(funded)) return new PaymentLinkNotFound();
+
+      const recorded = yield* orders.onBalance(funded.value.balance);
+
+      const receipts = yield* Effect.forEach(
+        recorded.filter(
+          (stored): stored is AssetAuthorized =>
+            Predicate.isTagged(stored, "AssetAuthorized") && receiving(stored),
+        ),
+        settled,
+      );
+
+      if (
+        receipts.some((receipt) => Predicate.isTagged(receipt, "AssetPending"))
+      )
+        return new PaymentLinkChecking();
+
+      const { matched } = yield* liveLink(link, funded.value);
+
+      if (matched)
+        return new PaymentLinkOpen({
+          balance: funded.value.balance,
+          asset: funded.value.asset,
+          amount: funded.value.amount,
+          sender: funded.value.sender,
+        });
+
+      const current = yield* orders.onBalance(funded.value.balance);
+
+      yield* Effect.forEach(
+        current.filter(
+          (stored): stored is AssetConcluded =>
+            Predicate.isTagged(stored, "AssetConcluded") &&
+            receiving(stored) &&
+            settledHere(stored),
+        ),
+        (stored) => cleanUp(stored).pipe(Effect.ignore),
+        { discard: true },
+      );
+
+      return goneStatus(current) === "unresolved"
+        ? new PaymentLinkUnresolved()
+        : new PaymentLinkUsed();
+    });
+
+    const currentReceive = Effect.fn("Wallet.currentReceive")(function* (
+      request: SigningRequest,
+      order: AssetOrder,
+      action: typeof ReceiveLink.Type,
+      funded: FundedLink,
+    ) {
+      const facts = readEnvelope(request.envelope);
+      const channel = yield* chain.account(chain.channel);
+
+      return (
+        Option.isSome(channel) &&
+        Option.isSome(facts) &&
+        Predicate.isTagged(facts.value, "LinkReceiveFacts") &&
+        facts.value.link === action.link &&
+        facts.value.balance === action.balance &&
+        facts.value.destination === order.wallet &&
+        assetKey(facts.value.asset) === assetKey(funded.asset) &&
+        facts.value.amount === funded.amount &&
+        BigInt(channel.value.sequence) + 1n === BigInt(facts.value.sequence)
+      );
+    });
+
+    const receive = Effect.fn("Wallet.receiveLink")(function* (
+      order: AssetOrder,
+      action: typeof ReceiveLink.Type,
+      approval: Option.Option<Approval>,
+      existing: Option.Option<StoredAssetOrder>,
+      walletOpening: boolean,
+    ): Effect.fn.Return<AssetStep, StoreFailure | ChainUnreachable> {
+      if (!chain.validAddress(action.link))
+        return new InvalidAddress({ address: action.link });
+
+      const funded = yield* transfers.fundedLink(action.link);
+
+      if (Option.isNone(funded) || funded.value.balance !== action.balance)
+        return new NotClaimable({ claimableAt: Option.none() });
+
+      const { matched, present } = yield* liveLink(action.link, funded.value);
+
+      if (!matched)
+        return present
+          ? new NotClaimable({ claimableAt: Option.none() })
+          : new BalanceGone({
+              status: goneStatus(yield* orders.onBalance(action.balance)),
+            });
+
+      const { asset, amount } = funded.value;
+
+      if (order.wallet === action.link)
+        return new LinkUnclaimable({ reason: "destination_is_link" });
+
+      if (Predicate.isTagged(asset, "Issued") && asset.issuer === order.wallet)
+        return new LinkUnclaimable({ reason: "destination_is_issuer" });
+
+      const holdings = yield* chain.holdings(
+        order.wallet,
+        Predicate.isTagged(asset, "Issued") ? [asset] : [],
+      );
+
+      const openedByOpening =
+        walletOpening &&
+        (Predicate.isTagged(asset, "Native") ||
+          assetKey(asset) === assetKey(baseAsset));
+
+      if (Option.isNone(holdings) && !openedByOpening) return new NotOpened();
+
+      if (Option.isSome(holdings) && Predicate.isTagged(asset, "Issued")) {
+        const line = holdings.value.lines.find(
+          (candidate) => assetKey(candidate.asset) === assetKey(asset),
+        );
+
+        const reason =
+          line === undefined
+            ? "no_trustline"
+            : !line.authorized
+              ? "not_authorized"
+              : line.capacity < amount
+                ? "no_capacity"
+                : undefined;
+
+        if (reason !== undefined)
+          return new RecipientCannotReceive({ address: order.wallet, reason });
+      }
+
+      if (Option.isSome(yield* chain.account(action.link)))
+        return new LinkUnclaimable({ reason: "link_account_exists" });
+
+      const proposed = Option.filter(existing, (stored) =>
+        Predicate.isTagged(stored, "AssetProposed"),
+      );
+
+      if (
+        Option.isSome(proposed) &&
+        Predicate.isTagged(proposed.value, "AssetProposed") &&
+        (yield* live(proposed.value.request)) &&
+        (yield* currentReceive(
+          proposed.value.request,
+          order,
+          action,
+          funded.value,
+        ))
+      ) {
+        const stored = proposed.value;
+
+        if (Option.isNone(approval))
+          return new AssetDraft({ request: stored.request });
+
+        const sealed = yield* chain
+          .seal(stored.request, approval.value, action.link)
+          .pipe(Effect.option);
+
+        if (
+          Option.isNone(sealed) ||
+          !(yield* currentReceive(stored.request, order, action, funded.value))
+        )
+          return new AssetDraft({ request: stored.request });
+
+        const authorized = yield* orders.authorize(stored, sealed.value);
+
+        return yield* Match.valueTags(authorized, {
+          SlotOccupied: () =>
+            Effect.succeed(new AssetDraft({ request: stored.request })),
+          WalletInactive: () => Effect.succeed(new NotOpened()),
+          AssetAuthorized: settled,
+          AssetConcluded: (concluded) => Effect.succeed(concluded.receipt),
+          AssetProposed: (next) =>
+            Effect.succeed(new AssetDraft({ request: next.request })),
+        });
+      }
+
+      const request = yield* chain.draftLinkReceive(
+        action.link,
+        order.wallet,
+        action.balance,
+        asset,
+        amount,
+      );
+
+      const stored =
+        Option.isSome(proposed) &&
+        Predicate.isTagged(proposed.value, "AssetProposed")
+          ? yield* orders.redraft(proposed.value, request)
+          : yield* orders.propose(order, request);
+
+      return yield* Match.valueTags(stored, {
+        AssetAuthorized: settled,
+        AssetConcluded: (concluded) => Effect.succeed(concluded.receipt),
+        AssetProposed: (next) =>
+          Effect.succeed(new AssetDraft({ request: next.request })),
+      });
+    });
+
+    const cleanUpReceived = Effect.gen(function* () {
+      const pending = yield* orders.receivedLinksToClean;
+
+      yield* Effect.forEach(pending, cleanUp, { discard: true });
+    });
+
+    return { receive, paymentLink, settled, cleanUpReceived };
+  });

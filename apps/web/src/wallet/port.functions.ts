@@ -14,6 +14,7 @@ import {
   OpenStep,
   Overview,
   PaymentLinkReceipt,
+  PaymentLinkStep,
   PaymentLinksStep,
   ResolveReceiptStep,
   TransferOrder,
@@ -50,6 +51,8 @@ const ManageCall = Schema.Struct({
 });
 
 const PaymentLinksCall = Schema.Struct({ address: AccountAddress });
+
+const PaymentLinkCall = Schema.Struct({ link: AccountAddress });
 
 const ResolvePaymentLinkCall = Schema.Struct({
   sender: AccountAddress,
@@ -104,6 +107,14 @@ const paymentLinksFn = createServerFn({ method: "POST" })
   .handler(({ data }) =>
     answerWallet(PaymentLinksCall, data, PaymentLinksStep, (decoded) =>
       Wallet.use((wallet) => wallet.paymentLinks(decoded.address)),
+    ),
+  );
+
+const paymentLinkFn = createServerFn({ method: "POST" })
+  .validator(accepted<typeof PaymentLinkCall.Encoded>())
+  .handler(({ data }) =>
+    answerWallet(PaymentLinkCall, data, PaymentLinkStep, (decoded) =>
+      Wallet.use((wallet) => wallet.paymentLink(decoded.link)),
     ),
   );
 
@@ -190,6 +201,8 @@ export const port: WalletPort = {
     reach(AssetStep, ManageCall, { order, approval }, manageFn),
   paymentLinks: (address) =>
     reach(PaymentLinksStep, PaymentLinksCall, { address }, paymentLinksFn),
+  paymentLink: (link) =>
+    reach(PaymentLinkStep, PaymentLinkCall, { link }, paymentLinkFn),
   resolvePaymentLink: (sender, receipt) =>
     reach(
       ResolveReceiptStep,

@@ -18,6 +18,8 @@ export * from "./device/enrollment";
 
 export { currentUntil } from "./device/opening-drafts";
 
+export { receiveCurrentUntil } from "./device/link-receive";
+
 export {
   browserAssertions,
   browserPasskeys,

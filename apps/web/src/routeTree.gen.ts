@@ -15,6 +15,7 @@ import { Route as CreateAccountRouteImport } from "./routes/create-account";
 import { Route as RestoreRouteImport } from "./routes/restore";
 import { Route as WalletAppRouteImport } from "./routes/_wallet/_app";
 import { Route as WalletLinksRouteImport } from "./routes/_wallet/links";
+import { Route as LLinkRouteImport } from "./routes/l/$link";
 import { Route as WalletAppHomeRouteImport } from "./routes/_wallet/_app/home";
 import { Route as WalletSendIndexRouteImport } from "./routes/_wallet/send/index";
 import { Route as WalletSendAssetRouteImport } from "./routes/_wallet/send/$asset";
@@ -47,6 +48,11 @@ const WalletLinksRoute = WalletLinksRouteImport.update({
   path: "/links",
   getParentRoute: () => WalletRoute,
 } as any);
+const LLinkRoute = LLinkRouteImport.update({
+  id: "/l/$link",
+  path: "/l/$link",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const WalletAppHomeRoute = WalletAppHomeRouteImport.update({
   id: "/home",
   path: "/home",
@@ -68,6 +74,7 @@ export interface FileRoutesByFullPath {
   "/create-account": typeof CreateAccountRoute;
   "/restore": typeof RestoreRoute;
   "/links": typeof WalletLinksRoute;
+  "/l/$link": typeof LLinkRoute;
   "/home": typeof WalletAppHomeRoute;
   "/send/$asset": typeof WalletSendAssetRoute;
   "/send/": typeof WalletSendIndexRoute;
@@ -77,6 +84,7 @@ export interface FileRoutesByTo {
   "/create-account": typeof CreateAccountRoute;
   "/restore": typeof RestoreRoute;
   "/links": typeof WalletLinksRoute;
+  "/l/$link": typeof LLinkRoute;
   "/home": typeof WalletAppHomeRoute;
   "/send/$asset": typeof WalletSendAssetRoute;
   "/send": typeof WalletSendIndexRoute;
@@ -89,6 +97,7 @@ export interface FileRoutesById {
   "/restore": typeof RestoreRoute;
   "/_wallet/_app": typeof WalletAppRouteWithChildren;
   "/_wallet/links": typeof WalletLinksRoute;
+  "/l/$link": typeof LLinkRoute;
   "/_wallet/_app/home": typeof WalletAppHomeRoute;
   "/_wallet/send/$asset": typeof WalletSendAssetRoute;
   "/_wallet/send/": typeof WalletSendIndexRoute;
@@ -100,6 +109,7 @@ export interface FileRouteTypes {
     | "/create-account"
     | "/restore"
     | "/links"
+    | "/l/$link"
     | "/home"
     | "/send/$asset"
     | "/send/";
@@ -109,6 +119,7 @@ export interface FileRouteTypes {
     | "/create-account"
     | "/restore"
     | "/links"
+    | "/l/$link"
     | "/home"
     | "/send/$asset"
     | "/send";
@@ -120,6 +131,7 @@ export interface FileRouteTypes {
     | "/restore"
     | "/_wallet/_app"
     | "/_wallet/links"
+    | "/l/$link"
     | "/_wallet/_app/home"
     | "/_wallet/send/$asset"
     | "/_wallet/send/";
@@ -130,6 +142,7 @@ export interface RootRouteChildren {
   WalletRoute: typeof WalletRouteWithChildren;
   CreateAccountRoute: typeof CreateAccountRoute;
   RestoreRoute: typeof RestoreRoute;
+  LLinkRoute: typeof LLinkRoute;
 }
 
 declare module "@tanstack/react-router" {
@@ -175,6 +188,13 @@ declare module "@tanstack/react-router" {
       fullPath: "/links";
       preLoaderRoute: typeof WalletLinksRouteImport;
       parentRoute: typeof WalletRoute;
+    };
+    "/l/$link": {
+      id: "/l/$link";
+      path: "/l/$link";
+      fullPath: "/l/$link";
+      preLoaderRoute: typeof LLinkRouteImport;
+      parentRoute: typeof rootRouteImport;
     };
     "/_wallet/_app/home": {
       id: "/_wallet/_app/home";
@@ -234,6 +254,7 @@ const rootRouteChildren: RootRouteChildren = {
   WalletRoute: WalletRouteWithChildren,
   CreateAccountRoute: CreateAccountRoute,
   RestoreRoute: RestoreRoute,
+  LLinkRoute: LLinkRoute,
 };
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

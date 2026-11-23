@@ -28,6 +28,10 @@ export const sweepFlow = (actions: {
   readonly closeGoneBalance: (
     id: BalanceId,
   ) => Effect.Effect<void, StoreFailure | ChainUnreachable>;
+  readonly cleanUpReceivedLinks: Effect.Effect<
+    void,
+    StoreFailure | ChainUnreachable
+  >;
 }) =>
   Effect.gen(function* () {
     const chain = yield* Chain;
@@ -133,6 +137,7 @@ export const sweepFlow = (actions: {
             actions.reconcileTransfer(entry).pipe(Effect.asVoid),
           ),
           ...wallets.map(recoverWallet),
+          actions.cleanUpReceivedLinks,
         ],
         (program) => program.pipe(Effect.exit),
       );

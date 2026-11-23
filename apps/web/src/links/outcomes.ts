@@ -449,6 +449,7 @@ export const reclaimResult = (
       }),
     SenderBusy: () => busyRecovering,
     AssetBusy: () => busyRecovering,
+    LinkUnclaimable: () => recoverAgain,
     Unchanged: () => recoverAgain,
     TrustlineNotEmpty: () => recoverAgain,
     DraftRejected: () =>

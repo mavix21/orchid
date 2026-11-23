@@ -17,6 +17,8 @@ import {
   type ChallengeRefused,
   PaymentMemo,
   type PaymentLinksStep,
+  type PaymentLinkOpen,
+  type PaymentLinkStep,
   PositiveAmount,
   Recipient,
   type Receipt,
@@ -411,3 +413,52 @@ export type RevealPaymentLinkOutcome =
   | UnsupportedDevice
   | CorruptDeviceWallet
   | WalletUnavailable;
+
+export class LinkSecretMismatch extends Schema.TaggedClass<LinkSecretMismatch>()(
+  "LinkSecretMismatch",
+  {},
+) {}
+
+export interface LinkReceiveTarget {
+  readonly link: AccountAddress;
+  readonly balance: BalanceId;
+  readonly asset: Asset;
+  readonly amount: PositiveAmount;
+  readonly sender: Profile;
+}
+
+export class LinkReceiveReview extends Schema.TaggedClass<LinkReceiveReview>()(
+  "LinkReceiveReview",
+  {
+    order: AssetOrder,
+    draft: AssetDraft,
+    redrafted: Schema.Boolean,
+    network: Schema.String,
+    link: AccountAddress,
+    balance: BalanceId,
+    asset: Asset,
+    amount: PositiveAmount,
+    sender: Profile,
+  },
+) {}
+
+export type PaymentLinkOutcome =
+  | PaymentLinkStep
+  | LinkSecretMismatch
+  | UnsupportedDevice
+  | WalletUnavailable;
+
+export type ReviewLinkReceiveOutcome =
+  | LinkReceiveReview
+  | ReclaimOutcome
+  | Exclude<PaymentLinkStep, PaymentLinkOpen>
+  | LinkSecretMismatch;
+
+export type ConfirmLinkReceiveOutcome =
+  | ReviewLinkReceiveOutcome
+  | PasskeyCancelled
+  | PasskeyFailed
+  | WrongCredential
+  | AssertionRejected
+  | PrfOutputMissing
+  | CorruptDeviceWallet;

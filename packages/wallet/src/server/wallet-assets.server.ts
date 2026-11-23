@@ -44,6 +44,7 @@ import {
 } from "./Chain.server";
 import { Directory, StoreFailure } from "./Directory.server";
 import { claimableAt } from "./ledger-assets.server";
+import { linkReceiveFlow } from "./wallet-link-receive.server";
 import { live } from "./wallet-reads.server";
 
 export const assetFlow = Effect.gen(function* () {
@@ -52,7 +53,7 @@ export const assetFlow = Effect.gen(function* () {
   const directory = yield* Directory;
   const transfers = yield* Transfers;
 
-  const reconcile = Effect.fn("Wallet.reconcileAsset")(function* (
+  const reconcileOrder = Effect.fn("Wallet.reconcileAsset")(function* (
     stored: AssetAuthorized,
   ) {
     const evidence = yield* chain.settlement(stored.sealed);
@@ -73,6 +74,13 @@ export const assetFlow = Effect.gen(function* () {
     });
   });
 
+  const links = yield* linkReceiveFlow(reconcileOrder);
+
+  const reconcile = (stored: AssetAuthorized) =>
+    Predicate.isTagged(stored.order.action, "ReceiveLink")
+      ? links.settled(stored)
+      : reconcileOrder(stored);
+
   const manage = Effect.fn("Wallet.manage")(function* (
     order: AssetOrder,
     approval: Option.Option<Approval>,
@@ -84,7 +92,12 @@ export const assetFlow = Effect.gen(function* () {
       return new InvalidAddress({ address: order.wallet });
     const row = yield* directory.byAddress(order.wallet);
 
-    if (Option.isNone(row) || row.value.status !== "active")
+    const opening =
+      Option.isSome(row) &&
+      row.value.status === "opening" &&
+      Predicate.isTagged(order.action, "ReceiveLink");
+
+    if (Option.isNone(row) || (row.value.status !== "active" && !opening))
       return new NotOpened();
     const existing = yield* orders.find(order.id);
 
@@ -116,6 +129,9 @@ export const assetFlow = Effect.gen(function* () {
 
     let plan: AssetPlan;
     const action = order.action;
+
+    if (Predicate.isTagged(action, "ReceiveLink"))
+      return yield* links.receive(order, action, approval, existing, opening);
 
     if (Predicate.isTagged(action, "ClaimBalance")) {
       const entries = yield* chain.claimable([action.balance]);
@@ -261,5 +277,10 @@ export const assetFlow = Effect.gen(function* () {
     });
   });
 
-  return { manage, reconcile };
+  return {
+    manage,
+    reconcile,
+    paymentLink: links.paymentLink,
+    cleanUpReceivedLinks: links.cleanUpReceived,
+  };
 });

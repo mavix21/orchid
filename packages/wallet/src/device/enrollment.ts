@@ -22,15 +22,19 @@ import {
   AssertionRejected,
   verifyPinnedAssertion,
 } from "./assertion";
+import { type ReceiveSlot, enrollmentReceive } from "./enrollment-receive";
 import {
   type EnrollWalletOutcome,
   type EnrollmentClient,
   type EnrollmentDependencies,
   type EnrollmentEffects,
   EnrollmentPending,
+  type EnrollmentReceive,
+  HeldReceive,
   PendingActivation,
   PendingCandidate,
   PendingRelease,
+  type ReviewEnrollmentReceiveOutcome,
 } from "./enrollment-records";
 import {
   type Awaiting,
@@ -61,10 +65,12 @@ import {
   openLocalEnvelope,
   sealLocalEnvelope,
 } from "./local-envelope";
+import { linkSecretFor, receiveReviewJson } from "./link-receive";
 import { requestsOf, reviewJson } from "./opening-drafts";
 import {
   BackupUnsupported,
   InvalidUsername,
+  LinkSecretMismatch,
   NoWallet,
   OpeningReview,
   UnsupportedDevice,
@@ -72,7 +78,11 @@ import {
 } from "./outcomes";
 import { backupSalt, openPhrase, sealPhrase } from "./phrase-seal";
 import { generateSecretPhrase } from "./secret-phrase";
-import { approveWithPhrase, signingKey } from "./signing";
+import {
+  approveWithLinkSecret,
+  approveWithPhrase,
+  signingKey,
+} from "./signing";
 
 import { enrollmentRelease } from "./enrollment-release";
 
@@ -82,14 +92,19 @@ export function makeEnrollmentEffects(
   deps: EnrollmentDependencies,
 ): EnrollmentEffects {
   let state: PendingState = PendingState.Idle();
+  const receiving: ReceiveSlot = { review: Option.none() };
   const lock = Semaphore.makeUnsafe(1);
   const storage = deps.pending ?? memoryPendingStorage();
 
   const clearPending = Effect.gen(function* () {
     state = PendingState.Idle();
+    receiving.review = Option.none();
 
     yield* storage.clear();
   });
+
+  const pendingNotice = (current: Awaiting | Held) =>
+    notice(current, receiving.review);
 
   const release = enrollmentRelease(deps, clearPending);
 
@@ -112,9 +127,16 @@ export function makeEnrollmentEffects(
       return state;
     }
 
-    const { enrollment, candidate, review, approvals } = restored.value;
+    const { enrollment, candidate, review, approvals, receive } =
+      restored.value;
 
-    state = PendingState.Held({ enrollment, candidate, review, approvals });
+    state = PendingState.Held({
+      enrollment,
+      candidate,
+      review,
+      approvals,
+      receive,
+    });
 
     return state;
   });
@@ -201,7 +223,7 @@ export function makeEnrollmentEffects(
 
       state = next;
 
-      return notice(next);
+      return pendingNotice(next);
     }
 
     if (Predicate.isTagged(requested.success, "UsernameTaken"))
@@ -219,6 +241,12 @@ export function makeEnrollmentEffects(
       (yield* standingOfReview(current, current.review.value)) === "current"
     );
   });
+
+  const { receiveStanding, refreshReceive, reviewOpenLink } = enrollmentReceive(
+    deps.port,
+    receiving,
+    pendingNotice,
+  );
 
   const sealCandidate = Effect.fn("Device.sealEnrollmentCandidate")(function* (
     current: Created,
@@ -328,6 +356,7 @@ export function makeEnrollmentEffects(
     review: OpeningReview,
     devicePrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
     backupPrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
+    receive: EnrollmentReceive | undefined,
   ): Effect.fn.Return<Held | EnrollWalletOutcome> {
     const sealed = isCreated(current)
       ? yield* sealCandidate(current, review, devicePrf, backupPrf)
@@ -342,10 +371,32 @@ export function makeEnrollmentEffects(
     if ((yield* standingOfReview(sealed, review)) !== "current")
       return yield* refreshReview(sealed, true);
 
+    const secret =
+      receive === undefined
+        ? Option.none()
+        : linkSecretFor(receive.review.link, receive.fragment);
+
+    if (receive !== undefined) {
+      if (Option.isNone(secret)) return new LinkSecretMismatch();
+
+      if ((yield* receiveStanding(sealed, receive.review)) !== "current")
+        return yield* refreshReceive(sealed, receive.review);
+    }
+
     const approvals = approveWithPhrase(
       verified.phrase,
       requestsOf(review.draft),
     );
+
+    const heldReceive =
+      receive !== undefined && Option.isSome(secret)
+        ? new HeldReceive({
+            order: receive.review.order,
+            approval: approveWithLinkSecret(secret.value, [
+              receive.review.draft.request,
+            ])[0],
+          })
+        : undefined;
 
     const written = yield* storage
       .write(
@@ -354,6 +405,7 @@ export function makeEnrollmentEffects(
           candidate: verified.candidate,
           review,
           approvals,
+          receive: heldReceive,
         }),
       )
       .pipe(Effect.result);
@@ -366,6 +418,7 @@ export function makeEnrollmentEffects(
       candidate: verified.candidate,
       review,
       approvals,
+      receive: heldReceive,
     });
 
     state = held;
@@ -376,6 +429,7 @@ export function makeEnrollmentEffects(
   const activate = Effect.fn("Device.activateEnrollment")(function* (
     current: Awaiting,
     shown: OpeningReview | undefined,
+    receive: EnrollmentReceive | undefined,
   ): Effect.fn.Return<EnrollWalletOutcome> {
     if (Option.isNone(current.review) || !(yield* hasLiveReview(current)))
       return yield* refreshReview(current, false);
@@ -383,7 +437,24 @@ export function makeEnrollmentEffects(
     const { review } = current;
 
     if (shown === undefined || reviewJson(shown) !== reviewJson(review.value))
-      return notice(current);
+      return pendingNotice(current);
+
+    if (receive !== undefined) {
+      if (
+        !Option.exists(
+          receiving.review,
+          (held) =>
+            receiveReviewJson(held) === receiveReviewJson(receive.review),
+        )
+      )
+        return pendingNotice(current);
+
+      if (Option.isNone(linkSecretFor(receive.review.link, receive.fragment)))
+        return new LinkSecretMismatch();
+
+      if ((yield* receiveStanding(current, receive.review)) !== "current")
+        return yield* refreshReceive(current, receive.review);
+    }
 
     const verified = yield* verifyPinnedAssertion(
       deps.assertions,
@@ -413,7 +484,13 @@ export function makeEnrollmentEffects(
               Effect.ensuring(zeroed(prf.first)),
             ),
           onSome: (backupPrf) =>
-            sealAndSign(current, review.value, prf.first, backupPrf).pipe(
+            sealAndSign(
+              current,
+              review.value,
+              prf.first,
+              backupPrf,
+              receive,
+            ).pipe(
               Effect.ensuring(
                 Effect.all([zeroed(prf.first), zeroed(backupPrf)]),
               ),
@@ -443,7 +520,7 @@ export function makeEnrollmentEffects(
 
     if (Option.isSome(blocked)) return blocked.value;
 
-    if (!PendingState.$is("Idle")(current)) return notice(current);
+    if (!PendingState.$is("Idle")(current)) return pendingNotice(current);
 
     const phrase = generateSecretPhrase();
 
@@ -486,6 +563,7 @@ export function makeEnrollmentEffects(
 
   const advance = Effect.fn("Device.advanceEnrollment")(function* (
     shown: OpeningReview | undefined,
+    receive: EnrollmentReceive | undefined,
   ): Effect.fn.Return<EnrollWalletOutcome> {
     const current = yield* loadPending;
 
@@ -495,8 +573,8 @@ export function makeEnrollmentEffects(
 
     return yield* PendingState.$match(current, {
       Idle: () => Effect.succeed(new NoWallet()),
-      Created: (awaiting) => activate(awaiting, shown),
-      Sealed: (awaiting) => activate(awaiting, shown),
+      Created: (awaiting) => activate(awaiting, shown, receive),
+      Sealed: (awaiting) => activate(awaiting, shown, receive),
       Held: release,
     });
   });
@@ -509,9 +587,10 @@ export function makeEnrollmentEffects(
     if (Option.isSome(blocked) || PendingState.$is("Idle")(current))
       return Option.none<EnrollmentPending>();
 
-    if (isHeld(current)) return Option.some(notice(current));
+    if (isHeld(current)) return Option.some(pendingNotice(current));
 
-    if (yield* hasLiveReview(current)) return Option.some(notice(current));
+    if (yield* hasLiveReview(current))
+      return Option.some(pendingNotice(current));
 
     const refreshed = yield* refreshReview(current, false);
 
@@ -521,14 +600,32 @@ export function makeEnrollmentEffects(
     return Option.some(
       Predicate.isTagged(refreshed, "EnrollmentPending")
         ? refreshed
-        : notice(withReview(current, Option.none())),
+        : pendingNotice(withReview(current, Option.none())),
     );
+  });
+
+  const reviewReceive = Effect.fn("Device.reviewEnrollmentReceive")(function* (
+    link: AccountAddress,
+    fragment: string,
+  ): Effect.fn.Return<ReviewEnrollmentReceiveOutcome> {
+    const current = yield* loadPending;
+
+    const blocked = yield* installedConflict(current);
+
+    if (Option.isSome(blocked) || PendingState.$is("Idle")(current))
+      return new NoWallet();
+
+    if (isHeld(current)) return pendingNotice(current);
+
+    return yield* reviewOpenLink(current, link, fragment);
   });
 
   return {
     pending: () => lock.withPermit(pending()),
     start: (usernameText) => lock.withPermit(start(usernameText)),
-    advance: (shown) => lock.withPermit(advance(shown)),
+    advance: (shown, receive) => lock.withPermit(advance(shown, receive)),
+    reviewReceive: (link, fragment) =>
+      lock.withPermit(reviewReceive(link, fragment)),
   };
 }
 
@@ -540,6 +637,9 @@ export function makeEnrollmentClient(
   return {
     pending: () => Effect.runPromise(effects.pending()),
     start: (usernameText) => Effect.runPromise(effects.start(usernameText)),
-    advance: (shown) => Effect.runPromise(effects.advance(shown)),
+    advance: (shown, receive) =>
+      Effect.runPromise(effects.advance(shown, receive)),
+    reviewReceive: (link, fragment) =>
+      Effect.runPromise(effects.reviewReceive(link, fragment)),
   };
 }

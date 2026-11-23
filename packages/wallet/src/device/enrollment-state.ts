@@ -16,6 +16,7 @@ import {
 import { PinnedCredential } from "./assertion";
 import {
   EnrollmentPending,
+  type HeldReceive,
   type PendingCandidate,
   type PendingEnrollmentRecord,
   type PendingEnrollmentStorage,
@@ -23,7 +24,7 @@ import {
 import { PublicDeviceWallet, type SealedDeviceWallet } from "./key-store";
 import { LocalPhraseEnvelope } from "./local-envelope";
 import { standingNow } from "./opening-drafts";
-import type { OpeningReview } from "./outcomes";
+import type { LinkReceiveReview, OpeningReview } from "./outcomes";
 import type { SecretPhrase } from "./secret-phrase";
 
 export class Verified extends Data.TaggedClass("Verified")<{
@@ -53,6 +54,7 @@ export type PendingState = Data.TaggedEnum<{
     readonly candidate: PendingCandidate;
     readonly review: OpeningReview;
     readonly approvals: Approvals;
+    readonly receive: HeldReceive | undefined;
   };
 }>;
 
@@ -169,7 +171,10 @@ export const standingOfReview = (
     review,
   );
 
-export const notice = (state: Awaiting | Held): EnrollmentPending =>
+export const notice = (
+  state: Awaiting | Held,
+  receive: Option.Option<LinkReceiveReview> = Option.none(),
+): EnrollmentPending =>
   isHeld(state)
     ? new EnrollmentPending({
         stage: "release",
@@ -179,6 +184,7 @@ export const notice = (state: Awaiting | Held): EnrollmentPending =>
         stage: "activate",
         username: usernameOf(state),
         review: Option.getOrUndefined(state.review),
+        receive: Option.getOrUndefined(receive),
       });
 
 export const zeroed = (prf: Redacted.Redacted<Uint8Array<ArrayBuffer>>) =>

@@ -47,6 +47,9 @@ export interface ReviewedOperation<R, W, A, ReserveError, ReleaseError> {
   readonly record: SealedDeviceWallet;
   readonly requests: Arr.NonEmptyReadonlyArray<SigningRequest>;
   readonly operationInput?: Uint8Array<ArrayBuffer>;
+  readonly sign?: (
+    requests: Arr.NonEmptyReadonlyArray<SigningRequest>,
+  ) => Arr.NonEmptyReadonlyArray<Approval>;
   readonly holds: (
     wallet: PublicDeviceWallet,
     request: SigningRequest,
@@ -163,6 +166,12 @@ export const approveReviewed = <R, W, A, ReserveError, ReleaseError>(
 
         return yield* Effect.gen(function* () {
           if (!(yield* holdsEvery(wallet))) return new DraftRejected();
+
+          if (operation.sign !== undefined)
+            return new Signed({
+              approvals: operation.sign(requests),
+              reservation: reserved.reservation,
+            });
 
           const opened = yield* openLocalEnvelope(
             current.value.envelope,

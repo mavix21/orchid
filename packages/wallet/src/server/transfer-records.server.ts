@@ -74,6 +74,13 @@ export class OpenLinkRecord extends Schema.Class<OpenLinkRecord>(
   createdAt: Schema.DateTimeUtcFromString,
 }) {}
 
+export class FundedLink extends Schema.Class<FundedLink>("FundedLink")({
+  balance: BalanceId,
+  sender: Profile,
+  asset: Asset,
+  amount: PositiveAmount,
+}) {}
+
 export type Transfer = Proposed | Authorized | Concluded;
 
 export type TransferRow = typeof transfers.$inferSelect;

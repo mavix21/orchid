@@ -460,6 +460,7 @@ export class Wallet extends Context.Service<
         reconcileAsset: (entry) =>
           assetActions.reconcile(entry).pipe(Effect.asVoid),
         closeGoneBalance: links.closeGoneBalance,
+        cleanUpReceivedLinks: assetActions.cleanUpReceivedLinks,
       });
 
       return Wallet.of({
@@ -468,6 +469,7 @@ export class Wallet extends Context.Service<
         transfer: (order, approval) => wrap(transfer(order, approval)),
         overview: (address) => wrap(overview(address)),
         paymentLinks: (address) => wrap(links.paymentLinks(address)),
+        paymentLink: (link) => wrap(assetActions.paymentLink(link)),
         resolvePaymentLink: (sender, receipt) =>
           wrap(links.resolvePaymentLink(sender, receipt)),
         passkeyChallenge: (purpose) => wrap(backup.passkeyChallenge(purpose)),

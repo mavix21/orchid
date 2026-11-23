@@ -11,6 +11,7 @@ import {
   AssetSettled,
   AssetUnsupported,
   BalanceGone,
+  LinkUnclaimable,
   NotClaimable,
   TrustlineLimitReached,
   TrustlineNotEmpty,
@@ -33,9 +34,13 @@ import {
 } from "./identity";
 import {
   OpenPaymentLinks,
+  PaymentLinkChecking,
   PaymentLinkNotFound,
+  PaymentLinkOpen,
   PaymentLinkReceipt,
   PaymentLinkReceiptInvalid,
+  PaymentLinkUnresolved,
+  PaymentLinkUsed,
   ResolvedPaymentLink,
   TransferId,
 } from "./payment-links";
@@ -366,6 +371,7 @@ export const AssetStep = Schema.Union([
   RecipientCannotReceive,
   NotClaimable,
   BalanceGone,
+  LinkUnclaimable,
 ]);
 
 export type AssetStep = typeof AssetStep.Type;
@@ -386,6 +392,17 @@ export const ResolveReceiptStep = Schema.Union([
 ]);
 
 export type ResolveReceiptStep = typeof ResolveReceiptStep.Type;
+
+export const PaymentLinkStep = Schema.Union([
+  PaymentLinkOpen,
+  PaymentLinkChecking,
+  PaymentLinkUsed,
+  PaymentLinkUnresolved,
+  PaymentLinkNotFound,
+  InvalidAddress,
+]);
+
+export type PaymentLinkStep = typeof PaymentLinkStep.Type;
 
 export class Balance extends Schema.Class<Balance>("@workspace/wallet/Balance")(
   {
@@ -483,6 +500,7 @@ export interface WalletPort<E = WalletUnavailable> {
     approval: Option.Option<Approval>,
   ): Effect.Effect<AssetStep, E>;
   paymentLinks(address: AccountAddress): Effect.Effect<PaymentLinksStep, E>;
+  paymentLink(link: AccountAddress): Effect.Effect<PaymentLinkStep, E>;
   resolvePaymentLink(
     sender: AccountAddress,
     receipt: PaymentLinkReceipt,

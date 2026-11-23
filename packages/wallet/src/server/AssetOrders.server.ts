@@ -1,5 +1,5 @@
 import { Database } from "@workspace/db";
-import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -12,16 +12,12 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   AssetCode,
-  AssetFailed,
   AssetOrder,
   AssetOrderId,
-  AssetPending,
-  AssetSettled,
   type BalanceId,
   IssuedAsset,
   SigningRequest,
 } from "../contract";
-import { readEnvelope } from "../stellar/envelopes";
 import {
   approvalMargin,
   epochAt,
@@ -31,118 +27,34 @@ import {
 } from "../stellar/network";
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
+import {
+  linkCleaned,
+  ordersOnBalance,
+  receivedLinksToClean,
+} from "./asset-order-links.server";
+import {
+  type AssetAuthorized,
+  AssetConcluded,
+  AssetOrderJson,
+  type AssetOrderRow,
+  type AssetProposed,
+  type ConclusionColumns,
+  OpensJson,
+  type StoredAssetOrder,
+  opensOf,
+  readRow,
+} from "./asset-order-records.server";
 import { SlotOccupied, WalletInactive, walletLock } from "./slot.server";
 import { assetOrders, transfers, trustlines, wallets } from "./tables.server";
 
-export class AssetProposed extends Schema.TaggedClass<AssetProposed>()(
-  "AssetProposed",
-  {
-    order: AssetOrder,
-    request: SigningRequest,
-  },
-) {}
-
-export class AssetAuthorized extends Schema.TaggedClass<AssetAuthorized>()(
-  "AssetAuthorized",
-  {
-    order: AssetOrder,
-    sealed: Sealed,
-  },
-) {}
-
-export class AssetConcluded extends Schema.TaggedClass<AssetConcluded>()(
-  "AssetConcluded",
-  {
-    order: AssetOrder,
-    receipt: Schema.Union([AssetSettled, AssetFailed]),
-  },
-) {}
-
-export type StoredAssetOrder = AssetProposed | AssetAuthorized | AssetConcluded;
-
-type AssetOrderRow = typeof assetOrders.$inferSelect;
-
-interface ConclusionColumns {
-  readonly status: "settled" | "failed";
-  readonly concludedAt: Date;
-  readonly failure: "expired" | "rejected" | null;
-}
-
-export const AssetOrderJson = Schema.fromJsonString(AssetOrder);
-const OpensJson = Schema.fromJsonString(IssuedAsset);
-
-export function assetPending(order: AssetAuthorized): AssetPending {
-  return new AssetPending({
-    id: order.order.id,
-    action: order.order.action,
-    expiresAt: order.sealed.expiresAt,
-  });
-}
-
-function readRow(row: AssetOrderRow): StoredAssetOrder {
-  const order = Schema.decodeSync(AssetOrderJson)(row.order);
-  const expiresAt = DateTime.makeUnsafe(row.expiresAt);
-  const fields = { id: order.id, action: order.action };
-
-  return Match.value(row.status).pipe(
-    Match.when(
-      "proposed",
-      () =>
-        new AssetProposed({
-          order,
-          request: new SigningRequest({
-            envelope: Schema.decodeSync(SigningRequest.fields.envelope)(
-              row.envelope,
-            ),
-            expiresAt,
-          }),
-        }),
-    ),
-    Match.when("authorized", () => {
-      if (!row.hash) throw new Error("Authorized asset order missing hash");
-
-      return new AssetAuthorized({
-        order,
-        sealed: new Sealed({
-          envelope: row.envelope,
-          hash: row.hash,
-          expiresAt,
-        }),
-      });
-    }),
-    Match.when("settled", () => {
-      if (!row.concludedAt)
-        throw new Error("Settled asset order missing ledger time");
-
-      return new AssetConcluded({
-        order,
-        receipt: new AssetSettled({
-          ...fields,
-          settledAt: DateTime.makeUnsafe(row.concludedAt),
-        }),
-      });
-    }),
-    Match.when("failed", () => {
-      if (!row.failure) throw new Error("Failed asset order missing reason");
-
-      return new AssetConcluded({
-        order,
-        receipt: new AssetFailed({ ...fields, reason: row.failure }),
-      });
-    }),
-    Match.exhaustive,
-  );
-}
-
-function opensOf(request: SigningRequest): string | null {
-  const facts = readEnvelope(request.envelope);
-
-  return Option.isSome(facts) &&
-    Predicate.isTagged(facts.value, "ClaimFacts") &&
-    facts.value.opens
-    ? Schema.encodeSync(OpensJson)(facts.value.opens)
-    : null;
-}
+export {
+  AssetAuthorized,
+  AssetConcluded,
+  AssetOrderJson,
+  AssetProposed,
+  type StoredAssetOrder,
+  assetPending,
+} from "./asset-order-records.server";
 
 export class AssetOrders extends Context.Service<
   AssetOrders,
@@ -192,6 +104,17 @@ export class AssetOrders extends Context.Service<
       wallet: AccountAddress,
       balance: BalanceId,
     ): Effect.Effect<boolean, StoreFailure>;
+
+    onBalance(
+      balance: BalanceId,
+    ): Effect.Effect<ReadonlyArray<StoredAssetOrder>, StoreFailure>;
+
+    readonly receivedLinksToClean: Effect.Effect<
+      ReadonlyArray<AssetConcluded>,
+      StoreFailure
+    >;
+
+    linkCleaned(id: AssetOrderId): Effect.Effect<void, StoreFailure>;
   }
 >()("@workspace/wallet/server/AssetOrders") {
   static readonly layer = Layer.effect(
@@ -280,9 +203,11 @@ export class AssetOrders extends Context.Service<
           wallet: order.wallet,
           order: Schema.encodeSync(AssetOrderJson)(order),
           opens: opensOf(request),
-          balanceId: Predicate.isTagged(order.action, "ClaimBalance")
-            ? order.action.balance
-            : null,
+          balanceId:
+            Predicate.isTagged(order.action, "ClaimBalance") ||
+            Predicate.isTagged(order.action, "ReceiveLink")
+              ? order.action.balance
+              : null,
           network,
           testnetEpoch: epochAt(now),
           envelope: request.envelope,
@@ -471,6 +396,22 @@ export class AssetOrders extends Context.Service<
             ),
           );
 
+      const closeBalance = (
+        tx: Transaction,
+        balance: BalanceId,
+        now: DateTime.Utc,
+      ) =>
+        tx
+          .update(transfers)
+          .set({ balanceClosedAt: DateTime.toDateUtc(now) })
+          .where(
+            and(
+              eq(transfers.balanceId, balance),
+              isNull(transfers.balanceClosedAt),
+            ),
+          )
+          .pipe(Effect.asVoid);
+
       const applied = Effect.fn("AssetOrders.applied")(function* (
         tx: Transaction,
         row: AssetOrderRow,
@@ -484,12 +425,8 @@ export class AssetOrders extends Context.Service<
             track(tx, wallet, asset, nowMillis).pipe(Effect.asVoid),
           CloseTrustline: ({ asset }) =>
             untrack(tx, wallet, asset, nowMillis).pipe(Effect.asVoid),
-          ClaimBalance: ({ balance }) =>
-            tx
-              .update(transfers)
-              .set({ balanceClosedAt: DateTime.toDateUtc(now) })
-              .where(eq(transfers.balanceId, balance))
-              .pipe(Effect.asVoid),
+          ClaimBalance: ({ balance }) => closeBalance(tx, balance, now),
+          ReceiveLink: ({ balance }) => closeBalance(tx, balance, now),
         });
 
         if (row.opens)
@@ -628,6 +565,19 @@ export class AssetOrders extends Context.Service<
         conclude: (id, settlement) => wrap(conclude(id, settlement)),
         inFlight: wrap(inFlight),
         tracked: (wallet) => wrap(tracked(wallet)),
+        onBalance: (balance) =>
+          wrap(
+            ordersOnBalance(balance, decode).pipe(
+              Effect.provideService(Database, db),
+            ),
+          ),
+        receivedLinksToClean: wrap(
+          receivedLinksToClean(decode).pipe(
+            Effect.provideService(Database, db),
+          ),
+        ),
+        linkCleaned: (id) =>
+          wrap(linkCleaned(id).pipe(Effect.provideService(Database, db))),
         forget: (wallet, asset) =>
           wrap(
             Clock.currentTimeMillis.pipe(

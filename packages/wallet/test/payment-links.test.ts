@@ -125,7 +125,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               Effect.sync(() => {
                 requestPayloads.push(address);
 
-                return new OpenPaymentLinks({ links: listed });
+                return new OpenPaymentLinks({ links: listed, received: [] });
               }),
           };
 
