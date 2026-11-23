@@ -79,7 +79,7 @@ Confirm:
 
 Once it's red, shrink the repro to the **smallest scenario that still goes red**. Cut inputs, callers, config, data, and steps **one at a time**, re-running the loop after each cut, and keep only what's load-bearing for the failure.
 
-Why bother: a minimal repro shrinks the hypothesis space in Phase 3 (fewer moving parts left to suspect) and becomes the check that proves the fix in Phase 5.
+Why bother: a minimal repro shrinks the hypothesis space in Phase 3 (fewer moving parts left to suspect) and becomes the clean regression test in Phase 5.
 
 Done when **every remaining element is load-bearing**: removing any one of them makes the loop go green.
 
@@ -111,20 +111,28 @@ Tool preference:
 
 **Perf branch.** For performance regressions, logs are usually wrong. Instead: establish a baseline measurement (timing harness, `performance.now()`, profiler, query plan), then bisect. Measure first, fix second.
 
-## Phase 5: Fix
+## Phase 5: Fix + regression test
 
-1. Apply the fix.
-2. Re-run the minimised repro and the Phase 1 feedback loop against the original (un-minimised) scenario; both go green.
-3. Record the before and after runs as PR evidence.
+Write the regression test **before the fix**, but only if there is a **correct seam** for it.
 
-Keep the repro as a test only when the bug touched fund safety, as the Testing section of `CODING_STANDARDS.md` defines it, and a **correct seam** exists: one where the test exercises the **real bug pattern** as it occurs at the call site. A seam too shallow to replicate the chain that triggered the bug (single-caller test when the bug needs multiple callers) gives false confidence. **If a fund-safety bug has no correct seam, that itself is the finding.** Note it and flag it for the next phase.
+A correct seam is one where the test exercises the **real bug pattern** as it occurs at the call site. If the only available seam is too shallow (single-caller test when the bug needs multiple callers, unit test that can't replicate the chain that triggered the bug), a regression test there gives false confidence.
+
+**If no correct seam exists, that itself is the finding.** Note it. The codebase architecture is preventing the bug from being locked down. Flag this for the next phase.
+
+If a correct seam exists:
+
+1. Turn the minimised repro into a failing test at that seam.
+2. Watch it fail. If you forced the red by mutating code or a fixture, `diff` against a pristine copy to prove the mutation landed before you trust it.
+3. Apply the fix.
+4. Watch it pass.
+5. Re-run the Phase 1 feedback loop against the original (un-minimised) scenario.
 
 ## Phase 6: Cleanup
 
 Required before declaring done:
 
 - [ ] Original repro no longer reproduces (re-run the Phase 1 loop)
-- [ ] Before and after runs recorded for the PR
+- [ ] Regression test passes (or absence of seam is documented)
 - [ ] All `[DEBUG-...]` instrumentation removed (`grep` the prefix)
 - [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
 - [ ] The hypothesis that turned out correct is stated in the commit / PR message, so the next debugger learns

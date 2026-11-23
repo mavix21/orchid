@@ -16,7 +16,7 @@ Never write code comments, including JSDoc, inline explanations, TODOs, or comme
 
 ## Tests
 
-Tests guard fund safety, as the Testing section of `CODING_STANDARDS.md` defines it; whether a change gets one is your judgment against that list, and a bug fix or review finding outside it ships with evidence in the PR instead. When a case is warranted, extend the existing case at the lowest public boundary. For visual fixes, capture before and after screenshots. Apply the testing table in `CODING_STANDARDS.md` when adding, changing or reviewing coverage.
+Extend an existing case at the lowest public boundary that exposes the regression. Add a case only for a distinct observable failure. For logic bugs, reproduce the failure before fixing it. For visual fixes, capture before and after screenshots. Keep copy, static markup, trivial wiring and type guarantees out of tests. Apply the testing table in `CODING_STANDARDS.md` when adding, changing or reviewing coverage.
 
 ## Agent skills
 

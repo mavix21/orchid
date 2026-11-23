@@ -12,7 +12,7 @@ The issue tracker and triage label vocabulary should have been provided to you. 
 
 1. Explore the repo to understand the current state of the codebase, if you haven't already. Use the project's domain glossary vocabulary throughout the spec, and respect any ADRs in the area you're touching.
 
-2. If the feature touches fund safety, as the Testing section of `CODING_STANDARDS.md` defines it, sketch out the seams at which you're going to test it. Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better - the ideal number is one.
+2. Sketch out the seams at which you're going to test the feature. Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better - the ideal number is one.
 
 Check with the user that these seams match their expectations.
 
@@ -58,11 +58,11 @@ Exception: if a prototype produced a snippet that encodes a decision more precis
 
 ## Testing Decisions
 
-A list of testing decisions that were made. Tests are reserved for fund safety, as the Testing section of `CODING_STANDARDS.md` defines it. Include:
+A list of testing decisions that were made. Include:
 
-- Which fund-safety behaviors need a test, or that none do
-- The public seam each such test uses and similar prior art in the codebase
-- How the rest of the work will be verified (a run, a screenshot)
+- A description of what makes a good test (only test external behavior, not implementation details)
+- Which modules will be tested
+- Prior art for the tests (i.e. similar types of tests in the codebase)
 
 ## Out of Scope
 

@@ -18,8 +18,8 @@ Use this template for writing the PR body:
 
 ## Evidence
 
-- **Before:** <screenshot/output/reproduction>
-  **After:** <screenshot/output/same reproduction, now fixed>
+- **Before:** <screenshot/output/failing test run>
+  **After:** <screenshot/output/passing test run>
 
 ## Merge Danger
 
@@ -161,7 +161,7 @@ Concrete evidence that the change works. Show a before and after.
 
 Screenshots are S-tier - when the environment is set up for it and the change is visual.
 
-Execution-based evidence is A-tier: a reproduction, console output or test results. Show the command or steps and what they produced before and after.
+Execution-based evidence is A-tier. Test results, console output. Show the exact test that now fails and passes, using pseudocode.
 
 ### Merge Danger
 
