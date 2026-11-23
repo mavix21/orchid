@@ -69,12 +69,11 @@ export function deviceOpening(
   store: KeyStore,
   reviews: OpeningReviews,
 ) {
-  const presenting =
-    (redrafted: boolean): OnDraft =>
-    (wallet, draft) => {
-      let refreshed = false;
+  const presenting = (redrafted: boolean): OnDraft => {
+    let refreshed = false;
 
-      return Effect.gen(function* () {
+    return (wallet, draft) =>
+      Effect.gen(function* () {
         const review = new OpeningReview({
           username: wallet.username,
           address: wallet.address,
@@ -96,7 +95,7 @@ export function deviceOpening(
 
         return Option.some(review);
       });
-    };
+  };
 
   const observe = Effect.fn("Device.observeOpening")(function* (
     initial: PublicDeviceWallet,
@@ -246,14 +245,17 @@ export function deviceOpening(
       ),
     );
 
-  const afterRelease =
-    (shown: OpeningReview): OnDraft =>
-    (wallet, draft) =>
+  const afterRelease = (shown: OpeningReview): OnDraft => {
+    const stage = presenting(false);
+    const again = presenting(true);
+
+    return (wallet, draft) =>
       Predicate.isTagged(draft, "RecoveryDraft")
-        ? presenting(false)(wallet, draft)
+        ? stage(wallet, draft)
         : shown.redrafted
           ? Effect.succeed(Option.some(new DraftRejected()))
-          : presenting(true)(wallet, draft);
+          : again(wallet, draft);
+  };
 
   const confirm = Effect.fn("Device.confirmOpening")(function* (
     shown: OpeningReview,
