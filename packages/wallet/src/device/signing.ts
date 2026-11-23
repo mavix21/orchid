@@ -2,7 +2,7 @@ import { mnemonicToSeedSync } from "@scure/bip39";
 import { Keypair } from "@stellar/stellar-sdk";
 import type * as Arr from "effect/Array";
 import { HDKey } from "micro-key-producer/slip10.js";
-import { Approval, type SigningRequest } from "../contract";
+import { Approval, type LinkSecret, type SigningRequest } from "../contract";
 import { signingPayload } from "../stellar/envelopes";
 import type { SecretPhrase } from "./secret-phrase";
 
@@ -34,4 +34,17 @@ export function approveWithPhrase(
     node.privateKey.fill(0);
     node.chainCode.fill(0);
   }
+}
+
+export function approveWithLinkSecret(
+  secret: LinkSecret,
+  requests: Arr.NonEmptyReadonlyArray<SigningRequest>,
+): Arr.NonEmptyReadonlyArray<Approval> {
+  const link = Keypair.fromSecret(secret);
+  const [first, ...rest] = requests;
+
+  const sign = (request: SigningRequest) =>
+    new Approval({ signature: link.sign(signingPayload(request.envelope)) });
+
+  return [sign(first), ...rest.map(sign)];
 }

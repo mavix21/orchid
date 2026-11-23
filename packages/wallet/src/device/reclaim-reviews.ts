@@ -1,20 +1,11 @@
-import * as DateTime from "effect/DateTime";
-import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import {
-  type Asset,
-  type AssetDraft,
-  type AssetOrder,
-  type PositiveAmount,
-  assetKey,
-} from "../contract";
+import { type AssetDraft, type AssetOrder, assetKey } from "../contract";
 import { readEnvelope } from "../stellar/envelopes";
 import { network } from "../stellar/network";
 import type { PublicDeviceWallet } from "./key-store";
-import { ReclaimReview } from "./outcomes";
-import { draftTiming } from "./payment-reviews";
+import { type PaymentLinkTarget, ReclaimReview } from "./outcomes";
 
 export const reviewJson = Schema.encodeSync(
   Schema.fromJsonString(ReclaimReview),
@@ -29,8 +20,7 @@ export const reviewOf = (
   order: AssetOrder,
   draft: AssetDraft,
   redrafted: boolean,
-  asset: Asset,
-  amount: PositiveAmount,
+  { asset, amount }: PaymentLinkTarget,
 ) => {
   const facts = readEnvelope(draft.request.envelope);
 
@@ -73,28 +63,3 @@ export const reviewOf = (
     }),
   });
 };
-
-export const standingOf = (
-  wallet: PublicDeviceWallet,
-  shown: ReclaimReview,
-  nowMillis: number,
-) => {
-  const derived = reviewOf(
-    wallet,
-    shown.order,
-    shown.draft,
-    shown.redrafted,
-    shown.asset,
-    shown.amount,
-  );
-
-  return Option.isNone(derived) ||
-    reviewJson(derived.value.review) !== reviewJson(shown)
-    ? "stale"
-    : draftTiming(derived.value.maxTime, shown.draft.request, nowMillis);
-};
-
-export const standingNow = (wallet: PublicDeviceWallet, shown: ReclaimReview) =>
-  Effect.map(DateTime.now, (now) =>
-    standingOf(wallet, shown, DateTime.toEpochMillis(now)),
-  );

@@ -26,12 +26,18 @@ export const enrollmentEffects: EnrollmentEffects = {
     ),
   start: (usernameText) =>
     withEnrollment((enrollment) => enrollment.start(usernameText)),
-  advance: (shown) => withEnrollment((enrollment) => enrollment.advance(shown)),
+  advance: (shown, receive) =>
+    withEnrollment((enrollment) => enrollment.advance(shown, receive)),
+  reviewReceive: (link, fragment) =>
+    withEnrollment((enrollment) => enrollment.reviewReceive(link, fragment)),
 };
 
 export const enrollmentClient: EnrollmentClient = {
   pending: () => Effect.runPromise(enrollmentEffects.pending()),
   start: (usernameText) =>
     Effect.runPromise(enrollmentEffects.start(usernameText)),
-  advance: (shown) => Effect.runPromise(enrollmentEffects.advance(shown)),
+  advance: (shown, receive) =>
+    Effect.runPromise(enrollmentEffects.advance(shown, receive)),
+  reviewReceive: (link, fragment) =>
+    Effect.runPromise(enrollmentEffects.reviewReceive(link, fragment)),
 };

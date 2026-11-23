@@ -20,13 +20,15 @@ import {
 import { type AssetFacts, readAssetEnvelope } from "./asset-envelopes";
 import { fromStellarAsset, toStellarAsset } from "./assets";
 import { bounds } from "./bounds";
+import { type LinkReceiveFacts, readLinkReceive } from "./link-receive";
 import { baseFee, networkPassphrase, usdc } from "./network";
 
 export type EnvelopeFacts =
   | OpeningFacts
   | PaymentFacts
   | RecoveryFacts
-  | AssetFacts;
+  | AssetFacts
+  | LinkReceiveFacts;
 
 export const LedgerWindow = Schema.Struct({
   minLedger: Schema.Number,
@@ -314,7 +316,9 @@ export function readEnvelope(
         );
     }
 
-    return readAssetEnvelope(tx, envelope, fields);
+    return Option.orElse(readAssetEnvelope(tx, envelope, fields), () =>
+      readLinkReceive(tx, envelope, fields),
+    );
   } catch {
     return Option.none();
   }

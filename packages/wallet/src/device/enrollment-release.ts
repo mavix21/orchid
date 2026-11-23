@@ -16,6 +16,7 @@ import {
   sameCandidate,
 } from "./enrollment-state";
 import { PublicDeviceWallet, SealedDeviceWallet } from "./key-store";
+import { releaseReceive } from "./link-receive";
 import { localEnvelopeVersion } from "./local-envelope";
 import { reserveSponsorOf } from "./opening-drafts";
 import { DraftRejected, UnsupportedDevice, WalletOnDevice } from "./outcomes";
@@ -137,13 +138,35 @@ export const enrollmentRelease = (
 
     if (Result.isFailure(released)) return released.failure;
 
-    yield* clearPending;
+    const { receive } = held;
 
-    return Predicate.isTagged(released.success, "Opened")
+    if (receive === undefined) yield* clearPending;
+
+    const opened = Predicate.isTagged(released.success, "Opened")
       ? new WalletEnrolled({ profile: released.success.profile })
       : Predicate.isTagged(released.success, "OpeningPending")
         ? yield* awaitOpening(claim)
         : new OpeningPending();
+
+    if (receive === undefined) return opened;
+
+    if (!(opened instanceof WalletEnrolled))
+      return yield* clearPending.pipe(Effect.as(opened));
+
+    const received = yield* releaseReceive(
+      deps.port,
+      receive.order,
+      receive.approval,
+    ).pipe(Effect.result);
+
+    if (Result.isFailure(received)) return received.failure;
+
+    yield* clearPending;
+
+    return new WalletEnrolled({
+      profile: opened.profile,
+      received: received.success,
+    });
   });
 
   return release;

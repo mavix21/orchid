@@ -21,10 +21,16 @@ export const ClaimBalance = Schema.TaggedStruct("ClaimBalance", {
   balance: BalanceId,
 });
 
+export const ReceiveLink = Schema.TaggedStruct("ReceiveLink", {
+  link: AccountAddress,
+  balance: BalanceId,
+});
+
 export const AssetAction = Schema.Union([
   OpenTrustline,
   CloseTrustline,
   ClaimBalance,
+  ReceiveLink,
 ]);
 
 export type AssetAction = typeof AssetAction.Type;
@@ -105,6 +111,17 @@ export class AssetUnsupported extends Schema.TaggedClass<AssetUnsupported>()(
 export class NotClaimable extends Schema.TaggedClass<NotClaimable>()(
   "NotClaimable",
   { claimableAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString) },
+) {}
+
+export class LinkUnclaimable extends Schema.TaggedClass<LinkUnclaimable>()(
+  "LinkUnclaimable",
+  {
+    reason: Schema.Literals([
+      "link_account_exists",
+      "destination_is_link",
+      "destination_is_issuer",
+    ]),
+  },
 ) {}
 
 export const BalanceGoneStatus = Schema.Literals([

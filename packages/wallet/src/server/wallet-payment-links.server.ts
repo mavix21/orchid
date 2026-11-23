@@ -89,7 +89,10 @@ export const paymentLinksFlow = Effect.gen(function* () {
       discard: true,
     });
 
-    return new OpenPaymentLinks({ links });
+    return new OpenPaymentLinks({
+      links,
+      received: yield* transfers.receivedPaymentLinks(address),
+    });
   });
 
   const reconcileLiveLink = Effect.fn("Wallet.reconcileLiveLink")(function* (

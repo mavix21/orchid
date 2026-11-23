@@ -1,5 +1,10 @@
 import { balancesToCheck } from "./balance-sweep.server";
-import { openBalancesFor, openPaymentLinksFor } from "./open-claimables.server";
+import {
+  fundedLinkAt,
+  openBalancesFor,
+  openPaymentLinksFor,
+  receivedPaymentLinksFor,
+} from "./open-claimables.server";
 import { Database } from "@workspace/db";
 import {
   and,
@@ -27,6 +32,7 @@ import {
   type AccountAddress,
   type BalanceId,
   Profile,
+  type ReceivedPaymentLink,
   type ResolvedRecipient,
   type SigningRequest,
   type TransferId,
@@ -51,6 +57,7 @@ import {
   ClaimablesFull,
   type Concluded,
   type ConclusionColumns,
+  type FundedLink,
   OpenBalance,
   OpenLinkRecord,
   OrderJson,
@@ -69,6 +76,7 @@ export {
   ClaimableKind,
   ClaimablesFull,
   Concluded,
+  FundedLink,
   OpenBalance,
   OpenLinkRecord,
   OrderJson,
@@ -123,6 +131,14 @@ export class Transfers extends Context.Service<
     openPaymentLinks(
       sender: AccountAddress,
     ): Effect.Effect<ReadonlyArray<OpenLinkRecord>, StoreFailure>;
+
+    receivedPaymentLinks(
+      sender: AccountAddress,
+    ): Effect.Effect<ReadonlyArray<ReceivedPaymentLink>, StoreFailure>;
+
+    fundedLink(
+      link: AccountAddress,
+    ): Effect.Effect<Option.Option<FundedLink>, StoreFailure>;
 
     closeBalance(balance: BalanceId): Effect.Effect<void, StoreFailure>;
   }
@@ -555,6 +571,14 @@ export class Transfers extends Context.Service<
               Effect.provideService(Database, db),
             ),
           ),
+        receivedPaymentLinks: (sender) =>
+          wrap(
+            receivedPaymentLinksFor(sender).pipe(
+              Effect.provideService(Database, db),
+            ),
+          ),
+        fundedLink: (link) =>
+          wrap(fundedLinkAt(link).pipe(Effect.provideService(Database, db))),
         closeBalance: (balance) =>
           wrap(
             DateTime.now.pipe(

@@ -3,7 +3,10 @@ import type * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  Approval,
   Approvals,
+  AssetOrder,
+  AssetStep,
   BackupEnrollment,
   type ChallengeRefused,
   type OpeningPending,
@@ -31,11 +34,13 @@ import type {
   BackupUnsupported,
   DraftRejected,
   InvalidUsername,
+  LinkSecretMismatch,
   NoWallet,
+  ReviewLinkReceiveOutcome,
   UnsupportedDevice,
   WalletOnDevice,
 } from "./outcomes";
-import { OpeningReview } from "./outcomes";
+import { LinkReceiveReview, OpeningReview } from "./outcomes";
 import type {
   PasskeyCancelled,
   PasskeyFailed,
@@ -52,6 +57,7 @@ export class EnrollmentPending extends Schema.TaggedClass<EnrollmentPending>()(
     stage: EnrollmentStage,
     username: Username,
     review: Schema.optional(OpeningReview),
+    receive: Schema.optional(LinkReceiveReview),
   },
 ) {}
 
@@ -59,8 +65,21 @@ export class WalletEnrolled extends Schema.TaggedClass<WalletEnrolled>()(
   "WalletEnrolled",
   {
     profile: Profile,
+    received: Schema.optional(AssetStep),
   },
 ) {}
+
+export class HeldReceive extends Schema.Class<HeldReceive>(
+  "@workspace/wallet/HeldReceive",
+)({
+  order: AssetOrder,
+  approval: Approval,
+}) {}
+
+export interface EnrollmentReceive {
+  readonly review: LinkReceiveReview;
+  readonly fragment: string;
+}
 
 export class PendingCandidate extends Schema.Class<PendingCandidate>(
   "@workspace/wallet/PendingCandidate",
@@ -87,6 +106,7 @@ export class PendingRelease extends Schema.TaggedClass<PendingRelease>()(
     candidate: PendingCandidate,
     review: OpeningReview,
     approvals: Approvals,
+    receive: Schema.optional(HeldReceive),
   },
 ) {}
 
@@ -124,10 +144,19 @@ export type EnrollWalletOutcome =
   | ChallengeRefused
   | RegistrationRefused
   | UnsupportedDevice
+  | LinkSecretMismatch
+  | WalletUnavailable;
+
+export type ReviewEnrollmentReceiveOutcome =
+  | EnrollmentPending
+  | Exclude<ReviewLinkReceiveOutcome, LinkReceiveReview>
   | WalletUnavailable;
 
 export interface EnrollmentDependencies {
-  readonly port: Pick<WalletPort, "passkeyChallenge" | "enroll" | "open">;
+  readonly port: Pick<
+    WalletPort,
+    "passkeyChallenge" | "enroll" | "open" | "manage" | "paymentLink"
+  >;
   readonly store: SealedKeyStore;
   readonly registration: RegistrationCeremony;
   readonly assertions: AssertionCeremony;
@@ -138,11 +167,25 @@ export interface EnrollmentDependencies {
 export interface EnrollmentEffects {
   pending(): Effect.Effect<Option.Option<EnrollmentPending>>;
   start(usernameText: string): Effect.Effect<EnrollWalletOutcome>;
-  advance(shown?: OpeningReview): Effect.Effect<EnrollWalletOutcome>;
+  advance(
+    shown?: OpeningReview,
+    receive?: EnrollmentReceive,
+  ): Effect.Effect<EnrollWalletOutcome>;
+  reviewReceive(
+    link: AccountAddress,
+    fragment: string,
+  ): Effect.Effect<ReviewEnrollmentReceiveOutcome>;
 }
 
 export interface EnrollmentClient {
   pending(): Promise<Option.Option<EnrollmentPending>>;
   start(usernameText: string): Promise<EnrollWalletOutcome>;
-  advance(shown?: OpeningReview): Promise<EnrollWalletOutcome>;
+  advance(
+    shown?: OpeningReview,
+    receive?: EnrollmentReceive,
+  ): Promise<EnrollWalletOutcome>;
+  reviewReceive(
+    link: AccountAddress,
+    fragment: string,
+  ): Promise<ReviewEnrollmentReceiveOutcome>;
 }

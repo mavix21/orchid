@@ -10,7 +10,6 @@ import {
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
@@ -46,6 +45,7 @@ import {
   usdc,
 } from "../stellar/network";
 import { type AssetChain, assetChain } from "./chain-assets.server";
+import { type LinkChain, linkChain } from "./chain-links.server";
 import { ChainUnreachable } from "./chain-errors.server";
 import {
   type AccountState,
@@ -61,11 +61,8 @@ import {
   type KnownExchangeMemo,
   memoRequirementFor,
 } from "./exchange-memos.server";
-import {
-  WalletSettings,
-  defaultRpcTimeout,
-  rpcReadConcurrency,
-} from "./settings.server";
+import { validateRpcTimeout, validateRpcUrl } from "./rpc-settings.server";
+import { WalletSettings, rpcReadConcurrency } from "./settings.server";
 
 export class Sealed extends Schema.Class<Sealed>("Sealed")({
   envelope: Schema.String,
@@ -101,44 +98,6 @@ export class SubmissionRejected extends Schema.TaggedError<SubmissionRejected>()
     code: Schema.optional(Schema.String),
   },
 ) {}
-
-const loopbackHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
-
-const validateRpcUrl = (rpcUrl: string): Effect.Effect<string> =>
-  Effect.gen(function* () {
-    const parsed = yield* Effect.try(() => new URL(rpcUrl)).pipe(Effect.orDie);
-
-    if (
-      parsed.protocol !== "https:" &&
-      !(parsed.protocol === "http:" && loopbackHosts.has(parsed.hostname))
-    )
-      return yield* Effect.die(
-        new Error(
-          "Stellar RPC URL must use HTTPS unless targeting a loopback host",
-        ),
-      );
-
-    return rpcUrl;
-  });
-
-const validateRpcTimeout = (
-  input: Duration.Input | undefined,
-): Effect.Effect<Duration.Duration> => {
-  if (input === undefined) return Effect.succeed(defaultRpcTimeout);
-
-  const parsed = Duration.fromInput(input);
-
-  if (
-    Option.isSome(parsed) &&
-    Duration.isFinite(parsed.value) &&
-    Duration.isPositive(parsed.value)
-  )
-    return Effect.succeed(parsed.value);
-
-  return Effect.die(
-    new Error("Stellar RPC timeout must be a positive finite duration"),
-  );
-};
 
 const RawSendTransaction = Schema.Union([
   Schema.Struct({ status: Schema.Literal("PENDING") }),
@@ -252,42 +211,45 @@ export function settlementFromResponse(
 
 export class Chain extends Context.Service<
   Chain,
-  AssetChain & {
-    validAddress(address: DestinationAddress): boolean;
-    memoRequiredFor(
-      address: AccountAddress,
-    ): Effect.Effect<Option.Option<KnownExchangeMemo>, ChainUnreachable>;
-    pastOpeningWindow(sealed: Sealed): Effect.Effect<boolean, ChainUnreachable>;
-    account(
-      address: AccountAddress,
-    ): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;
-    balance(
-      address: AccountAddress,
-    ): Effect.Effect<Option.Option<Amount>, ChainUnreachable>;
-    draftOpening(
-      address: AccountAddress,
-      pinSequence: boolean,
-    ): Effect.Effect<OpeningDraft, ChainUnreachable>;
-    draftPayment(
-      from: AccountAddress,
-      to: DestinationAddress,
-      asset: Asset,
-      amount: PositiveAmount,
-      memo?: PaymentMemo,
-    ): Effect.Effect<SigningRequest, ChainUnreachable>;
-    draftRecovery(
-      address: AccountAddress,
-    ): Effect.Effect<SigningRequest, ChainUnreachable>;
-    seal(
-      request: SigningRequest,
-      approval: Approval,
-      holder: AccountAddress,
-    ): Effect.Effect<Sealed, ApprovalInvalid>;
-    submit(
-      sealed: Sealed,
-    ): Effect.Effect<void, ChainUnreachable | SubmissionRejected>;
-    settlement(sealed: Sealed): Effect.Effect<Settlement, ChainUnreachable>;
-  }
+  AssetChain &
+    LinkChain & {
+      validAddress(address: DestinationAddress): boolean;
+      memoRequiredFor(
+        address: AccountAddress,
+      ): Effect.Effect<Option.Option<KnownExchangeMemo>, ChainUnreachable>;
+      pastOpeningWindow(
+        sealed: Sealed,
+      ): Effect.Effect<boolean, ChainUnreachable>;
+      account(
+        address: AccountAddress,
+      ): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;
+      balance(
+        address: AccountAddress,
+      ): Effect.Effect<Option.Option<Amount>, ChainUnreachable>;
+      draftOpening(
+        address: AccountAddress,
+        pinSequence: boolean,
+      ): Effect.Effect<OpeningDraft, ChainUnreachable>;
+      draftPayment(
+        from: AccountAddress,
+        to: DestinationAddress,
+        asset: Asset,
+        amount: PositiveAmount,
+        memo?: PaymentMemo,
+      ): Effect.Effect<SigningRequest, ChainUnreachable>;
+      draftRecovery(
+        address: AccountAddress,
+      ): Effect.Effect<SigningRequest, ChainUnreachable>;
+      seal(
+        request: SigningRequest,
+        approval: Approval,
+        holder: AccountAddress,
+      ): Effect.Effect<Sealed, ApprovalInvalid>;
+      submit(
+        sealed: Sealed,
+      ): Effect.Effect<void, ChainUnreachable | SubmissionRejected>;
+      settlement(sealed: Sealed): Effect.Effect<Settlement, ChainUnreachable>;
+    }
 >()("@workspace/wallet/server/Chain") {
   static readonly layer = Layer.effect(
     Chain,
@@ -308,6 +270,8 @@ export class Chain extends Context.Service<
       const sponsorAddress = Schema.decodeSync(AccountAddress)(
         sponsor.publicKey(),
       );
+
+      const channel = Schema.decodeSync(AccountAddress)(feePayer.publicKey());
 
       const account = Effect.fn("Chain.account")(function* (
         address: AccountAddress,
@@ -453,6 +417,11 @@ export class Chain extends Context.Service<
                   ClaimFacts: (f) =>
                     f.address === holder &&
                     (!f.reserveSponsor || f.reserveSponsor === sponsorAddress),
+                  LinkReceiveFacts: (f) =>
+                    f.link === holder &&
+                    f.destination !== holder &&
+                    f.channel === channel &&
+                    f.reserveSponsor === sponsorAddress,
                 });
 
                 const sponsoring = Match.valueTags(facts.value, {
@@ -464,6 +433,7 @@ export class Chain extends Context.Service<
                   ClaimableFacts: () => true,
                   PaymentLinkFacts: () => true,
                   ClaimFacts: (f) => f.reserveSponsor !== undefined,
+                  LinkReceiveFacts: () => true,
                 });
 
                 if (
@@ -489,6 +459,9 @@ export class Chain extends Context.Service<
                 );
 
                 if (sponsoring) inner.sign(sponsor);
+
+                if (Predicate.isTagged(facts.value, "LinkReceiveFacts"))
+                  inner.sign(feePayer);
 
                 const outer = TransactionBuilder.buildFeeBumpTransaction(
                   feePayer.publicKey(),
@@ -576,6 +549,16 @@ export class Chain extends Context.Service<
 
       const assets = assetChain(rpc, sponsorAddress, source);
 
+      const links = linkChain(sponsor, feePayer, account, source, (envelope) =>
+        rpc
+          .call(
+            "sendTransaction",
+            { transaction: envelope },
+            RawSendTransaction,
+          )
+          .pipe(Effect.ignore),
+      );
+
       return Chain.of({
         ...assets,
         validAddress: (address) =>
@@ -591,6 +574,7 @@ export class Chain extends Context.Service<
         draftOpening: draftOpen,
         draftPayment: draftPay,
         draftRecovery: draftRecover,
+        ...links,
         seal,
         submit,
         settlement,

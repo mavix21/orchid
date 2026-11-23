@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import {
+  type AccountAddress,
   BackupStored,
   type TransferId,
   type WalletPort,
@@ -26,12 +27,15 @@ import {
   type ConfirmOpeningOutcome,
   type ConfirmOutcome,
   type ConfirmReclaimOutcome,
+  type ConfirmLinkReceiveOutcome,
   type ConfirmPaymentLinkOutcome,
   type DeviceOverview,
+  type LinkReceiveReview,
   NoWallet,
   type PaymentLinkIntent,
   type PaymentLinkTarget,
   type PaymentLinksOutcome,
+  type PaymentLinkOutcome,
   type OpeningReview,
   type PaymentReview,
   type ReclaimReview,
@@ -43,6 +47,7 @@ import {
   type ResumeOutcome,
   type ReviewOpeningOutcome,
   type ReviewReclaimOutcome,
+  type ReviewLinkReceiveOutcome,
   type ReviewOutcome,
   type SavedOutcome,
   SavedWallet,
@@ -54,7 +59,7 @@ import {
 import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
 import type { HeldLink } from "./payment-links";
 import { loadFromServer } from "./reaching";
-import type { ReclaimIssue } from "./reclaim";
+import type { ClaimIssue } from "./claim-reviews";
 import type { RestoreProgress } from "./restore";
 
 export * from "./outcomes";
@@ -84,6 +89,18 @@ export interface WalletClient {
   revealPaymentLink(target: SavedLinkTarget): Promise<RevealPaymentLinkOutcome>;
   reviewReclaim(target: PaymentLinkTarget): Promise<ReviewReclaimOutcome>;
   confirmReclaim(review: ReclaimReview): Promise<ConfirmReclaimOutcome>;
+  paymentLink(
+    link: AccountAddress,
+    fragment: string,
+  ): Promise<PaymentLinkOutcome>;
+  reviewLinkReceive(
+    link: AccountAddress,
+    fragment: string,
+  ): Promise<ReviewLinkReceiveOutcome>;
+  confirmLinkReceive(
+    review: LinkReceiveReview,
+    fragment: string,
+  ): Promise<ConfirmLinkReceiveOutcome>;
 }
 
 export interface WalletEffects {
@@ -111,6 +128,18 @@ export interface WalletEffects {
   ): Effect.Effect<RevealPaymentLinkOutcome>;
   reviewReclaim(target: PaymentLinkTarget): Effect.Effect<ReviewReclaimOutcome>;
   confirmReclaim(review: ReclaimReview): Effect.Effect<ConfirmReclaimOutcome>;
+  paymentLink(
+    link: AccountAddress,
+    fragment: string,
+  ): Effect.Effect<PaymentLinkOutcome>;
+  reviewLinkReceive(
+    link: AccountAddress,
+    fragment: string,
+  ): Effect.Effect<ReviewLinkReceiveOutcome>;
+  confirmLinkReceive(
+    review: LinkReceiveReview,
+    fragment: string,
+  ): Effect.Effect<ConfirmLinkReceiveOutcome>;
 }
 
 export function makeWalletEffects(
@@ -128,7 +157,12 @@ export function makeWalletEffects(
   const heldLink = Ref.makeUnsafe(Option.none<HeldLink>());
   const issuedOpening = Ref.makeUnsafe(Option.none<string>());
 
-  const reclaimIssue = Ref.makeUnsafe<ReclaimIssue>({
+  const reclaimIssue = Ref.makeUnsafe<ClaimIssue>({
+    ticket: 0,
+    issued: Option.none(),
+  });
+
+  const receiveIssue = Ref.makeUnsafe<ClaimIssue>({
     ticket: 0,
     issued: Option.none(),
   });
@@ -153,6 +187,12 @@ export function makeWalletEffects(
   const reclaim = loadFromServer(() => import("./reclaim")).pipe(
     Effect.map(({ deviceReclaim }) =>
       deviceReclaim(port, store, { state: reclaimIssue, device }),
+    ),
+  );
+
+  const receiving = loadFromServer(() => import("./link-receive")).pipe(
+    Effect.map(({ deviceLinkReceive }) =>
+      deviceLinkReceive(port, store, { state: receiveIssue, device }),
     ),
   );
 
@@ -406,6 +446,23 @@ export function makeWalletEffects(
           ),
         ),
       ),
+    paymentLink: (link, fragment) =>
+      transfer(
+        receiving.pipe(Effect.flatMap(({ status }) => status(link, fragment))),
+      ),
+    reviewLinkReceive: (link, fragment) =>
+      transfer(
+        receiving.pipe(Effect.flatMap(({ review }) => review(link, fragment))),
+      ),
+    confirmLinkReceive: (shown, fragment) =>
+      transfer(
+        receiving.pipe(
+          Effect.flatMap(({ confirm }) => confirm(shown, fragment)),
+          Effect.catchTag("CorruptDeviceWallet", (damaged) =>
+            Effect.succeed(damaged),
+          ),
+        ),
+      ),
   };
 }
 
@@ -440,5 +497,11 @@ export function makeWalletClient(
       Effect.runPromise(effects.revealPaymentLink(target)),
     reviewReclaim: (target) => Effect.runPromise(effects.reviewReclaim(target)),
     confirmReclaim: (shown) => Effect.runPromise(effects.confirmReclaim(shown)),
+    paymentLink: (link, fragment) =>
+      Effect.runPromise(effects.paymentLink(link, fragment)),
+    reviewLinkReceive: (link, fragment) =>
+      Effect.runPromise(effects.reviewLinkReceive(link, fragment)),
+    confirmLinkReceive: (shown, fragment) =>
+      Effect.runPromise(effects.confirmLinkReceive(shown, fragment)),
   };
 }
