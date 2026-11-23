@@ -20,11 +20,7 @@ import {
 import { fundWithFriendbot, horizon, usdc } from "@workspace/wallet/testnet";
 import * as Schema from "effect/Schema";
 
-export const addAuthenticator = async (
-  page: Page,
-  hasPrf: boolean,
-  isUserVerified = true,
-) => {
+export const addAuthenticator = async (page: Page, hasPrf: boolean) => {
   const session = await page.context().newCDPSession(page);
 
   await session.send("WebAuthn.enable");
@@ -37,7 +33,7 @@ export const addAuthenticator = async (
         transport: "internal",
         hasResidentKey: true,
         hasUserVerification: true,
-        isUserVerified,
+        isUserVerified: true,
         hasPrf,
         automaticPresenceSimulation: true,
       },

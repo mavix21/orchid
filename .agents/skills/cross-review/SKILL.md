@@ -72,7 +72,7 @@ Line delta: <+T/-T test lines vs +C/-C code lines>
 
 Review along two separate axes:
 1. Standards (including code smells and test discipline).
-   Test discipline is first-class: flag as `should` any added or edited test that violates the Testing policy (cases outside fund safety, duplicate cases, input variations that belong in one named parameterized case or should be dropped, expectations that restate constants or mirror mocks, cases with no distinct observable behavior change that would fail them). Fixes are code changes and PR evidence; propose a test as a fix only for a fund-safety failure you name that no existing case catches.
+   Test discipline is first-class: flag as `should` any added or edited test that violates the Testing policy (cases that fail the bar in the Testing section, duplicate cases, input variations that belong in one named parameterized case or should be dropped, expectations that restate constants or mirror mocks, cases with no distinct observable behavior change that would fail them). Fixes are code changes and PR evidence; propose a test as a fix only for a fund-safety failure you name that no existing case catches.
 2. Spec: missing/partial requirements, wrong behavior, or unrequested scope creep. Cite spec lines when a spec exists.
 
 Severities:
