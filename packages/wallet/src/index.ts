@@ -12,11 +12,7 @@ export * from "./device/display-lock";
 
 export * from "./device/local-envelope";
 
-export {
-  LinkSecretCorrupt,
-  SealedLinkSecret,
-  linkPrfInput,
-} from "./device/link-seal";
+export { LinkSecretCorrupt, SealedLinkSecret } from "./device/link-seal";
 
 export * from "./device/enrollment";
 

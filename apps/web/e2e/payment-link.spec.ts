@@ -1,4 +1,5 @@
 import { type Page, expect, test } from "@playwright/test";
+import { Keypair } from "@stellar/stellar-sdk";
 import { fundWithUsdc, usdc } from "@workspace/wallet/testnet";
 
 import {
@@ -9,7 +10,7 @@ import {
   withoutPrf,
 } from "./device";
 
-const linkPath = /\/l\/G[A-Z2-7]{55}#(S[A-Z2-7]{55})$/;
+const linkPath = /\/l\/(G[A-Z2-7]{55})#(S[A-Z2-7]{55})$/;
 
 const reviewLink = async (page: Page) => {
   await visit(page, "/send");
@@ -22,7 +23,7 @@ const reviewLink = async (page: Page) => {
   });
 };
 
-test("saves a funded link on the device, re-shares its exact URL from the links after leaving, recovers it, and never sends its secret or envelope", async ({
+test("saves a funded link on the device, re-shares it from the links after leaving unshared, recovers it, and never sends its secret or envelope", async ({
   page,
 }) => {
   test.setTimeout(600_000);
@@ -57,23 +58,10 @@ Object.defineProperty(navigator, "clipboard", { configurable: true, value: { wri
     timeout: 120_000,
   });
   await expect(page.getByTestId("top-nav-action")).toBeEnabled();
-  expect(shared).toEqual([]);
-  expect(copied).toEqual([]);
 
   const envelopes = await storedLinkCiphertexts(page);
 
   expect(envelopes).toHaveLength(1);
-
-  await page.getByTestId("copy-link").click();
-  await expect(page.getByTestId("finish-link")).toBeVisible();
-  await expect.poll(() => copied).toHaveLength(1);
-
-  const [original = ""] = copied;
-  const link = new URL(original);
-  const [, secret = ""] = linkPath.exec(`${link.pathname}${link.hash}`) ?? [];
-
-  expect(link.origin).toBe(new URL(page.url()).origin);
-  expect(secret).toHaveLength(56);
 
   await page.getByTestId("finish-link").click();
   await visit(page, "/send");
@@ -81,15 +69,23 @@ Object.defineProperty(navigator, "clipboard", { configurable: true, value: { wri
   await expect(page.getByTestId("reshare-link")).toHaveCount(1, {
     timeout: 30_000,
   });
+  expect({ shared, copied }).toEqual({ shared: [], copied: [] });
 
   await page.getByTestId("reshare-link").click();
   await page.getByTestId("share-link").click();
   await page.getByTestId("copy-link").click();
   await expect(page.getByTestId("link-share-drawer")).toBeVisible();
+  await expect.poll(() => copied).toHaveLength(1);
 
-  await expect
-    .poll(() => ({ shared, copied }))
-    .toEqual({ shared: [original], copied: [original, original] });
+  const [original = ""] = shared;
+  const link = new URL(original);
+
+  const [, linkAddress = "", secret = ""] =
+    linkPath.exec(`${link.pathname}${link.hash}`) ?? [];
+
+  expect(link.origin).toBe(new URL(page.url()).origin);
+  expect(copied).toEqual([original]);
+  expect(Keypair.fromSecret(secret).publicKey()).toBe(linkAddress);
   expect(await page.content()).not.toContain(secret);
 
   await page.keyboard.press("Escape");
@@ -114,6 +110,8 @@ Object.defineProperty(navigator, "clipboard", { configurable: true, value: { wri
   const signedBefore = requests.filter((sent) =>
     sent.includes('"signature"'),
   ).length;
+
+  expect(signedBefore).toBeGreaterThan(0);
 
   await reviewLink(page);
   await page.getByTestId("once-link").click();

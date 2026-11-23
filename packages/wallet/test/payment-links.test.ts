@@ -354,6 +354,15 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(once, "PaymentReview");
 
+          auth.cancels = true;
+
+          expect(yield* client.confirmPaymentLink(once)).toEqual(
+            new PasskeyCancelled(),
+          );
+          expect(released).toEqual([]);
+
+          auth.cancels = false;
+
           const created = yield* client.confirmPaymentLink(once);
 
           assertTagged(created, "PaymentLinkCreated");
