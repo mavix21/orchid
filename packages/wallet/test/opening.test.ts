@@ -23,6 +23,7 @@ import {
 import { Database } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { Sealed } from "../src/server/Chain.server";
+import { SignedWorkInFlight } from "../src/server/slot.server";
 import { Directory } from "../src/server/Directory.server";
 import { draftOpening, readEnvelope } from "../src/stellar/envelopes";
 import { networkPassphrase } from "../src/stellar/network";
@@ -190,6 +191,26 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(
             Option.getOrThrow(readEnvelope(repair.request.envelope)),
           ).toMatchObject({ createAccount: false, window: undefined });
+
+          const placeholder = new Sealed({
+            envelope: "AAAA",
+            hash: "00".repeat(32),
+            expiresAt: DateTime.makeUnsafe(Date.now() + 60_000),
+          });
+
+          const stored = Option.getOrThrow(yield* findWallet(claim.address));
+
+          expect(
+            yield* Directory.use((directory) =>
+              directory.seal(
+                stored,
+                placeholder,
+                claim,
+                Option.some(placeholder),
+                true,
+              ),
+            ),
+          ).toEqual(new SignedWorkInFlight());
         }),
     );
 
@@ -252,7 +273,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           });
 
           yield* Directory.use((d) =>
-            d.seal(row, historical, claim, Option.none()),
+            d.seal(row, historical, claim, Option.none(), false),
           );
           expect((yield* opening(claim))._tag).toBe("OpeningDraft");
           expect(world.submitted).toHaveLength(0);

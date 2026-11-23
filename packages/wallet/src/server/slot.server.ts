@@ -9,3 +9,13 @@ export class SlotOccupied extends Schema.TaggedClass<SlotOccupied>()(
   "SlotOccupied",
   {},
 ) {}
+
+export class SignedWorkInFlight extends Schema.TaggedClass<SignedWorkInFlight>()(
+  "SignedWorkInFlight",
+  {},
+) {}
+
+export class WalletInactive extends Schema.TaggedClass<WalletInactive>()(
+  "WalletInactive",
+  {},
+) {}
