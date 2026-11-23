@@ -112,7 +112,7 @@ const enrollBackedWallet = (
 
     assertTagged(started, "EnrollmentPending");
 
-    const completed = yield* enrollment.advance();
+    const completed = yield* enrollment.advance(started.review);
 
     assertTagged(completed, "WalletEnrolled");
 

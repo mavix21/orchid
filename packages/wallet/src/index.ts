@@ -14,6 +14,8 @@ export * from "./device/local-envelope";
 
 export * from "./device/enrollment";
 
+export { currentUntil } from "./device/opening-drafts";
+
 export {
   browserAssertions,
   browserPasskeys,

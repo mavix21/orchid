@@ -9,6 +9,7 @@ import {
   InputGroupInput,
 } from "@workspace/ui/components/input-group";
 import {
+  currentUntil,
   type EnrollWalletOutcome,
   type EnrollmentPending,
   type EnrollmentStage,
@@ -236,9 +237,9 @@ function ChooseUsername() {
   useEffect(() => {
     if (Option.isNone(pending)) return;
 
-    const { stage, currentUntil } = pending.value;
+    const { stage, review } = pending.value;
 
-    if (stage !== "activate" || currentUntil === undefined) return;
+    if (stage !== "activate" || review === undefined) return;
 
     const timer = setTimeout(
       () => {
@@ -248,7 +249,7 @@ function ChooseUsername() {
           setStale(false);
         });
       },
-      Math.max(0, currentUntil - Date.now()),
+      Math.max(0, currentUntil(review) - Date.now()),
     );
 
     return () => clearTimeout(timer);
@@ -303,7 +304,7 @@ function ChooseUsername() {
     const ticket = displayLock.begin();
 
     const outcome = await enrollmentClient.advance(
-      Option.isSome(pending) ? pending.value.currentUntil : undefined,
+      Option.isSome(pending) ? pending.value.review : undefined,
     );
 
     if (
@@ -360,7 +361,7 @@ function ChooseUsername() {
     const copy = stageCopy(
       pending.value.stage,
       pending.value.username,
-      pending.value.currentUntil === undefined,
+      pending.value.review === undefined,
     );
 
     return (

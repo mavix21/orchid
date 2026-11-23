@@ -22,7 +22,7 @@ import {
 } from "./enrollment-records";
 import { PublicDeviceWallet, type SealedDeviceWallet } from "./key-store";
 import { LocalPhraseEnvelope } from "./local-envelope";
-import { currentUntil, standingNow } from "./opening-drafts";
+import { standingNow } from "./opening-drafts";
 import type { OpeningReview } from "./outcomes";
 import type { SecretPhrase } from "./secret-phrase";
 
@@ -178,10 +178,7 @@ export const notice = (state: Awaiting | Held): EnrollmentPending =>
     : new EnrollmentPending({
         stage: "activate",
         username: usernameOf(state),
-        currentUntil: Option.match(state.review, {
-          onNone: () => undefined,
-          onSome: currentUntil,
-        }),
+        review: Option.getOrUndefined(state.review),
       });
 
 export const zeroed = (prf: Redacted.Redacted<Uint8Array<ArrayBuffer>>) =>
