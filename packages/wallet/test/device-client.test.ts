@@ -211,6 +211,61 @@ it.effect(
     }),
 );
 
+it.effect(
+  "confirms into the standalone recovery review when a settled opening needs the fallback",
+  () =>
+    Effect.gen(function* () {
+      const enrolled = enrolledDeviceWallet();
+      const { auth } = yield* installSealedWallet(enrolled);
+
+      const port = unusedPort({
+        open: (_claim, approvals) =>
+          Effect.map(Clock.currentTimeMillis, (millis): OpenStep => {
+            const now = Math.floor(millis / 1000);
+
+            if (Option.isSome(approvals))
+              return new RecoveryDraft({
+                request: requestUntil(
+                  draftRecovery({
+                    source: new Account(enrolled.address, "100"),
+                    reserveSponsor,
+                    minTime: now + recoveryDelay,
+                    maxTime: now + recoveryDelay + recoveryWindow,
+                  }),
+                  now + recoveryDelay + recoveryWindow,
+                ),
+              });
+
+            return draftOpeningWithRecovery({
+              source: new Account(reserveSponsor, "100"),
+              address: enrolled.address,
+              reserveSponsor,
+              observedSequence: undefined,
+              now,
+              latestLedger: 100,
+              pinSequence: true,
+            });
+          }),
+      });
+
+      const client = makeWalletEffects(
+        port,
+        sealedKeyStore,
+        passkeys,
+        approvingDevice(auth),
+      );
+
+      const review = yield* client.reviewOpening("maria");
+
+      assertTagged(review, "OpeningReview");
+
+      const fallback = yield* client.confirmOpening(review);
+
+      assertTagged(fallback, "OpeningReview");
+      expect(fallback.draft._tag).toBe("RecoveryDraft");
+    }),
+);
+
 const rejectedDrafts: ReadonlyArray<readonly [string, OpenStep]> = [
   [
     "an expired opening draft",

@@ -42,12 +42,19 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const zero = Option.some(amount("0"));
 
           for (const state of [
-            accountState({ balance: Option.some(amount("1")) }),
+            accountState({
+              sequence: openedSequence,
+              balance: Option.some(amount("1")),
+            }),
             accountState({
               sequence: (BigInt(openedSequence) + 1n).toString(),
               balance: zero,
             }),
-            accountState({ nativeBalance: 1n, balance: zero }),
+            accountState({
+              sequence: openedSequence,
+              nativeBalance: 1n,
+              balance: zero,
+            }),
           ]) {
             world.accounts.set(claim.address, state);
             yield* sweep;

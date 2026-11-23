@@ -31,14 +31,18 @@ import {
   accountState,
   addressOf,
   amount,
+  approve,
   approveOpening,
+  authorizeTransfer,
   claimFor,
   create,
   feePayer,
   findWallet,
+  fundedWallet,
   opening,
   orderFor,
   overviewOf,
+  selfOrder,
   reserveSponsor,
   send,
   settleAttempt,
@@ -63,9 +67,18 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(draft, "OpeningDraft");
           expect(draft.recovery).toBeDefined();
-          expect(
-            yield* opening(claim, approveOpening(Keypair.random(), draft)),
-          ).toEqual(draft);
+
+          const unrecoverable = Option.some([
+            Option.getOrThrow(approve(draft.request, key)),
+            Option.getOrThrow(
+              approve(
+                Option.getOrThrow(Option.fromNullishOr(draft.recovery)),
+                Keypair.random(),
+              ),
+            ),
+          ] as const);
+
+          expect(yield* opening(claim, unrecoverable)).toEqual(draft);
           expect(world.submitted).toHaveLength(0);
           expect((yield* opening(claim, approveOpening(key, draft)))._tag).toBe(
             "OpeningPending",
@@ -146,6 +159,37 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(
             Option.getOrThrow(yield* findWallet(advanced.address)).status,
           ).toBe("opening");
+        }),
+    );
+
+    it.effect(
+      "a repair is drafted unbumped and unpaired while a signed transfer is in flight",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet();
+          const claim = claimFor(key, "maria");
+
+          const funded = Option.getOrThrow(
+            Option.fromNullishOr(world.accounts.get(claim.address)),
+          );
+
+          yield* authorizeTransfer(key, selfOrder(key), { failSubmit: true });
+          world.accounts.set(
+            claim.address,
+            accountState({
+              sequence: funded.sequence,
+              balance: Option.none(),
+            }),
+          );
+          expect((yield* opening(claim))._tag).toBe("OpeningPending");
+
+          const repair = yield* opening(claim);
+
+          assertTagged(repair, "OpeningDraft");
+          expect(repair.recovery).toBeUndefined();
+          expect(
+            Option.getOrThrow(readEnvelope(repair.request.envelope)),
+          ).toMatchObject({ createAccount: false, window: undefined });
         }),
     );
 
