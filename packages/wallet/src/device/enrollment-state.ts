@@ -188,3 +188,7 @@ export const zeroed = (prf: Redacted.Redacted<Uint8Array<ArrayBuffer>>) =>
   Effect.sync(() => {
     Redacted.value(prf).fill(0);
   });
+
+export const isPairedOpening = (review: OpeningReview) =>
+  Predicate.isTagged(review.draft, "OpeningDraft") &&
+  review.draft.recovery !== undefined;

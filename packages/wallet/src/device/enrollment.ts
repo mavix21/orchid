@@ -44,6 +44,7 @@ import {
   credentialOf,
   isCreated,
   isHeld,
+  isPairedOpening,
   memoryPendingStorage,
   notice,
   pinCredential,
@@ -107,32 +108,36 @@ export function makeEnrollmentEffects(
 
     const restored = yield* storage.read();
 
-    if (Option.isSome(restored))
-      state = Match.valueTags(restored.value, {
-        PendingActivation: ({ enrollment, candidate, review }) =>
-          PendingState.Sealed({
-            enrollment,
-            candidate,
-            review: Option.some(review),
-          }),
-        PendingRelease: (record) =>
-          PendingState.Held({
-            enrollment: record.enrollment,
-            candidate: record.candidate,
-            review: record.review,
-            approvals: record.approvals,
-          }),
+    if (Option.isNone(restored)) return state;
+
+    if (Predicate.isTagged(restored.value, "PendingActivation")) {
+      const { enrollment, candidate, review } = restored.value;
+
+      state = PendingState.Sealed({
+        enrollment,
+        candidate,
+        review: isPairedOpening(review) ? Option.some(review) : Option.none(),
       });
 
+      return state;
+    }
+
+    const record = restored.value;
+
     if (
-      Option.isSome(restored) &&
-      Predicate.isTagged(restored.value, "PendingRelease") &&
-      !commitmentHolds(
-        new ReleaseContents(restored.value),
-        restored.value.commitment,
-      )
-    )
-      yield* clearPending;
+      yield* commitmentHolds(new ReleaseContents(record), record.commitment)
+    ) {
+      state = PendingState.Held({
+        enrollment: record.enrollment,
+        candidate: record.candidate,
+        review: record.review,
+        approvals: record.approvals,
+      });
+
+      return state;
+    }
+
+    yield* clearPending;
 
     return state;
   });
@@ -228,8 +233,8 @@ export function makeEnrollmentEffects(
 
       state = next;
 
-      if (PendingState.$is("Sealed")(next))
-        yield* storage
+      if (PendingState.$is("Sealed")(next)) {
+        const persisted = yield* storage
           .write(
             new PendingActivation({
               enrollment: next.enrollment,
@@ -237,7 +242,11 @@ export function makeEnrollmentEffects(
               review: requested.success,
             }),
           )
-          .pipe(Effect.ignore);
+          .pipe(Effect.result);
+
+        if (Result.isFailure(persisted))
+          return yield* clearPending.pipe(Effect.as(new UnsupportedDevice()));
+      }
 
       return notice(next);
     }
@@ -251,7 +260,8 @@ export function makeEnrollmentEffects(
   const hasLiveReview = Effect.fn("Device.enrollmentHasLiveReview")(function* (
     current: Awaiting,
   ) {
-    if (Option.isNone(current.review)) return false;
+    if (Option.isNone(current.review) || !isPairedOpening(current.review.value))
+      return false;
 
     return (
       (yield* standingOfReview(current, current.review.value)) === "current"

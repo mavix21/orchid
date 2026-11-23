@@ -41,3 +41,19 @@ export function approveWithPhrase(
     node.chainCode.fill(0);
   }
 }
+
+export function signPayloadWithPhrase(
+  phrase: SecretPhrase,
+  payload: Uint8Array,
+): Uint8Array<ArrayBuffer> {
+  const seed = mnemonicToSeedSync(phrase);
+  const node = HDKey.fromMasterSeed(seed).derive(stellarAccountPath);
+
+  try {
+    return Uint8Array.from(node.sign(payload));
+  } finally {
+    seed.fill(0);
+    node.privateKey.fill(0);
+    node.chainCode.fill(0);
+  }
+}
