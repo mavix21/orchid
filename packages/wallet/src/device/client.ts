@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -11,6 +12,11 @@ import {
   type WalletPort,
   type WalletUnavailable,
 } from "../contract";
+import {
+  AssertionIntent,
+  AssertionRejected,
+  verifyPinnedAssertion,
+} from "./assertion";
 import {
   type KeyStore,
   type KeyStoreUnavailable,
@@ -36,6 +42,8 @@ import {
   SavedWallet,
   type SendOutcome,
   type TransferIntent,
+  type UnlockOutcome,
+  Unlocked,
   UnsupportedDevice,
 } from "./outcomes";
 import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
@@ -51,6 +59,7 @@ export { loadFromServer, unreachedServer } from "./reaching";
 export interface WalletClient {
   overview(): Promise<DeviceOverview>;
   saved(): Promise<SavedOutcome>;
+  unlock(): Promise<UnlockOutcome>;
   create(usernameText: string): Promise<CreateOutcome>;
   backUp(): Promise<BackUpOutcome>;
   restore(): Promise<RestoreOutcome>;
@@ -72,6 +81,7 @@ export interface WalletClient {
 export interface WalletEffects {
   overview(): Effect.Effect<DeviceOverview>;
   saved(): Effect.Effect<SavedOutcome>;
+  unlock(): Effect.Effect<UnlockOutcome>;
   create(usernameText: string): Effect.Effect<CreateOutcome>;
   backUp(): Effect.Effect<BackUpOutcome>;
   restore(): Effect.Effect<RestoreOutcome>;
@@ -200,6 +210,29 @@ export function makeWalletEffects(
     });
   });
 
+  const unlock = Effect.fn("Device.unlock")(function* () {
+    if (restoration === undefined) return new UnsupportedDevice();
+
+    const sealed = yield* restoration.store.readSealed();
+
+    if (Option.isNone(sealed)) return new NoWallet();
+
+    const verified = yield* verifyPinnedAssertion(
+      restoration.ceremony,
+      restoration.relyingParty(),
+      sealed.value.credential,
+      AssertionIntent.Entry(),
+    );
+
+    return Match.valueTags(verified, {
+      EntryVerified: () => new Unlocked(),
+      OperationVerified: () => new AssertionRejected(),
+      PrfOutputMissing: () => new AssertionRejected(),
+      WrongCredential: (wrong) => wrong,
+      AssertionRejected: (rejected) => rejected,
+    });
+  });
+
   const settle = <A>(
     program: Effect.Effect<
       A,
@@ -249,6 +282,15 @@ export function makeWalletEffects(
           LedgerUnreachable: (failure) => Effect.succeed(failure),
           ServiceFailed: (failure) => Effect.succeed(failure),
           InvalidResponse: (failure) => Effect.succeed(failure),
+        }),
+      ),
+    unlock: () =>
+      unlock().pipe(
+        Effect.catchTags({
+          KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
+          CorruptDeviceWallet: (damaged) => Effect.succeed(damaged),
+          PasskeyCancelled: (cancelled) => Effect.succeed(cancelled),
+          PasskeyFailed: (failed) => Effect.succeed(failed),
         }),
       ),
     create: (usernameText) => settle(create(usernameText)),
@@ -309,6 +351,7 @@ export function makeWalletClient(
   return {
     overview: () => Effect.runPromise(effects.overview()),
     saved: () => Effect.runPromise(effects.saved()),
+    unlock: () => Effect.runPromise(effects.unlock()),
     create: (usernameText) => Effect.runPromise(effects.create(usernameText)),
     backUp: () => Effect.runPromise(effects.backUp()),
     restore: () => Effect.runPromise(effects.restore()),

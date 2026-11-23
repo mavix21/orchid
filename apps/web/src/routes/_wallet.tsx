@@ -1,20 +1,19 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 
-import { TabBar } from "@/components/tab-bar";
+import { DisplayGate } from "@/wallet/display-gate";
 import { deviceHoldsWallet } from "@/wallet/wallet-cookie";
 
-export const Route = createFileRoute("/_app")({
+export const Route = createFileRoute("/_wallet")({
   beforeLoad: () => {
     if (!deviceHoldsWallet()) throw redirect({ to: "/" });
   },
-  component: AppLayout,
+  component: WalletLayout,
 });
 
-function AppLayout() {
+function WalletLayout() {
   return (
-    <>
+    <DisplayGate>
       <Outlet />
-      <TabBar />
-    </>
+    </DisplayGate>
   );
 }

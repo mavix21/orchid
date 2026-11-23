@@ -14,6 +14,7 @@ import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
 import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { useHomeForSavedWallet } from "@/wallet/use-home-for-saved-wallet";
+import { displayLock } from "@/wallet/display-lock";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/restore")({
@@ -98,7 +99,10 @@ function RestoreAccount() {
     setRestoring(true);
     setProblem(undefined);
 
+    const ticket = displayLock.begin();
     const outcome = await walletClient.restore();
+
+    if (Predicate.isTagged(outcome, "Restored")) displayLock.unlock(ticket);
 
     if (!mounted.current) return;
 

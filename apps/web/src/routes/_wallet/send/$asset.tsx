@@ -23,7 +23,7 @@ import { shownOverview } from "@/wallet/shown-overview";
 
 const TransferSearch = Schema.Struct({ transfer: Schema.optional(TransferId) });
 
-export const Route = createFileRoute("/send/$asset")({
+export const Route = createFileRoute("/_wallet/send/$asset")({
   ssr: false,
   validateSearch: Schema.toStandardSchemaV1(TransferSearch),
   shouldReload: false,

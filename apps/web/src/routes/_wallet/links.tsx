@@ -34,7 +34,7 @@ import { RecoverDrawer, RecoveryAnswer, useRecovery } from "@/links/recovery";
 import { amountLabel } from "@/send/money";
 import { unavailableMessage } from "@/wallet/unavailable";
 
-export const Route = createFileRoute("/links")({
+export const Route = createFileRoute("/_wallet/links")({
   ssr: false,
   pendingMs: 0,
   pendingComponent: () => <LinksFrame loading />,
@@ -282,7 +282,10 @@ function LinkList({
 
   return (
     <>
-      <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
+      <main
+        data-testid="payment-links"
+        className="flex flex-1 flex-col gap-6 px-5 pt-2"
+      >
         <div className="flex flex-col gap-2">
           <h1 className="font-display text-h1">Tus links abiertos</h1>
           <p className="text-body text-muted-foreground">

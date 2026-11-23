@@ -13,7 +13,7 @@ import { amountLabel, assetCode } from "@/send/money";
 import { SendUnavailable } from "@/send/send-unavailable";
 import { shownOverview } from "@/wallet/shown-overview";
 
-export const Route = createFileRoute("/send/")({
+export const Route = createFileRoute("/_wallet/send/")({
   ssr: false,
   pendingMs: 0,
   pendingComponent: () => <ChooseAssetFrame loading />,

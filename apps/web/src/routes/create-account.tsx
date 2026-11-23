@@ -26,6 +26,7 @@ import { Screen, ScreenActions, ScreenNote } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { UserAvatar } from "@/components/user-avatar";
 import { me } from "@/fixtures/account";
+import { displayLock } from "@/wallet/display-lock";
 import { enrollmentClient } from "@/wallet/enrollment";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
 
@@ -232,7 +233,13 @@ function ChooseUsername() {
     setBusy(true);
     setProblem(undefined);
     setUnsupportedPrf(false);
-    await handleOutcome(await enrollmentClient.advance());
+    const ticket = displayLock.begin();
+    const outcome = await enrollmentClient.advance();
+
+    if (Predicate.isTagged(outcome, "WalletEnrolled"))
+      displayLock.unlock(ticket);
+
+    await handleOutcome(outcome);
   };
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {

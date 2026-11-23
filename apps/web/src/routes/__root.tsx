@@ -7,6 +7,7 @@ import type { WalletClient } from "@workspace/wallet";
 
 import appCss from "@workspace/ui/globals.css?url";
 import { ThemeProvider } from "@/components/theme-provider";
+import { useDisplayLockLifecycle } from "@/wallet/display-lock";
 
 export const Route = createRootRouteWithContext<{
   walletClient: WalletClient;
@@ -43,6 +44,8 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  useDisplayLockLifecycle();
+
   return (
     <html lang="es" suppressHydrationWarning>
       <head>

@@ -25,7 +25,7 @@ import {
   unavailableNotice,
 } from "@/wallet/unavailable";
 
-export const Route = createFileRoute("/_app/home")({
+export const Route = createFileRoute("/_wallet/_app/home")({
   ssr: false,
   pendingMs: 0,
   pendingComponent: HomeSkeleton,

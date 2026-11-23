@@ -18,6 +18,7 @@ const withWallet = <A>(use: (wallet: WalletEffects) => Effect.Effect<A>) =>
 export const walletEffects: WalletEffects = {
   overview: () => withWallet((wallet) => wallet.overview()),
   saved: () => withWallet((wallet) => wallet.saved()),
+  unlock: () => withWallet((wallet) => wallet.unlock()),
   create: (usernameText) => withWallet((wallet) => wallet.create(usernameText)),
   backUp: () => withWallet((wallet) => wallet.backUp()),
   restore: () => withWallet((wallet) => wallet.restore()),
@@ -37,6 +38,7 @@ export const walletEffects: WalletEffects = {
 export const walletClient: WalletClient = {
   overview: () => Effect.runPromise(walletEffects.overview()),
   saved: () => Effect.runPromise(walletEffects.saved()),
+  unlock: () => Effect.runPromise(walletEffects.unlock()),
   create: (usernameText) =>
     Effect.runPromise(walletEffects.create(usernameText)),
   backUp: () => Effect.runPromise(walletEffects.backUp()),

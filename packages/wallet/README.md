@@ -42,7 +42,7 @@ Each scheduled run selects up to four transfers and four currently eligible reco
 
 ### Limits
 
-The device client covers creation, overview, resuming, backup, restore, sending and reviewing payments only; secret phrase export, `protect`/`recover`, enrollment envelopes, phone tables, OTP, escrow, Turnstile, mainnet and deployment are not implemented. The recovery guard that skips a nonzero balance is not verified on testnet.
+The device client covers creation, overview, resuming, backup, restore, unlocking, sending and reviewing payments only; secret phrase export, `protect`/`recover`, enrollment envelopes, phone tables, OTP, escrow, Turnstile, mainnet and deployment are not implemented. The recovery guard that skips a nonzero balance is not verified on testnet.
 
 A restored wallet learns its reserve sponsor only from its first `Holding` overview. If it was restored after its opening was approved but before the recovery transaction was signed, the device rejects that recovery draft as `DraftRejected`.
 

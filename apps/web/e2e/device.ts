@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { type Page, expect } from "@playwright/test";
 import {
   Keypair,
@@ -27,17 +28,63 @@ export const addAuthenticator = async (
   const session = await page.context().newCDPSession(page);
 
   await session.send("WebAuthn.enable");
-  await session.send("WebAuthn.addVirtualAuthenticator", {
-    options: {
-      protocol: "ctap2",
-      transport: "internal",
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified,
-      hasPrf,
-      automaticPresenceSimulation: true,
+
+  const { authenticatorId } = await session.send(
+    "WebAuthn.addVirtualAuthenticator",
+    {
+      options: {
+        protocol: "ctap2",
+        transport: "internal",
+        hasResidentKey: true,
+        hasUserVerification: true,
+        isUserVerified,
+        hasPrf,
+        automaticPresenceSimulation: true,
+      },
+    },
+  );
+
+  return {
+    session,
+    authenticatorId,
+    verifyUser: (isUserVerified: boolean) =>
+      session.send("WebAuthn.setUserVerified", {
+        authenticatorId,
+        isUserVerified,
+      }),
+  };
+};
+
+const addSeededCredential = async (page: Page) => {
+  const authenticator = await addAuthenticator(page, false);
+
+  const { privateKey, publicKey } = generateKeyPairSync("ec", {
+    namedCurve: "P-256",
+  });
+
+  const id = randomBytes(16);
+
+  await authenticator.session.send("WebAuthn.addCredential", {
+    authenticatorId: authenticator.authenticatorId,
+    credential: {
+      credentialId: id.toString("base64"),
+      isResidentCredential: true,
+      rpId: "localhost",
+      privateKey: privateKey
+        .export({ type: "pkcs8", format: "der" })
+        .toString("base64"),
+      userHandle: randomBytes(16).toString("base64"),
+      signCount: 0,
     },
   });
+
+  return {
+    authenticator,
+    id: id.toString("base64url"),
+    publicKey: publicKey
+      .export({ type: "spki", format: "der" })
+      .toString("base64url"),
+  };
 };
 
 export const freshUsername = () =>
@@ -92,10 +139,17 @@ const seedActiveWalletRow = (address: AccountAddress, username: Username) => {
     );
 };
 
-const seededRecord = (address: AccountAddress, username: Username) => {
-  const credentialId = Schema.decodeSync(CredentialId)(
-    "c2VlZGVkLWNyZWRlbnRpYWw",
-  );
+interface SeededCredential {
+  readonly id: string;
+  readonly publicKey: string;
+}
+
+const seededRecord = (
+  address: AccountAddress,
+  username: Username,
+  seeded: SeededCredential,
+) => {
+  const credentialId = Schema.decodeSync(CredentialId)(seeded.id);
 
   return Schema.encodeSync(SealedDeviceWallet)(
     new SealedDeviceWallet({
@@ -107,7 +161,7 @@ const seededRecord = (address: AccountAddress, username: Username) => {
       }),
       credential: new PinnedCredential({
         id: credentialId,
-        publicKey: "c2VlZGVkLXB1YmxpYy1rZXk",
+        publicKey: seeded.publicKey,
         algorithm: "ES256",
       }),
       envelope: new LocalPhraseEnvelope({
@@ -162,7 +216,7 @@ const fundAccountWithUsdcTrustline = async (keypair: Keypair) => {
   await horizon.submitTransaction(trustline);
 };
 
-export const openWallet = async (page: Page, usernameText: string) => {
+export const seedWallet = async (page: Page, usernameText: string) => {
   const keypair = Keypair.random();
   const address = Schema.decodeSync(AccountAddress)(keypair.publicKey());
   const username = Schema.decodeSync(Username)(usernameText);
@@ -170,7 +224,8 @@ export const openWallet = async (page: Page, usernameText: string) => {
   await fundAccountWithUsdcTrustline(keypair);
   seedActiveWalletRow(address, username);
 
-  const record = seededRecord(address, username);
+  const credential = await addSeededCredential(page);
+  const record = seededRecord(address, username, credential);
 
   await page.goto("/");
   await page.evaluate(
@@ -197,7 +252,31 @@ export const openWallet = async (page: Page, usernameText: string) => {
       }),
     record,
   );
-  await page.goto("/home");
+
+  return { address, verifyUser: credential.authenticator.verifyUser };
+};
+
+export const unlockButton = (page: Page) => page.getByTestId("unlock-wallet");
+
+export const unlockWallet = async (page: Page) => {
+  await unlockButton(page).click();
+  await expect(unlockButton(page)).toBeHidden({ timeout: 30_000 });
+};
+
+export const visit = async (page: Page, path: string) => {
+  await page.goto(path);
+  await unlockWallet(page);
+};
+
+export const reloadUnlocked = async (page: Page) => {
+  await page.reload();
+  await unlockWallet(page);
+};
+
+export const openWallet = async (page: Page, usernameText: string) => {
+  const { address } = await seedWallet(page, usernameText);
+
+  await visit(page, "/home");
   await expect(page).toHaveURL("/home", { timeout: 60_000 });
 
   return address;
