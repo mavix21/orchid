@@ -46,7 +46,7 @@ type Reveal = Data.TaggedEnum<{
 
 const Reveal = Data.taggedEnum<Reveal>();
 
-export const deliveryNote = (delivery: Delivery) =>
+const deliveryNote = (delivery: Delivery) =>
   Match.value(delivery).pipe(
     Match.when("none", () => Option.none<string>()),
     Match.when("shared", () => Option.some("Link compartido.")),
@@ -57,7 +57,7 @@ export const deliveryNote = (delivery: Delivery) =>
       Option.some("Aún no lo compartiste. Puedes intentarlo de nuevo."),
     ),
     Match.when("failed", () =>
-      Option.some("No pudimos compartirlo. Inténtalo de nuevo o cópialo."),
+      Option.some("No se pudo completar. Inténtalo de nuevo."),
     ),
     Match.exhaustive,
   );
