@@ -410,6 +410,7 @@ export function makeEnrollmentEffects(
           onNone: () =>
             clearPending.pipe(
               Effect.as<EnrollWalletOutcome>(new BackupUnsupported()),
+              Effect.ensuring(zeroed(prf.first)),
             ),
           onSome: (backupPrf) =>
             sealAndSign(current, review.value, prf.first, backupPrf).pipe(
