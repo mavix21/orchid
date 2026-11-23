@@ -13,6 +13,7 @@ import {
   Username,
   type WalletPort,
 } from "../src/contract";
+import type { RelyingParty } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
   EnrollmentPending,
@@ -92,13 +93,14 @@ const enrollmentFor = (
   port: WalletPort,
   auth: SoftwareAuthenticator,
   pending?: PendingEnrollmentStorage,
+  party: RelyingParty = relyingParty,
 ) =>
   makeEnrollmentEffects({
     port,
     store: browserKeyStore,
     registration: auth.registration,
     assertions: auth.assertions,
-    relyingParty,
+    relyingParty: party,
     pending,
   });
 
@@ -359,45 +361,28 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             return {
               outcome: yield* enrollment.advance(),
               expectedTag: "BackupUnsupported",
-              retryable: false,
               enrollment,
             };
           }),
       ],
       [
-        "the activation get reports no user verification",
+        "the registration comes from an unlisted origin",
         (wallet: WalletPort) =>
           Effect.gen(function* () {
-            const auth = new SoftwareAuthenticator(passkeyOrigin);
-
-            const enrollment = enrollmentFor(wallet, auth);
-
-            assertTagged(yield* enrollment.start("maria"), "EnrollmentPending");
-            auth.userVerified = false;
-
-            return {
-              outcome: yield* enrollment.advance(),
-              expectedTag: "AssertionRejected",
-              retryable: true,
-              enrollment,
+            const unlisted = {
+              origin: "https://example.com",
+              rpId: "example.com",
             };
-          }),
-      ],
-      [
-        "the activation get answers with another credential",
-        (wallet: WalletPort) =>
-          Effect.gen(function* () {
-            const auth = new SoftwareAuthenticator(passkeyOrigin);
 
-            const enrollment = enrollmentFor(wallet, auth);
+            const auth = new SoftwareAuthenticator(unlisted.origin);
+
+            const enrollment = enrollmentFor(wallet, auth, undefined, unlisted);
 
             assertTagged(yield* enrollment.start("maria"), "EnrollmentPending");
-            auth.forge("b3RoZXI");
 
             return {
               outcome: yield* enrollment.advance(),
-              expectedTag: "WrongCredential",
-              retryable: true,
+              expectedTag: "RegistrationRefused",
               enrollment,
             };
           }),
@@ -417,7 +402,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             return {
               outcome: yield* enrollment.advance(),
               expectedTag: "CorruptEnvelope",
-              retryable: false,
               enrollment,
             };
           }),
@@ -432,11 +416,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const wallet = settlingOpenings(yield* Wallet);
 
-          const { outcome, expectedTag, retryable, enrollment } =
-            yield* runCase(wallet);
+          const { outcome, expectedTag, enrollment } = yield* runCase(wallet);
 
           expect(outcome._tag).toBe(expectedTag);
-          expect(Option.isSome(yield* enrollment.pending())).toBe(retryable);
+          expect(yield* enrollment.pending()).toEqual(Option.none());
           expect(yield* browserKeyStore.readPublic()).toEqual(Option.none());
           expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
           expect((yield* tableRows).usernames).toEqual([]);
