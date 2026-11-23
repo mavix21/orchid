@@ -97,6 +97,7 @@ interface PairedChange {
   readonly recoveryMinLedger?: boolean;
   readonly delay?: number;
   readonly lifetime?: number;
+  readonly minLedger?: number;
 }
 
 const pairedDraft = (change: PairedChange = {}) => {
@@ -105,8 +106,9 @@ const pairedDraft = (change: PairedChange = {}) => {
   const address = change.address ?? seeded.address;
 
   const window = {
-    minLedger: 100,
-    maxLedger: 100 + (change.ledgers ?? paymentLifetime) + 1,
+    minLedger: change.minLedger ?? 100,
+    maxLedger:
+      (change.minLedger ?? 100) + (change.ledgers ?? paymentLifetime) + 1,
   };
 
   const recoveryMinTime = maxTime + (change.delay ?? recoveryDelay);
@@ -200,6 +202,7 @@ it.effect(
       assertTagged(review, "OpeningReview");
       expect(yield* client.confirmOpening(review)).toBeInstanceOf(Opened);
       expect(submitted).toHaveLength(2);
+      expect(yield* client.confirmOpening(review)).toEqual(new DraftRejected());
 
       const requests = [drafted?.request, drafted?.recovery];
 
@@ -396,6 +399,22 @@ const rejectedDrafts: ReadonlyArray<readonly [string, OpenStep]> = [
         }),
         expiresAt: DateTime.makeUnsafe(Date.now() - 1000),
       }),
+    }),
+  ],
+  ["an opening with a zero minimum ledger", pairedDraft({ minLedger: 0 })],
+  [
+    "an unbumped creation",
+    new OpeningDraft({
+      request: requestUntil(
+        draftOpening({
+          source: new Account(reserveSponsor, "100"),
+          address: seeded.address,
+          createAccount: true,
+          minTime: Math.floor(Date.now() / 1000),
+          maxTime: Math.floor(Date.now() / 1000) + paymentLifetime,
+        }),
+        Math.floor(Date.now() / 1000) + paymentLifetime,
+      ),
     }),
   ],
   [

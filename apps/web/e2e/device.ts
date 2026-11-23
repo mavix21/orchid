@@ -95,6 +95,61 @@ export const serverFunction = "/_serverFn/";
 const e2eContainer = "orchid-e2e-database";
 const testnetReset = Date.UTC(2026, 11, 16);
 
+export const seedRecoveredWalletRow = (
+  address: AccountAddress,
+  username: Username,
+) => {
+  const epoch = Date.now() < testnetReset ? "before-2026-12-16" : "2026-12-16";
+
+  const sql = `
+    INSERT INTO wallets (address, status, network, "testnetEpoch")
+    VALUES ('${address}', 'recovered', 'testnet', '${epoch}');
+    INSERT INTO usernames (username, address) VALUES ('${username}', '${address}');
+  `;
+
+  const result = spawnSync(
+    "docker",
+    [
+      "exec",
+      "-i",
+      e2eContainer,
+      "psql",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-U",
+      "orchid",
+      "-d",
+      "orchid",
+    ],
+    { input: sql, encoding: "utf8" },
+  );
+
+  if (result.status !== 0)
+    throw new Error(
+      `Failed to seed recovered wallet row: ${result.stderr || result.stdout}`,
+    );
+};
+
+export const storedWalletAddress = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<string>((resolve, reject) => {
+        const request = indexedDB.open("orchid-device", 1);
+
+        request.addEventListener("error", () => reject(request.error));
+        request.addEventListener("success", () => {
+          const tx = request.result.transaction("entries", "readonly");
+          const get = tx.objectStore("entries").get("wallet");
+
+          get.addEventListener("error", () => reject(get.error));
+          tx.addEventListener("complete", () => {
+            request.result.close();
+            resolve(get.result.public.address);
+          });
+        });
+      }),
+  );
+
 const seedActiveWalletRow = (address: AccountAddress, username: Username) => {
   const epoch = Date.now() < testnetReset ? "before-2026-12-16" : "2026-12-16";
 
