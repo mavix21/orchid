@@ -353,12 +353,7 @@ it.live(
   "reads, reviews and resumes without secret or passkey access, and fails closed on any signature",
   () =>
     Effect.gen(function* () {
-      const backing = memoryKeyStore(Option.some(actors.wallet));
-
-      const lockedStore: KeyStore = {
-        readPublic: () => backing.readPublic(),
-        updatePublic: (update) => backing.updatePublic(update),
-      };
+      const lockedStore = memoryKeyStore(Option.some(actors.wallet));
 
       const lockedPasskeys: Passkeys = {
         authenticate: () => Effect.fail(new PasskeyFailed()),

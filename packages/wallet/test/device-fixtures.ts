@@ -71,7 +71,6 @@ export interface MemoryKeyStore extends KeyStore {
 
 export function memoryKeyStore(
   initial = Option.none<DeviceWallet>(),
-  beforeWrite: Effect.Effect<void> = Effect.void,
 ): MemoryKeyStore {
   let saved = Option.map(initial, publicWalletOf);
   const lock = Semaphore.makeUnsafe(1);
@@ -79,13 +78,9 @@ export function memoryKeyStore(
   return {
     seed: (wallet) =>
       lock.withPermit(
-        beforeWrite.pipe(
-          Effect.andThen(
-            Effect.sync(() => {
-              saved = Option.some(publicWalletOf(wallet));
-            }),
-          ),
-        ),
+        Effect.sync(() => {
+          saved = Option.some(publicWalletOf(wallet));
+        }),
       ),
     readPublic: () => Effect.sync(() => saved),
     updatePublic: (update) =>
@@ -103,8 +98,6 @@ export function memoryKeyStore(
             return yield* new KeyStoreUnavailable({
               cause: new Error("Wallet address cannot change"),
             });
-
-          yield* beforeWrite;
 
           saved = next;
 
