@@ -291,44 +291,46 @@ const cancelBalance = Schema.decodeSync(BalanceId)(`00000000${"e".repeat(64)}`);
 it.live.each([
   ["substituted issuer on issued link", baseAsset, substitutedIssuer],
   ["trustline repair on native link", NativeAsset.make({}), baseAsset],
-] as const)(
-  "cancel approval rejects %s unsigned",
-  ([, targetAsset, openedAsset]) =>
-    Effect.gen(function* () {
-      const approvals: Array<Option.Option<Approval>> = [];
-      const store = memoryKeyStore(Option.some(actors.wallet));
+] as const)("reclaim review rejects %s", ([, targetAsset, openedAsset]) =>
+  Effect.gen(function* () {
+    const approvals: Array<Option.Option<Approval>> = [];
+    const store = memoryKeyStore(Option.some(actors.wallet));
 
-      const port = unusedPort({
-        manage: (_order, approval) =>
-          Effect.sync(() => {
-            approvals.push(approval);
+    const port = unusedPort({
+      manage: (_order, approval) =>
+        Effect.sync(() => {
+          approvals.push(approval);
 
-            const at = nowSeconds();
+          const at = nowSeconds();
 
-            const envelope = draftClaim({
-              source: new Account(actors.sender, "100"),
-              balance: cancelBalance,
-              opens: { asset: openedAsset, reserveSponsor: actors.sponsor },
-              minTime: at,
-              maxTime: at + 120,
-            });
+          const envelope = draftClaim({
+            source: new Account(actors.sender, "100"),
+            balance: cancelBalance,
+            opens: { asset: openedAsset, reserveSponsor: actors.sponsor },
+            minTime: at,
+            maxTime: at + 120,
+          });
 
-            return new AssetDraft({
-              request: new SigningRequest({
-                envelope,
-                expiresAt: DateTime.makeUnsafe((at + 120) * 1000),
-              }),
-            });
-          }),
-      });
+          return new AssetDraft({
+            request: new SigningRequest({
+              envelope,
+              expiresAt: DateTime.makeUnsafe((at + 120) * 1000),
+            }),
+          });
+        }),
+    });
 
-      const outcome = yield* makeWalletEffects(
-        port,
-        store,
-        passkeys,
-      ).cancelPaymentLink({ balance: cancelBalance, asset: targetAsset });
+    const outcome = yield* makeWalletEffects(
+      port,
+      store,
+      passkeys,
+    ).reviewReclaim({
+      balance: cancelBalance,
+      asset: targetAsset,
+      amount: linkAmount,
+    });
 
-      expect(outcome).toEqual(new DraftRejected());
-      expect(approvals.filter(Option.isSome)).toHaveLength(0);
-    }),
+    expect(outcome).toEqual(new DraftRejected());
+    expect(approvals.filter(Option.isSome)).toHaveLength(0);
+  }),
 );

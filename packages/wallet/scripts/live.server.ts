@@ -13,6 +13,7 @@ import {
   DeviceWallet,
   type KeyStore,
   KeyStoreUnavailable,
+  type PaymentLinkTarget,
   type WalletClient,
   publicWalletOf,
 } from "@workspace/wallet";
@@ -140,4 +141,15 @@ export const openThroughReview = async (
   }
 
   return outcome;
+};
+
+export const reclaimThroughReview = async (
+  client: WalletClient,
+  target: PaymentLinkTarget,
+) => {
+  const reviewed = await client.reviewReclaim(target);
+
+  return Predicate.isTagged(reviewed, "ReclaimReview")
+    ? client.confirmReclaim(reviewed)
+    : reviewed;
 };

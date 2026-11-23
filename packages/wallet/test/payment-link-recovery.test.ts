@@ -18,12 +18,21 @@ import {
   type WalletPort,
   baseAsset,
 } from "../src/contract";
-import { TransferIntent, makeWalletEffects } from "../src/device/client";
+import {
+  DraftRejected,
+  TransferIntent,
+  makeWalletEffects,
+} from "../src/device/client";
 import { DeviceWallet } from "../src/device/key-store";
 import { sendTransfer } from "../src/device/sending";
 import { signingKey } from "../src/device/signing";
 import { Transfers } from "../src/server/Transfers.server";
 import { memoryKeyStore, savedWallet } from "./device-fixtures";
+import {
+  approvingDevice,
+  installSealedWallet,
+  sealedKeyStore,
+} from "./sealed-wallet-fixtures";
 import { assertTagged } from "./tagged";
 import {
   accountState,
@@ -228,18 +237,36 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               ),
           };
 
-          const cancelled = yield* makeWalletEffects(
-            cancelSettlingPort,
-            store,
-            devicePasskeys,
-          ).cancelPaymentLink(resolved);
+          const { auth } = yield* installSealedWallet(sender);
 
-          assertTagged(cancelled, "AssetSettled");
+          const reclaiming = makeWalletEffects(
+            cancelSettlingPort,
+            sealedKeyStore,
+            devicePasskeys,
+            approvingDevice(auth),
+          );
+
+          const superseded = yield* reclaiming.reviewReclaim(resolved);
+          const current = yield* reclaiming.reviewReclaim(resolved);
+
+          assertTagged(superseded, "ReclaimReview");
+          assertTagged(current, "ReclaimReview");
+
+          expect(yield* reclaiming.confirmReclaim(superseded)).toEqual(
+            new DraftRejected(),
+          );
+          expect(auth.requested).toHaveLength(0);
+
+          assertTagged(
+            yield* reclaiming.confirmReclaim(current),
+            "AssetSettled",
+          );
+          expect(auth.requested).toHaveLength(1);
         }),
     );
 
     it.effect(
-      "cancel checks sender receive capacity, marks an absent balance unresolved, and never hides an unsettled link",
+      "reclaim review checks sender receive capacity, marks an absent balance unresolved, and never hides an unsettled link",
       () =>
         Effect.gen(function* () {
           const store = memoryKeyStore();
@@ -271,7 +298,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const client = makeWalletEffects(wallet, store, devicePasskeys);
 
           expect(
-            yield* client.cancelPaymentLink({ balance, asset: euro }),
+            yield* client.reviewReclaim({
+              balance,
+              asset: euro,
+              amount: linkAmount,
+            }),
           ).toEqual(
             new RecipientCannotReceive({
               address: sender.address,
@@ -282,7 +313,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           world.claimables.delete(balance);
 
           expect(
-            yield* client.cancelPaymentLink({ balance, asset: euro }),
+            yield* client.reviewReclaim({
+              balance,
+              asset: euro,
+              amount: linkAmount,
+            }),
           ).toEqual(new BalanceGone({ status: "unresolved" }));
 
           world.holdings.delete(sender.address);
@@ -306,9 +341,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           expect(
-            yield* client.cancelPaymentLink({
+            yield* client.reviewReclaim({
               balance: inflightBalance,
               asset: baseAsset,
+              amount: linkAmount,
             }),
           ).toEqual(new BalanceGone({ status: "unresolved" }));
 

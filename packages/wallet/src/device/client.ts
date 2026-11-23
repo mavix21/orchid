@@ -23,9 +23,9 @@ import {
 } from "./key-store";
 import {
   type BackUpOutcome,
-  type CancelPaymentLinkOutcome,
   type ConfirmOpeningOutcome,
   type ConfirmOutcome,
+  type ConfirmReclaimOutcome,
   type CreatePaymentLinkOutcome,
   type DeviceOverview,
   NoWallet,
@@ -34,10 +34,12 @@ import {
   type PaymentLinksOutcome,
   type OpeningReview,
   type PaymentReview,
+  type ReclaimReview,
   type ResolvePaymentLinkOutcome,
   type RestoreOutcome,
   type ResumeOutcome,
   type ReviewOpeningOutcome,
+  type ReviewReclaimOutcome,
   type ReviewOutcome,
   type SavedOutcome,
   SavedWallet,
@@ -73,9 +75,8 @@ export interface WalletClient {
   ): Promise<CreatePaymentLinkOutcome>;
   paymentLinks(): Promise<PaymentLinksOutcome>;
   resolvePaymentLink(): Promise<ResolvePaymentLinkOutcome>;
-  cancelPaymentLink(
-    target: PaymentLinkTarget,
-  ): Promise<CancelPaymentLinkOutcome>;
+  reviewReclaim(target: PaymentLinkTarget): Promise<ReviewReclaimOutcome>;
+  confirmReclaim(review: ReclaimReview): Promise<ConfirmReclaimOutcome>;
 }
 
 export interface WalletEffects {
@@ -95,9 +96,8 @@ export interface WalletEffects {
   ): Effect.Effect<CreatePaymentLinkOutcome>;
   paymentLinks(): Effect.Effect<PaymentLinksOutcome>;
   resolvePaymentLink(): Effect.Effect<ResolvePaymentLinkOutcome>;
-  cancelPaymentLink(
-    target: PaymentLinkTarget,
-  ): Effect.Effect<CancelPaymentLinkOutcome>;
+  reviewReclaim(target: PaymentLinkTarget): Effect.Effect<ReviewReclaimOutcome>;
+  confirmReclaim(review: ReclaimReview): Effect.Effect<ConfirmReclaimOutcome>;
 }
 
 export function makeWalletEffects(
@@ -113,6 +113,7 @@ export function makeWalletEffects(
 
   const issuedReview = Ref.makeUnsafe(Option.none<string>());
   const issuedOpening = Ref.makeUnsafe(Option.none<string>());
+  const issuedReclaim = Ref.makeUnsafe(Option.none<string>());
 
   const sending = loadFromServer(() => import("./sending")).pipe(
     Effect.map(({ sendTransfer }) =>
@@ -122,6 +123,12 @@ export function makeWalletEffects(
 
   const links = loadFromServer(() => import("./payment-links")).pipe(
     Effect.map(({ devicePaymentLinks }) => devicePaymentLinks(port, store)),
+  );
+
+  const reclaim = loadFromServer(() => import("./reclaim")).pipe(
+    Effect.map(({ deviceReclaim }) =>
+      deviceReclaim(port, store, { issued: issuedReclaim, device }),
+    ),
   );
 
   const opening = loadFromServer(() => import("./opening")).pipe(
@@ -349,10 +356,15 @@ export function makeWalletEffects(
           Effect.flatMap(({ resolvePaymentLink }) => resolvePaymentLink()),
         ),
       ),
-    cancelPaymentLink: (target) =>
+    reviewReclaim: (target) =>
+      transfer(reclaim.pipe(Effect.flatMap(({ review }) => review(target)))),
+    confirmReclaim: (shown) =>
       transfer(
-        links.pipe(
-          Effect.flatMap(({ cancelPaymentLink }) => cancelPaymentLink(target)),
+        reclaim.pipe(
+          Effect.flatMap(({ confirm }) => confirm(shown)),
+          Effect.catchTag("CorruptDeviceWallet", (damaged) =>
+            Effect.succeed(damaged),
+          ),
         ),
       ),
   };
@@ -383,7 +395,7 @@ export function makeWalletClient(
       Effect.runPromise(effects.createPaymentLink(intent)),
     paymentLinks: () => Effect.runPromise(effects.paymentLinks()),
     resolvePaymentLink: () => Effect.runPromise(effects.resolvePaymentLink()),
-    cancelPaymentLink: (target) =>
-      Effect.runPromise(effects.cancelPaymentLink(target)),
+    reviewReclaim: (target) => Effect.runPromise(effects.reviewReclaim(target)),
+    confirmReclaim: (shown) => Effect.runPromise(effects.confirmReclaim(shown)),
   };
 }

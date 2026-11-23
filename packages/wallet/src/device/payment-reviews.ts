@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import type { TransferDraft, TransferOrder } from "../contract";
+import type { SigningRequest, TransferDraft, TransferOrder } from "../contract";
 import type { ClaimableFacts } from "../stellar/asset-envelopes";
 import type { PaymentFacts } from "../stellar/envelopes";
 import { approvalMargin, paymentLifetime } from "../stellar/network";
@@ -24,11 +24,11 @@ export const reviewFromJson = Schema.decodeSync(
   Schema.fromJsonString(PaymentReview),
 );
 
-type DraftTiming = "current" | "expiring" | "stale";
+export type DraftTiming = "current" | "expiring" | "stale";
 
 export const draftTiming = (
   maxTime: number,
-  draft: TransferDraft,
+  request: SigningRequest,
   nowMillis: number,
 ): DraftTiming => {
   if (maxTime > Math.floor(nowMillis / 1000) + paymentLifetime + clockAllowance)
@@ -36,7 +36,7 @@ export const draftTiming = (
 
   const deadline = Math.min(
     maxTime * 1000,
-    DateTime.toEpochMillis(draft.request.expiresAt),
+    DateTime.toEpochMillis(request.expiresAt),
   );
 
   return deadline - nowMillis >= approvalMargin * 1000 ? "current" : "expiring";
@@ -97,7 +97,11 @@ const standingOf = (
   )
     return "stale";
 
-  return draftTiming(derived.value.facts.maxTime, shown.draft, nowMillis);
+  return draftTiming(
+    derived.value.facts.maxTime,
+    shown.draft.request,
+    nowMillis,
+  );
 };
 
 export const standingNow = (wallet: PublicDeviceWallet, shown: PaymentReview) =>
