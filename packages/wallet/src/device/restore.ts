@@ -229,7 +229,8 @@ export function deviceRestore(
     return yield* Match.valueTags(verified, {
       OperationVerified: ({ prf }) =>
         Option.match(prf.second, {
-          onNone: () => Effect.succeed(new BackupUnsupported()),
+          onNone: () =>
+            zeroed(prf.first).pipe(Effect.as(new BackupUnsupported())),
           onSome: (devicePrf) =>
             sealOpenedPhrase(waiting, prf.first, devicePrf, salt).pipe(
               Effect.ensuring(

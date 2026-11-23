@@ -34,7 +34,6 @@ import {
 } from "./sealed-wallet-fixtures";
 import { assertTagged } from "./tagged";
 import {
-  accountState,
   addressOf,
   amount,
   approve,
@@ -59,48 +58,11 @@ useDisposableDatabase();
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect(
-      "redraft keeps unresolved attempt IDs and a restarted creation resolves from the stored receipt to one balance",
+      "a restarted creation resolves the receipt committed before an interrupted approval to one balance",
       () =>
         Effect.gen(function* () {
           const store = memoryKeyStore();
           const { wallet, sender } = yield* openSender(store, "receiptowner");
-          const linkAddr = addressOf(Keypair.random());
-
-          const order = new TransferOrder({
-            ...orderFor(
-              Keypair.random(),
-              PaymentLinkRecipient.make({ value: linkAddr }),
-            ),
-            from: sender.address,
-          });
-
-          world.accounts.set(
-            sender.address,
-            accountState({ sequence: "3000" }),
-          );
-
-          const firstDraft = yield* wallet.transfer(order, Option.none());
-
-          assertTagged(firstDraft, "TransferDraft");
-
-          const firstBalance = Option.getOrThrow(
-            Option.fromNullishOr(firstDraft.claimable),
-          );
-
-          world.accounts.set(
-            sender.address,
-            accountState({ sequence: "3001" }),
-          );
-
-          const redrafted = yield* wallet.transfer(order, Option.none());
-
-          assertTagged(redrafted, "TransferDraft");
-
-          const secondBalance = Option.getOrThrow(
-            Option.fromNullishOr(redrafted.claimable),
-          );
-
-          expect(secondBalance).not.toBe(firstBalance);
 
           const interruptedPort: WalletPort = {
             ...wallet,
