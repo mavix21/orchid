@@ -236,6 +236,7 @@ export const assetFlow = Effect.gen(function* () {
         return yield* Match.valueTags(authorized, {
           SlotOccupied: () =>
             Effect.succeed(new AssetDraft({ request: stored.request })),
+          WalletInactive: () => Effect.succeed(new NotOpened()),
           AssetAuthorized: reconcile,
           AssetConcluded: (concluded) => Effect.succeed(concluded.receipt),
           AssetProposed: (proposed) =>

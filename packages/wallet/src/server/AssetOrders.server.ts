@@ -31,8 +31,8 @@ import {
 } from "../stellar/network";
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
-import { SlotOccupied, walletLock } from "./slot.server";
-import { assetOrders, transfers, trustlines } from "./tables.server";
+import { SlotOccupied, WalletInactive, walletLock } from "./slot.server";
+import { assetOrders, transfers, trustlines, wallets } from "./tables.server";
 
 export class AssetProposed extends Schema.TaggedClass<AssetProposed>()(
   "AssetProposed",
@@ -165,7 +165,10 @@ export class AssetOrders extends Context.Service<
     authorize(
       proposed: AssetProposed,
       sealed: Sealed,
-    ): Effect.Effect<StoredAssetOrder | SlotOccupied, StoreFailure>;
+    ): Effect.Effect<
+      StoredAssetOrder | SlotOccupied | WalletInactive,
+      StoreFailure
+    >;
 
     conclude(
       id: AssetOrderId,
@@ -347,6 +350,15 @@ export class AssetOrders extends Context.Service<
             const { id, wallet } = proposed.order;
 
             yield* tx.execute(walletLock(wallet));
+
+            const owner = yield* tx
+              .select({ status: wallets.status })
+              .from(wallets)
+              .where(
+                and(eq(wallets.network, network), eq(wallets.address, wallet)),
+              );
+
+            if (owner[0]?.status !== "active") return new WalletInactive();
 
             const lockedAt = yield* Clock.currentTimeMillis;
             const scope = scopeAt(lockedAt);

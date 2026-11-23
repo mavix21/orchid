@@ -43,7 +43,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect((yield* send(order, approve(draft.request, key)))._tag).toBe(
             "NotOpened",
           );
-          expect(world.submitted).toHaveLength(1);
+          assertTagged(
+            Option.getOrThrow(yield* findTransfer(order.id)),
+            "Proposed",
+          );
         }),
     );
 
