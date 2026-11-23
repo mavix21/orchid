@@ -118,12 +118,19 @@ export function deviceReclaim(
       return Option.getOrElse(last.done, () => new DraftRejected());
     });
 
+  const latest = Ref.makeUnsafe(0);
+
+  const startPreflight = Ref.updateAndGet(latest, (ticket) => ticket + 1).pipe(
+    Effect.tap(() => Ref.set(reviews.issued, Option.none())),
+  );
+
   const presenting = (
     wallet: PublicDeviceWallet,
     order: AssetOrder,
     asset: Asset,
     amount: PositiveAmount,
     redrafted: boolean,
+    ticket: number,
   ): OnDraft => {
     let refreshed = false;
 
@@ -150,7 +157,8 @@ export function deviceReclaim(
           return Option.none();
         }
 
-        if (standing !== "current") return Option.some(new DraftRejected());
+        if (standing !== "current" || (yield* Ref.get(latest)) !== ticket)
+          return Option.some(new DraftRejected());
 
         yield* Ref.set(
           reviews.issued,
@@ -171,6 +179,8 @@ export function deviceReclaim(
 
     if (Option.isNone(stored)) return new NoWallet();
 
+    const ticket = yield* startPreflight;
+
     const order = new AssetOrder({
       id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
       wallet: stored.value.address,
@@ -179,7 +189,14 @@ export function deviceReclaim(
 
     return yield* advance(
       order,
-      presenting(stored.value, order, target.asset, target.amount, false),
+      presenting(
+        stored.value,
+        order,
+        target.asset,
+        target.amount,
+        false,
+        ticket,
+      ),
     );
   });
 
@@ -195,9 +212,20 @@ export function deviceReclaim(
     ).pipe(
       Effect.flatMap((consumed): ReturnType<typeof advance> =>
         consumed && !shown.redrafted
-          ? advance(
-              shown.order,
-              presenting(wallet, shown.order, shown.asset, shown.amount, true),
+          ? startPreflight.pipe(
+              Effect.flatMap((ticket) =>
+                advance(
+                  shown.order,
+                  presenting(
+                    wallet,
+                    shown.order,
+                    shown.asset,
+                    shown.amount,
+                    true,
+                    ticket,
+                  ),
+                ),
+              ),
             )
           : Effect.succeed(new DraftRejected()),
       ),
@@ -253,16 +281,25 @@ export function deviceReclaim(
       reserve: (wallet) =>
         Effect.succeed(new Reserved({ reservation: wallet })),
       unreserve: () => Effect.void,
-      release: ([approval]) =>
-        Effect.suspend(() => {
+      release: ([approval], reservation) =>
+        Effect.gen(function* () {
+          if ((yield* standingNow(reservation, presented)) !== "current")
+            return new DraftRejected();
+
+          const consumed = yield* Ref.modify(issued, (current) =>
+            Option.contains(current, snapshot.value)
+              ? [true, Option.none()]
+              : [false, current],
+          );
+
+          if (!consumed) return new DraftRejected();
+
           released = true;
 
-          return Ref.update(issued, (current) =>
-            Option.contains(current, snapshot.value) ? Option.none() : current,
-          ).pipe(
-            Effect.andThen(
-              advance(presented.order, afterRelease, Option.some(approval)),
-            ),
+          return yield* advance(
+            presented.order,
+            afterRelease,
+            Option.some(approval),
           );
         }),
     });
