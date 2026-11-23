@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useRouteContext } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
-import type { UnlockOutcome } from "@workspace/wallet";
+import type { EntryAttempt, UnlockOutcome } from "@workspace/wallet";
 import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 
@@ -34,11 +34,7 @@ const refusal = (outcome: Refusal) =>
 export function DisplayGate({ children }: { children: React.ReactNode }) {
   const state = useDisplayState();
 
-  return Predicate.isTagged(state, "Unlocked") ? (
-    children
-  ) : (
-    <LockedWallet key={state._tag} />
-  );
+  return Predicate.isTagged(state, "Unlocked") ? children : <LockedWallet />;
 }
 
 function LockedWallet() {
@@ -50,27 +46,41 @@ function LockedWallet() {
 
   useEffect(() => setReady(true), []);
 
-  const unlock = async () => {
-    const ticket = displayLock.begin();
+  const attempt = useRef<EntryAttempt>(undefined);
 
+  useEffect(
+    () => () => {
+      if (attempt.current !== undefined)
+        displayLock.cancelEntry(attempt.current);
+    },
+    [],
+  );
+
+  const unlock = async () => {
+    const entry = displayLock.attemptEntry();
+
+    attempt.current = entry;
     setUnlocking(true);
     setProblem(undefined);
 
     const outcome = await walletClient.unlock();
 
-    if (!displayLock.valid(ticket)) {
-      setUnlocking(false);
+    const refuse = (conclude: () => void) => {
+      if (!displayLock.entryPending(entry)) return;
 
-      return;
-    }
+      displayLock.cancelEntry(entry);
+      conclude();
+    };
 
     Match.value(outcome).pipe(
-      Match.tag("Unlocked", () => displayLock.unlock(ticket)),
-      Match.tag("NoWallet", () => {
-        markWalletOnDevice(false);
-        void navigate({ to: "/", replace: true });
-      }),
-      Match.orElse((refused) => setProblem(refusal(refused))),
+      Match.tag("Unlocked", () => displayLock.entryVerified(entry)),
+      Match.tag("NoWallet", () =>
+        refuse(() => {
+          markWalletOnDevice(false);
+          void navigate({ to: "/", replace: true });
+        }),
+      ),
+      Match.orElse((refused) => refuse(() => setProblem(refusal(refused)))),
     );
 
     setUnlocking(false);
