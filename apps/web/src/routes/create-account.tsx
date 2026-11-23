@@ -102,14 +102,27 @@ const issueMessage = (issue: UsernameIssue) =>
     UsernameTooShort: () => `Mínimo ${usernameMinLength} caracteres.`,
   });
 
-const stageCopy = (stage: EnrollmentStage, username: string) =>
+const stageCopy = (
+  stage: EnrollmentStage,
+  username: string,
+  preparing: boolean,
+) =>
   Match.value(stage).pipe(
-    Match.when("activate", () => ({
-      title: "Activa tu cuenta",
-      description: `Usa tu passkey una vez para abrir @${username}, guardar su respaldo y autorizar su cierre por inactividad.`,
-      action: "Activar con passkey",
-      busyAction: "Activando…",
-    })),
+    Match.when("activate", () =>
+      preparing
+        ? {
+            title: "Prepara tu activación",
+            description: `Aún no tenemos la solicitud de @${username}. Reintenta sin crear otra passkey.`,
+            action: "Preparar de nuevo",
+            busyAction: "Preparando…",
+          }
+        : {
+            title: "Activa tu cuenta",
+            description: `Usa tu passkey una vez para abrir @${username}, guardar su respaldo y autorizar su cierre por inactividad.`,
+            action: "Activar con passkey",
+            busyAction: "Activando…",
+          },
+    ),
     Match.when("release", () => ({
       title: "Termina de abrir tu cuenta",
       description: `Tu passkey ya firmó la apertura de @${username}. Reintenta sin usarla otra vez.`,
@@ -283,12 +296,17 @@ function ChooseUsername() {
     setBusy(true);
     setProblem(undefined);
     setUnsupportedPrf(false);
+
+    const verifying =
+      Option.isSome(pending) && pending.value.stage === "activate";
+
     const ticket = displayLock.begin();
     const outcome = await enrollmentClient.advance();
 
     if (
-      Predicate.isTagged(outcome, "WalletEnrolled") ||
-      Predicate.isTagged(outcome, "OpeningPending")
+      verifying &&
+      (Predicate.isTagged(outcome, "WalletEnrolled") ||
+        Predicate.isTagged(outcome, "OpeningPending"))
     )
       displayLock.unlock(ticket);
 
@@ -336,7 +354,11 @@ function ChooseUsername() {
     );
 
   if (Option.isSome(pending)) {
-    const copy = stageCopy(pending.value.stage, pending.value.username);
+    const copy = stageCopy(
+      pending.value.stage,
+      pending.value.username,
+      pending.value.currentUntil === undefined,
+    );
 
     return (
       <Screen>
