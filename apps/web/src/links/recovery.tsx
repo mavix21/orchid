@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 
 import {
+  type Asset,
   type ConfirmReclaimOutcome,
   type ReclaimReview,
   type ReviewReclaimOutcome,
@@ -14,7 +15,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
 import { ScreenActions } from "@/components/screen";
-import { assetCode, shortAddress } from "@/send/money";
+import { assetCode } from "@/send/money";
 import { ReviewRow } from "@/send/payment-review";
 import { type Answer, useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
@@ -178,6 +179,21 @@ export function useRecovery() {
   return { started, begin, confirm, reset };
 }
 
+function FullValue({ children }: { children: string }) {
+  return <span className="font-mono text-caption break-all">{children}</span>;
+}
+
+function AssetLine({ asset }: { asset: Asset }) {
+  return (
+    <span className="flex flex-col items-end">
+      <span>{assetCode(asset)}</span>
+      {Predicate.isTagged(asset, "Issued") ? (
+        <FullValue>{asset.issuer}</FullValue>
+      ) : null}
+    </span>
+  );
+}
+
 function ReclaimReviewScreen({
   chosen,
   review,
@@ -200,11 +216,13 @@ function ReclaimReviewScreen({
           className="flex flex-col divide-y divide-border rounded-lg border border-border px-4"
         >
           <ReviewRow label="Acción">Recuperar el dinero de un link</ReviewRow>
-          <ReviewRow label="Activo">{assetCode(review.asset)}</ReviewRow>
+          <ReviewRow label="Activo">
+            <AssetLine asset={review.asset} />
+          </ReviewRow>
           <ReviewRow label="Monto">{formatAmount(review.amount)}</ReviewRow>
           <ReviewRow label="Link">
             <span className="flex flex-col items-end">
-              <span>…{review.balance.slice(-8)}</span>
+              <FullValue>{review.balance}</FullValue>
               {Option.isSome(chosen.created) ? (
                 <span className="text-caption text-muted-foreground">
                   Creado el {chosen.created.value}
@@ -213,13 +231,13 @@ function ReclaimReviewScreen({
             </span>
           </ReviewRow>
           <ReviewRow label="Cuenta">
-            {shortAddress(review.order.wallet)}
+            <FullValue>{review.order.wallet}</FullValue>
           </ReviewRow>
           <ReviewRow label="Red">Stellar {review.network}</ReviewRow>
           {review.opensTrustline === undefined ? null : (
             <ReviewRow label="Moneda nueva">
               <span className="flex flex-col items-end">
-                <span>{assetCode(review.opensTrustline)}</span>
+                <AssetLine asset={review.opensTrustline} />
                 <span className="text-caption text-muted-foreground">
                   Se activa en tu cuenta para recibirla
                 </span>
