@@ -139,12 +139,10 @@ export interface EnrollmentEffects {
   pending(): Effect.Effect<Option.Option<EnrollmentPending>>;
   start(usernameText: string): Effect.Effect<EnrollWalletOutcome>;
   advance(displayedUntil?: number): Effect.Effect<EnrollWalletOutcome>;
-  retire(): Effect.Effect<void>;
 }
 
 export interface EnrollmentClient {
   pending(): Promise<Option.Option<EnrollmentPending>>;
   start(usernameText: string): Promise<EnrollWalletOutcome>;
   advance(displayedUntil?: number): Promise<EnrollWalletOutcome>;
-  retire(): Promise<void>;
 }

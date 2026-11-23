@@ -28,11 +28,6 @@ export const enrollmentEffects: EnrollmentEffects = {
     withEnrollment((enrollment) => enrollment.start(usernameText)),
   advance: (displayedUntil) =>
     withEnrollment((enrollment) => enrollment.advance(displayedUntil)),
-  retire: () =>
-    loaded.pipe(
-      Effect.flatMap((enrollment) => enrollment.retire()),
-      Effect.orElseSucceed(() => undefined),
-    ),
 };
 
 export const enrollmentClient: EnrollmentClient = {
@@ -41,5 +36,4 @@ export const enrollmentClient: EnrollmentClient = {
     Effect.runPromise(enrollmentEffects.start(usernameText)),
   advance: (displayedUntil) =>
     Effect.runPromise(enrollmentEffects.advance(displayedUntil)),
-  retire: () => Effect.runPromise(enrollmentEffects.retire()),
 };
