@@ -11,6 +11,7 @@ import {
   formatAmount,
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -38,8 +39,9 @@ import {
 import { AssetLine, FullValue } from "@/links/recovery";
 import { amountLabel } from "@/send/money";
 import { ReviewRow } from "@/send/payment-review";
-import { useWalletTask } from "@/send/use-wallet-task";
+import { DeviceFailure, useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
+import { enrollmentEffects } from "@/wallet/enrollment";
 import { EnrollmentFlow } from "@/wallet/enrollment-flow";
 
 export const Route = createFileRoute("/l/$link")({
@@ -139,13 +141,36 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
   };
 
   const receive = (open: PaymentLinkOpen) => {
-    task.run(walletEffects.saved(), (saved) =>
-      Predicate.isTagged(saved, "SavedWallet") && saved.openingApproved
-        ? review(open)
-        : Predicate.isTagged(saved, "SavedWallet") ||
+    task.run(
+      Effect.all([walletEffects.saved(), enrollmentEffects.pending()]),
+      (answer) => {
+        if (answer instanceof DeviceFailure) {
+          setStep(concluded(answer, ""));
+
+          return;
+        }
+
+        const [saved, enrolling] = answer;
+
+        if (Option.isSome(enrolling)) {
+          setStep(ReceiveStep.Enrolling({ open }));
+
+          return;
+        }
+
+        if (Predicate.isTagged(saved, "SavedWallet") && saved.openingApproved) {
+          review(open);
+
+          return;
+        }
+
+        setStep(
+          Predicate.isTagged(saved, "SavedWallet") ||
             Predicate.isTagged(saved, "NoWallet")
-          ? setStep(ReceiveStep.Enrolling({ open }))
-          : setStep(concluded(saved, "")),
+            ? ReceiveStep.Enrolling({ open })
+            : concluded(saved, ""),
+        );
+      },
     );
   };
 

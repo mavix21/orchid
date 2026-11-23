@@ -219,6 +219,7 @@ export function devicePaymentLinks(
       const saved = yield* records.readLinks();
 
       return new ListedPaymentLinks({
+        received: listed.received,
         links: listed.links.map(
           (link) =>
             new ListedPaymentLink({

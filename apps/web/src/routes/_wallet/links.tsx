@@ -12,6 +12,7 @@ import { Skeleton } from "@workspace/ui/components/skeleton";
 import type {
   ListedPaymentLink,
   PaymentLinksOutcome,
+  ReceivedPaymentLink,
   ResolvePaymentLinkOutcome,
   SavedLinkTarget,
 } from "@workspace/wallet";
@@ -226,6 +227,7 @@ function PaymentLinks() {
       {Predicate.isTagged(links, "ListedPaymentLinks") ? (
         <LinkList
           links={links.links}
+          received={links.received}
           notice={latestNotice(latest)}
           onRecheck={() => void router.invalidate()}
           onChoose={begin}
@@ -242,14 +244,62 @@ function PaymentLinks() {
   );
 }
 
+const receivedOn = (link: ReceivedPaymentLink) =>
+  DateTime.toDate(link.receivedAt).toLocaleString("es-PE", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+
+function ReceivedLinks({
+  received,
+}: {
+  received: ReadonlyArray<ReceivedPaymentLink>;
+}) {
+  return received.length === 0 ? null : (
+    <section
+      aria-labelledby="received-links-title"
+      className="flex flex-col gap-3"
+    >
+      <h2 id="received-links-title" className="text-label-lg">
+        Links cobrados
+      </h2>
+      <div role="list" className="flex flex-col gap-3">
+        {received.map((link) => (
+          <Item
+            key={link.id}
+            variant="outline"
+            role="listitem"
+            data-testid="received-link"
+            data-address={link.address}
+          >
+            <ItemContent>
+              <ItemTitle className="whitespace-nowrap">
+                {amountLabel(link.amount, link.asset)}
+              </ItemTitle>
+              <ItemDescription>
+                Lo cobraron el {receivedOn(link)}
+              </ItemDescription>
+            </ItemContent>
+          </Item>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function LinkList({
   links,
+  received,
   notice,
   onChoose,
   onShare,
   onRecheck,
 }: {
   links: ReadonlyArray<ListedPaymentLink>;
+  received: ReadonlyArray<ReceivedPaymentLink>;
   notice: Option.Option<LatestNotice>;
   onChoose: (link: RecoverableLink, created?: string) => void;
   onShare: (link: SavedLinkTarget) => void;
@@ -369,6 +419,7 @@ function LinkList({
             ))}
           </div>
         )}
+        <ReceivedLinks received={received} />
       </main>
       <ScreenActions>
         <Button
