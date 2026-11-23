@@ -15,11 +15,12 @@ import {
 } from "./assertion";
 import type { SealedLinkSecret } from "./link-seal";
 import { LocalPhraseEnvelope, localEnvelopeVersion } from "./local-envelope";
-import { SecretPhrase } from "./secret-phrase";
 
 export const BackupState = Schema.Literals(["stored"]);
 
-const publicWalletFields = {
+export class PublicDeviceWallet extends Schema.Class<PublicDeviceWallet>(
+  "@workspace/wallet/PublicDeviceWallet",
+)({
   address: AccountAddress,
   username: Username,
   reserveSponsor: Schema.optional(AccountAddress),
@@ -28,17 +29,6 @@ const publicWalletFields = {
   approvedUntil: Schema.optional(Schema.Number),
   linkReceipt: Schema.optional(PaymentLinkReceipt),
   transferRevision: Schema.optional(Schema.Number),
-};
-
-export class PublicDeviceWallet extends Schema.Class<PublicDeviceWallet>(
-  "@workspace/wallet/PublicDeviceWallet",
-)(publicWalletFields) {}
-
-export class DeviceWallet extends Schema.Class<DeviceWallet>(
-  "@workspace/wallet/DeviceWallet",
-)({
-  ...publicWalletFields,
-  phrase: SecretPhrase,
 }) {}
 
 export class SealedDeviceWallet extends Schema.Class<SealedDeviceWallet>(
@@ -49,22 +39,6 @@ export class SealedDeviceWallet extends Schema.Class<SealedDeviceWallet>(
   credential: PinnedCredential,
   envelope: LocalPhraseEnvelope,
 }) {}
-
-export const publicWalletOf = (
-  wallet: PublicDeviceWallet | DeviceWallet,
-): PublicDeviceWallet =>
-  wallet instanceof PublicDeviceWallet
-    ? wallet
-    : new PublicDeviceWallet({
-        address: wallet.address,
-        username: wallet.username,
-        reserveSponsor: wallet.reserveSponsor,
-        backup: wallet.backup,
-        transfer: wallet.transfer,
-        approvedUntil: wallet.approvedUntil,
-        linkReceipt: wallet.linkReceipt,
-        transferRevision: wallet.transferRevision,
-      });
 
 export class KeyStoreUnavailable extends Schema.TaggedError<KeyStoreUnavailable>()(
   "KeyStoreUnavailable",
@@ -139,8 +113,6 @@ export interface SealedDevice {
 }
 
 export interface KeyStore {
-  read(): Effect.Effect<Option.Option<DeviceWallet>, KeyStoreUnavailable>;
-  write(wallet: DeviceWallet): Effect.Effect<void, KeyStoreUnavailable>;
   readPublic(): Effect.Effect<
     Option.Option<PublicDeviceWallet>,
     KeyStoreUnavailable
@@ -192,27 +164,4 @@ export const clearStoredLink = Effect.fn("Device.clearStoredLink")(function* <
       ? Option.some(clearedLink(current))
       : Option.none(),
   );
-});
-
-export const remember = Effect.fn("Device.remember")(function* (
-  store: KeyStore,
-  wallet: DeviceWallet,
-) {
-  yield* store.write(wallet);
-
-  const stored = yield* store.read();
-
-  return Option.isSome(stored) &&
-    stored.value.phrase === wallet.phrase &&
-    stored.value.address === wallet.address &&
-    stored.value.username === wallet.username &&
-    stored.value.reserveSponsor === wallet.reserveSponsor &&
-    stored.value.backup === wallet.backup &&
-    stored.value.transfer?.id === wallet.transfer?.id &&
-    stored.value.approvedUntil === wallet.approvedUntil &&
-    stored.value.transferRevision === wallet.transferRevision &&
-    receiptJson(stored.value.linkReceipt ?? null) ===
-      receiptJson(wallet.linkReceipt ?? null)
-    ? Option.some(stored.value)
-    : Option.none();
 });

@@ -46,7 +46,6 @@ import {
   baseAsset,
 } from "../src/contract";
 import { requestsOf } from "../src/device/opening-drafts";
-import { DeviceWallet, type KeyStore } from "../src/device/key-store";
 import { signingKey } from "../src/device/signing";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
@@ -83,7 +82,12 @@ import {
 } from "../src/stellar/envelopes";
 import { draftOpeningWithRecovery } from "../src/stellar/opening-drafts";
 import { networkPassphrase, recoveryDelay } from "../src/stellar/network";
-import { addressOf, enrolledDeviceWallet } from "./device-fixtures";
+import {
+  DeviceWallet,
+  type MemoryKeyStore,
+  addressOf,
+  enrolledDeviceWallet,
+} from "./device-fixtures";
 import {
   httpClientAnswering,
   jsonResponse,
@@ -579,7 +583,7 @@ export const euroLine = (
 export const devicePasskeys = new SoftwareAuthenticator(passkeyOrigin).passkeys;
 
 export const openSender = Effect.fn(function* (
-  store: KeyStore,
+  store: MemoryKeyStore,
   name = "maria",
 ) {
   const sender = new DeviceWallet({
@@ -588,7 +592,7 @@ export const openSender = Effect.fn(function* (
   });
 
   yield* create(signingKey(sender.phrase), name);
-  yield* store.write(sender);
+  yield* store.seed(sender);
   world.accounts.set(sender.address, accountState());
 
   return { wallet: yield* Wallet, sender };

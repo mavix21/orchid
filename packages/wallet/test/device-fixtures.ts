@@ -23,10 +23,9 @@ import {
   baseAsset,
 } from "../src/contract";
 import {
-  DeviceWallet,
   type KeyStore,
   KeyStoreUnavailable,
-  publicWalletOf,
+  PublicDeviceWallet,
 } from "../src/device/key-store";
 import {
   SecretPhrase,
@@ -48,32 +47,53 @@ export const knownPhrase = Schema.decodeSync(SecretPhrase)(
 
 export const nowSeconds = () => Math.floor(Date.now() / 1000);
 
+export class DeviceWallet extends PublicDeviceWallet.extend<DeviceWallet>(
+  "@workspace/wallet/test/DeviceWallet",
+)({
+  phrase: SecretPhrase,
+}) {}
+
+export const publicWalletOf = (wallet: DeviceWallet) =>
+  new PublicDeviceWallet({
+    address: wallet.address,
+    username: wallet.username,
+    reserveSponsor: wallet.reserveSponsor,
+    backup: wallet.backup,
+    transfer: wallet.transfer,
+    approvedUntil: wallet.approvedUntil,
+    linkReceipt: wallet.linkReceipt,
+    transferRevision: wallet.transferRevision,
+  });
+
+export interface MemoryKeyStore extends KeyStore {
+  seed(wallet: DeviceWallet): Effect.Effect<void>;
+}
+
 export function memoryKeyStore(
   initial = Option.none<DeviceWallet>(),
   beforeWrite: Effect.Effect<void> = Effect.void,
-): KeyStore {
-  let saved = initial;
+): MemoryKeyStore {
+  let saved = Option.map(initial, publicWalletOf);
   const lock = Semaphore.makeUnsafe(1);
 
   return {
-    read: () => Effect.sync(() => saved),
-    write: (wallet) =>
+    seed: (wallet) =>
       lock.withPermit(
         beforeWrite.pipe(
           Effect.andThen(
             Effect.sync(() => {
-              saved = Option.some(wallet);
+              saved = Option.some(publicWalletOf(wallet));
             }),
           ),
         ),
       ),
-    readPublic: () => Effect.sync(() => Option.map(saved, publicWalletOf)),
+    readPublic: () => Effect.sync(() => saved),
     updatePublic: (update) =>
       lock.withPermit(
         Effect.gen(function* () {
           if (Option.isNone(saved)) return Option.none();
 
-          const current = publicWalletOf(saved.value);
+          const current = saved.value;
           const next = update(current);
 
           if (Option.isNone(next))
@@ -86,12 +106,7 @@ export function memoryKeyStore(
 
           yield* beforeWrite;
 
-          saved = Option.some(
-            new DeviceWallet({
-              ...next.value,
-              phrase: saved.value.phrase,
-            }),
-          );
+          saved = next;
 
           return Option.some({ wallet: next.value, updated: true });
         }),

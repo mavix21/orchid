@@ -10,14 +10,14 @@ import * as Redacted from "effect/Redacted";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import {
   type ConfirmOpeningOutcome,
-  DeviceWallet,
   type KeyStore,
   KeyStoreUnavailable,
   type PaymentLinkIntent,
   type PaymentLinkTarget,
+  type PublicDeviceWallet,
   type WalletClient,
-  publicWalletOf,
 } from "@workspace/wallet";
+import type { SecretPhrase } from "../src/device/secret-phrase";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import { Chain } from "../src/server/Chain.server";
@@ -86,20 +86,19 @@ export const walletServices = (
   );
 
 export function memoryKeyStore() {
-  let saved = Option.none<DeviceWallet>();
+  let saved = Option.none<{
+    readonly phrase: SecretPhrase;
+    readonly wallet: PublicDeviceWallet;
+  }>();
 
   const store: KeyStore = {
-    read: () => Effect.sync(() => saved),
-    write: (wallet) =>
-      Effect.sync(() => {
-        saved = Option.some(wallet);
-      }),
-    readPublic: () => Effect.sync(() => Option.map(saved, publicWalletOf)),
+    readPublic: () =>
+      Effect.sync(() => Option.map(saved, ({ wallet }) => wallet)),
     updatePublic: (update) =>
       Effect.suspend(() => {
         if (Option.isNone(saved)) return Effect.succeed(Option.none());
 
-        const current = publicWalletOf(saved.value);
+        const { phrase, wallet: current } = saved.value;
         const next = update(current);
 
         if (Option.isNone(next))
@@ -114,9 +113,7 @@ export function memoryKeyStore() {
             }),
           );
 
-        saved = Option.some(
-          new DeviceWallet({ ...next.value, phrase: saved.value.phrase }),
-        );
+        saved = Option.some({ phrase, wallet: next.value });
 
         return Effect.succeed(
           Option.some({ wallet: next.value, updated: true }),
@@ -124,7 +121,14 @@ export function memoryKeyStore() {
       }),
   };
 
-  return { store, saved: () => saved };
+  return {
+    store,
+    seed: (phrase: SecretPhrase, wallet: PublicDeviceWallet) => {
+      saved = Option.some({ phrase, wallet });
+    },
+    saved: () =>
+      Option.map(saved, ({ phrase, wallet }) => ({ ...wallet, phrase })),
+  };
 }
 
 export const openThroughReview = async (

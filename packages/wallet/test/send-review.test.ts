@@ -26,11 +26,7 @@ import {
   UnsupportedDevice,
   makeWalletEffects,
 } from "../src/device/client";
-import {
-  type KeyStore,
-  KeyStoreUnavailable,
-  PublicDeviceWallet,
-} from "../src/device/key-store";
+import { type KeyStore, PublicDeviceWallet } from "../src/device/key-store";
 import {
   memoryKeyStore,
   nowSeconds,
@@ -360,10 +356,6 @@ it.live(
       const backing = memoryKeyStore(Option.some(actors.wallet));
 
       const lockedStore: KeyStore = {
-        read: () =>
-          Effect.fail(new KeyStoreUnavailable({ cause: "secret locked" })),
-        write: () =>
-          Effect.fail(new KeyStoreUnavailable({ cause: "secret locked" })),
         readPublic: () => backing.readPublic(),
         updatePublic: (update) => backing.updatePublic(update),
       };

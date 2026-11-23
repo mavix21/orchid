@@ -7,13 +7,11 @@ import { PasskeyChallenge, Username } from "../src/contract";
 import { PinnedCredential } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
-  type DeviceWallet,
   type KeyStore,
   KeyStoreUnavailable,
   PublicDeviceWallet,
   type SealedDevice,
   SealedDeviceWallet,
-  publicWalletOf,
 } from "../src/device/key-store";
 import {
   freshInstallationSalt,
@@ -27,7 +25,11 @@ import {
 } from "../src/device/secret-phrase";
 import { signingKey } from "../src/device/signing";
 import { network } from "../src/stellar/network";
-import { addressOf } from "./device-fixtures";
+import {
+  type DeviceWallet,
+  addressOf,
+  publicWalletOf,
+} from "./device-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 
@@ -162,10 +164,6 @@ export const enrollDisposableWallet = (name = "maria") => {
 };
 
 export const sealedKeyStore: KeyStore = {
-  read: () =>
-    Effect.fail(new KeyStoreUnavailable({ cause: "secret requires passkey" })),
-  write: () =>
-    Effect.fail(new KeyStoreUnavailable({ cause: "secret requires passkey" })),
   readPublic: () =>
     browserKeyStore
       .readPublic()
