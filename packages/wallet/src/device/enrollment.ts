@@ -351,6 +351,7 @@ export function makeEnrollmentEffects(
   const sealAndSign = Effect.fn("Device.sealAndSignEnrollment")(function* (
     current: Awaiting,
     review: OpeningReview,
+    stillCurrent: () => boolean,
     devicePrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
     backupPrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
   ): Effect.fn.Return<Held | EnrollWalletOutcome> {
@@ -365,10 +366,13 @@ export function makeEnrollmentEffects(
     if (!(verified instanceof Verified)) return verified;
 
     if ((yield* standingOfReview(sealed, review)) !== "current") {
-      if (review.redrafted) return new DraftRejected();
+      if (review.redrafted)
+        return yield* clearPending.pipe(Effect.as(new DraftRejected()));
 
       return yield* refreshReview(sealed, true);
     }
+
+    if (!stillCurrent()) return new PasskeyCancelled();
 
     const approvals = approveWithPhrase(
       verified.phrase,
@@ -438,7 +442,13 @@ export function makeEnrollmentEffects(
             ),
           onSome: (backupPrf) =>
             (epoch === initiated
-              ? sealAndSign(current, review.value, prf.first, backupPrf)
+              ? sealAndSign(
+                  current,
+                  review.value,
+                  () => epoch === initiated,
+                  prf.first,
+                  backupPrf,
+                )
               : Effect.succeed<Held | EnrollWalletOutcome>(
                   new PasskeyCancelled(),
                 )

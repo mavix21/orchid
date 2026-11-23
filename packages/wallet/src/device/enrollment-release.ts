@@ -14,7 +14,6 @@ import {
   claimOf,
   isRetryableUnavailable,
   sameCandidate,
-  standingOfReview,
 } from "./enrollment-state";
 import { PublicDeviceWallet, SealedDeviceWallet } from "./key-store";
 import { localEnvelopeVersion } from "./local-envelope";
@@ -146,9 +145,6 @@ export const enrollmentRelease = (
     if (Option.isSome(blocked)) return blocked.value;
 
     const claim = claimOf(held);
-
-    if ((yield* standingOfReview(held, held.review)) !== "current")
-      return yield* clearPending.pipe(Effect.as(new OpeningPending()));
 
     const released = yield* deps.port
       .open(claim, Option.some(held.approvals))
