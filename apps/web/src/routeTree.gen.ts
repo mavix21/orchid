@@ -10,21 +10,22 @@
 
 import { Route as rootRouteImport } from "./routes/__root";
 import { Route as IndexRouteImport } from "./routes/index";
-import { Route as AppRouteImport } from "./routes/_app";
+import { Route as WalletRouteImport } from "./routes/_wallet";
 import { Route as CreateAccountRouteImport } from "./routes/create-account";
-import { Route as LinksRouteImport } from "./routes/links";
 import { Route as RestoreRouteImport } from "./routes/restore";
-import { Route as AppHomeRouteImport } from "./routes/_app/home";
-import { Route as SendIndexRouteImport } from "./routes/send/index";
-import { Route as SendAssetRouteImport } from "./routes/send/$asset";
+import { Route as WalletAppRouteImport } from "./routes/_wallet/_app";
+import { Route as WalletLinksRouteImport } from "./routes/_wallet/links";
+import { Route as WalletAppHomeRouteImport } from "./routes/_wallet/_app/home";
+import { Route as WalletSendIndexRouteImport } from "./routes/_wallet/send/index";
+import { Route as WalletSendAssetRouteImport } from "./routes/_wallet/send/$asset";
 
 const IndexRoute = IndexRouteImport.update({
   id: "/",
   path: "/",
   getParentRoute: () => rootRouteImport,
 } as any);
-const AppRoute = AppRouteImport.update({
-  id: "/_app",
+const WalletRoute = WalletRouteImport.update({
+  id: "/_wallet",
   getParentRoute: () => rootRouteImport,
 } as any);
 const CreateAccountRoute = CreateAccountRouteImport.update({
@@ -32,68 +33,73 @@ const CreateAccountRoute = CreateAccountRouteImport.update({
   path: "/create-account",
   getParentRoute: () => rootRouteImport,
 } as any);
-const LinksRoute = LinksRouteImport.update({
-  id: "/links",
-  path: "/links",
-  getParentRoute: () => rootRouteImport,
-} as any);
 const RestoreRoute = RestoreRouteImport.update({
   id: "/restore",
   path: "/restore",
   getParentRoute: () => rootRouteImport,
 } as any);
-const AppHomeRoute = AppHomeRouteImport.update({
+const WalletAppRoute = WalletAppRouteImport.update({
+  id: "/_app",
+  getParentRoute: () => WalletRoute,
+} as any);
+const WalletLinksRoute = WalletLinksRouteImport.update({
+  id: "/links",
+  path: "/links",
+  getParentRoute: () => WalletRoute,
+} as any);
+const WalletAppHomeRoute = WalletAppHomeRouteImport.update({
   id: "/home",
   path: "/home",
-  getParentRoute: () => AppRoute,
+  getParentRoute: () => WalletAppRoute,
 } as any);
-const SendIndexRoute = SendIndexRouteImport.update({
+const WalletSendIndexRoute = WalletSendIndexRouteImport.update({
   id: "/send/",
   path: "/send/",
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => WalletRoute,
 } as any);
-const SendAssetRoute = SendAssetRouteImport.update({
+const WalletSendAssetRoute = WalletSendAssetRouteImport.update({
   id: "/send/$asset",
   path: "/send/$asset",
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => WalletRoute,
 } as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/create-account": typeof CreateAccountRoute;
-  "/links": typeof LinksRoute;
   "/restore": typeof RestoreRoute;
-  "/home": typeof AppHomeRoute;
-  "/send/$asset": typeof SendAssetRoute;
-  "/send/": typeof SendIndexRoute;
+  "/links": typeof WalletLinksRoute;
+  "/home": typeof WalletAppHomeRoute;
+  "/send/$asset": typeof WalletSendAssetRoute;
+  "/send/": typeof WalletSendIndexRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/create-account": typeof CreateAccountRoute;
-  "/links": typeof LinksRoute;
   "/restore": typeof RestoreRoute;
-  "/home": typeof AppHomeRoute;
-  "/send/$asset": typeof SendAssetRoute;
-  "/send": typeof SendIndexRoute;
+  "/links": typeof WalletLinksRoute;
+  "/home": typeof WalletAppHomeRoute;
+  "/send/$asset": typeof WalletSendAssetRoute;
+  "/send": typeof WalletSendIndexRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
-  "/_app": typeof AppRouteWithChildren;
+  "/_wallet": typeof WalletRouteWithChildren;
   "/create-account": typeof CreateAccountRoute;
-  "/links": typeof LinksRoute;
   "/restore": typeof RestoreRoute;
-  "/_app/home": typeof AppHomeRoute;
-  "/send/$asset": typeof SendAssetRoute;
-  "/send/": typeof SendIndexRoute;
+  "/_wallet/_app": typeof WalletAppRouteWithChildren;
+  "/_wallet/links": typeof WalletLinksRoute;
+  "/_wallet/_app/home": typeof WalletAppHomeRoute;
+  "/_wallet/send/$asset": typeof WalletSendAssetRoute;
+  "/_wallet/send/": typeof WalletSendIndexRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
   fullPaths:
     | "/"
     | "/create-account"
-    | "/links"
     | "/restore"
+    | "/links"
     | "/home"
     | "/send/$asset"
     | "/send/";
@@ -101,31 +107,29 @@ export interface FileRouteTypes {
   to:
     | "/"
     | "/create-account"
-    | "/links"
     | "/restore"
+    | "/links"
     | "/home"
     | "/send/$asset"
     | "/send";
   id:
     | "__root__"
     | "/"
-    | "/_app"
+    | "/_wallet"
     | "/create-account"
-    | "/links"
     | "/restore"
-    | "/_app/home"
-    | "/send/$asset"
-    | "/send/";
+    | "/_wallet/_app"
+    | "/_wallet/links"
+    | "/_wallet/_app/home"
+    | "/_wallet/send/$asset"
+    | "/_wallet/send/";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
-  AppRoute: typeof AppRouteWithChildren;
+  WalletRoute: typeof WalletRouteWithChildren;
   CreateAccountRoute: typeof CreateAccountRoute;
-  LinksRoute: typeof LinksRoute;
   RestoreRoute: typeof RestoreRoute;
-  SendAssetRoute: typeof SendAssetRoute;
-  SendIndexRoute: typeof SendIndexRoute;
 }
 
 declare module "@tanstack/react-router" {
@@ -137,11 +141,11 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof IndexRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/_app": {
-      id: "/_app";
+    "/_wallet": {
+      id: "/_wallet";
       path: "";
       fullPath: "/";
-      preLoaderRoute: typeof AppRouteImport;
+      preLoaderRoute: typeof WalletRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/create-account": {
@@ -151,13 +155,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof CreateAccountRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/links": {
-      id: "/links";
-      path: "/links";
-      fullPath: "/links";
-      preLoaderRoute: typeof LinksRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
     "/restore": {
       id: "/restore";
       path: "/restore";
@@ -165,48 +162,78 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof RestoreRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/_app/home": {
-      id: "/_app/home";
+    "/_wallet/_app": {
+      id: "/_wallet/_app";
+      path: "";
+      fullPath: "/";
+      preLoaderRoute: typeof WalletAppRouteImport;
+      parentRoute: typeof WalletRoute;
+    };
+    "/_wallet/links": {
+      id: "/_wallet/links";
+      path: "/links";
+      fullPath: "/links";
+      preLoaderRoute: typeof WalletLinksRouteImport;
+      parentRoute: typeof WalletRoute;
+    };
+    "/_wallet/_app/home": {
+      id: "/_wallet/_app/home";
       path: "/home";
       fullPath: "/home";
-      preLoaderRoute: typeof AppHomeRouteImport;
-      parentRoute: typeof AppRoute;
+      preLoaderRoute: typeof WalletAppHomeRouteImport;
+      parentRoute: typeof WalletAppRoute;
     };
-    "/send/": {
-      id: "/send/";
+    "/_wallet/send/": {
+      id: "/_wallet/send/";
       path: "/send";
       fullPath: "/send/";
-      preLoaderRoute: typeof SendIndexRouteImport;
-      parentRoute: typeof rootRouteImport;
+      preLoaderRoute: typeof WalletSendIndexRouteImport;
+      parentRoute: typeof WalletRoute;
     };
-    "/send/$asset": {
-      id: "/send/$asset";
+    "/_wallet/send/$asset": {
+      id: "/_wallet/send/$asset";
       path: "/send/$asset";
       fullPath: "/send/$asset";
-      preLoaderRoute: typeof SendAssetRouteImport;
-      parentRoute: typeof rootRouteImport;
+      preLoaderRoute: typeof WalletSendAssetRouteImport;
+      parentRoute: typeof WalletRoute;
     };
   }
 }
 
-interface AppRouteChildren {
-  AppHomeRoute: typeof AppHomeRoute;
+interface WalletAppRouteChildren {
+  WalletAppHomeRoute: typeof WalletAppHomeRoute;
 }
 
-const AppRouteChildren: AppRouteChildren = {
-  AppHomeRoute: AppHomeRoute,
+const WalletAppRouteChildren: WalletAppRouteChildren = {
+  WalletAppHomeRoute: WalletAppHomeRoute,
 };
 
-const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren);
+const WalletAppRouteWithChildren = WalletAppRoute._addFileChildren(
+  WalletAppRouteChildren,
+);
+
+interface WalletRouteChildren {
+  WalletAppRoute: typeof WalletAppRouteWithChildren;
+  WalletLinksRoute: typeof WalletLinksRoute;
+  WalletSendAssetRoute: typeof WalletSendAssetRoute;
+  WalletSendIndexRoute: typeof WalletSendIndexRoute;
+}
+
+const WalletRouteChildren: WalletRouteChildren = {
+  WalletAppRoute: WalletAppRouteWithChildren,
+  WalletLinksRoute: WalletLinksRoute,
+  WalletSendAssetRoute: WalletSendAssetRoute,
+  WalletSendIndexRoute: WalletSendIndexRoute,
+};
+
+const WalletRouteWithChildren =
+  WalletRoute._addFileChildren(WalletRouteChildren);
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AppRoute: AppRouteWithChildren,
+  WalletRoute: WalletRouteWithChildren,
   CreateAccountRoute: CreateAccountRoute,
-  LinksRoute: LinksRoute,
   RestoreRoute: RestoreRoute,
-  SendAssetRoute: SendAssetRoute,
-  SendIndexRoute: SendIndexRoute,
 };
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

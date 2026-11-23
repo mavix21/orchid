@@ -9,7 +9,13 @@ import {
 } from "@workspace/wallet";
 import * as Schema from "effect/Schema";
 
-import { freshUsername, openWallet, serverFunction } from "./device";
+import {
+  freshUsername,
+  openWallet,
+  reloadUnlocked,
+  serverFunction,
+  visit,
+} from "./device";
 import { fundWithUsdc, usdc } from "@workspace/wallet/testnet";
 
 const choose = (page: Page, destination: "address" | "username") =>
@@ -39,7 +45,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
 
   await fundWithUsdc(sender, "1");
 
-  await page.goto("/send");
+  await visit(page, "/send");
   await page.getByTestId(`send-asset-USDC:${usdc.getIssuer()}`).click();
 
   await choose(page, "username");
@@ -73,7 +79,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await page.getByTestId("confirm-payment").click();
   await approved;
   await expect(page).toHaveURL(/transfer=/);
-  await page.reload();
+  await reloadUnlocked(page);
 
   await expect(page.getByTestId("send-outcome")).toHaveAttribute(
     "data-outcome",
@@ -86,7 +92,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   await page.getByTestId("result-home").click();
   await expect(page).toHaveURL("/home");
 
-  await page.goto("/send");
+  await visit(page, "/send");
   await page.getByTestId(`send-asset-USDC:${usdc.getIssuer()}`).click();
   await choose(page, "username");
   await fill(page, recipient, "5");
@@ -148,7 +154,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
         ? answer(route)
         : route.fallback(),
     );
-    await page.goto(sendUsdc);
+    await visit(page, sendUsdc);
     await choose(page, "address");
     await fill(page, marker, "0.1");
     await review(page);
@@ -167,7 +173,7 @@ test("pays a username in USDC, resumes after a reload and explains refusals", as
   );
   await expect(page.getByTestId("result-again")).toBeVisible();
 
-  await page.goto(sendUsdc);
+  await visit(page, sendUsdc);
   await choose(page, "address");
   await fill(page, Keypair.random().publicKey(), "0.1");
   await page.context().setOffline(true);

@@ -37,6 +37,7 @@ import {
   type UsernameTaken,
   type WalletUnavailable,
 } from "../contract";
+import type { AssertionRejected, WrongCredential } from "./assertion";
 import { BackupState, type CorruptDeviceWallet } from "./key-store";
 import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";
 
@@ -109,6 +110,19 @@ export class RestoreSealed extends Schema.TaggedClass<RestoreSealed>()(
   "RestoreSealed",
   { profile: Profile },
 ) {}
+
+export class Unlocked extends Schema.TaggedClass<Unlocked>()("Unlocked", {}) {}
+
+export type UnlockOutcome =
+  | Unlocked
+  | NoWallet
+  | PasskeyCancelled
+  | PasskeyFailed
+  | WrongCredential
+  | AssertionRejected
+  | UnsupportedDevice
+  | CorruptDeviceWallet
+  | WalletUnavailable;
 
 export type EnrollmentRefusal =
   | BackupUnsupported

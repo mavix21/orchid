@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { fundWithUsdc, usdc } from "@workspace/wallet/testnet";
 
-import { freshUsername, openWallet } from "./device";
+import { freshUsername, openWallet, visit } from "./device";
 
 const linkPath = /\/l\/G[A-Z2-7]{55}#(S[A-Z2-7]{55})$/;
 
@@ -28,7 +28,7 @@ test("shares a payment link only once it holds the funds, never sends its secret
 
   await fundWithUsdc(sender, "1");
 
-  await page.goto("/send");
+  await visit(page, "/send");
   await page.getByTestId(`send-asset-USDC:${usdc.getIssuer()}`).click();
   await page.getByTestId("choose-link").click();
   await page.getByRole("textbox").fill("0.5");
@@ -51,7 +51,7 @@ test("shares a payment link only once it holds the funds, never sends its secret
   expect(link.origin).toBe(new URL(page.url()).origin);
   expect(secret.length).toBe(56);
 
-  await page.goto("/send");
+  await visit(page, "/send");
   await page.getByTestId("open-links").click();
   await expect(page.getByTestId("recover-link")).toHaveCount(1, {
     timeout: 30_000,
