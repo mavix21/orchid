@@ -34,7 +34,9 @@ import type { RecoveryFacts } from "../stellar/envelopes";
 import { epochAt, network, sweepBatchSize } from "../stellar/network";
 import type { Sealed } from "./Chain.server";
 import { pairedRecovery } from "./opening-attempt.server";
-import { assetOrders, transfers, usernames, wallets } from "./tables.server";
+import { walletHasSignedWork } from "./signed-work.server";
+import { SignedWorkInFlight, walletLock } from "./slot.server";
+import { usernames, wallets } from "./tables.server";
 import { reserved } from "./usernames.server";
 
 export class StoreFailure extends Schema.TaggedError<StoreFailure>()(
@@ -118,7 +120,11 @@ export class Directory extends Context.Service<
       sealed: Sealed,
       claim: WalletClaim,
       recovery: Option.Option<Sealed>,
-    ): Effect.Effect<WalletRow | Unavailable, StoreFailure>;
+      repairing: boolean,
+    ): Effect.Effect<
+      WalletRow | Unavailable | SignedWorkInFlight,
+      StoreFailure
+    >;
     recoveryDraft(
       row: WalletRow,
       request: SigningRequest,
@@ -286,6 +292,7 @@ export class Directory extends Context.Service<
         sealed: Sealed,
         claim: WalletClaim,
         recovery: Option.Option<Sealed>,
+        repairing: boolean,
       ) {
         const unchanged = and(
           scope,
@@ -295,9 +302,20 @@ export class Directory extends Context.Service<
 
         const outcome = yield* db.transaction((tx) =>
           Effect.gen(function* () {
+            const owner = Schema.decodeSync(AccountAddress)(row.address);
+
+            yield* tx.execute(walletLock(owner));
+
             const locked = yield* lockRow(tx, unchanged);
 
             if (!locked[0]) return undefined;
+
+            if (
+              repairing &&
+              Option.isSome(recovery) &&
+              (yield* walletHasSignedWork(tx, owner))
+            )
+              return new SignedWorkInFlight();
 
             const bound = yield* bind(tx, claim);
 
@@ -330,7 +348,8 @@ export class Directory extends Context.Service<
 
         if (
           Predicate.isTagged(outcome, "UsernameTaken") ||
-          Predicate.isTagged(outcome, "AddressBound")
+          Predicate.isTagged(outcome, "AddressBound") ||
+          Predicate.isTagged(outcome, "SignedWorkInFlight")
         )
           return outcome;
 
@@ -461,37 +480,6 @@ export class Directory extends Context.Service<
             );
       };
 
-      const signedInFlight = Effect.fn("Directory.signedInFlight")(function* (
-        address: AccountAddress,
-      ) {
-        const [authorizedTransfers, authorizedOrders] = yield* Effect.all([
-          db
-            .select({ id: transfers.id })
-            .from(transfers)
-            .where(
-              and(
-                eq(transfers.network, network),
-                eq(transfers.sender, address),
-                eq(transfers.status, "authorized"),
-              ),
-            )
-            .limit(1),
-          db
-            .select({ id: assetOrders.id })
-            .from(assetOrders)
-            .where(
-              and(
-                eq(assetOrders.network, network),
-                eq(assetOrders.wallet, address),
-                eq(assetOrders.status, "authorized"),
-              ),
-            )
-            .limit(1),
-        ]);
-
-        return authorizedTransfers.length + authorizedOrders.length > 0;
-      });
-
       const recover = (row: WalletRow) =>
         db
           .update(wallets)
@@ -566,14 +554,14 @@ export class Directory extends Context.Service<
           ),
         start: (address, initial) => wrap(start(address, initial)),
         draft: (row, request) => wrap(draft(row, request)),
-        seal: (row, sealed, claim, recovery) =>
-          wrap(seal(row, sealed, claim, recovery)),
+        seal: (row, sealed, claim, recovery, repairing) =>
+          wrap(seal(row, sealed, claim, recovery, repairing)),
         recoveryDraft: (row, request) => wrap(recoveryDraft(row, request)),
         activate: (row, sealed, facts, claim) =>
           wrap(activate(row, sealed, facts, claim)),
         activatePaired: (row, facts, claim) =>
           wrap(activatePaired(row, facts, claim)),
-        hasSignedWork: (address) => wrap(signedInFlight(address)),
+        hasSignedWork: (address) => wrap(walletHasSignedWork(db, address)),
         recover: (row) => wrap(recover(row)),
         recoverable: wrap(
           Effect.gen(function* () {

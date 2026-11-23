@@ -54,6 +54,11 @@ import {
   installSealedWallet,
   sealedKeyStore,
 } from "./sealed-wallet-fixtures";
+import { browserKeyStore } from "../src/device/browser-key-store";
+import {
+  PublicDeviceWallet,
+  type SealedKeyStore,
+} from "../src/device/key-store";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 import {
@@ -263,6 +268,117 @@ it.effect(
 
       assertTagged(fallback, "OpeningReview");
       expect(fallback.draft._tag).toBe("RecoveryDraft");
+    }),
+);
+
+const pairedAt = (millis: number, address: AccountAddress) =>
+  draftOpeningWithRecovery({
+    source: new Account(reserveSponsor, "100"),
+    address,
+    reserveSponsor,
+    observedSequence: undefined,
+    now: Math.floor(millis / 1000),
+    latestLedger: 100,
+    pinSequence: true,
+  });
+
+const standaloneAt = (millis: number, address: AccountAddress) => {
+  const now = Math.floor(millis / 1000);
+
+  return new RecoveryDraft({
+    request: requestUntil(
+      draftRecovery({
+        source: new Account(address, "100"),
+        reserveSponsor,
+        minTime: now + recoveryDelay,
+        maxTime: now + recoveryDelay + recoveryWindow,
+      }),
+      now + recoveryDelay + recoveryWindow,
+    ),
+  });
+};
+
+it.effect(
+  "releases no signature when another tab renamed the wallet after the review was read",
+  () =>
+    Effect.gen(function* () {
+      const enrolled = enrolledDeviceWallet();
+      const { auth } = yield* installSealedWallet(enrolled);
+      const released: Array<Option.Option<Approvals>> = [];
+      let renamed = false;
+
+      const racingStore: SealedKeyStore = {
+        ...browserKeyStore,
+        updatePublic: (update) =>
+          Effect.suspend(() => {
+            if (renamed) return Effect.void;
+
+            renamed = true;
+
+            return browserKeyStore.updatePublic((current) =>
+              Option.some(
+                new PublicDeviceWallet({
+                  ...current,
+                  username: Schema.decodeSync(Username)("other"),
+                }),
+              ),
+            );
+          }).pipe(Effect.andThen(browserKeyStore.updatePublic(update))),
+      };
+
+      const port = unusedPort({
+        open: (_claim, approvals) =>
+          Effect.map(Clock.currentTimeMillis, (millis): OpenStep => {
+            released.push(approvals);
+
+            return pairedAt(millis, enrolled.address);
+          }),
+      });
+
+      const client = makeWalletEffects(
+        port,
+        sealedKeyStore,
+        passkeys,
+        approvingDevice(auth, racingStore),
+      );
+
+      const review = yield* client.reviewOpening("maria");
+
+      assertTagged(review, "OpeningReview");
+      expect(yield* client.confirmOpening(review)).toEqual(new DraftRejected());
+      expect(released.filter(Option.isSome)).toHaveLength(0);
+    }),
+);
+
+it.effect(
+  "allows one redraft for a standalone recovery and refuses the next replacement",
+  () =>
+    Effect.gen(function* () {
+      const { auth } = yield* installSealedWallet(seeded);
+
+      const port = unusedPort({
+        open: () =>
+          Effect.map(Clock.currentTimeMillis, (millis) =>
+            standaloneAt(millis, seeded.address),
+          ),
+      });
+
+      const client = makeWalletEffects(
+        port,
+        sealedKeyStore,
+        passkeys,
+        approvingDevice(auth),
+      );
+
+      const first = yield* client.reviewOpening("maria");
+
+      assertTagged(first, "OpeningReview");
+
+      const second = yield* client.confirmOpening(first);
+
+      assertTagged(second, "OpeningReview");
+      expect(second.redrafted).toBe(true);
+      expect(yield* client.confirmOpening(second)).toEqual(new DraftRejected());
     }),
 );
 

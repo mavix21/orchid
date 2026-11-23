@@ -5,9 +5,11 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import { Profile, ServiceFailed } from "../src/contract";
+import { Directory } from "../src/server/Directory.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { assertTagged } from "./tagged";
 import {
+  addressOf,
   approve,
   draftTransfer,
   findTransfer,
@@ -25,6 +27,26 @@ useDisposableDatabase();
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
+    it.effect(
+      "a proposed transfer is not authorized once its wallet stopped being active",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet();
+          const order = selfOrder(key);
+          const draft = yield* draftTransfer(order);
+
+          yield* Directory.use((directory) =>
+            Effect.flatMap(directory.byAddress(addressOf(key)), (row) =>
+              directory.recover(Option.getOrThrow(row)),
+            ),
+          );
+          expect((yield* send(order, approve(draft.request, key)))._tag).toBe(
+            "NotOpened",
+          );
+          expect(world.submitted).toHaveLength(1);
+        }),
+    );
+
     it.effect(
       "a signed transfer survives failed submit and sweep finishes without the device",
       () =>

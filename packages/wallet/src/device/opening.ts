@@ -247,18 +247,16 @@ export function deviceOpening(
     );
 
   const afterRelease = (shown: OpeningReview): OnDraft => {
-    const stage = presenting(
-      Predicate.isTagged(shown.draft, "RecoveryDraft") && shown.redrafted,
-    );
-
-    const again = presenting(true);
+    const next = presenting(false);
+    const replacement = presenting(true);
+    const standalone = Predicate.isTagged(shown.draft, "RecoveryDraft");
 
     return (wallet, draft) =>
-      Predicate.isTagged(draft, "RecoveryDraft")
-        ? stage(wallet, draft)
+      Predicate.isTagged(draft, "RecoveryDraft") && !standalone
+        ? next(wallet, draft)
         : shown.redrafted
           ? Effect.succeed(Option.some(new DraftRejected()))
-          : again(wallet, draft);
+          : replacement(wallet, draft);
   };
 
   const confirm = Effect.fn("Device.confirmOpening")(function* (
@@ -308,6 +306,7 @@ export function deviceOpening(
         device.store
           .updatePublic((current) =>
             current.address === wallet.address &&
+            current.username === presented.username &&
             current.reserveSponsor !== sponsor.value
               ? Option.some(
                   new PublicDeviceWallet({
@@ -325,6 +324,7 @@ export function deviceOpening(
                 if (Option.isNone(committed)) return new NoWallet();
 
                 return committed.value.wallet.address === wallet.address &&
+                  committed.value.wallet.username === presented.username &&
                   committed.value.wallet.reserveSponsor === sponsor.value
                   ? new Reserved({
                       reservation: {

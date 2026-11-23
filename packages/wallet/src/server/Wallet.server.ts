@@ -301,6 +301,7 @@ export class Wallet extends Context.Service<
                         : proposedStep(stored, requirement),
                     ),
                   ),
+              WalletInactive: () => Effect.succeed(new NotOpened()),
               Proposed: (proposed) => resumed(proposed, requirement),
               Authorized: reconcile,
               Concluded: signedStep,

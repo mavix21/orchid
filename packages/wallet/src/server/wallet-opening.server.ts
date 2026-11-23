@@ -41,6 +41,7 @@ import {
   unavailability,
 } from "./Directory.server";
 import { openingAttempt, pairedRecovery } from "./opening-attempt.server";
+import { SignedWorkInFlight } from "./slot.server";
 import { confirmedReads, live } from "./wallet-reads.server";
 
 export const openingFlow = Effect.gen(function* () {
@@ -398,7 +399,18 @@ export const openingFlow = Effect.gen(function* () {
         sealed.value.opening,
         claim,
         sealed.value.recovery,
+        Option.isSome(state),
       );
+
+      if (written instanceof SignedWorkInFlight) {
+        const unpinned = yield* draftOpening(claim.address, state);
+
+        const replaced = openingAttempt(yield* directory.draft(row, unpinned));
+
+        return Option.isSome(replaced) && replaced.value instanceof OpeningDraft
+          ? replaced.value
+          : new OpeningPending();
+      }
 
       if (
         Predicate.isTagged(written, "UsernameTaken") ||
