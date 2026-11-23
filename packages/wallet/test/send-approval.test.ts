@@ -27,7 +27,6 @@ import {
   installSealedWallet,
   sealedKeyStore,
 } from "./sealed-wallet-fixtures";
-import { assertTagged } from "./tagged";
 import {
   actors,
   amount,
@@ -149,20 +148,13 @@ it.live.each([
   ["the draft", { lifetime: 10 }, () => payment()],
   ["its envelope", {}, () => payment(actors.sender, 10)],
 ] as const)(
-  "asks once for a fresh draft without a prompt when %s expires within the approval margin",
+  "asks once for a fresh draft and presents none when %s keeps expiring within the approval margin",
   ([, options, envelope]) =>
     Effect.gen(function* () {
-      const { approvals, auth, client } = yield* sealedWith(envelope, options);
+      const { approvals, client } = deviceWith(envelope, options);
 
-      const redrafted = yield* client.confirm(
-        yield* reviewed(client, toExchange),
-      );
-
-      assertTagged(redrafted, "PaymentReview");
-      expect(redrafted.redrafted).toBe(true);
-      expect(yield* client.confirm(redrafted)).toEqual(new DraftRejected());
+      expect(yield* client.review(toExchange)).toEqual(new DraftRejected());
       expect(approvals).toEqual([Option.none(), Option.none()]);
-      expect(auth.requested).toEqual([]);
     }),
 );
 

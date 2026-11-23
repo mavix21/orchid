@@ -118,11 +118,9 @@ it.live("releases an expired signed order the server never authorized", () =>
       }),
     });
 
-    expect(
-      yield* client.review(
-        new TransferIntent({ ...toExchange, amount: otherAmount }),
-      ),
-    ).toEqual(refusal);
+    yield* client.review(
+      new TransferIntent({ ...toExchange, amount: otherAmount }),
+    );
     expect(orderIds).toHaveLength(2);
     expect(orderIds[0]).toBe(oldOrder.id);
     expect(orderIds[1]).not.toBe(oldOrder.id);

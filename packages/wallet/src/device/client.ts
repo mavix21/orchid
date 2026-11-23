@@ -110,8 +110,12 @@ export function makeWalletEffects(
     lock: Semaphore.makeUnsafe(1),
   };
 
+  const issuedReview = Ref.makeUnsafe(Option.none<PaymentReview>());
+
   const sending = loadFromServer(() => import("./sending")).pipe(
-    Effect.map(({ sendTransfer }) => sendTransfer(port, store, device)),
+    Effect.map(({ sendTransfer }) =>
+      sendTransfer(port, store, { issued: issuedReview, device }),
+    ),
   );
 
   const links = loadFromServer(() => import("./payment-links")).pipe(
