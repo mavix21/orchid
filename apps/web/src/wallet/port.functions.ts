@@ -8,6 +8,8 @@ import {
   BackupEnrollment,
   ChallengePurpose,
   EnrollStep,
+  ExternalLinkOrder,
+  ExternalLinkStep,
   PasskeyAssertion,
   PasskeyChallenge,
   RestoreStep,
@@ -53,6 +55,11 @@ const ManageCall = Schema.Struct({
 const PaymentLinksCall = Schema.Struct({ address: AccountAddress });
 
 const PaymentLinkCall = Schema.Struct({ link: AccountAddress });
+
+const ClaimPaymentLinkCall = Schema.Struct({
+  order: ExternalLinkOrder,
+  approval: Schema.OptionFromNullOr(Approval),
+});
 
 const ResolvePaymentLinkCall = Schema.Struct({
   sender: AccountAddress,
@@ -115,6 +122,16 @@ const paymentLinkFn = createServerFn({ method: "POST" })
   .handler(({ data }) =>
     answerWallet(PaymentLinkCall, data, PaymentLinkStep, (decoded) =>
       Wallet.use((wallet) => wallet.paymentLink(decoded.link)),
+    ),
+  );
+
+const claimPaymentLinkFn = createServerFn({ method: "POST" })
+  .validator(accepted<typeof ClaimPaymentLinkCall.Encoded>())
+  .handler(({ data }) =>
+    answerWallet(ClaimPaymentLinkCall, data, ExternalLinkStep, (decoded) =>
+      Wallet.use((wallet) =>
+        wallet.claimPaymentLink(decoded.order, decoded.approval),
+      ),
     ),
   );
 
@@ -203,6 +220,13 @@ export const port: WalletPort = {
     reach(PaymentLinksStep, PaymentLinksCall, { address }, paymentLinksFn),
   paymentLink: (link) =>
     reach(PaymentLinkStep, PaymentLinkCall, { link }, paymentLinkFn),
+  claimPaymentLink: (order, approval) =>
+    reach(
+      ExternalLinkStep,
+      ClaimPaymentLinkCall,
+      { order, approval },
+      claimPaymentLinkFn,
+    ),
   resolvePaymentLink: (sender, receipt) =>
     reach(
       ResolveReceiptStep,

@@ -7,6 +7,9 @@ import {
   Asset,
   BalanceId,
   DestinationAddress,
+  ExternalLinkDraft,
+  ExternalLinkOrder,
+  type ExternalLinkStep,
   IssuedAsset,
   LinkSecret,
   OpenPaymentLink,
@@ -466,3 +469,41 @@ export type ConfirmLinkReceiveOutcome =
   | AssertionRejected
   | PrfOutputMissing
   | CorruptDeviceWallet;
+
+export class ExternalLinkIntent extends Schema.Class<ExternalLinkIntent>(
+  "@workspace/wallet/ExternalLinkIntent",
+)({
+  destination: DestinationAddress,
+  memo: Schema.optional(PaymentMemo),
+}) {}
+
+export class ExternalLinkReview extends Schema.TaggedClass<ExternalLinkReview>()(
+  "ExternalLinkReview",
+  {
+    order: ExternalLinkOrder,
+    draft: ExternalLinkDraft,
+    redrafted: Schema.Boolean,
+    network: Schema.String,
+    link: AccountAddress,
+    balance: BalanceId,
+    destination: DestinationAddress,
+    asset: Asset,
+    amount: PositiveAmount,
+    memo: Schema.optional(PaymentMemo),
+    memoRequired: Schema.Boolean,
+    sender: Profile,
+  },
+) {}
+
+export type ExternalLinkOutcome =
+  | Exclude<ExternalLinkStep, ExternalLinkDraft>
+  | Exclude<PaymentLinkStep, PaymentLinkOpen>
+  | LinkSecretMismatch
+  | DraftRejected
+  | WalletUnavailable;
+
+export type ReviewExternalLinkOutcome =
+  | ExternalLinkReview
+  | ExternalLinkOutcome;
+
+export type ConfirmExternalLinkOutcome = ReviewExternalLinkOutcome;

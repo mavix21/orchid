@@ -1,13 +1,25 @@
 import { Database } from "@workspace/db";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import type { AssetOrderId, BalanceId } from "../contract";
-import { epochAt, network, sweepBatchSize } from "../stellar/network";
-import type { AssetConcluded, StoredAssetOrder } from "./AssetOrders.server";
+import {
+  approvalMargin,
+  epochAt,
+  network,
+  sweepBatchSize,
+} from "../stellar/network";
+import type { Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
+import {
+  type AssetConcluded,
+  type AssetProposed,
+  type StoredAssetOrder,
+  StoredExternalOrder,
+} from "./asset-order-records.server";
+import { SlotOccupied, walletLock } from "./slot.server";
 import { assetOrders } from "./tables.server";
 
 type Decode = (
@@ -51,7 +63,7 @@ export const receivedLinksToClean = Effect.fn(
         scopeAt(now),
         eq(assetOrders.status, "settled"),
         isNull(assetOrders.linkCleanedAt),
-        sql`${assetOrders.order}::jsonb -> 'action' ->> '_tag' = 'ReceiveLink'`,
+        sql`${assetOrders.order}::jsonb -> 'action' ->> '_tag' in ('ReceiveLink', 'ReceiveLinkExternal')`,
       ),
     )
     .orderBy(assetOrders.concludedAt)
@@ -89,3 +101,80 @@ export const linkCleaned = Effect.fn("AssetOrders.linkCleaned")(function* (
       ),
     );
 });
+
+export const authorizeExternalOrder = (
+  proposed: AssetProposed,
+  sealed: Sealed,
+  decode: Decode,
+) =>
+  Effect.gen(function* () {
+    const db = yield* Database;
+
+    if (!(proposed.order instanceof StoredExternalOrder))
+      return yield* new StoreFailure({
+        cause: new Error("External authorization requires an external order"),
+      });
+
+    const { id, action } = proposed.order;
+
+    return yield* db.transaction((tx) =>
+      Effect.gen(function* () {
+        yield* tx.execute(walletLock(action.link));
+
+        const lockedAt = yield* Clock.currentTimeMillis;
+        const scope = scopeAt(lockedAt);
+
+        const held = yield* tx
+          .select({ id: assetOrders.id })
+          .from(assetOrders)
+          .where(
+            and(
+              scope,
+              eq(assetOrders.balanceId, action.balance),
+              eq(assetOrders.status, "authorized"),
+            ),
+          );
+
+        if (held.some((row) => row.id !== id)) return new SlotOccupied();
+
+        const commitAt = yield* Clock.currentTimeMillis;
+
+        const written = yield* tx
+          .update(assetOrders)
+          .set({
+            status: "authorized",
+            envelope: sealed.envelope,
+            hash: sealed.hash,
+          })
+          .where(
+            and(
+              scope,
+              eq(assetOrders.id, id),
+              eq(assetOrders.status, "proposed"),
+              eq(assetOrders.envelope, proposed.request.envelope),
+              gt(
+                assetOrders.expiresAt,
+                DateTime.toDateUtc(
+                  DateTime.makeUnsafe(commitAt + approvalMargin * 1000),
+                ),
+              ),
+            ),
+          )
+          .returning();
+
+        if (written[0]) return yield* decode(written[0]);
+
+        const fresh = yield* tx
+          .select()
+          .from(assetOrders)
+          .where(and(scope, eq(assetOrders.id, id)));
+
+        if (!fresh[0])
+          return yield* new StoreFailure({
+            cause: new Error("Asset order disappeared"),
+          });
+
+        return yield* decode(fresh[0]);
+      }),
+    );
+  });

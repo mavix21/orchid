@@ -15,7 +15,7 @@ import {
 } from "../contract";
 import { claimableReadLimit, epochAt, network } from "../stellar/network";
 import { StoreFailure } from "./Directory.server";
-import { AssetOrderJson } from "./AssetOrders.server";
+import { StoredOrderJson } from "./AssetOrders.server";
 import { assetOrders, transfers, usernames } from "./tables.server";
 import {
   FundedLink,
@@ -206,7 +206,7 @@ export const receivedPaymentLinksFor = Effect.fn(
         eq(assetOrders.network, transfers.network),
         eq(assetOrders.testnetEpoch, transfers.testnetEpoch),
         eq(assetOrders.status, "settled"),
-        sql`${assetOrders.order}::jsonb -> 'action' ->> '_tag' = 'ReceiveLink'`,
+        sql`${assetOrders.order}::jsonb -> 'action' ->> '_tag' in ('ReceiveLink', 'ReceiveLinkExternal')`,
       ),
     )
     .where(
@@ -226,10 +226,11 @@ export const receivedPaymentLinksFor = Effect.fn(
     try: () =>
       rows.flatMap((row) => {
         const order = Schema.decodeSync(OrderJson)(row.order);
-        const receive = Schema.decodeSync(AssetOrderJson)(row.receive);
+        const receive = Schema.decodeSync(StoredOrderJson)(row.receive);
 
         return Predicate.isTagged(order.to, "PaymentLink") &&
-          Predicate.isTagged(receive.action, "ReceiveLink") &&
+          (Predicate.isTagged(receive.action, "ReceiveLink") ||
+            Predicate.isTagged(receive.action, "ReceiveLinkExternal")) &&
           receive.action.link === order.to.value &&
           row.receivedAt !== null
           ? [

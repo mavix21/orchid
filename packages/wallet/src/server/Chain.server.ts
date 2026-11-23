@@ -29,6 +29,7 @@ import {
   SigningRequest,
   Amount,
 } from "../contract";
+import { baseAccountOf, isMuxed } from "../stellar/destination";
 import {
   draftPayment,
   draftRecovery,
@@ -419,7 +420,8 @@ export class Chain extends Context.Service<
                     (!f.reserveSponsor || f.reserveSponsor === sponsorAddress),
                   LinkReceiveFacts: (f) =>
                     f.link === holder &&
-                    f.destination !== holder &&
+                    baseAccountOf(f.destination) !== holder &&
+                    (!isMuxed(f.destination) || f.memo === undefined) &&
                     f.channel === channel &&
                     f.reserveSponsor === sponsorAddress,
                 });

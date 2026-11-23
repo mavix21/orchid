@@ -470,6 +470,8 @@ export class Wallet extends Context.Service<
         overview: (address) => wrap(overview(address)),
         paymentLinks: (address) => wrap(links.paymentLinks(address)),
         paymentLink: (link) => wrap(assetActions.paymentLink(link)),
+        claimPaymentLink: (order, approval) =>
+          wrap(assetActions.claimPaymentLink(order, approval)),
         resolvePaymentLink: (sender, receipt) =>
           wrap(links.resolvePaymentLink(sender, receipt)),
         passkeyChallenge: (purpose) => wrap(backup.passkeyChallenge(purpose)),

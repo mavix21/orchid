@@ -28,6 +28,7 @@ import {
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import {
+  authorizeExternalOrder,
   linkCleaned,
   ordersOnBalance,
   receivedLinksToClean,
@@ -35,12 +36,13 @@ import {
 import {
   type AssetAuthorized,
   AssetConcluded,
-  AssetOrderJson,
   type AssetOrderRow,
   type AssetProposed,
   type ConclusionColumns,
   OpensJson,
   type StoredAssetOrder,
+  type StoredOrder,
+  StoredOrderJson,
   opensOf,
   readRow,
 } from "./asset-order-records.server";
@@ -52,8 +54,16 @@ export {
   AssetConcluded,
   AssetOrderJson,
   AssetProposed,
+  type ConcludedReceipt,
+  ReceiveLinkExternal,
   type StoredAssetOrder,
+  StoredExternalOrder,
+  type StoredOrder,
+  StoredOrderJson,
   assetPending,
+  externalPending,
+  orderPending,
+  toStoredExternalOrder,
 } from "./asset-order-records.server";
 
 export class AssetOrders extends Context.Service<
@@ -65,9 +75,12 @@ export class AssetOrders extends Context.Service<
 
     inFlightFor(
       wallet: AccountAddress,
-    ): Effect.Effect<Option.Option<AssetAuthorized>, StoreFailure>;
+    ): Effect.Effect<
+      Option.Option<AssetAuthorized & { readonly order: AssetOrder }>,
+      StoreFailure
+    >;
     propose(
-      order: AssetOrder,
+      order: StoredOrder,
       request: SigningRequest,
     ): Effect.Effect<StoredAssetOrder, StoreFailure>;
     redraft(
@@ -81,6 +94,10 @@ export class AssetOrders extends Context.Service<
       StoredAssetOrder | SlotOccupied | WalletInactive,
       StoreFailure
     >;
+    authorizeExternal(
+      proposed: AssetProposed,
+      sealed: Sealed,
+    ): Effect.Effect<StoredAssetOrder | SlotOccupied, StoreFailure>;
 
     conclude(
       id: AssetOrderId,
@@ -184,23 +201,33 @@ export class AssetOrders extends Context.Service<
             ),
           );
 
-        return rows[0] ? Option.some(yield* signed(rows[0])) : Option.none();
+        if (!rows[0]) return Option.none();
+
+        const stored = yield* signed(rows[0]);
+
+        if (!(stored.order instanceof AssetOrder))
+          return yield* new StoreFailure({
+            cause: new Error("Wallet in-flight row is not a wallet order"),
+          });
+
+        return Option.some({ ...stored, order: stored.order });
       });
 
       const propose = Effect.fn("AssetOrders.propose")(function* (
-        order: AssetOrder,
+        order: StoredOrder,
         request: SigningRequest,
       ) {
         const now = yield* Clock.currentTimeMillis;
 
         const value = {
           id: order.id,
-          wallet: order.wallet,
-          order: Schema.encodeSync(AssetOrderJson)(order),
+          wallet: order instanceof AssetOrder ? order.wallet : null,
+          order: Schema.encodeSync(StoredOrderJson)(order),
           opens: opensOf(request),
           balanceId:
             Predicate.isTagged(order.action, "ClaimBalance") ||
-            Predicate.isTagged(order.action, "ReceiveLink")
+            Predicate.isTagged(order.action, "ReceiveLink") ||
+            Predicate.isTagged(order.action, "ReceiveLinkExternal")
               ? order.action.balance
               : null,
           network,
@@ -267,6 +294,13 @@ export class AssetOrders extends Context.Service<
       const authorize = (proposed: AssetProposed, sealed: Sealed) =>
         db.transaction((tx) =>
           Effect.gen(function* () {
+            if (!(proposed.order instanceof AssetOrder))
+              return yield* new StoreFailure({
+                cause: new Error(
+                  "Wallet authorization requires a wallet order",
+                ),
+              });
+
             const { id, wallet } = proposed.order;
 
             yield* tx.execute(walletLock(wallet));
@@ -412,8 +446,16 @@ export class AssetOrders extends Context.Service<
         row: AssetOrderRow,
         now: DateTime.Utc,
       ) {
-        const { wallet, action } = Schema.decodeSync(AssetOrderJson)(row.order);
+        const stored = Schema.decodeSync(StoredOrderJson)(row.order);
         const nowMillis = DateTime.toEpochMillis(now);
+
+        if (!(stored instanceof AssetOrder)) {
+          yield* closeBalance(tx, stored.action.balance, now);
+
+          return;
+        }
+
+        const { wallet, action } = stored;
 
         yield* Match.valueTags(action, {
           OpenTrustline: ({ asset }) =>
@@ -557,6 +599,12 @@ export class AssetOrders extends Context.Service<
         propose: (order, request) => wrap(propose(order, request)),
         redraft: (proposed, request) => wrap(redraft(proposed, request)),
         authorize: (proposed, sealed) => wrap(authorize(proposed, sealed)),
+        authorizeExternal: (proposed, sealed) =>
+          wrap(
+            authorizeExternalOrder(proposed, sealed, decode).pipe(
+              Effect.provideService(Database, db),
+            ),
+          ),
         conclude: (id, settlement) => wrap(conclude(id, settlement)),
         inFlight: wrap(inFlight),
         tracked: (wallet) => wrap(tracked(wallet)),

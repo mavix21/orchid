@@ -4,21 +4,59 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
+  AccountAddress,
   AssetFailed,
   AssetOrder,
+  AssetOrderId,
   AssetPending,
   AssetSettled,
+  BalanceId,
+  DestinationAddress,
+  ExternalLinkFailed,
+  type ExternalLinkOrder,
+  ExternalLinkPending,
+  ExternalLinkSettled,
   IssuedAsset,
+  PaymentMemo,
   SigningRequest,
 } from "../contract";
 import { readEnvelope } from "../stellar/envelopes";
 import { Sealed } from "./Chain.server";
 import type { assetOrders } from "./tables.server";
 
+export const ReceiveLinkExternal = Schema.TaggedStruct("ReceiveLinkExternal", {
+  link: AccountAddress,
+  balance: BalanceId,
+  destination: DestinationAddress,
+  memo: Schema.optional(PaymentMemo),
+});
+
+export class StoredExternalOrder extends Schema.Class<StoredExternalOrder>(
+  "@workspace/wallet/StoredExternalOrder",
+)({
+  id: AssetOrderId,
+  action: ReceiveLinkExternal,
+}) {}
+
+export const StoredOrder = Schema.Union([AssetOrder, StoredExternalOrder]);
+
+export type StoredOrder = typeof StoredOrder.Type;
+
+export const toStoredExternalOrder = (order: ExternalLinkOrder) =>
+  new StoredExternalOrder({
+    id: order.id,
+    action: ReceiveLinkExternal.make({
+      link: order.link,
+      balance: order.balance,
+      destination: order.destination,
+      memo: order.memo,
+    }),
+  });
+
 export class AssetProposed extends Schema.TaggedClass<AssetProposed>()(
   "AssetProposed",
   {
-    order: AssetOrder,
+    order: StoredOrder,
     request: SigningRequest,
   },
 ) {}
@@ -26,16 +64,25 @@ export class AssetProposed extends Schema.TaggedClass<AssetProposed>()(
 export class AssetAuthorized extends Schema.TaggedClass<AssetAuthorized>()(
   "AssetAuthorized",
   {
-    order: AssetOrder,
+    order: StoredOrder,
     sealed: Sealed,
   },
 ) {}
 
+export const ConcludedReceipt = Schema.Union([
+  AssetSettled,
+  AssetFailed,
+  ExternalLinkSettled,
+  ExternalLinkFailed,
+]);
+
+export type ConcludedReceipt = typeof ConcludedReceipt.Type;
+
 export class AssetConcluded extends Schema.TaggedClass<AssetConcluded>()(
   "AssetConcluded",
   {
-    order: AssetOrder,
-    receipt: Schema.Union([AssetSettled, AssetFailed]),
+    order: StoredOrder,
+    receipt: ConcludedReceipt,
   },
 ) {}
 
@@ -50,9 +97,12 @@ export interface ConclusionColumns {
 }
 
 export const AssetOrderJson = Schema.fromJsonString(AssetOrder);
+export const StoredOrderJson = Schema.fromJsonString(StoredOrder);
 export const OpensJson = Schema.fromJsonString(IssuedAsset);
 
-export function assetPending(order: AssetAuthorized): AssetPending {
+export function assetPending(
+  order: AssetAuthorized & { readonly order: AssetOrder },
+): AssetPending {
   return new AssetPending({
     id: order.order.id,
     action: order.order.action,
@@ -60,10 +110,28 @@ export function assetPending(order: AssetAuthorized): AssetPending {
   });
 }
 
+export function externalPending(order: AssetAuthorized): ExternalLinkPending {
+  return new ExternalLinkPending({
+    id: order.order.id,
+    expiresAt: order.sealed.expiresAt,
+  });
+}
+
+export function orderPending(
+  order: AssetAuthorized,
+): AssetPending | ExternalLinkPending {
+  return order.order instanceof AssetOrder
+    ? new AssetPending({
+        id: order.order.id,
+        action: order.order.action,
+        expiresAt: order.sealed.expiresAt,
+      })
+    : externalPending(order);
+}
+
 export function readRow(row: AssetOrderRow): StoredAssetOrder {
-  const order = Schema.decodeSync(AssetOrderJson)(row.order);
+  const order = Schema.decodeSync(StoredOrderJson)(row.order);
   const expiresAt = DateTime.makeUnsafe(row.expiresAt);
-  const fields = { id: order.id, action: order.action };
 
   return Match.value(row.status).pipe(
     Match.when(
@@ -95,12 +163,18 @@ export function readRow(row: AssetOrderRow): StoredAssetOrder {
       if (!row.concludedAt)
         throw new Error("Settled asset order missing ledger time");
 
+      const settledAt = DateTime.makeUnsafe(row.concludedAt);
+
       return new AssetConcluded({
         order,
-        receipt: new AssetSettled({
-          ...fields,
-          settledAt: DateTime.makeUnsafe(row.concludedAt),
-        }),
+        receipt:
+          order instanceof AssetOrder
+            ? new AssetSettled({
+                id: order.id,
+                action: order.action,
+                settledAt,
+              })
+            : new ExternalLinkSettled({ id: order.id, settledAt }),
       });
     }),
     Match.when("failed", () => {
@@ -108,7 +182,14 @@ export function readRow(row: AssetOrderRow): StoredAssetOrder {
 
       return new AssetConcluded({
         order,
-        receipt: new AssetFailed({ ...fields, reason: row.failure }),
+        receipt:
+          order instanceof AssetOrder
+            ? new AssetFailed({
+                id: order.id,
+                action: order.action,
+                reason: row.failure,
+              })
+            : new ExternalLinkFailed({ id: order.id, reason: row.failure }),
       });
     }),
     Match.exhaustive,
