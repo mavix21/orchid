@@ -1,18 +1,18 @@
 import { expect, test } from "@playwright/test";
-import { AccountAddress, Username } from "@workspace/wallet";
+import { AccountAddress } from "@workspace/wallet";
 import * as Schema from "effect/Schema";
 
 import {
   addAuthenticator,
   freshUsername,
-  seedRecoveredWalletRow,
+  markWalletRecovered,
   storedWalletAddress,
   submitButton,
   usernameInput,
   visit,
 } from "./device";
 
-test("reopens a recovered wallet with one passkey tap and lands on its home", async ({
+test("authorizes a recovered wallet with one passkey tap and lands on its home", async ({
   page,
 }) => {
   await addAuthenticator(page, true);
@@ -24,13 +24,10 @@ test("reopens a recovered wallet with one passkey tap and lands on its home", as
   await usernameInput(page).fill(username);
   await submitButton(page).click();
   await page.getByTestId("enrollment-continue").click();
-  await expect(page.getByTestId("enrollment-complete")).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(page.getByTestId("open-send")).toBeVisible({ timeout: 120_000 });
 
-  seedRecoveredWalletRow(
+  markWalletRecovered(
     Schema.decodeSync(AccountAddress)(await storedWalletAddress(page)),
-    Schema.decodeSync(Username)(username),
   );
 
   await visit(page, "/home");

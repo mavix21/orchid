@@ -5,6 +5,7 @@ import {
   freshUsername,
   storedWalletRecord,
   submitButton,
+  unlockButton,
   usernameInput,
 } from "./device";
 
@@ -37,10 +38,10 @@ test("redirects on the server by whether the device holds a wallet", async ({
   expect(withWallet.headers().location).toBe("/home");
 });
 
-test("enrolls a new wallet only after a fresh user-initiated reopen proof", async ({
+test("creates and opens a wallet with exactly two passkey prompts", async ({
   page,
 }) => {
-  await addAuthenticator(page, true);
+  const authenticator = await addAuthenticator(page, true);
 
   await page.goto("/");
 
@@ -53,23 +54,18 @@ test("enrolls a new wallet only after a fresh user-initiated reopen proof", asyn
   const step = page.getByTestId("enrollment-step");
 
   await expect(step).toBeVisible({ timeout: 30_000 });
-  await expect(step).toHaveAttribute("data-stage", "reopen");
+  await expect(step).toHaveAttribute("data-stage", "activate");
   expect(await storedWalletRecord(page)).toBe(false);
+
+  const [created] = await authenticator.signCounts();
 
   await page.getByTestId("enrollment-continue").click();
 
-  await expect(page.getByTestId("enrollment-complete")).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(page.getByTestId("open-send")).toBeVisible({ timeout: 120_000 });
+  await expect(unlockButton(page)).toBeHidden();
   await expect(page.getByText(`@${username}`)).toBeVisible();
   expect(await storedWalletRecord(page)).toBe(true);
-
-  await page.reload();
-
-  await expect(page.getByTestId("enrollment-complete")).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect(page.getByText(`@${username}`)).toBeVisible();
+  expect(await authenticator.signCounts()).toEqual([(created ?? 0) + 1]);
 
   await forgetDevice(page);
   await page.goto("/");
@@ -78,9 +74,7 @@ test("enrolls a new wallet only after a fresh user-initiated reopen proof", asyn
   await page.getByTestId("restore-submit").click();
   await page.getByTestId("restore-submit").click();
 
-  await expect(page.getByTestId("enrollment-complete")).toBeVisible({
-    timeout: 60_000,
-  });
+  await expect(page.getByTestId("open-send")).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText(`@${username}`)).toBeVisible();
   expect(await storedWalletRecord(page)).toBe(true);
 });
@@ -97,7 +91,7 @@ test("refuses creation when the passkey has no PRF", async ({ page }) => {
   const step = page.getByTestId("enrollment-step");
 
   await expect(step).toBeVisible({ timeout: 30_000 });
-  await expect(step).toHaveAttribute("data-stage", "prf");
+  await expect(step).toHaveAttribute("data-stage", "activate");
   expect(await storedWalletRecord(page)).toBe(false);
 
   await page.getByTestId("enrollment-continue").click();

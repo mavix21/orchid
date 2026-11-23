@@ -369,7 +369,6 @@ it.live(
       };
 
       const lockedPasskeys: Passkeys = {
-        register: () => Effect.fail(new PasskeyFailed()),
         authenticate: () => Effect.fail(new PasskeyFailed()),
       };
 

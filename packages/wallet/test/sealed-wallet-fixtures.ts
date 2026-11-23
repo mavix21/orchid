@@ -102,11 +102,7 @@ const sealPhrase = (phrase: SecretPhrase, publicWallet: PublicDeviceWallet) =>
     const prfInput = yield* localPhrasePrfInput({ network, address, salt });
 
     const registered = Option.getOrThrow(
-      yield* auth.passkeys.register(
-        dummyChallenge,
-        publicWallet.username,
-        prfInput,
-      ),
+      auth.enrollWithPrf(dummyChallenge, prfInput),
     );
 
     const credential = new PinnedCredential({

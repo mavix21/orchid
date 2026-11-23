@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import { PasskeyChallenge, Username } from "../src/contract";
+import { PasskeyChallenge } from "../src/contract";
 import {
   type AssertionCeremony,
   AssertionIntent,
@@ -19,15 +19,11 @@ const bytes = (label: string) => Uint8Array.from(Buffer.from(label));
 
 const challenge = Schema.decodeSync(PasskeyChallenge)("A".repeat(43));
 
-const enrolled = Effect.gen(function* () {
+const enrolled = Effect.sync(() => {
   const auth = new SoftwareAuthenticator(relyingParty.origin);
 
   const registered = Option.getOrThrow(
-    yield* auth.passkeys.register(
-      challenge,
-      Schema.decodeSync(Username)("maria"),
-      bytes("registration"),
-    ),
+    auth.enrollWithPrf(challenge, bytes("registration")),
   );
 
   return {

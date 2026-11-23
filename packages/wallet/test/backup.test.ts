@@ -45,6 +45,7 @@ import {
   enrollDisposableWallet,
   relyingParty,
 } from "./sealed-wallet-fixtures";
+import { settlingOpenings } from "./settling-openings";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 import {
@@ -100,7 +101,7 @@ const enrollBackedWallet = (
     yield* Effect.promise(clearDatabase);
 
     const enrollment = makeEnrollmentEffects({
-      port,
+      port: settlingOpenings(port),
       store: browserKeyStore,
       registration: auth.registration,
       assertions: auth.assertions,
@@ -239,9 +240,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const salt = freshInstallationSalt();
 
           const registered = Option.getOrThrow(
-            yield* oldAuth.passkeys.register(
+            oldAuth.enrollWithPrf(
               Schema.decodeSync(PasskeyChallenge)("A".repeat(43)),
-              username,
               yield* localPhrasePrfInput({ network, address, salt }),
             ),
           );

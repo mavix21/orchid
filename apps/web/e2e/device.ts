@@ -43,6 +43,10 @@ export const addAuthenticator = async (page: Page, hasPrf: boolean) => {
   return {
     session,
     authenticatorId,
+    signCounts: async () =>
+      (
+        await session.send("WebAuthn.getCredentials", { authenticatorId })
+      ).credentials.map((credential) => credential.signCount),
     verifyUser: (isUserVerified: boolean) =>
       session.send("WebAuthn.setUserVerified", {
         authenticatorId,
@@ -95,16 +99,15 @@ export const serverFunction = "/_serverFn/";
 const e2eContainer = "orchid-e2e-database";
 const testnetReset = Date.UTC(2026, 11, 16);
 
-export const seedRecoveredWalletRow = (
-  address: AccountAddress,
-  username: Username,
-) => {
-  const epoch = Date.now() < testnetReset ? "before-2026-12-16" : "2026-12-16";
-
+export const markWalletRecovered = (address: AccountAddress) => {
   const sql = `
-    INSERT INTO wallets (address, status, network, "testnetEpoch")
-    VALUES ('${address}', 'recovered', 'testnet', '${epoch}');
-    INSERT INTO usernames (username, address) VALUES ('${username}', '${address}');
+    UPDATE wallets SET
+      status = 'recovered',
+      "attemptEnvelope" = NULL, "attemptHash" = NULL, "attemptExpiresAt" = NULL,
+      "recoveryDraft" = NULL, "recoveryEnvelope" = NULL, "recoveryHash" = NULL,
+      "recoverySequence" = NULL, "recoveryMinTime" = NULL, "recoveryMaxTime" = NULL,
+      "pairedRecoveryDraft" = NULL, "pairedRecoveryEnvelope" = NULL, "pairedRecoveryHash" = NULL
+    WHERE address = '${address}';
   `;
 
   const result = spawnSync(
@@ -126,7 +129,7 @@ export const seedRecoveredWalletRow = (
 
   if (result.status !== 0)
     throw new Error(
-      `Failed to seed recovered wallet row: ${result.stderr || result.stdout}`,
+      `Failed to mark wallet recovered: ${result.stderr || result.stdout}`,
     );
 };
 
