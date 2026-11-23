@@ -2,11 +2,7 @@ import { ChevronLeftIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
-import type {
-  BackupLocated,
-  RestoreOutcome,
-  RestoreSealed,
-} from "@workspace/wallet";
+import type { BackupLocated, RestoreOutcome } from "@workspace/wallet";
 import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 
@@ -25,10 +21,7 @@ export const Route = createFileRoute("/restore")({
   ),
 });
 
-type Refusal = Exclude<
-  RestoreOutcome,
-  { _tag: "Restored" | "BackupLocated" | "RestoreSealed" }
->;
+type Refusal = Exclude<RestoreOutcome, { _tag: "Restored" | "BackupLocated" }>;
 
 const refusal = (outcome: Refusal) =>
   Match.valueTags(outcome, {
@@ -55,16 +48,11 @@ const refusal = (outcome: Refusal) =>
     InvalidResponse: unavailableMessage,
   });
 
-const stageCopy = (progress: BackupLocated | RestoreSealed | undefined) =>
+const stageCopy = (progress: BackupLocated | undefined) =>
   Match.value(progress).pipe(
     Match.tag("BackupLocated", ({ profile }) => ({
-      description: `Encontramos el respaldo de @${profile.username}. Confirma con tu passkey para prepararlo en este dispositivo.`,
-      action: "Preparar en este dispositivo",
-    })),
-    Match.tag("RestoreSealed", () => ({
-      description:
-        "Tu cuenta está lista para guardarse en este dispositivo. Una última confirmación con tu passkey comprueba que se abre y termina la restauración.",
-      action: "Terminar con passkey",
+      description: `Encontramos el respaldo de @${profile.username}. Confirma con tu passkey para guardarlo en este dispositivo.`,
+      action: "Guardar en este dispositivo",
     })),
     Match.orElse(() => ({
       description:
@@ -79,7 +67,7 @@ function RestoreAccount() {
   const [restoring, setRestoring] = useState(false);
   const [problem, setProblem] = useState<string>();
   const [stopped, setStopped] = useState(false);
-  const [progress, setProgress] = useState<BackupLocated | RestoreSealed>();
+  const [progress, setProgress] = useState<BackupLocated>();
   const copy = stageCopy(progress);
 
   useHomeForSavedWallet();
@@ -108,7 +96,7 @@ function RestoreAccount() {
 
     await Match.value(outcome).pipe(
       Match.tag("Restored", () => navigate({ to: "/home", replace: true })),
-      Match.tag("BackupLocated", "RestoreSealed", (next) => {
+      Match.tag("BackupLocated", (next) => {
         setProgress(next);
         setRestoring(false);
       }),

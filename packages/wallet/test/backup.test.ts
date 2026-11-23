@@ -23,7 +23,6 @@ import {
   BackupLocated,
   BackupMismatch,
   PasskeyCancelled,
-  RestoreSealed,
   Restored,
   type WalletEffects,
   makeWalletEffects,
@@ -70,10 +69,9 @@ const restoringDevice = (port: WalletPort, auth: SoftwareAuthenticator) =>
 const restoreOnFreshTaps = (client: WalletEffects) =>
   Effect.gen(function* () {
     const located = yield* client.restore();
-    const sealed = yield* client.restore();
     const restored = yield* client.restore();
 
-    return { located, sealed, restored };
+    return { located, restored };
   });
 
 const restoredPhrase = (auth: SoftwareAuthenticator) =>
@@ -177,7 +175,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const steps = yield* restoreOnFreshTaps(restoring);
 
           expect(steps.located).toBeInstanceOf(BackupLocated);
-          expect(steps.sealed).toBeInstanceOf(RestoreSealed);
           expect(
             steps.restored instanceof Restored && steps.restored.profile,
           ).toEqual(enrolled.profile);
@@ -242,7 +239,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "restore over the same address under another credential replaces the credential only after the proof tap, which can be cancelled and retried",
+      "restore over the same address under another credential replaces the credential only on the sealing tap, which can be cancelled and retried",
       () =>
         Effect.gen(function* () {
           const wallet = yield* Wallet;
@@ -292,7 +289,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const restoring = restoringDevice(wallet, auth);
 
-          yield* restoring.restore();
           yield* restoring.restore();
           auth.cancels = true;
           expect(yield* restoring.restore()).toEqual(new PasskeyCancelled());

@@ -1,4 +1,3 @@
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
@@ -31,7 +30,7 @@ import {
   freshInstallationSalt,
   localEnvelopeVersion,
   localPhrasePrfInput,
-  reopenLocalEnvelope,
+  openLocalEnvelope,
   sealLocalEnvelope,
 } from "./local-envelope";
 import {
@@ -39,7 +38,6 @@ import {
   BackupMismatch,
   BackupUnsupported,
   type RestoreOutcome,
-  RestoreSealed,
   RestoreUnverified,
   Restored,
   UnsupportedDevice,
@@ -54,19 +52,11 @@ export interface RestoreDevice {
   readonly relyingParty: () => RelyingParty;
 }
 
-export type PendingRestore = Data.TaggedEnum<{
-  AwaitingSeal: {
-    readonly profile: Profile;
-    readonly credential: PinnedCredential;
-    readonly sealed: SealedPhrase;
-  };
-  AwaitingProof: {
-    readonly profile: Profile;
-    readonly candidate: SealedDeviceWallet;
-  };
-}>;
-
-const PendingRestore = Data.taggedEnum<PendingRestore>();
+export interface PendingRestore {
+  readonly profile: Profile;
+  readonly credential: PinnedCredential;
+  readonly sealed: SealedPhrase;
+}
 
 export interface RestoreProgress {
   readonly pending: Ref.Ref<Option.Option<PendingRestore>>;
@@ -100,17 +90,15 @@ export function deviceRestore(
 
     yield* Ref.set(
       pending,
-      Option.some(
-        PendingRestore.AwaitingSeal({
-          profile: found.profile,
-          credential: new PinnedCredential({
-            id: credentialId,
-            publicKey: found.publicKey,
-            algorithm: found.algorithm,
-          }),
-          sealed: found.sealed,
+      Option.some<PendingRestore>({
+        profile: found.profile,
+        credential: new PinnedCredential({
+          id: credentialId,
+          publicKey: found.publicKey,
+          algorithm: found.algorithm,
         }),
-      ),
+        sealed: found.sealed,
+      }),
     );
 
     return new BackupLocated({ profile: found.profile });
@@ -139,8 +127,36 @@ export function deviceRestore(
     });
   });
 
+  const installCandidate = Effect.fn("Device.installRestoredWallet")(function* (
+    profile: Profile,
+    candidate: SealedDeviceWallet,
+    devicePrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
+  ) {
+    const readBack = yield* openLocalEnvelope(
+      candidate.envelope,
+      {
+        network,
+        address: profile.address,
+        credentialId: candidate.credential.id,
+      },
+      devicePrf,
+    );
+
+    return yield* Match.valueTags(readBack, {
+      PhraseOpened: () =>
+        device.store
+          .installSealed(candidate, "same-address")
+          .pipe(
+            Effect.map((installed) =>
+              installed ? new Restored({ profile }) : new BackupMismatch(),
+            ),
+          ),
+      CorruptEnvelope: () => Effect.succeed(new RestoreUnverified()),
+    });
+  });
+
   const sealOpenedPhrase = Effect.fn("Device.sealOpenedPhrase")(function* (
-    waiting: Extract<PendingRestore, { _tag: "AwaitingSeal" }>,
+    waiting: PendingRestore,
     backupPrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
     devicePrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
     salt: Uint8Array<ArrayBuffer>,
@@ -174,31 +190,27 @@ export function deviceRestore(
     );
 
     return yield* Match.valueTags(envelope, {
-      EnvelopeSealed: (sealedEnvelope) =>
-        Ref.set(
-          pending,
-          Option.some(
-            PendingRestore.AwaitingProof({
-              profile,
-              candidate: new SealedDeviceWallet({
-                version: localEnvelopeVersion,
-                public: new PublicDeviceWallet({
-                  address: profile.address,
-                  username: profile.username,
-                  backup: "stored",
-                }),
-                credential,
-                envelope: sealedEnvelope.envelope,
-              }),
+      EnvelopeSealed: ({ envelope: sealedEnvelope }) =>
+        installCandidate(
+          profile,
+          new SealedDeviceWallet({
+            version: localEnvelopeVersion,
+            public: new PublicDeviceWallet({
+              address: profile.address,
+              username: profile.username,
+              backup: "stored",
             }),
-          ),
-        ).pipe(Effect.as(new RestoreSealed({ profile }))),
+            credential,
+            envelope: sealedEnvelope,
+          }),
+          devicePrf,
+        ),
       CorruptEnvelope: () => Effect.succeed(new UnsupportedDevice()),
     });
   });
 
   const sealForDevice = Effect.fn("Device.sealRestoredWallet")(function* (
-    waiting: Extract<PendingRestore, { _tag: "AwaitingSeal" }>,
+    waiting: PendingRestore,
   ) {
     const { profile, credential } = waiting;
     const salt = freshInstallationSalt();
@@ -240,35 +252,6 @@ export function deviceRestore(
     });
   });
 
-  const proveAndInstall = Effect.fn("Device.proveRestoredWallet")(function* (
-    waiting: Extract<PendingRestore, { _tag: "AwaitingProof" }>,
-  ) {
-    const { profile, candidate } = waiting;
-
-    const reopened = yield* reopenLocalEnvelope(
-      device.ceremony,
-      device.relyingParty(),
-      candidate.credential,
-      candidate.envelope,
-      { network, address: profile.address, purpose: "restore" },
-    );
-
-    return yield* Match.valueTags(reopened, {
-      PhraseOpened: () =>
-        device.store
-          .installSealed(candidate, "same-address")
-          .pipe(
-            Effect.map((installed) =>
-              installed ? new Restored({ profile }) : new BackupMismatch(),
-            ),
-          ),
-      CorruptEnvelope: () => Effect.succeed(new RestoreUnverified()),
-      WrongCredential: () => Effect.succeed(new AssertionRefused()),
-      AssertionRejected: () => Effect.succeed(new AssertionRefused()),
-      PrfOutputMissing: () => Effect.succeed(new BackupUnsupported()),
-    });
-  });
-
   const restore = Effect.fn("Device.restore")(function* () {
     const waiting = yield* Ref.getAndSet(pending, Option.none());
 
@@ -279,12 +262,7 @@ export function deviceRestore(
       | WalletUnavailable
       | PasskeyCancelled
       | PasskeyFailed
-    > = Option.isNone(waiting)
-      ? requestBackup()
-      : PendingRestore.$match(waiting.value, {
-          AwaitingSeal: sealForDevice,
-          AwaitingProof: proveAndInstall,
-        });
+    > = Option.isNone(waiting) ? requestBackup() : sealForDevice(waiting.value);
 
     return yield* advance.pipe(
       Effect.tapErrorTag("PasskeyCancelled", () => Ref.set(pending, waiting)),
