@@ -411,15 +411,20 @@ export function sendTransfer(
 
   const redraft = (
     issued: Ref.Ref<Option.Option<string>>,
+    snapshot: string,
     wallet: PublicDeviceWallet,
     order: TransferOrder,
     review: PaymentReview,
   ) =>
-    Ref.set(issued, Option.none()).pipe(
-      Effect.andThen(
-        review.redrafted
-          ? Effect.succeed(new DraftRejected())
-          : advance(wallet, order, presenting(true)),
+    Ref.modify(issued, (current) =>
+      Option.contains(current, snapshot)
+        ? [true, Option.none()]
+        : [false, current],
+    ).pipe(
+      Effect.flatMap((consumed) =>
+        consumed && !review.redrafted
+          ? advance(wallet, order, presenting(true))
+          : Effect.succeed(new DraftRejected()),
       ),
     );
 
@@ -464,7 +469,7 @@ export function sendTransfer(
     const approvedUntil = facts.value.maxTime;
 
     if ((yield* standingNow(observed, presented)) === "expiring")
-      return yield* redraft(issued, observed, order, presented);
+      return yield* redraft(issued, snapshot.value, observed, order, presented);
 
     const approved = yield* approveReviewed(device, {
       record,
@@ -495,7 +500,7 @@ export function sendTransfer(
       return Option.isSome(latest) &&
         sameOrderSlot(latest.value, observed) &&
         (yield* standingNow(latest.value, presented)) === "expiring"
-        ? yield* redraft(issued, latest.value, order, presented)
+        ? yield* redraft(issued, snapshot.value, latest.value, order, presented)
         : approved;
     }
 

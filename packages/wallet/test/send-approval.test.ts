@@ -160,22 +160,25 @@ it.live.each([
 );
 
 it.effect(
-  "spends the order's single redraft once when the replacement also expires",
+  "spends the order's single redraft once when overlapping confirmations find its draft expiring",
   () =>
     Effect.gen(function* () {
+      const lifetimes = [21, 10, 120];
       let drafted = 0;
 
-      const { approvals, client } = yield* sealedWith((at) =>
-        payment(actors.sender, drafted++ === 0 ? 21 : 10, at),
+      const { client } = yield* sealedWith((at) =>
+        payment(actors.sender, lifetimes[drafted++] ?? 120, at),
       );
 
       const review = yield* reviewed(client, toExchange);
 
       yield* TestClock.adjust("3 seconds");
 
-      expect(yield* client.confirm(review)).toEqual(new DraftRejected());
-      expect(yield* client.confirm(review)).toEqual(new DraftRejected());
-      expect(approvals).toEqual([Option.none(), Option.none()]);
+      expect(
+        yield* Effect.all([client.confirm(review), client.confirm(review)], {
+          concurrency: "unbounded",
+        }),
+      ).toEqual([new DraftRejected(), new DraftRejected()]);
     }),
 );
 
