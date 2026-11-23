@@ -227,6 +227,7 @@ export class PaymentReview extends Schema.TaggedClass<PaymentReview>()(
     order: TransferOrder,
     draft: TransferDraft,
     redrafted: Schema.Boolean,
+    network: Schema.String,
     to: DestinationAddress,
     username: Schema.optional(Username),
     asset: Asset,
@@ -234,6 +235,7 @@ export class PaymentReview extends Schema.TaggedClass<PaymentReview>()(
     memo: Schema.optional(PaymentMemo),
     claimable: Schema.Boolean,
     memoRequired: Schema.Boolean,
+    expiresAt: Schema.DateTimeUtcFromString,
   },
 ) {}
 
@@ -284,9 +286,13 @@ export class PaymentLinkCreated extends Schema.TaggedClass<PaymentLinkCreated>()
   },
 ) {}
 
-export type CreatePaymentLinkOutcome =
-  | PaymentLinkCreated
+export type ReviewPaymentLinkOutcome =
+  | PaymentReview
   | Exclude<SendOutcome, Settled>;
+
+export type ConfirmPaymentLinkOutcome =
+  | PaymentLinkCreated
+  | Exclude<ConfirmOutcome, Settled>;
 
 export type PaymentLinksOutcome =
   | PaymentLinksStep

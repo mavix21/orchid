@@ -46,12 +46,14 @@ class Signed<R> extends Data.TaggedClass("Signed")<{
 export interface ReviewedOperation<R, W, A, ReserveError, ReleaseError> {
   readonly record: SealedDeviceWallet;
   readonly requests: Arr.NonEmptyReadonlyArray<SigningRequest>;
+  readonly operationInput?: Uint8Array<ArrayBuffer>;
   readonly holds: (
     wallet: PublicDeviceWallet,
     request: SigningRequest,
   ) => Effect.Effect<boolean>;
   readonly reserve: (
     wallet: PublicDeviceWallet,
+    operationOutput: Option.Option<Redacted.Redacted<Uint8Array<ArrayBuffer>>>,
   ) => Effect.Effect<Reserved<R> | W, ReserveError>;
   readonly unreserve: (reservation: R) => Effect.Effect<void, ReserveError>;
   readonly release: (
@@ -118,7 +120,10 @@ export const approveReviewed = <R, W, A, ReserveError, ReleaseError>(
           record.credential,
           AssertionIntent.Operation({
             purpose: "approval",
-            prf: { first: prfInput, second: Option.none() },
+            prf: {
+              first: prfInput,
+              second: Option.fromNullishOr(operation.operationInput),
+            },
           }),
         ),
       ).pipe(
@@ -134,6 +139,7 @@ export const approveReviewed = <R, W, A, ReserveError, ReleaseError>(
       if (!(verified instanceof OperationVerified)) return verified;
 
       const prf = verified.prf.first;
+      const operationOutput = verified.prf.second;
 
       const sealedApproval: Effect.Effect<
         Signed<R> | W | ApprovalWithheld,
@@ -151,7 +157,7 @@ export const approveReviewed = <R, W, A, ReserveError, ReleaseError>(
         )
           return new DraftRejected();
 
-        const reserved = yield* operation.reserve(wallet);
+        const reserved = yield* operation.reserve(wallet, operationOutput);
 
         if (!(reserved instanceof Reserved)) return reserved;
 
@@ -189,6 +195,9 @@ export const approveReviewed = <R, W, A, ReserveError, ReleaseError>(
         Effect.ensuring(
           Effect.sync(() => {
             Redacted.value(prf).fill(0);
+
+            if (Option.isSome(operationOutput))
+              Redacted.value(operationOutput.value).fill(0);
           }),
         ),
       );

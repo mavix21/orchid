@@ -13,6 +13,7 @@ import {
   DeviceWallet,
   type KeyStore,
   KeyStoreUnavailable,
+  type PaymentLinkIntent,
   type PaymentLinkTarget,
   type WalletClient,
   publicWalletOf,
@@ -151,5 +152,16 @@ export const reclaimThroughReview = async (
 
   return Predicate.isTagged(reviewed, "ReclaimReview")
     ? client.confirmReclaim(reviewed)
+    : reviewed;
+};
+
+export const fundLinkThroughReview = async (
+  client: WalletClient,
+  intent: PaymentLinkIntent,
+) => {
+  const reviewed = await client.reviewPaymentLink(intent);
+
+  return Predicate.isTagged(reviewed, "PaymentReview")
+    ? client.confirmPaymentLink(reviewed)
     : reviewed;
 };

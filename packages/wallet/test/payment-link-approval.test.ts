@@ -176,7 +176,7 @@ const tamperedDrafts: ReadonlyArray<
 ];
 
 it.live.each(tamperedDrafts)(
-  "exact-draft approval rejects payment link with %s unsigned",
+  "link funding review rejects payment link with %s unsigned",
   ([, build]) =>
     Effect.gen(function* () {
       const approvals: Array<Option.Option<Approval>> = [];
@@ -207,7 +207,7 @@ it.live.each(tamperedDrafts)(
         port,
         store,
         passkeys,
-      ).createPaymentLink(
+      ).reviewPaymentLink(
         new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
       );
 

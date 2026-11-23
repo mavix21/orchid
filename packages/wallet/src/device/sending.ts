@@ -47,7 +47,6 @@ import {
 } from "./payment-reviews";
 import { approveReviewed } from "./reviewed-approval";
 import { reserveApproval, withdrawReservation } from "./transfer-reservation";
-import { uncheckedSigning } from "./unchecked-signing";
 import {
   approvalOutstanding,
   matchesIntent,
@@ -339,15 +338,19 @@ export function sendTransfer(
       return new DraftRejected();
     });
 
-  const send = Effect.fn("Device.send")(function* (intent: TransferIntent) {
-    return yield* prepared(intent, uncheckedSigning(store));
-  });
+  const reviewing = (funding: boolean, intent: TransferIntent) =>
+    Predicate.isTagged(intent.to, "PaymentLink") === funding
+      ? prepared(intent, presenting(false))
+      : Effect.succeed(new DraftRejected());
 
   const review = Effect.fn("Device.review")(function* (intent: TransferIntent) {
-    if (Predicate.isTagged(intent.to, "PaymentLink"))
-      return new DraftRejected();
+    return yield* reviewing(false, intent);
+  });
 
-    return yield* prepared(intent, presenting(false));
+  const reviewLinkFunding = Effect.fn("Device.reviewLinkFunding")(function* (
+    intent: TransferIntent,
+  ) {
+    return yield* reviewing(true, intent);
   });
 
   const observed = (wallet: PublicDeviceWallet, id: TransferId) =>
@@ -428,7 +431,7 @@ export function sendTransfer(
       ),
     );
 
-  const confirm = Effect.fn("Device.confirm")(function* (
+  const confirmReviewed = Effect.fn("Device.confirmReviewed")(function* (
     shown: PaymentReview,
   ): Effect.fn.Return<
     ConfirmOutcome,
@@ -466,8 +469,6 @@ export function sendTransfer(
 
     if (Option.isNone(facts)) return new DraftRejected();
 
-    const approvedUntil = facts.value.maxTime;
-
     if ((yield* standingNow(observed, presented)) === "expiring")
       return yield* redraft(issued, snapshot.value, observed, order, presented);
 
@@ -482,9 +483,9 @@ export function sendTransfer(
             issued && sameOrderSlot(wallet, observed) && standing === "current",
         ),
       reserve: (wallet) =>
-        reserveApproval(device.store, wallet, order, approvedUntil),
+        reserveApproval(device.store, wallet, order, facts.value),
       unreserve: (reservation) =>
-        withdrawReservation(device.store, reservation, observed.approvedUntil),
+        withdrawReservation(device.store, reservation, observed),
       release: ([approval], reservation) =>
         advance(
           reservation,
@@ -509,5 +510,14 @@ export function sendTransfer(
       : approved;
   });
 
-  return { send, review, confirm, resume };
+  const confirming = (funding: boolean) => (shown: PaymentReview) =>
+    Predicate.isTagged(shown.order.to, "PaymentLink") === funding
+      ? confirmReviewed(shown)
+      : Effect.succeed(new DraftRejected());
+
+  const confirm = confirming(false);
+
+  const confirmLinkFunding = confirming(true);
+
+  return { review, confirm, resume, reviewLinkFunding, confirmLinkFunding };
 }

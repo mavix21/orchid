@@ -404,11 +404,15 @@ it.live(
       const client = makeWalletEffects(port, lockedStore, lockedPasskeys);
 
       assertTagged(yield* client.overview(), "Holding");
-      expect(
-        yield* client.createPaymentLink(
-          new PaymentLinkIntent({ asset: baseAsset, amount }),
-        ),
-      ).toEqual(new UnsupportedDevice());
+
+      const linkReview = yield* client.reviewPaymentLink(
+        new PaymentLinkIntent({ asset: baseAsset, amount }),
+      );
+
+      assertTagged(linkReview, "PaymentReview");
+      expect(yield* client.confirmPaymentLink(linkReview)).toEqual(
+        new UnsupportedDevice(),
+      );
 
       const review = yield* reviewed(client, toExchange);
 

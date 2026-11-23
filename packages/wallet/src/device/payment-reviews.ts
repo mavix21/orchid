@@ -4,9 +4,12 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import type { SigningRequest, TransferDraft, TransferOrder } from "../contract";
-import type { ClaimableFacts } from "../stellar/asset-envelopes";
+import type {
+  ClaimableFacts,
+  PaymentLinkFacts,
+} from "../stellar/asset-envelopes";
 import type { PaymentFacts } from "../stellar/envelopes";
-import { approvalMargin, paymentLifetime } from "../stellar/network";
+import { approvalMargin, network, paymentLifetime } from "../stellar/network";
 import type { PublicDeviceWallet } from "./key-store";
 import { PaymentReview } from "./outcomes";
 import {
@@ -26,6 +29,9 @@ export const reviewFromJson = Schema.decodeSync(
 
 export type DraftTiming = "current" | "expiring" | "stale";
 
+const approvalDeadline = (maxTime: number, request: SigningRequest) =>
+  Math.min(maxTime * 1000, DateTime.toEpochMillis(request.expiresAt));
+
 export const draftTiming = (
   maxTime: number,
   request: SigningRequest,
@@ -34,10 +40,7 @@ export const draftTiming = (
   if (maxTime > Math.floor(nowMillis / 1000) + paymentLifetime + clockAllowance)
     return "stale";
 
-  const deadline = Math.min(
-    maxTime * 1000,
-    DateTime.toEpochMillis(request.expiresAt),
-  );
+  const deadline = approvalDeadline(maxTime, request);
 
   return deadline - nowMillis >= approvalMargin * 1000 ? "current" : "expiring";
 };
@@ -46,12 +49,13 @@ const reviewFrom = (
   order: TransferOrder,
   draft: TransferDraft,
   redrafted: boolean,
-  facts: PaymentFacts | ClaimableFacts,
+  facts: PaymentFacts | ClaimableFacts | PaymentLinkFacts,
 ) =>
   new PaymentReview({
     order,
     draft,
     redrafted,
+    network,
     to: facts.to,
     username: Predicate.isTagged(order.to, "Username")
       ? order.to.value
@@ -59,8 +63,11 @@ const reviewFrom = (
     asset: facts.asset,
     amount: facts.amount,
     memo: Predicate.isTagged(facts, "PaymentFacts") ? facts.memo : undefined,
-    claimable: Predicate.isTagged(facts, "ClaimableFacts"),
+    claimable: !Predicate.isTagged(facts, "PaymentFacts"),
     memoRequired: draft.memoRequired,
+    expiresAt: DateTime.makeUnsafe(
+      approvalDeadline(facts.maxTime, draft.request),
+    ),
   });
 
 export const reviewOf = (
@@ -69,14 +76,10 @@ export const reviewOf = (
   draft: TransferDraft,
   redrafted: boolean,
 ) =>
-  Option.flatMap(orderedFacts(wallet, order, draft), (facts) =>
-    Predicate.isTagged(facts, "PaymentLinkFacts")
-      ? Option.none()
-      : Option.some({
-          facts,
-          review: reviewFrom(order, draft, redrafted, facts),
-        }),
-  );
+  Option.map(orderedFacts(wallet, order, draft), (facts) => ({
+    facts,
+    review: reviewFrom(order, draft, redrafted, facts),
+  }));
 
 const standingOf = (
   wallet: PublicDeviceWallet,

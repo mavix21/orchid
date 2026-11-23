@@ -29,8 +29,10 @@ export const walletEffects: WalletEffects = {
   review: (intent) => withWallet((wallet) => wallet.review(intent)),
   confirm: (shown) => withWallet((wallet) => wallet.confirm(shown)),
   resume: (id) => withWallet((wallet) => wallet.resume(id)),
-  createPaymentLink: (intent) =>
-    withWallet((wallet) => wallet.createPaymentLink(intent)),
+  reviewPaymentLink: (intent) =>
+    withWallet((wallet) => wallet.reviewPaymentLink(intent)),
+  confirmPaymentLink: (shown) =>
+    withWallet((wallet) => wallet.confirmPaymentLink(shown)),
   paymentLinks: () => withWallet((wallet) => wallet.paymentLinks()),
   resolvePaymentLink: () => withWallet((wallet) => wallet.resolvePaymentLink()),
   reviewReclaim: (target) =>
@@ -53,8 +55,10 @@ export const walletClient: WalletClient = {
   review: (intent) => Effect.runPromise(walletEffects.review(intent)),
   confirm: (shown) => Effect.runPromise(walletEffects.confirm(shown)),
   resume: (id) => Effect.runPromise(walletEffects.resume(id)),
-  createPaymentLink: (intent) =>
-    Effect.runPromise(walletEffects.createPaymentLink(intent)),
+  reviewPaymentLink: (intent) =>
+    Effect.runPromise(walletEffects.reviewPaymentLink(intent)),
+  confirmPaymentLink: (shown) =>
+    Effect.runPromise(walletEffects.confirmPaymentLink(shown)),
   paymentLinks: () => Effect.runPromise(walletEffects.paymentLinks()),
   resolvePaymentLink: () =>
     Effect.runPromise(walletEffects.resolvePaymentLink()),

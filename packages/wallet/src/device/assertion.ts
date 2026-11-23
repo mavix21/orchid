@@ -148,17 +148,12 @@ const releasedOutputs = (
 ): Option.Option<PrfOutputs> => {
   if (Option.isNone(produced.first)) return Option.none();
 
-  const first = Redacted.make(produced.first.value);
-
-  if (Option.isNone(requested.second))
-    return Option.some({ first, second: Option.none() });
-
-  return produced.second.pipe(
-    Option.map((second) => ({
-      first,
-      second: Option.some(Redacted.make(second)),
-    })),
-  );
+  return Option.some({
+    first: Redacted.make(produced.first.value),
+    second: Option.isSome(requested.second)
+      ? Option.map(produced.second, Redacted.make)
+      : Option.none(),
+  });
 };
 
 export const verifyPinnedAssertion = Effect.fn("Device.verifyPinnedAssertion")(

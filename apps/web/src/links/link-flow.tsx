@@ -5,23 +5,22 @@ import { Button } from "@workspace/ui/components/button";
 import {
   type Amount,
   type Asset,
-  type CreatePaymentLinkOutcome,
   type PaymentLinkCreated,
   PaymentLinkIntent,
-  type ResolvePaymentLinkOutcome,
+  type PaymentReview,
   formatAmount,
   parseAmount,
 } from "@workspace/wallet";
-import * as Data from "effect/Data";
+import * as DateTime from "effect/DateTime";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
 import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
 import { AmountPad } from "@/send/amount-pad";
-import { amountLabel, assetCode } from "@/send/money";
+import { amountLabel } from "@/send/money";
 import { ReviewRow } from "@/send/payment-review";
-import { type Answer, useWalletTask } from "@/send/use-wallet-task";
+import { useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
 import { displayLock } from "@/wallet/display-lock";
 
@@ -42,137 +41,14 @@ import {
   forgetConcealed,
   keepConcealed,
 } from "./concealed-link";
+import { type Delivery, delivered, entering } from "./link-step";
+import { AssetLine, FullValue, RecoveryAnswer, useRecovery } from "./recovery";
 import {
-  type Delivery,
-  LinkStep,
-  delivered,
-  entering,
-  lost,
-} from "./link-step";
-import { RecoveryAnswer, useRecovery } from "./recovery";
-import { type ShareResult, shareLink } from "./share-link";
-
-interface LinkFlowState {
-  readonly amount: string;
-  readonly step: LinkStep;
-}
-
-type LinkEvent = Data.TaggedEnum<{
-  Typed: { readonly amount: string };
-  Invalid: { readonly problem: string };
-  Reviewed: { readonly intent: PaymentLinkIntent };
-  Edited: {};
-  CreateStarted: {};
-  CreateAnswered: { readonly answer: Answer<CreatePaymentLinkOutcome> };
-  Retried: {};
-  ShareStarted: {};
-  ShareEnded: { readonly result: ShareResult };
-  Left: {};
-  CheckStarted: {};
-  CheckAnswered: { readonly answer: Answer<ResolvePaymentLinkOutcome> };
-}>;
-
-const LinkEvent = Data.taggedEnum<LinkEvent>();
-
-const afterShare = (
-  link: PaymentLinkCreated,
-  delivery: Delivery,
-  result: ShareResult,
-): LinkStep => {
-  if (delivered(delivery))
-    return LinkStep.Created({
-      link,
-      delivery: result === "shared" || result === "copied" ? result : delivery,
-    });
-
-  return result === "unavailable"
-    ? lost(link)
-    : LinkStep.Created({ link, delivery: result });
-};
-
-const reduceLinkFlow = (
-  state: LinkFlowState,
-  event: LinkEvent,
-): LinkFlowState => {
-  const { step } = state;
-  const to = (next: LinkStep): LinkFlowState => ({ ...state, step: next });
-
-  return Match.valueTags(event, {
-    Typed: ({ amount }) =>
-      Predicate.isTagged(step, "Entering")
-        ? { amount, step: entering() }
-        : state,
-    Invalid: ({ problem }) =>
-      Predicate.isTagged(step, "Entering")
-        ? to(entering(Option.some(problem)))
-        : state,
-    Reviewed: ({ intent }) =>
-      Predicate.isTagged(step, "Entering")
-        ? to(LinkStep.Reviewing({ intent }))
-        : state,
-    Edited: () =>
-      Predicate.isTagged(step, "Reviewing") ||
-      Predicate.isTagged(step, "Refused")
-        ? to(entering())
-        : state,
-    CreateStarted: () =>
-      Predicate.isTagged(step, "Reviewing")
-        ? to(LinkStep.Creating({ intent: step.intent }))
-        : state,
-    CreateAnswered: ({ answer }) => {
-      if (!Predicate.isTagged(step, "Creating")) return state;
-
-      return to(
-        Predicate.isTagged(answer, "PaymentLinkCreated")
-          ? LinkStep.Created({ link: answer, delivery: "none" })
-          : LinkStep.Refused({ intent: step.intent, outcome: answer }),
-      );
-    },
-    Retried: () =>
-      Predicate.isTagged(step, "Refused")
-        ? to(LinkStep.Reviewing({ intent: step.intent }))
-        : state,
-    ShareStarted: () =>
-      Predicate.isTagged(step, "Created")
-        ? to(LinkStep.Sharing({ link: step.link, delivery: step.delivery }))
-        : state,
-    ShareEnded: ({ result }) =>
-      Predicate.isTagged(step, "Sharing")
-        ? to(afterShare(step.link, step.delivery, result))
-        : state,
-    Left: () =>
-      Predicate.isTagged(step, "Created") && !delivered(step.delivery)
-        ? to(lost(step.link))
-        : state,
-    CheckStarted: () =>
-      Predicate.isTagged(step, "Refused") || Predicate.isTagged(step, "Checked")
-        ? to(LinkStep.Checking())
-        : state,
-    CheckAnswered: ({ answer }) => {
-      if (!Predicate.isTagged(step, "Checking")) return state;
-
-      return to(
-        Predicate.isTagged(answer, "ResolvedPaymentLink")
-          ? lost(answer)
-          : LinkStep.Checked({ outcome: answer }),
-      );
-    },
-  });
-};
-
-const holdsUnsharedLink = (step: LinkStep) =>
-  Match.valueTags(step, {
-    Entering: () => false,
-    Reviewing: () => false,
-    Creating: () => true,
-    Refused: () => false,
-    Created: ({ delivery }) => !delivered(delivery),
-    Sharing: ({ delivery }) => !delivered(delivery),
-    Sent: () => false,
-    Lost: () => false,
-    Checking: () => false,
-    Checked: () => false,
-  });
+  LinkEvent,
+  holdsUnsharedLink,
+  reduceLinkFlow,
+} from "./link-flow-state";
+import { shareLink } from "./share-link";
 
 function LinkAmountStep({
   amount,
@@ -249,11 +125,13 @@ function LinkAmountStep({
 }
 
 function LinkReview({
-  intent,
+  review,
+  problem,
   onCreate,
   onEdit,
 }: {
-  intent: PaymentLinkIntent;
+  review: PaymentReview;
+  problem: Option.Option<string>;
   onCreate: () => void;
   onEdit: () => void;
 }) {
@@ -265,15 +143,38 @@ function LinkReview({
           aria-label="Resumen del link"
           className="flex flex-col divide-y divide-border rounded-lg border border-border px-4"
         >
-          <ReviewRow label="Monto">{formatAmount(intent.amount)}</ReviewRow>
-          <ReviewRow label="Moneda">{assetCode(intent.asset)}</ReviewRow>
-          <ReviewRow label="Quién lo recibe">Quien abra el link</ReviewRow>
+          <ReviewRow label="Monto">{formatAmount(review.amount)}</ReviewRow>
+          <ReviewRow label="Moneda">
+            <AssetLine asset={review.asset} />
+          </ReviewRow>
+          <ReviewRow label="Quién lo recibe">
+            <span className="flex flex-col items-end">
+              <span>Quien abra el link</span>
+              <FullValue>{review.to}</FullValue>
+            </span>
+          </ReviewRow>
+          <ReviewRow label="Cuenta">
+            <FullValue>{review.order.from}</FullValue>
+          </ReviewRow>
+          <ReviewRow label="Red">Stellar {review.network}</ReviewRow>
+          <ReviewRow label="Confirma antes de">
+            {DateTime.toDate(review.expiresAt).toLocaleTimeString("es-PE", {
+              timeStyle: "short",
+            })}
+          </ReviewRow>
           <ReviewRow label="Comisión">Gratis</ReviewRow>
         </dl>
         <p className="text-body text-muted-foreground">
           Cualquiera que tenga el link puede recibir el dinero. Compártelo solo
           con quien quieres pagarle. Mientras nadie lo use, puedes recuperarlo.
+          Tu passkey confirma que eres tú, pero no muestra los datos del link.
+          Revísalos aquí antes de crearlo.
         </p>
+        {Option.isSome(problem) ? (
+          <p role="alert" className="text-body text-destructive">
+            {problem.value}
+          </p>
+        ) : null}
       </main>
       <ScreenActions>
         <Button
@@ -493,9 +394,16 @@ export function LinkFlow({
 
   useBlocker({ shouldBlockFn: () => locked, enableBeforeUnload: locked });
 
-  const create = (intent: PaymentLinkIntent) => {
+  const prepare = (intent: PaymentLinkIntent) => {
+    send(LinkEvent.ReviewStarted({ intent }));
+    task.run(walletEffects.reviewPaymentLink(intent), (answer) =>
+      send(LinkEvent.ReviewAnswered({ answer })),
+    );
+  };
+
+  const create = (review: PaymentReview) => {
     send(LinkEvent.CreateStarted());
-    task.run(walletEffects.createPaymentLink(intent), (answer) =>
+    task.run(walletEffects.confirmPaymentLink(review), (answer) =>
       send(LinkEvent.CreateAnswered({ answer })),
     );
   };
@@ -536,14 +444,16 @@ export function LinkFlow({
             available={available}
             onAmount={(amount) => send(LinkEvent.Typed({ amount }))}
             onProblem={(problem) => send(LinkEvent.Invalid({ problem }))}
-            onIntent={(intent) => send(LinkEvent.Reviewed({ intent }))}
+            onIntent={prepare}
             onChangeDestination={onChangeDestination}
           />
         ),
-        Reviewing: ({ intent }) => (
+        Reviewing: () => <LinkWorking label="Preparando tu link…" />,
+        Reviewed: ({ review, problem }) => (
           <LinkReview
-            intent={intent}
-            onCreate={() => create(intent)}
+            review={review}
+            problem={problem}
+            onCreate={() => create(review)}
             onEdit={() => send(LinkEvent.Edited())}
           />
         ),
@@ -553,14 +463,14 @@ export function LinkFlow({
             note="No cierres esta pantalla."
           />
         ),
-        Refused: ({ outcome }) => {
+        Refused: ({ intent, outcome }) => {
           const screen = createLinkResult(outcome, asset);
 
           return (
             <LinkResultScreen outcome={outcome._tag} screen={screen}>
               {Match.value(screen.action).pipe(
                 Match.when("again", () => (
-                  <ResultButton onClick={() => send(LinkEvent.Retried())}>
+                  <ResultButton onClick={() => prepare(intent)}>
                     Reintentar
                   </ResultButton>
                 )),

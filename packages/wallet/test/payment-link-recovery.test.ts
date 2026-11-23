@@ -20,11 +20,10 @@ import {
 } from "../src/contract";
 import {
   DraftRejected,
-  TransferIntent,
+  PaymentLinkIntent,
   makeWalletEffects,
 } from "../src/device/client";
 import { DeviceWallet } from "../src/device/key-store";
-import { sendTransfer } from "../src/device/sending";
 import { signingKey } from "../src/device/signing";
 import { Transfers } from "../src/server/Transfers.server";
 import { memoryKeyStore, savedWallet } from "./device-fixtures";
@@ -114,32 +113,38 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 : wallet.transfer(nextOrder, approval),
           };
 
-          expect(
-            yield* Effect.flip(
-              sendTransfer(interruptedPort, store).send(
-                new TransferIntent({
-                  to: PaymentLinkRecipient.make({ value: linkAddr }),
-                  asset: baseAsset,
-                  amount: linkAmount,
-                }),
-              ),
-            ),
-          ).toEqual(new Offline());
+          const { auth } = yield* installSealedWallet(sender);
 
-          const savedAfterCrash = yield* savedWallet(store);
+          const interrupted = makeWalletEffects(
+            interruptedPort,
+            sealedKeyStore,
+            devicePasskeys,
+            approvingDevice(auth),
+          );
+
+          const review = yield* interrupted.reviewPaymentLink(
+            new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
+          );
+
+          assertTagged(review, "PaymentReview");
+          expect(yield* interrupted.confirmPaymentLink(review)).toEqual(
+            new Offline(),
+          );
+
+          const savedAfterCrash = yield* savedWallet(sealedKeyStore);
 
           expect(savedAfterCrash.linkReceipt?.attempts).toHaveLength(1);
 
           const restartedDevice = makeWalletEffects(
             wallet,
-            store,
+            sealedKeyStore,
             devicePasskeys,
           );
 
           const resolved = yield* restartedDevice.resolvePaymentLink();
 
           assertTagged(resolved, "ResolvedPaymentLink");
-          expect(resolved.address).toBe(linkAddr);
+          expect(resolved.address).toBe(review.to);
           expect(resolved.balance).toBe(savedAfterCrash.linkReceipt?.balance);
 
           const competingLink = addressOf(Keypair.random());
@@ -166,7 +171,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         Effect.gen(function* () {
           const store = memoryKeyStore();
           const { wallet, sender } = yield* openSender(store, "pendinglink");
-          const linkAddr = addressOf(Keypair.random());
 
           const pendingPort: WalletPort = {
             ...wallet,
@@ -178,30 +182,41 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 : wallet.transfer(nextOrder, approval),
           };
 
-          expect(
-            yield* Effect.flip(
-              sendTransfer(pendingPort, store).send(
-                new TransferIntent({
-                  to: PaymentLinkRecipient.make({ value: linkAddr }),
-                  asset: baseAsset,
-                  amount: linkAmount,
-                }),
-              ),
-            ),
-          ).toEqual(new Offline());
+          const { auth } = yield* installSealedWallet(sender);
 
-          const saved = yield* savedWallet(store);
+          const pending = makeWalletEffects(
+            pendingPort,
+            sealedKeyStore,
+            devicePasskeys,
+            approvingDevice(auth),
+          );
+
+          const review = yield* pending.reviewPaymentLink(
+            new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
+          );
+
+          assertTagged(review, "PaymentReview");
+          expect(yield* pending.confirmPaymentLink(review)).toEqual(
+            new Offline(),
+          );
+
+          const linkAddr = review.to;
+          const saved = yield* savedWallet(sealedKeyStore);
 
           const receipt = Option.getOrThrow(
             Option.fromNullishOr(saved.linkReceipt),
           );
 
-          const restarted = makeWalletEffects(wallet, store, devicePasskeys);
+          const restarted = makeWalletEffects(
+            wallet,
+            sealedKeyStore,
+            devicePasskeys,
+          );
 
           assertTagged(yield* restarted.resolvePaymentLink(), "Pending");
-          expect((yield* savedWallet(store)).linkReceipt?.balance).toBe(
-            receipt.balance,
-          );
+          expect(
+            (yield* savedWallet(sealedKeyStore)).linkReceipt?.balance,
+          ).toBe(receipt.balance);
 
           world.claimables.set(receipt.balance, {
             balance: receipt.balance,
@@ -236,8 +251,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 ),
               ),
           };
-
-          const { auth } = yield* installSealedWallet(sender);
 
           const held = yield* Latch.make();
           const released = yield* Latch.make();
@@ -286,6 +299,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const superseded = yield* reclaiming.reviewReclaim(resolved);
           const current = yield* reclaiming.reviewReclaim(resolved);
+          const fundingPrompts = auth.requested.length;
 
           assertTagged(superseded, "ReclaimReview");
           assertTagged(current, "ReclaimReview");
@@ -293,13 +307,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(yield* reclaiming.confirmReclaim(superseded)).toEqual(
             new DraftRejected(),
           );
-          expect(auth.requested).toHaveLength(0);
+          expect(auth.requested).toHaveLength(fundingPrompts);
 
           assertTagged(
             yield* reclaiming.confirmReclaim(current),
             "AssetSettled",
           );
-          expect(auth.requested).toHaveLength(1);
+          expect(auth.requested).toHaveLength(fundingPrompts + 1);
         }),
     );
 
