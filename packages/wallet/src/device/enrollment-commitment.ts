@@ -24,9 +24,7 @@ export const commitToRelease = (
   phrase: SecretPhrase,
   contents: ReleaseContents,
 ): Uint8Array<ArrayBuffer> =>
-  Uint8Array.from(
-    signingKey(phrase).sign(Buffer.from(releasePayload(contents))),
-  );
+  Uint8Array.from(signingKey(phrase).sign(releasePayload(contents)));
 
 export const commitmentHolds = (
   contents: ReleaseContents,
@@ -34,6 +32,6 @@ export const commitmentHolds = (
 ): boolean =>
   commitment.byteLength === 64 &&
   Keypair.fromPublicKey(contents.candidate.address).verify(
-    Buffer.from(releasePayload(contents)),
-    Buffer.from(commitment),
+    releasePayload(contents),
+    commitment,
   );
