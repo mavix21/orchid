@@ -79,7 +79,6 @@ test("enrolls a new wallet only after a fresh user-initiated reopen proof", asyn
   await expect(page).toHaveURL("/restore");
   await page.getByTestId("restore-submit").click();
   await page.getByTestId("restore-submit").click();
-  await page.getByTestId("restore-submit").click();
 
   await expect(page.getByTestId("enrollment-complete")).toBeVisible({
     timeout: 60_000,

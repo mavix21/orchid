@@ -106,11 +106,6 @@ export class BackupLocated extends Schema.TaggedClass<BackupLocated>()(
   { profile: Profile },
 ) {}
 
-export class RestoreSealed extends Schema.TaggedClass<RestoreSealed>()(
-  "RestoreSealed",
-  { profile: Profile },
-) {}
-
 export class Unlocked extends Schema.TaggedClass<Unlocked>()("Unlocked", {}) {}
 
 export type UnlockOutcome =
@@ -142,7 +137,6 @@ export type BackUpOutcome =
 export type RestoreOutcome =
   | Restored
   | BackupLocated
-  | RestoreSealed
   | BackupUnsupported
   | PasskeyCancelled
   | PasskeyFailed
