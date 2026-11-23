@@ -17,7 +17,6 @@ import {
   Holding,
   type KeyStore,
   KeyStoreUnavailable,
-  Opened,
   PositiveAmount,
   PublicDeviceWallet,
   Restored,
@@ -43,7 +42,6 @@ import { network, networkPassphrase, usdc } from "../src/stellar/network";
 import {
   freshDatabase,
   memoryKeyStore,
-  openThroughReview,
   rpcUrl,
   walletServices,
 } from "./live.server";
@@ -122,7 +120,6 @@ const openWallet = async (
   port: WalletPort,
   auth: SoftwareAuthenticator,
   store: ReturnType<typeof memoryKeyStore>,
-  client: ReturnType<typeof makeWalletClient>,
   username: string,
 ) => {
   const sealedStore = memorySealedKeyStore();
@@ -183,20 +180,11 @@ const openWallet = async (
     ),
   );
 
-  const opened = await openThroughReview(
-    makeWalletClient(port, publicKeyStore(sealedStore), auth.passkeys, {
-      store: sealedStore,
-      ceremony: auth.assertions,
-      relyingParty: () => relyingParty,
-    }),
-    username,
-  );
-
-  assert.ok(opened instanceof Opened, `Expected Opened, got ${opened._tag}`);
-
   const reviewed = Option.getOrThrow(
     await Effect.runPromise(sealedStore.readPublic()),
   );
+
+  assert.equal(reviewed.reserveSponsor, sponsor.publicKey());
 
   await Effect.runPromise(
     store.store.updatePublic((current) =>
@@ -209,7 +197,7 @@ const openWallet = async (
     ),
   );
 
-  return { opened, sealed };
+  return { opened: enrolled, sealed };
 };
 
 assert.equal((await server.getNetwork()).passphrase, networkPassphrase);
@@ -235,7 +223,6 @@ const { opened: outcome, sealed: enrolled } = await openWallet(
   walletPort,
   authenticator,
   device,
-  client,
   username,
 );
 
@@ -352,13 +339,7 @@ const recipientName = freshUsername();
 const recipientDevice = memoryKeyStore();
 const recipientAuth = new SoftwareAuthenticator(passkeyOrigin);
 
-await openWallet(
-  walletPort,
-  recipientAuth,
-  recipientDevice,
-  makeWalletClient(walletPort, recipientDevice.store, recipientAuth.passkeys),
-  recipientName,
-);
+await openWallet(walletPort, recipientAuth, recipientDevice, recipientName);
 
 await fundWithUsdc(wallet.address, "1");
 

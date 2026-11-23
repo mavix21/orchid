@@ -149,6 +149,9 @@ export const standingOf = (
       ? pairedStanding(wallet, shown.draft, nowMillis)
       : standaloneStanding(wallet, shown.draft, nowMillis);
 
+export const currentUntil = (shown: OpeningReview): number =>
+  DateTime.toEpochMillis(shown.draft.request.expiresAt) - approvalMargin * 1000;
+
 export const standingNow = (wallet: PublicDeviceWallet, shown: OpeningReview) =>
   Effect.map(DateTime.now, (now) =>
     standingOf(wallet, shown, DateTime.toEpochMillis(now)),

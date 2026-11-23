@@ -24,7 +24,6 @@ import {
   PasskeyCancelled,
   PasskeyFailed,
   type Passkeys,
-  type PlatformRegistration,
   type RegistrationCeremony,
 } from "../src/device/passkeys";
 
@@ -93,7 +92,6 @@ const makeCredential = (id: Buffer): SoftwareCredential => {
 export class SoftwareAuthenticator {
   private current: SoftwareCredential | undefined;
   prf = true;
-  prfOnCreate = true;
   cancels = false;
   userVerified = true;
   readonly issued: Array<PasskeyAssertion> = [];
@@ -192,52 +190,29 @@ export class SoftwareAuthenticator {
     register: (request) =>
       Effect.suspend(
         (): Effect.Effect<
-          Option.Option<PlatformRegistration>,
+          Option.Option<PasskeyRegistration>,
           PasskeyCancelled | PasskeyFailed
         > => {
           if (this.cancels) return Effect.fail(new PasskeyCancelled());
 
-          const { credential, registration } = this.createRegistration(
-            request.challenge,
-          );
-
-          const evaluateOnCreate = this.prf && this.prfOnCreate;
-
           return Effect.succeed(
-            Option.some({
-              registration,
-              prf: {
-                first: evaluateOnCreate
-                  ? Option.some(this.evaluate(credential, request.prf.first))
-                  : Option.none(),
-                second: evaluateOnCreate
-                  ? Option.map(request.prf.second, (salt) =>
-                      this.evaluate(credential, salt),
-                    )
-                  : Option.none(),
-              },
-            }),
+            Option.some(
+              this.createRegistration(request.challenge).registration,
+            ),
           );
         },
       ),
   };
 
+  enrollWithPrf(challenge: PasskeyChallenge, salt: Uint8Array<ArrayBuffer>) {
+    const { credential, registration } = this.createRegistration(challenge);
+
+    return this.prf
+      ? Option.some({ prf: this.evaluate(credential, salt), registration })
+      : Option.none();
+  }
+
   readonly passkeys: Passkeys = {
-    register: (challenge, _username, salt) =>
-      Effect.suspend(() => {
-        if (this.cancels) return Effect.fail(new PasskeyCancelled());
-
-        const { credential, registration } = this.createRegistration(challenge);
-
-        if (!this.prf) return Effect.succeed(Option.none());
-
-        return Effect.succeed(
-          Option.some({
-            prf: this.evaluate(credential, salt),
-            registration,
-          }),
-        );
-      }),
     authenticate: (challenge, salt) =>
       Effect.suspend(() => {
         if (this.cancels) return Effect.fail(new PasskeyCancelled());

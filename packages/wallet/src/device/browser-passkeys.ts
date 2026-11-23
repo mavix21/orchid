@@ -7,7 +7,6 @@ import {
   PasskeyAssertion,
   PasskeyRegistration,
   PasskeyTransport,
-  type Username,
 } from "../contract";
 import type {
   AssertionCeremony,
@@ -112,7 +111,7 @@ const createRegistration = Effect.fn("Device.createPasskeyRegistration")(
             userVerification: "required",
           },
           attestation: "none",
-          extensions: prfEvaluation(request.prf),
+          extensions: { prf: {} },
         },
       }),
     );
@@ -130,9 +129,8 @@ const createRegistration = Effect.fn("Device.createPasskeyRegistration")(
     )
       return yield* Effect.fail(new PasskeyFailed());
 
-    return Option.some({
-      prf: prfResults(created),
-      registration: new PasskeyRegistration({
+    return Option.some(
+      new PasskeyRegistration({
         id: Schema.decodeSync(CredentialId)(created.id),
         clientDataJSON: toBase64Url(response.clientDataJSON),
         authenticatorData: toBase64Url(response.getAuthenticatorData()),
@@ -147,29 +145,9 @@ const createRegistration = Effect.fn("Device.createPasskeyRegistration")(
             ),
           ),
       }),
-    });
+    );
   },
 );
-
-const register = Effect.fn("Device.registerPasskey")(function* (
-  challenge: PasskeyChallenge,
-  username: Username,
-  salt: Uint8Array<ArrayBuffer>,
-) {
-  const created = yield* createRegistration({
-    challenge,
-    username,
-    prf: { first: salt, second: Option.none() },
-  });
-
-  if (Option.isNone(created) || Option.isNone(created.value.prf.first))
-    return Option.none();
-
-  return Option.some({
-    prf: created.value.prf.first.value,
-    registration: created.value.registration,
-  });
-});
 
 const authenticate = Effect.fn("Device.authenticatePasskey")(function* (
   challenge: PasskeyChallenge,
@@ -245,7 +223,7 @@ const assert = Effect.fn("Device.assertPasskey")(function* (
   };
 });
 
-export const browserPasskeys: Passkeys = { register, authenticate };
+export const browserPasskeys: Passkeys = { authenticate };
 
 export const browserRegistration: RegistrationCeremony = {
   register: createRegistration,
