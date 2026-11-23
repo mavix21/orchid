@@ -123,27 +123,32 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
     const goneStatus = (
       stored: ReadonlyArray<StoredAssetOrder>,
+      claimer: Option.Option<AccountAddress>,
     ): BalanceGoneStatus => {
-      const done = stored.filter(settledHere);
-
-      if (done.some(receiving)) return "claimed";
+      const claims = stored
+        .filter(settledHere)
+        .filter((entry) => !receiving(entry));
 
       if (
-        done.some((entry) =>
-          Predicate.isTagged(entry.order.action, "ClaimBalance"),
+        claims.some((entry) =>
+          Option.match(claimer, {
+            onNone: () => true,
+            onSome: (wallet) => entry.order.wallet === wallet,
+          }),
         )
       )
         return "reclaimed";
 
-      return "unresolved";
+      return stored.some(settledHere) ? "claimed" : "unresolved";
     };
 
     const settleOnBalance = Effect.fn("Wallet.settleOnBalance")(function* (
       balance: BalanceId,
     ) {
-      const authorized = (yield* orders.onBalance(balance)).filter(
-        (stored): stored is AssetAuthorized =>
-          Predicate.isTagged(stored, "AssetAuthorized"),
+      const recorded = yield* orders.onBalance(balance);
+
+      const authorized = recorded.filter((stored): stored is AssetAuthorized =>
+        Predicate.isTagged(stored, "AssetAuthorized"),
       );
 
       const receivePending = yield* Effect.forEach(authorized, (stored) =>
@@ -156,14 +161,19 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
       return {
         checking: receivePending.some(Boolean),
-        current: yield* orders.onBalance(balance),
+        current:
+          authorized.length === 0 ? recorded : yield* orders.onBalance(balance),
       };
     });
 
-    const balanceGone = (balance: BalanceId) =>
+    const balanceGone = (
+      balance: BalanceId,
+      claimer: Option.Option<AccountAddress> = Option.none(),
+    ) =>
       Effect.map(
         settleOnBalance(balance),
-        ({ current }) => new BalanceGone({ status: goneStatus(current) }),
+        ({ current }) =>
+          new BalanceGone({ status: goneStatus(current, claimer) }),
       );
 
     const paymentLink = Effect.fn("Wallet.paymentLink")(function* (
@@ -203,7 +213,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
         { discard: true },
       );
 
-      return goneStatus(current) === "unresolved"
+      return goneStatus(current, Option.none()) === "unresolved"
         ? new PaymentLinkUnresolved()
         : new PaymentLinkUsed();
     });

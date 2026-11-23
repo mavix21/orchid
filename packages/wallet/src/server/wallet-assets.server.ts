@@ -136,7 +136,11 @@ export const assetFlow = Effect.gen(function* () {
       const entries = yield* chain.claimable([action.balance]);
       const entry = entries[0];
 
-      if (!entry) return yield* links.balanceGone(action.balance);
+      if (!entry)
+        return yield* links.balanceGone(
+          action.balance,
+          Option.some(order.wallet),
+        );
 
       const claimant = entry.claimants.find(
         (item) => item.destination === order.wallet,
