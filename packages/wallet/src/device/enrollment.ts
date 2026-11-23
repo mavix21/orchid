@@ -64,7 +64,6 @@ import {
 import { requestsOf, reviewJson } from "./opening-drafts";
 import {
   BackupUnsupported,
-  DraftRejected,
   InvalidUsername,
   NoWallet,
   OpeningReview,
@@ -191,16 +190,7 @@ export function makeEnrollmentEffects(
     current: Awaiting,
     redrafted: boolean,
   ): Effect.fn.Return<EnrollWalletOutcome> {
-    if (
-      !redrafted &&
-      Option.isSome(current.review) &&
-      current.review.value.redrafted
-    )
-      return yield* clearPending.pipe(Effect.as(new DraftRejected()));
-
-    const consumed = redrafted;
-
-    const requested = yield* requestReview(current, consumed).pipe(
+    const requested = yield* requestReview(current, redrafted).pipe(
       Effect.result,
     );
 
@@ -210,21 +200,6 @@ export function makeEnrollmentEffects(
       const next = withReview(current, Option.some(requested.success));
 
       state = next;
-
-      if (PendingState.$is("Sealed")(next)) {
-        const persisted = yield* storage
-          .write(
-            new PendingActivation({
-              enrollment: next.enrollment,
-              candidate: next.candidate,
-              review: requested.success,
-            }),
-          )
-          .pipe(Effect.result);
-
-        if (Result.isFailure(persisted))
-          return yield* clearPending.pipe(Effect.as(new UnsupportedDevice()));
-      }
 
       return notice(next);
     }
@@ -364,12 +339,8 @@ export function makeEnrollmentEffects(
 
     if (!(verified instanceof Verified)) return verified;
 
-    if ((yield* standingOfReview(sealed, review)) !== "current") {
-      if (review.redrafted)
-        return yield* clearPending.pipe(Effect.as(new DraftRejected()));
-
+    if ((yield* standingOfReview(sealed, review)) !== "current")
       return yield* refreshReview(sealed, true);
-    }
 
     const approvals = approveWithPhrase(
       verified.phrase,
