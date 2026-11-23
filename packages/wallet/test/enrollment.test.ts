@@ -22,6 +22,7 @@ import {
   type PendingEnrollmentStorage,
   PendingActivation,
   PendingCandidate,
+  PendingRelease,
   makeEnrollmentEffects,
 } from "../src/device/enrollment";
 import {
@@ -53,31 +54,33 @@ const memoryPendingStorage = (): PendingEnrollmentStorage & {
   let saved = Option.none<PendingEnrollmentRecord>();
 
   const tampered = (record: PendingEnrollmentRecord) => {
-    if (!Predicate.isTagged(record, "PendingActivation")) return record;
-
-    if (storage.tampering === "backup")
-      return new PendingActivation({
-        ...record,
-        enrollment: new BackupEnrollment({
-          ...record.enrollment,
-          address: addressOf(Keypair.random()),
-        }),
-      });
-
     const ciphertext = Uint8Array.from(record.candidate.envelope.ciphertext);
 
     ciphertext[0] = (ciphertext[0] ?? 0) ^ 0xff;
 
-    return new PendingActivation({
-      ...record,
-      candidate: new PendingCandidate({
-        ...record.candidate,
-        envelope: new LocalPhraseEnvelope({
-          ...record.candidate.envelope,
-          ciphertext,
-        }),
-      }),
-    });
+    const swapped =
+      storage.tampering === "backup"
+        ? {
+            enrollment: new BackupEnrollment({
+              ...record.enrollment,
+              address: addressOf(Keypair.random()),
+            }),
+            candidate: record.candidate,
+          }
+        : {
+            enrollment: record.enrollment,
+            candidate: new PendingCandidate({
+              ...record.candidate,
+              envelope: new LocalPhraseEnvelope({
+                ...record.candidate.envelope,
+                ciphertext,
+              }),
+            }),
+          };
+
+    return Predicate.isTagged(record, "PendingRelease")
+      ? new PendingRelease({ ...record, ...swapped })
+      : new PendingActivation({ ...record, ...swapped });
   };
 
   const storage = {
@@ -350,6 +353,39 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           expect(persisted.credential.id).toBe(auth.registered[0]?.id);
+        }),
+    );
+
+    it.effect(
+      "discards a persisted release whose contents no longer match its commitment",
+      () =>
+        Effect.gen(function* () {
+          yield* Effect.promise(clearDatabase);
+
+          const wallet = settlingOpenings(yield* Wallet);
+          const auth = new SoftwareAuthenticator(passkeyOrigin);
+          const pending = memoryPendingStorage();
+
+          const offline: WalletPort = {
+            ...wallet,
+            enroll: () => Effect.fail(new Offline()),
+          };
+
+          const firstTab = enrollmentFor(offline, auth, pending);
+
+          assertTagged(yield* firstTab.start("maria"), "EnrollmentPending");
+          expect((yield* firstTab.advance())._tag).toBe("Offline");
+          assertTagged(Option.getOrThrow(pending.readSync()), "PendingRelease");
+
+          pending.tampering = "envelope";
+
+          const reloadedTab = enrollmentFor(wallet, auth, pending);
+
+          expect(yield* reloadedTab.pending()).toEqual(Option.none());
+          expect((yield* reloadedTab.advance())._tag).toBe("NoWallet");
+          expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
+          expect(world.submitted).toHaveLength(0);
+          expect((yield* tableRows).backups).toEqual([]);
         }),
     );
 

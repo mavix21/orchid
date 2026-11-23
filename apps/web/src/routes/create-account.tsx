@@ -308,7 +308,10 @@ function ChooseUsername() {
       Option.isSome(pending) && pending.value.stage === "activate";
 
     const ticket = displayLock.begin();
-    const outcome = await enrollmentClient.advance();
+
+    const outcome = await enrollmentClient.advance(
+      Option.isSome(pending) ? pending.value.currentUntil : undefined,
+    );
 
     if (
       verifying &&
