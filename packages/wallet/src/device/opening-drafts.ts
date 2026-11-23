@@ -78,6 +78,7 @@ const pairedStanding = (
 
   if (
     draft.recovery === undefined ||
+    window.minLedger <= 0 ||
     window.maxLedger - window.minLedger !== paymentLifetime + 1
   )
     return "stale";

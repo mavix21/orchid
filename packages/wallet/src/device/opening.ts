@@ -289,6 +289,7 @@ export function deviceOpening(
 
     const record = sealed.value;
     const observed = record.public;
+    let released = false;
 
     if ((yield* standingNow(observed, presented)) === "expiring")
       return yield* redraft(snapshot.value, observed, presented);
@@ -354,14 +355,24 @@ export function deviceOpening(
           )
           .pipe(Effect.asVoid),
       release: (approvals, reservation) =>
-        observe(
-          reservation.wallet,
-          Option.some(approvals),
-          afterRelease(presented),
-        ),
+        Effect.suspend(() => {
+          released = true;
+
+          return Ref.update(issued, (current) =>
+            Option.contains(current, snapshot.value) ? Option.none() : current,
+          ).pipe(
+            Effect.andThen(
+              observe(
+                reservation.wallet,
+                Option.some(approvals),
+                afterRelease(presented),
+              ),
+            ),
+          );
+        }),
     });
 
-    if (Predicate.isTagged(approved, "DraftRejected")) {
+    if (!released && Predicate.isTagged(approved, "DraftRejected")) {
       const latest = yield* device.store.readPublic();
 
       return Option.isSome(latest) &&

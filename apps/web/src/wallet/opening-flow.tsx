@@ -83,9 +83,10 @@ const readOutcome = (
     OpeningReview: (review) =>
       OpeningStep.Shown({
         review,
-        problem: Option.isSome(previous)
-          ? Option.some("La solicitud cambió. Revísala y confirma otra vez.")
-          : Option.none(),
+        problem:
+          Option.isSome(previous) && review.redrafted
+            ? Option.some("La solicitud cambió. Revísala y confirma otra vez.")
+            : Option.none(),
       }),
     Opened: () => {
       onOpened();

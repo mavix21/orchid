@@ -115,7 +115,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(pairedDraft, "OpeningDraft");
           yield* opening(paired, approveOpening(pairedKey, pairedDraft));
-          yield* settleAttempt(paired.address);
+          yield* settleAttempt(paired.address, 120);
 
           const visible = Option.getOrThrow(
             Option.fromNullishOr(world.accounts.get(paired.address)),

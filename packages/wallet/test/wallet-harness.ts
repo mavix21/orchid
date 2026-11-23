@@ -469,10 +469,18 @@ export const findTransfer = (id: TransferId) =>
 export const settleHash = (hash: string) =>
   world.evidence.set(hash, new Applied({ at: DateTime.nowUnsafe() }));
 
-export const settleAttempt = Effect.fn(function* (address: AccountAddress) {
+export const settleAttempt = Effect.fn(function* (
+  address: AccountAddress,
+  settledSecondsAgo = 0,
+) {
   const row = Option.getOrThrow(yield* findWallet(address));
 
-  settleHash(Option.getOrThrow(Option.fromNullishOr(row.attemptHash)));
+  world.evidence.set(
+    Option.getOrThrow(Option.fromNullishOr(row.attemptHash)),
+    new Applied({
+      at: DateTime.makeUnsafe(Date.now() - settledSecondsAgo * 1000),
+    }),
+  );
 });
 
 export const create = Effect.fn(function* (key: Keypair, name: string) {

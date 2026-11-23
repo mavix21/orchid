@@ -23,11 +23,7 @@ import {
   WalletClaim,
 } from "../contract";
 import { readEnvelope } from "../stellar/envelopes";
-import {
-  recoveryDelay,
-  recoveryDraftLifetime,
-  settledReadGrace,
-} from "../stellar/network";
+import { recoveryDelay, recoveryDraftLifetime } from "../stellar/network";
 import {
   type AccountState,
   Chain,
@@ -351,11 +347,7 @@ export const openingFlow = Effect.gen(function* () {
         Expired: () => false,
       });
 
-      if (
-        Predicate.isTagged(settlement, "Applied") &&
-        DateTime.toEpochMillis(settlement.at) + settledReadGrace * 1000 >
-          (yield* Clock.currentTimeMillis)
-      )
+      if (Predicate.isTagged(settlement, "Applied"))
         return new OpeningPending();
 
       const expiredOpening =

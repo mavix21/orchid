@@ -194,7 +194,9 @@ function Reopening({ username }: { username: string }) {
 
   return (
     <Screen>
-      <OpeningFlow username={username} onOpened={() => router.invalidate()} />
+      <div className="flex flex-1 flex-col pb-30">
+        <OpeningFlow username={username} onOpened={() => router.invalidate()} />
+      </div>
     </Screen>
   );
 }
