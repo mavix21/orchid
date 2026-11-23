@@ -1,26 +1,36 @@
 import { expect, it } from "@effect/vitest";
 import { type DisplayLock, makeDisplayLock } from "../src/device/display-lock";
 
-const lockAt = () => {
+const resumeWindow = 60_000;
+
+interface Tab {
+  readonly clock: { now: number };
+  readonly lock: DisplayLock;
+}
+
+const tabAt = (): Tab => {
   const clock = { now: 1_000_000 };
 
   return { clock, lock: makeDisplayLock(() => clock.now) };
 };
 
-const unlocked = (lock: DisplayLock) => lock.unlock(lock.begin());
+const unlockedTab = () => {
+  const tab = tabAt();
+
+  tab.lock.unlock(tab.lock.begin());
+
+  return tab;
+};
 
 const awayFor = (milliseconds: number) => {
-  const { clock, lock } = lockAt();
+  const { clock, lock } = unlockedTab();
 
-  unlocked(lock);
   lock.hide();
   clock.now += milliseconds;
   lock.show();
 
   return lock.state()._tag;
 };
-
-const resumeWindow = 60_000;
 
 it.each([
   ["no time", 0, "Unlocked"],
@@ -35,9 +45,8 @@ it.each([
 );
 
 it("masks on hide and never counts a later hide as the start of the absence", () => {
-  const { clock, lock } = lockAt();
+  const { clock, lock } = unlockedTab();
 
-  unlocked(lock);
   lock.hide();
 
   expect(lock.state()._tag).toBe("Masked");
@@ -51,7 +60,7 @@ it("masks on hide and never counts a later hide as the start of the absence", ()
 });
 
 it("keeps a locked display locked through hide and show", () => {
-  const { lock } = lockAt();
+  const { lock } = tabAt();
 
   lock.hide();
   lock.show();
@@ -59,32 +68,110 @@ it("keeps a locked display locked through hide and show", () => {
   expect(lock.state()._tag).toBe("Locked");
 });
 
-it("refuses a verification that completes after the page was hidden", () => {
-  const { lock } = lockAt();
+it("refuses a secret-bearing verification that completes after the page was hidden", () => {
+  const { lock } = tabAt();
   const ticket = lock.begin();
-
-  expect(lock.valid(ticket)).toBe(true);
 
   lock.hide();
   lock.show();
   lock.unlock(ticket);
-
-  expect(lock.valid(ticket)).toBe(false);
 
   expect(lock.state()._tag).toBe("Locked");
 });
 
-it("locks a restored page without a resume window and refuses its earlier verification", () => {
-  const { lock } = lockAt();
+it.each([
+  [
+    "while the page is hidden",
+    (tab: Tab, verify: () => void) => {
+      tab.clock.now += 1_000;
+      verify();
+      tab.clock.now += 29_000;
+      tab.lock.show();
+    },
+  ],
+  [
+    "after the page returns",
+    (tab: Tab, verify: () => void) => {
+      tab.clock.now += 30_000;
+      tab.lock.show();
+      verify();
+    },
+  ],
+] as const)(
+  "an entry that verifies %s unlocks once the page has been back within the window",
+  (_, afterHide) => {
+    const tab = tabAt();
+    const attempt = tab.lock.attemptEntry();
 
-  unlocked(lock);
+    tab.lock.hide();
+    afterHide(tab, () => tab.lock.entryVerified(attempt));
 
-  const ticket = lock.begin();
+    expect(tab.lock.state()._tag).toBe("Unlocked");
+  },
+);
 
-  lock.hide();
-  lock.relock();
-  lock.show();
-  lock.unlock(ticket);
+it.each([
+  [
+    "completes while still hidden past the window",
+    (tab: Tab, verify: () => void) => {
+      tab.clock.now += resumeWindow;
+      verify();
+      tab.lock.show();
+    },
+  ],
+  [
+    "completes while hidden but the page returns after the window",
+    (tab: Tab, verify: () => void) => {
+      tab.clock.now += 1_000;
+      verify();
+      tab.clock.now += resumeWindow - 1_000;
+      tab.lock.show();
+    },
+  ],
+  [
+    "completes after the page returns from a hidden window",
+    (tab: Tab, verify: () => void) => {
+      tab.clock.now += resumeWindow;
+      tab.lock.show();
+      verify();
+    },
+  ],
+] as const)("an entry that %s never unlocks", (_, afterHide) => {
+  const tab = tabAt();
+  const attempt = tab.lock.attemptEntry();
+
+  tab.lock.hide();
+  afterHide(tab, () => tab.lock.entryVerified(attempt));
+
+  expect(tab.lock.state()._tag).toBe("Locked");
+});
+
+it.each([
+  [
+    "a restored page",
+    (lock: DisplayLock) => {
+      lock.hide();
+      lock.relock();
+    },
+  ],
+  [
+    "a cancellation",
+    (lock: DisplayLock, attempt: ReturnType<DisplayLock["attemptEntry"]>) => {
+      lock.cancelEntry(attempt);
+    },
+  ],
+  [
+    "a replacement",
+    (lock: DisplayLock) => {
+      lock.attemptEntry();
+    },
+  ],
+] as const)("an entry voided by %s never unlocks", (_, voidAttempt) => {
+  const { lock } = tabAt();
+  const attempt = lock.attemptEntry();
+
+  voidAttempt(lock, attempt);
+  lock.entryVerified(attempt);
 
   expect(lock.state()._tag).toBe("Locked");
 });

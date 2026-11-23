@@ -1,5 +1,5 @@
 import { CheckIcon, LinkIcon, ShareIcon } from "lucide-react";
-import { useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { Link, useBlocker } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -23,6 +23,7 @@ import { amountLabel, assetCode } from "@/send/money";
 import { ReviewRow } from "@/send/payment-review";
 import { type Answer, useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
+import { displayLock } from "@/wallet/display-lock";
 
 import {
   LinkResultScreen,
@@ -31,35 +32,25 @@ import {
   ResultLink,
 } from "./link-result";
 import {
-  type CheckRefusal,
-  type CreateRefusal,
   type RecoverableLink,
   createLinkResult,
   lostLinkMessage,
-  recoverable,
   resolveLinkResult,
 } from "./outcomes";
+import {
+  concealedLink,
+  forgetConcealed,
+  keepConcealed,
+} from "./concealed-link";
+import {
+  type Delivery,
+  LinkStep,
+  delivered,
+  entering,
+  lost,
+} from "./link-step";
 import { RecoverDrawer, RecoveryAnswer, useRecovery } from "./recovery";
 import { type ShareResult, shareLink } from "./share-link";
-
-type Delivery = "none" | "dismissed" | "shared" | "copied";
-
-type LinkStep = Data.TaggedEnum<{
-  Entering: { readonly problem: Option.Option<string> };
-  Reviewing: { readonly intent: PaymentLinkIntent };
-  Creating: { readonly intent: PaymentLinkIntent };
-  Refused: {
-    readonly intent: PaymentLinkIntent;
-    readonly outcome: CreateRefusal;
-  };
-  Created: { readonly link: PaymentLinkCreated; readonly delivery: Delivery };
-  Sharing: { readonly link: PaymentLinkCreated; readonly delivery: Delivery };
-  Lost: { readonly link: RecoverableLink };
-  Checking: {};
-  Checked: { readonly outcome: CheckRefusal };
-}>;
-
-const LinkStep = Data.taggedEnum<LinkStep>();
 
 interface LinkFlowState {
   readonly amount: string;
@@ -82,15 +73,6 @@ type LinkEvent = Data.TaggedEnum<{
 }>;
 
 const LinkEvent = Data.taggedEnum<LinkEvent>();
-
-const delivered = (delivery: Delivery) =>
-  delivery === "shared" || delivery === "copied";
-
-const entering = (problem: Option.Option<string> = Option.none()) =>
-  LinkStep.Entering({ problem });
-
-const lost = (link: RecoverableLink) =>
-  LinkStep.Lost({ link: recoverable(link) });
 
 const afterShare = (
   link: PaymentLinkCreated,
@@ -186,6 +168,7 @@ const holdsUnsharedLink = (step: LinkStep) =>
     Refused: () => false,
     Created: ({ delivery }) => !delivered(delivery),
     Sharing: ({ delivery }) => !delivered(delivery),
+    Sent: () => false,
     Lost: () => false,
     Checking: () => false,
     Checked: () => false,
@@ -321,6 +304,40 @@ const deliveryNote = (delivery: Delivery) =>
     Match.exhaustive,
   );
 
+function LinkReceipt({
+  created,
+  delivery,
+}: {
+  created: RecoverableLink;
+  delivery: Delivery;
+}) {
+  const note = deliveryNote(delivery);
+
+  return (
+    <ScreenStatus
+      title="Tu link está listo"
+      data-testid="link-created"
+      media={
+        <span className="flex size-14 items-center justify-center rounded-full bg-accent text-icon-accent [&_svg]:size-7">
+          <LinkIcon absoluteStrokeWidth />
+        </span>
+      }
+    >
+      <p className="font-display text-h1 text-muted-foreground">
+        {amountLabel(created.amount, created.asset)}
+      </p>
+      <ScreenNote>
+        Compártelo con quien quieres pagarle. Quien abra el link podrá recibir
+        el dinero.
+      </ScreenNote>
+      <p className="flex min-h-6 items-center justify-center gap-2 text-label text-accent-foreground">
+        {delivered(delivery) ? <CheckIcon className="size-5 shrink-0" /> : null}
+        {Option.getOrUndefined(note)}
+      </p>
+    </ScreenStatus>
+  );
+}
+
 function LinkCreated({
   created,
   delivery,
@@ -334,33 +351,9 @@ function LinkCreated({
   onShare: () => void;
   onLeave: () => void;
 }) {
-  const note = deliveryNote(delivery);
-
   return (
     <>
-      <ScreenStatus
-        title="Tu link está listo"
-        data-testid="link-created"
-        media={
-          <span className="flex size-14 items-center justify-center rounded-full bg-accent text-icon-accent [&_svg]:size-7">
-            <LinkIcon absoluteStrokeWidth />
-          </span>
-        }
-      >
-        <p className="font-display text-h1 text-muted-foreground">
-          {amountLabel(created.amount, created.asset)}
-        </p>
-        <ScreenNote>
-          Compártelo con quien quieres pagarle. Quien abra el link podrá recibir
-          el dinero.
-        </ScreenNote>
-        <p className="flex min-h-6 items-center justify-center gap-2 text-label text-accent-foreground">
-          {delivered(delivery) ? (
-            <CheckIcon className="size-5 shrink-0" />
-          ) : null}
-          {Option.getOrUndefined(note)}
-        </p>
-      </ScreenStatus>
+      <LinkReceipt created={created} delivery={delivery} />
       <ScreenActions>
         <Button
           className="w-full"
@@ -391,6 +384,29 @@ function LinkCreated({
             Salir sin compartir
           </Button>
         )}
+      </ScreenActions>
+    </>
+  );
+}
+
+function LinkSent({
+  link,
+  delivery,
+}: {
+  link: RecoverableLink;
+  delivery: Delivery;
+}) {
+  return (
+    <>
+      <LinkReceipt created={link} delivery={delivery} />
+      <ScreenActions>
+        <Button
+          className="w-full"
+          nativeButton={false}
+          render={<Link to="/home" data-testid="finish-link" />}
+        >
+          Listo
+        </Button>
       </ScreenActions>
     </>
   );
@@ -457,10 +473,23 @@ export function LinkFlow({
 }) {
   const task = useWalletTask();
 
-  const [state, send] = useReducer(reduceLinkFlow, {
+  const [state, send] = useReducer(reduceLinkFlow, undefined, () => ({
     amount: "",
-    step: entering(),
-  });
+    step: Option.getOrElse(concealedLink(), entering),
+  }));
+
+  useEffect(() => {
+    forgetConcealed();
+  }, []);
+
+  useEffect(
+    () =>
+      displayLock.subscribe(() => {
+        if (!Predicate.isTagged(displayLock.state(), "Unlocked"))
+          keepConcealed(state.step);
+      }),
+    [state.step],
+  );
 
   const locked = holdsUnsharedLink(state.step);
 
@@ -577,6 +606,9 @@ export function LinkFlow({
         },
         Created: ({ link, delivery }) => created(link, delivery),
         Sharing: ({ link, delivery }) => created(link, delivery),
+        Sent: ({ link, delivery }) => (
+          <LinkSent link={link} delivery={delivery} />
+        ),
         Lost: ({ link }) => <LostLink link={link} />,
         Checking: () => <LinkWorking label="Revisando tu link…" />,
         Checked: ({ outcome }) => {
