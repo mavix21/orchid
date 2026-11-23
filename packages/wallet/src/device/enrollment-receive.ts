@@ -3,7 +3,14 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
-import type { AccountAddress, AssetOrder, WalletPort } from "../contract";
+import {
+  type AccountAddress,
+  type AssetOrder,
+  RecipientCannotReceive,
+  type WalletPort,
+  assetKey,
+  baseAsset,
+} from "../contract";
 import { claimStanding } from "./claim-reviews";
 import type {
   EnrollWalletOutcome,
@@ -114,6 +121,15 @@ export const enrollmentReceive = (
     const target = opened.success;
 
     if (!(target instanceof OpenedLink)) return target;
+
+    if (
+      Predicate.isTagged(target.asset, "Issued") &&
+      assetKey(target.asset) !== assetKey(baseAsset)
+    )
+      return new RecipientCannotReceive({
+        address: addressOf(current),
+        reason: "no_trustline",
+      });
 
     const order = Option.match(slot.review, {
       onNone: () => receiveOrder(addressOf(current), target),

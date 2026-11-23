@@ -491,7 +491,11 @@ export function EnrollmentFlow({
             type="button"
             data-testid="enrollment-continue"
             disabled={
-              !hydrated || busy || stopped || stale || waitingForReceive
+              !hydrated ||
+              busy ||
+              stopped ||
+              stale ||
+              (waitingForReceive && !receiveBlocked)
             }
             onClick={() => {
               void continueEnrollment();

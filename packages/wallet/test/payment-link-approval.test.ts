@@ -19,6 +19,7 @@ import {
   IssuedAsset,
   LinkRecipient,
   NativeAsset,
+  PaymentLinkOpen,
   PositiveAmount,
   SigningRequest,
   type TransferOrder,
@@ -32,6 +33,10 @@ import {
 } from "../src/device/client";
 import { selectRecoverablePaymentLinks } from "../src/server/ledger-assets.server";
 import { draftClaim } from "../src/stellar/asset-envelopes";
+import {
+  type LinkReceiveInput,
+  draftLinkReceive,
+} from "../src/stellar/link-receive";
 import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 import {
   addressOf,
@@ -351,6 +356,79 @@ it.live.each([
         asset: targetAsset,
         amount: linkAmount,
       });
+
+      expect(outcome).toEqual(new DraftRejected());
+      expect(approvals.filter(Option.isSome)).toHaveLength(0);
+    }),
+);
+
+const receivedLink = Keypair.random();
+
+const receiveDraft = (overrides: Partial<LinkReceiveInput>, at: number) =>
+  draftLinkReceive({
+    channel: new Account(actors.exchange, "100"),
+    link: addressOf(receivedLink),
+    reserveSponsor: actors.sponsor,
+    destination: actors.wallet.address,
+    balance: cancelBalance,
+    asset: baseAsset,
+    amount: linkAmount,
+    minTime: at,
+    maxTime: at + 120,
+    ...overrides,
+  });
+
+const tamperedReceives: ReadonlyArray<
+  readonly [string, Partial<LinkReceiveInput>]
+> = [
+  ["paying another destination", { destination: actors.stranger }],
+  ["creating another link account", { link: actors.stranger }],
+  ["claiming another balance", { balance: otherBalance }],
+  ["paying another amount", { amount: otherAmount }],
+  ["paying another asset", { asset: NativeAsset.make({}) }],
+  ["handing cleanup to another sponsor", { reserveSponsor: actors.stranger }],
+  [
+    "using the link account as channel",
+    { channel: new Account(addressOf(receivedLink), "100") },
+  ],
+];
+
+it.live.each(tamperedReceives)(
+  "link receive review rejects a draft %s unsigned",
+  ([, overrides]) =>
+    Effect.gen(function* () {
+      const approvals: Array<Option.Option<Approval>> = [];
+
+      const port = unusedPort({
+        paymentLink: () =>
+          Effect.succeed(
+            new PaymentLinkOpen({
+              balance: cancelBalance,
+              asset: baseAsset,
+              amount: linkAmount,
+              sender: actors.pedroProfile,
+            }),
+          ),
+        manage: (_order, approval) =>
+          Effect.sync(() => {
+            approvals.push(approval);
+
+            const at = nowSeconds();
+
+            return new AssetDraft({
+              request: new SigningRequest({
+                envelope: receiveDraft(overrides, at),
+                expiresAt: DateTime.makeUnsafe((at + 120) * 1000),
+              }),
+            });
+          }),
+      });
+
+      const outcome = yield* makeWalletEffects(
+        port,
+        memoryKeyStore(Option.some(actors.wallet)),
+        passkeys,
+      ).reviewLinkReceive(addressOf(receivedLink), receivedLink.secret());
 
       expect(outcome).toEqual(new DraftRejected());
       expect(approvals.filter(Option.isSome)).toHaveLength(0);

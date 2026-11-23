@@ -11,6 +11,7 @@ import {
   LinkSecret,
   OpenPaymentLink,
   type OpenPaymentLinks,
+  ReceivedPaymentLink,
   type AddressBound,
   type AssertionRefused,
   type BackupStored,
@@ -321,7 +322,10 @@ export class ListedPaymentLink extends Schema.Class<ListedPaymentLink>(
 
 export class ListedPaymentLinks extends Schema.TaggedClass<ListedPaymentLinks>()(
   "ListedPaymentLinks",
-  { links: Schema.Array(ListedPaymentLink) },
+  {
+    links: Schema.Array(ListedPaymentLink),
+    received: Schema.Array(ReceivedPaymentLink),
+  },
 ) {}
 
 export type PaymentLinksOutcome =

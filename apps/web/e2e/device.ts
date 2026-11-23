@@ -430,3 +430,52 @@ export const storedLinkCiphertexts = (page: Page) =>
         });
       }),
   );
+
+export const storedText = (page: Page) =>
+  page.evaluate(async () => {
+    const databases = await indexedDB.databases();
+
+    const dumps = await Promise.all(
+      databases.flatMap(({ name }) =>
+        name === undefined
+          ? []
+          : [
+              new Promise<string>((resolve, reject) => {
+                const request = indexedDB.open(name);
+
+                request.addEventListener("error", () => reject(request.error));
+                request.addEventListener("success", () => {
+                  const db = request.result;
+                  const stores = Array.from(db.objectStoreNames);
+
+                  if (stores.length === 0) {
+                    db.close();
+                    resolve("");
+
+                    return;
+                  }
+
+                  const tx = db.transaction(stores, "readonly");
+
+                  const reads = stores.map((store) =>
+                    tx.objectStore(store).getAll(),
+                  );
+
+                  tx.addEventListener("error", () => reject(tx.error));
+                  tx.addEventListener("complete", () => {
+                    db.close();
+                    resolve(JSON.stringify(reads.map((read) => read.result)));
+                  });
+                });
+              }),
+            ],
+      ),
+    );
+
+    return [
+      ...dumps,
+      JSON.stringify({ ...localStorage }),
+      JSON.stringify({ ...sessionStorage }),
+      document.cookie,
+    ].join("\n");
+  });

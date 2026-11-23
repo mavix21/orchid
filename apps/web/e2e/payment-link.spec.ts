@@ -3,9 +3,14 @@ import { Keypair } from "@stellar/stellar-sdk";
 import { fundWithUsdc, usdc } from "@workspace/wallet/testnet";
 
 import {
+  addAuthenticator,
+  countPasskeyPrompts,
   enrollWallet,
   freshUsername,
   storedLinkCiphertexts,
+  storedText,
+  submitButton,
+  usernameInput,
   visit,
   withoutPrf,
 } from "./device";
@@ -130,4 +135,90 @@ Object.defineProperty(navigator, "clipboard", { configurable: true, value: { wri
   expect(requests.filter((sent) => sent.includes('"signature"')).length).toBe(
     signedBefore,
   );
+});
+
+test("receives a link into a wallet created on the link page with two passkey prompts, never storing or sending its secret, and the sender sees it received", async ({
+  browser,
+  page,
+}) => {
+  test.setTimeout(600_000);
+
+  const shared: Array<string> = [];
+
+  await page.exposeFunction("recordShare", (url: string) => {
+    shared.push(url);
+  });
+  await page.addInitScript({
+    content: `Object.defineProperty(navigator, "share", { configurable: true, value: (data) => window.recordShare(data.url) });`,
+  });
+
+  const { address } = await enrollWallet(page, freshUsername());
+
+  await fundWithUsdc(address, "1");
+  await reviewLink(page);
+  await page.getByTestId("confirm-link").click();
+  await expect(page.getByTestId("link-created")).toBeVisible({
+    timeout: 120_000,
+  });
+  await page.getByTestId("share-link").click();
+  await expect.poll(() => shared).toHaveLength(1);
+
+  const [original = ""] = shared;
+  const link = new URL(original);
+
+  const [, linkAddress = "", secret = ""] =
+    linkPath.exec(`${link.pathname}${link.hash}`) ?? [];
+
+  const recipient = await browser.newPage();
+  const requests: Array<string> = [];
+
+  recipient.on("request", (request) => {
+    requests.push(`${request.url()}\n${request.postData() ?? ""}`);
+  });
+
+  await addAuthenticator(recipient, true);
+
+  const prompts = await countPasskeyPrompts(recipient);
+
+  await recipient.goto(`${link.pathname}${link.hash}`);
+  await recipient.getByTestId("receive-link").click();
+  await usernameInput(recipient).fill(freshUsername());
+  await submitButton(recipient).click();
+
+  const step = recipient.getByTestId("enrollment-step");
+
+  await expect(step).toHaveAttribute("data-stage", "activate", {
+    timeout: 30_000,
+  });
+  await expect(step).toHaveAttribute("data-receive", "true", {
+    timeout: 30_000,
+  });
+  expect(await prompts()).toEqual({ create: 1, get: 0 });
+
+  await recipient.getByTestId("enrollment-continue").click();
+  await expect(recipient.getByTestId("link-outcome")).toHaveAttribute(
+    "data-outcome",
+    "AssetSettled",
+    { timeout: 180_000 },
+  );
+  expect(await prompts()).toEqual({ create: 1, get: 1 });
+
+  await recipient.reload();
+  await expect(recipient.getByTestId("link-outcome")).toHaveAttribute(
+    "data-outcome",
+    "PaymentLinkUsed",
+    { timeout: 60_000 },
+  );
+  await expect(recipient.getByTestId("receive-link")).toHaveCount(0);
+
+  expect(Keypair.fromSecret(secret).publicKey()).toBe(linkAddress);
+  expect(requests.join("\n")).not.toContain(secret);
+  expect(await storedText(recipient)).not.toContain(secret);
+
+  await visit(page, "/links");
+  await expect(
+    page.locator(
+      `[data-testid="received-link"][data-address="${linkAddress}"]`,
+    ),
+  ).toBeVisible({ timeout: 60_000 });
 });

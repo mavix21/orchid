@@ -30,9 +30,7 @@ import {
   Amount,
   Approval,
   type Approvals,
-  AssetCode,
   BalanceId,
-  IssuedAsset,
   type OpeningDraft,
   PositiveAmount,
   type Recipient,
@@ -81,6 +79,7 @@ import {
   draftRecovery,
   signingPayload,
 } from "../src/stellar/envelopes";
+import { draftLinkReceive } from "../src/stellar/link-receive";
 import { draftOpeningWithRecovery } from "../src/stellar/opening-drafts";
 import { networkPassphrase, recoveryDelay } from "../src/stellar/network";
 import { addressOf, enrolledDeviceWallet } from "./device-fixtures";
@@ -94,6 +93,8 @@ import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 
 export { addressOf };
+
+export { euro, euroLine } from "./euro-fixtures";
 
 export const dbLayer = databaseLayer({
   connectionString:
@@ -287,6 +288,20 @@ export const fakeChain = Layer.effect(
             ...w,
           }),
         ),
+      draftLinkReceive: (link, destination, balance, a, val) =>
+        draftWith((w) =>
+          draftLinkReceive({
+            channel: sourceOf(real.channel),
+            link,
+            reserveSponsor,
+            destination,
+            balance,
+            asset: a,
+            amount: val,
+            ...w,
+          }),
+        ),
+      cleanUpLink: (link) => Effect.sync(() => !world.accounts.delete(link)),
       pastOpeningWindow: (s) =>
         Effect.map(
           Clock.currentTimeMillis,
@@ -556,24 +571,6 @@ export const authorizeTransfer = Effect.fn(function* (
   assertTagged(stored, "Authorized");
 
   return { draft, authorized: stored };
-});
-
-export const euro = IssuedAsset.make({
-  code: Schema.decodeSync(AssetCode)("EUR"),
-  issuer: addressOf(Keypair.random()),
-});
-
-export const euroLine = (
-  balance: string,
-  overrides: { readonly capacity?: Amount } = {},
-) => ({
-  asset: euro,
-  balance: amount(balance),
-  spendable: amount(balance),
-  capacity: overrides.capacity ?? amount("9223372036854775807"),
-  authorized: true,
-  clawbackEnabled: false,
-  sponsored: true,
 });
 
 export const devicePasskeys = new SoftwareAuthenticator(passkeyOrigin).passkeys;
