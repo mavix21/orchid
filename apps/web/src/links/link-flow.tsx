@@ -38,7 +38,7 @@ import {
   resolveLinkResult,
 } from "./outcomes";
 import {
-  concealedLink,
+  concealedLinkFor,
   forgetConcealed,
   keepConcealed,
 } from "./concealed-link";
@@ -475,20 +475,23 @@ export function LinkFlow({
 
   const [state, send] = useReducer(reduceLinkFlow, undefined, () => ({
     amount: "",
-    step: Option.getOrElse(concealedLink(), entering),
+    step: Option.getOrElse(concealedLinkFor(asset), entering),
   }));
 
   useEffect(() => {
     forgetConcealed();
   }, []);
 
+  const stepRef = useRef(state.step);
+
+  stepRef.current = state.step;
+
   useEffect(
-    () =>
-      displayLock.subscribe(() => {
-        if (!Predicate.isTagged(displayLock.state(), "Unlocked"))
-          keepConcealed(state.step);
-      }),
-    [state.step],
+    () => () => {
+      if (!Predicate.isTagged(displayLock.state(), "Unlocked"))
+        keepConcealed(stepRef.current);
+    },
+    [],
   );
 
   const locked = holdsUnsharedLink(state.step);

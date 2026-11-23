@@ -175,3 +175,13 @@ it.each([
 
   expect(lock.state()._tag).toBe("Locked");
 });
+
+it("an entry that outlasts the hidden window is no longer pending before the page returns", () => {
+  const { clock, lock } = tabAt();
+  const attempt = lock.attemptEntry();
+
+  lock.hide();
+  clock.now += resumeWindow;
+
+  expect(lock.entryPending(attempt)).toBe(false);
+});
