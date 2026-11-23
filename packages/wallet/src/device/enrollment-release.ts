@@ -106,25 +106,35 @@ export const enrollmentRelease = (
   const release = Effect.fn("Device.releaseEnrollment")(function* (
     held: Held,
   ): Effect.fn.Return<EnrollWalletOutcome> {
-    const enrolled = yield* deps.port
-      .enroll(held.enrollment)
-      .pipe(Effect.result);
+    const installed = yield* deps.store.readSealed().pipe(Effect.option);
 
-    if (Result.isFailure(enrolled)) {
-      if (!isRetryableUnavailable(enrolled.failure)) yield* clearPending;
+    const backupStored =
+      Option.isSome(installed) &&
+      Option.isSome(installed.value) &&
+      sameCandidate(installed.value.value, held.candidate);
 
-      return enrolled.failure;
+    if (!backupStored) {
+      const enrolled = yield* deps.port
+        .enroll(held.enrollment)
+        .pipe(Effect.result);
+
+      if (Result.isFailure(enrolled)) {
+        if (!isRetryableUnavailable(enrolled.failure)) yield* clearPending;
+
+        return enrolled.failure;
+      }
+
+      const refused = Match.valueTags(enrolled.success, {
+        BackupStored: () => Option.none<EnrollWalletOutcome>(),
+        ChallengeRefused: (outcome) =>
+          Option.some<EnrollWalletOutcome>(outcome),
+        RegistrationRefused: (outcome) =>
+          Option.some<EnrollWalletOutcome>(outcome),
+      });
+
+      if (Option.isSome(refused))
+        return yield* clearPending.pipe(Effect.as(refused.value));
     }
-
-    const refused = Match.valueTags(enrolled.success, {
-      BackupStored: () => Option.none<EnrollWalletOutcome>(),
-      ChallengeRefused: (outcome) => Option.some<EnrollWalletOutcome>(outcome),
-      RegistrationRefused: (outcome) =>
-        Option.some<EnrollWalletOutcome>(outcome),
-    });
-
-    if (Option.isSome(refused))
-      return yield* clearPending.pipe(Effect.as(refused.value));
 
     const blocked = yield* installCandidate(held);
 

@@ -49,6 +49,7 @@ import {
   pinCredential,
   saltOf,
   sameCandidate,
+  sameCredential,
   standingOfReview,
   usernameOf,
   withReview,
@@ -101,11 +102,11 @@ export function makeEnrollmentEffects(
 
     if (Option.isSome(restored))
       state = Match.valueTags(restored.value, {
-        PendingActivation: ({ enrollment, candidate }) =>
+        PendingActivation: ({ enrollment, candidate, review }) =>
           PendingState.Sealed({
             enrollment,
             candidate,
-            review: Option.none(),
+            review: Option.some(review),
           }),
         PendingRelease: ({ enrollment, candidate, review, approvals }) =>
           PendingState.Held({ enrollment, candidate, review, approvals }),
@@ -217,6 +218,7 @@ export function makeEnrollmentEffects(
 
   const sealCandidate = Effect.fn("Device.sealEnrollmentCandidate")(function* (
     current: Created,
+    review: OpeningReview,
     devicePrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
     backupPrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
   ): Effect.fn.Return<Sealed | EnrollWalletOutcome> {
@@ -254,7 +256,7 @@ export function makeEnrollmentEffects(
     });
 
     const written = yield* storage
-      .write(new PendingActivation({ enrollment, candidate }))
+      .write(new PendingActivation({ enrollment, candidate, review }))
       .pipe(Effect.result);
 
     if (Result.isFailure(written))
@@ -263,7 +265,7 @@ export function makeEnrollmentEffects(
     const next = PendingState.Sealed({
       enrollment,
       candidate,
-      review: current.review,
+      review: Option.some(review),
     });
 
     state = next;
@@ -273,6 +275,7 @@ export function makeEnrollmentEffects(
 
   const verifyCandidate = Effect.fn("Device.verifyEnrollmentCandidate")(
     function* (
+      expected: Sealed,
       devicePrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
       backupPrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
     ): Effect.fn.Return<Verified | EnrollWalletOutcome> {
@@ -285,6 +288,15 @@ export function makeEnrollmentEffects(
         return new NoWallet();
 
       const { enrollment, candidate } = persisted.value;
+
+      if (
+        candidate.address !== expected.candidate.address ||
+        candidate.username !== expected.candidate.username ||
+        !sameCredential(candidate.credential, expected.candidate.credential) ||
+        enrollment.registration.id !== candidate.credential.id ||
+        enrollment.registration.publicKey !== candidate.credential.publicKey
+      )
+        return yield* clearPending.pipe(Effect.as(new CorruptEnvelope()));
 
       const local = yield* openLocalEnvelope(
         candidate.envelope,
@@ -324,12 +336,12 @@ export function makeEnrollmentEffects(
     backupPrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
   ): Effect.fn.Return<Held | EnrollWalletOutcome> {
     const sealed = isCreated(current)
-      ? yield* sealCandidate(current, devicePrf, backupPrf)
+      ? yield* sealCandidate(current, review, devicePrf, backupPrf)
       : current;
 
     if (!Predicate.isTagged(sealed, "Sealed")) return sealed;
 
-    const verified = yield* verifyCandidate(devicePrf, backupPrf);
+    const verified = yield* verifyCandidate(sealed, devicePrf, backupPrf);
 
     if (!(verified instanceof Verified)) return verified;
 

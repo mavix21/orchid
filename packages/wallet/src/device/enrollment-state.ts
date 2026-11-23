@@ -118,12 +118,20 @@ export const envelopeJson = Schema.encodeSync(
   Schema.fromJsonString(LocalPhraseEnvelope),
 );
 
+export const sameCredential = (
+  left: PinnedCredential,
+  right: PinnedCredential,
+) =>
+  left.id === right.id &&
+  left.publicKey === right.publicKey &&
+  left.algorithm === right.algorithm;
+
 export const sameCandidate = (
   installed: SealedDeviceWallet,
   candidate: PendingCandidate,
 ) =>
   installed.public.address === candidate.address &&
-  installed.credential.id === candidate.credential.id &&
+  sameCredential(installed.credential, candidate.credential) &&
   envelopeJson(installed.envelope) === envelopeJson(candidate.envelope);
 
 export const usernameOf = (state: Awaiting | Held) =>

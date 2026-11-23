@@ -43,10 +43,6 @@ export const addAuthenticator = async (page: Page, hasPrf: boolean) => {
   return {
     session,
     authenticatorId,
-    signCounts: async () =>
-      (
-        await session.send("WebAuthn.getCredentials", { authenticatorId })
-      ).credentials.map((credential) => credential.signCount),
     verifyUser: (isUserVerified: boolean) =>
       session.send("WebAuthn.setUserVerified", {
         authenticatorId,
@@ -85,6 +81,38 @@ const addSeededCredential = async (page: Page) => {
       .export({ type: "spki", format: "der" })
       .toString("base64url"),
   };
+};
+
+export const countPasskeyPrompts = async (page: Page) => {
+  await page.addInitScript(() => {
+    const record = (kind: "create" | "get") =>
+      sessionStorage.setItem(
+        `prompts-${kind}`,
+        String(Number(sessionStorage.getItem(`prompts-${kind}`) ?? 0) + 1),
+      );
+
+    const credentials = navigator.credentials;
+    const create = credentials.create.bind(credentials);
+    const get = credentials.get.bind(credentials);
+
+    credentials.create = (options) => {
+      record("create");
+
+      return create(options);
+    };
+
+    credentials.get = (options) => {
+      record("get");
+
+      return get(options);
+    };
+  });
+
+  return () =>
+    page.evaluate(() => ({
+      create: Number(sessionStorage.getItem("prompts-create") ?? 0),
+      get: Number(sessionStorage.getItem("prompts-get") ?? 0),
+    }));
 };
 
 export const freshUsername = () =>
