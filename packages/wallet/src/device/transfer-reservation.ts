@@ -1,7 +1,13 @@
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import type { TransferOrder } from "../contract";
+import type {
+  ClaimableFacts,
+  PaymentLinkFacts,
+} from "../stellar/asset-envelopes";
+import type { PaymentFacts } from "../stellar/envelopes";
 import {
   type CorruptDeviceWallet,
   type KeyStoreUnavailable,
@@ -10,7 +16,11 @@ import {
 } from "./key-store";
 import { ApprovalOutstanding, DraftRejected, NoWallet } from "./outcomes";
 import { Reserved } from "./reviewed-approval";
-import { approvalOutstanding, sameOrderSlot } from "./transfer-drafts";
+import {
+  approvalOutstanding,
+  nextLinkReceipt,
+  sameOrderSlot,
+} from "./transfer-drafts";
 
 const nowSeconds = Effect.map(DateTime.now, (now) =>
   Math.floor(DateTime.toEpochMillis(now) / 1000),
@@ -20,7 +30,7 @@ export const reserveApproval = Effect.fn("Device.reserveApproval")(function* (
   store: SealedKeyStore,
   reviewed: PublicDeviceWallet,
   order: TransferOrder,
-  approvedUntil: number,
+  facts: PaymentFacts | ClaimableFacts | PaymentLinkFacts,
 ): Effect.fn.Return<
   Reserved<PublicDeviceWallet> | ApprovalOutstanding | DraftRejected | NoWallet,
   KeyStoreUnavailable | CorruptDeviceWallet
@@ -29,7 +39,15 @@ export const reserveApproval = Effect.fn("Device.reserveApproval")(function* (
 
   const committed = yield* store.updatePublic((current) =>
     sameOrderSlot(current, reviewed) && !approvalOutstanding(current, now)
-      ? Option.some(new PublicDeviceWallet({ ...current, approvedUntil }))
+      ? Option.some(
+          new PublicDeviceWallet({
+            ...current,
+            approvedUntil: facts.maxTime,
+            linkReceipt: Predicate.isTagged(facts, "PaymentLinkFacts")
+              ? nextLinkReceipt(current.linkReceipt, facts)
+              : current.linkReceipt,
+          }),
+        )
       : Option.none(),
   );
 
@@ -47,13 +65,17 @@ export const reserveApproval = Effect.fn("Device.reserveApproval")(function* (
 export const withdrawReservation = (
   store: SealedKeyStore,
   reservation: PublicDeviceWallet,
-  previous: number | undefined,
+  previous: PublicDeviceWallet,
 ) =>
   store
     .updatePublic((current) =>
       sameOrderSlot(current, reservation)
         ? Option.some(
-            new PublicDeviceWallet({ ...current, approvedUntil: previous }),
+            new PublicDeviceWallet({
+              ...current,
+              approvedUntil: previous.approvedUntil,
+              linkReceipt: previous.linkReceipt,
+            }),
           )
         : Option.none(),
     )

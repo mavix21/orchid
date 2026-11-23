@@ -1,11 +1,16 @@
 import type {
   Asset,
+  AssertionRejected,
+  ConfirmPaymentLinkOutcome,
   CorruptDeviceWallet,
-  CreatePaymentLinkOutcome,
+  PasskeyCancelled,
+  PasskeyFailed,
   PaymentLinkCreated,
+  PaymentReview,
   PaymentLinkTarget,
   PrfOutputMissing,
   ReclaimOutcome,
+  WrongCredential,
   ResolvePaymentLinkOutcome,
   ResolvedPaymentLink,
   WalletUnavailable,
@@ -111,6 +116,12 @@ const busyRecovering = new LinkScreen(
   "check",
 );
 
+const unconfirmed = new LinkScreen(
+  "No pudimos confirmar tu link",
+  checkFirst,
+  "check",
+);
+
 const notCreated = new LinkScreen(
   "No se creó el link",
   `Algo no cuadró al preparar tu link. ${untouched}`,
@@ -118,7 +129,15 @@ const notCreated = new LinkScreen(
 );
 
 export type CreateRefusal =
-  | Exclude<CreatePaymentLinkOutcome, PaymentLinkCreated>
+  | Exclude<
+      ConfirmPaymentLinkOutcome,
+      | PaymentLinkCreated
+      | PaymentReview
+      | PasskeyCancelled
+      | PasskeyFailed
+      | WrongCredential
+      | AssertionRejected
+    >
   | DeviceFailure;
 
 export const createLinkResult = (
@@ -140,8 +159,23 @@ export const createLinkResult = (
             "Espera su resultado antes de crear un link.",
             "again",
           ),
-    DraftRejected: () =>
-      new LinkScreen("No pudimos confirmar tu link", checkFirst, "check"),
+    DraftRejected: () => unconfirmed,
+    NoTransfer: () => unconfirmed,
+    Reserved: () => unconfirmed,
+    Claimed: () => unconfirmed,
+    Refunded: () => unconfirmed,
+    PrfOutputMissing: () =>
+      new LinkScreen(
+        "Tu passkey no puede firmar aquí",
+        `Tu passkey no abrió tu llave en este dispositivo. ${untouched}`,
+        "home",
+      ),
+    CorruptDeviceWallet: () =>
+      new LinkScreen(
+        "No pudimos leer tu llave",
+        `Los datos guardados en este navegador están dañados. ${untouched}`,
+        "home",
+      ),
     Failed: ({ reason }) =>
       new LinkScreen(
         "No se creó el link",

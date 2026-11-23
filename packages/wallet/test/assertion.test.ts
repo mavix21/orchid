@@ -192,7 +192,7 @@ it.effect.each(rejectedCeremonies)(
 );
 
 it.effect(
-  "reports cancellation, a wrong credential and a missing PRF output distinctly",
+  "reports cancellation, a wrong credential, a missing wallet output and a missing operation output distinctly",
   () =>
     Effect.gen(function* () {
       const cancelling = yield* enrolled;
@@ -240,6 +240,7 @@ it.effect(
       expect(cancelled._tag).toBe("PasskeyCancelled");
       expect(wrongCredential._tag).toBe("WrongCredential");
       expect(missingOutput._tag).toBe("PrfOutputMissing");
-      expect(missingSecondOutput._tag).toBe("PrfOutputMissing");
+      assertTagged(missingSecondOutput, "OperationVerified");
+      expect(missingSecondOutput.prf.second).toEqual(Option.none());
     }),
 );

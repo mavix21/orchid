@@ -14,18 +14,25 @@ import {
   type WalletPort,
   baseAsset,
 } from "../src/contract";
-import { PaymentLinkIntent, makeWalletEffects } from "../src/device/client";
 import {
-  DeviceWallet,
-  type KeyStore,
-  PublicDeviceWallet,
-} from "../src/device/key-store";
+  PasskeyCancelled,
+  PaymentLinkIntent,
+  makeWalletEffects,
+} from "../src/device/client";
+import type { PublicDeviceWallet } from "../src/device/key-store";
 import { holdingsFromEntries } from "../src/server/ledger-assets.server";
 import { transfers } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { usdc } from "../src/stellar/network";
 import { memoryKeyStore } from "./device-fixtures";
+import {
+  approvingDevice,
+  installSealedWallet,
+  sealedKeyStore,
+  storedEntry,
+  storedKeys,
+} from "./sealed-wallet-fixtures";
 import { accountEntryXdr } from "./rpc-answering";
 import { assertTagged } from "./tagged";
 import {
@@ -51,80 +58,106 @@ import {
 
 const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");
 const orderJson = Schema.encodeSync(Schema.fromJsonString(TransferOrder));
-const walletJson = Schema.encodeSync(Schema.fromJsonString(DeviceWallet));
-
-const publicWalletJson = Schema.encodeSync(
-  Schema.fromJsonString(PublicDeviceWallet),
-);
 
 useDisposableDatabase();
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect(
-      "the link secret never appears in requests, logs, key store or database rows",
+      "funds a link only through a confirmed passkey approval that commits its receipt first, and never exposes the secret",
       () =>
         Effect.gen(function* () {
-          const baseStore = memoryKeyStore();
-          const storeSnapshots: Array<string> = [];
           const requestPayloads: Array<string> = [];
+          const storeSnapshots: Array<string> = [];
           const logLines: Array<string> = [];
-
-          const observingStore: KeyStore = {
-            read: () => baseStore.read(),
-            write: (w) =>
-              baseStore.write(w).pipe(
-                Effect.tap(() =>
-                  Effect.sync(() => {
-                    storeSnapshots.push(walletJson(w));
-                  }),
-                ),
-              ),
-            readPublic: () => baseStore.readPublic(),
-            updatePublic: (update) =>
-              baseStore.updatePublic(update).pipe(
-                Effect.tap((result) =>
-                  Effect.sync(() => {
-                    if (Option.isSome(result) && result.value.updated)
-                      storeSnapshots.push(
-                        publicWalletJson(result.value.wallet),
-                      );
-                  }),
-                ),
-              ),
-          };
+          const released: Array<PublicDeviceWallet> = [];
 
           const { wallet, sender } = yield* openSender(
-            observingStore,
+            memoryKeyStore(),
             "secrettest",
           );
 
+          const { auth } = yield* installSealedWallet(sender);
           const settlingTransfer = settleOnSubmit(wallet, sender.address);
+
+          const rawEntries = Effect.promise(async () =>
+            JSON.stringify(
+              await Promise.all(
+                (await storedKeys()).map((key) => storedEntry(String(key))),
+              ),
+            ),
+          );
 
           const observedPort: WalletPort = {
             ...wallet,
             transfer: (order, approval) =>
-              Effect.sync(() => {
+              Effect.gen(function* () {
                 requestPayloads.push(orderJson(order));
-              }).pipe(Effect.andThen(settlingTransfer(order, approval))),
+                storeSnapshots.push(yield* rawEntries);
+
+                if (Option.isSome(approval))
+                  released.push(
+                    Option.getOrThrow(
+                      yield* Effect.orDie(sealedKeyStore.readPublic()),
+                    ),
+                  );
+
+                return yield* settlingTransfer(order, approval);
+              }),
           };
 
           const captureLogger = Logger.make((options) => {
             logLines.push(String(options.message));
           });
 
-          const created = yield* makeWalletEffects(
+          const client = makeWalletEffects(
             observedPort,
-            observingStore,
+            sealedKeyStore,
             devicePasskeys,
-          )
-            .createPaymentLink(
+            approvingDevice(auth),
+          );
+
+          const review = yield* client
+            .reviewPaymentLink(
               new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
             )
             .pipe(Effect.provide(Logger.layer([captureLogger])));
 
+          assertTagged(review, "PaymentReview");
+
+          auth.cancels = true;
+
+          expect(yield* client.confirmPaymentLink(review)).toEqual(
+            new PasskeyCancelled(),
+          );
+          expect(released).toEqual([]);
+
+          const withheld = Option.getOrThrow(
+            yield* sealedKeyStore.readPublic(),
+          );
+
+          expect(withheld.approvedUntil).toBeUndefined();
+          expect(withheld.linkReceipt).toBeUndefined();
+
+          auth.cancels = false;
+
+          const created = yield* client
+            .confirmPaymentLink(review)
+            .pipe(Effect.provide(Logger.layer([captureLogger])));
+
           assertTagged(created, "PaymentLinkCreated");
           expect(created.path).toBe(`/l/${created.address}#${created.secret}`);
+          expect(
+            released.map(({ approvedUntil, linkReceipt }) => ({
+              approved: approvedUntil !== undefined,
+              link: linkReceipt?.address,
+              balance: linkReceipt?.balance,
+            })),
+          ).toEqual([
+            { approved: true, link: created.address, balance: created.balance },
+          ]);
+
+          storeSnapshots.push(yield* rawEntries);
 
           const dbRows = yield* Database.use((db) =>
             db.select().from(transfers),

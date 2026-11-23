@@ -100,7 +100,7 @@ export function memoryKeyStore(
 }
 
 export const savedWallet = (store: KeyStore) =>
-  store.read().pipe(Effect.flatMap(Effect.fromOption), Effect.orDie);
+  store.readPublic().pipe(Effect.flatMap(Effect.fromOption), Effect.orDie);
 
 export const unusedPort = (overrides: Partial<WalletPort> = {}): WalletPort => {
   const unused = () => Effect.die("Not used by test");

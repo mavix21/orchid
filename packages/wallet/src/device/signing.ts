@@ -15,12 +15,6 @@ export function signingKey(phrase: SecretPhrase): Keypair {
   );
 }
 
-export function approve(request: SigningRequest, key: Keypair): Approval {
-  return new Approval({
-    signature: key.sign(signingPayload(request.envelope)),
-  });
-}
-
 export function approveWithPhrase(
   phrase: SecretPhrase,
   requests: Arr.NonEmptyReadonlyArray<SigningRequest>,

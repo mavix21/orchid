@@ -1,4 +1,8 @@
-import type { PaymentLinkCreated, PaymentLinkIntent } from "@workspace/wallet";
+import type {
+  PaymentLinkCreated,
+  PaymentLinkIntent,
+  PaymentReview,
+} from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
@@ -15,7 +19,15 @@ export type Delivery = "none" | "dismissed" | "shared" | "copied";
 export type LinkStep = Data.TaggedEnum<{
   Entering: { readonly problem: Option.Option<string> };
   Reviewing: { readonly intent: PaymentLinkIntent };
-  Creating: { readonly intent: PaymentLinkIntent };
+  Reviewed: {
+    readonly intent: PaymentLinkIntent;
+    readonly review: PaymentReview;
+    readonly problem: Option.Option<string>;
+  };
+  Creating: {
+    readonly intent: PaymentLinkIntent;
+    readonly review: PaymentReview;
+  };
   Refused: {
     readonly intent: PaymentLinkIntent;
     readonly outcome: CreateRefusal;
@@ -43,6 +55,7 @@ export const concealedStep = (step: LinkStep): Option.Option<LinkStep> =>
   Match.valueTags(step, {
     Entering: () => Option.none(),
     Reviewing: () => Option.none(),
+    Reviewed: () => Option.none(),
     Creating: () => Option.none(),
     Refused: () => Option.none(),
     Created: ({ link, delivery }) =>

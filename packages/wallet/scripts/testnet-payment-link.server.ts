@@ -29,6 +29,7 @@ import {
   freshDatabase,
   memoryKeyStore,
   openThroughReview,
+  fundLinkThroughReview,
   reclaimThroughReview,
   rpcUrl,
   walletServices,
@@ -124,7 +125,8 @@ assert.equal(balanceBefore, 10_000_000n);
 
 const linkAmount = Schema.decodeSync(PositiveAmount)("5000000");
 
-const created = await client.createPaymentLink(
+const created = await fundLinkThroughReview(
+  client,
   new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
 );
 
@@ -215,7 +217,8 @@ const crashedClient = makeWalletClient(
   authenticator.passkeys,
 );
 
-const crashedOutcome = await crashedClient.createPaymentLink(
+const crashedOutcome = await fundLinkThroughReview(
+  crashedClient,
   new PaymentLinkIntent({ asset: baseAsset, amount: linkAmount }),
 );
 

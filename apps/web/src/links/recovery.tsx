@@ -179,11 +179,11 @@ export function useRecovery() {
   return { started, begin, confirm, reset };
 }
 
-function FullValue({ children }: { children: string }) {
+export function FullValue({ children }: { children: string }) {
   return <span className="font-mono text-caption break-all">{children}</span>;
 }
 
-function AssetLine({ asset }: { asset: Asset }) {
+export function AssetLine({ asset }: { asset: Asset }) {
   return (
     <span className="flex flex-col items-end">
       <span>{assetCode(asset)}</span>
