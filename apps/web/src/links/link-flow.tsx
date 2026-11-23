@@ -34,6 +34,7 @@ import {
   type RecoverableLink,
   createLinkResult,
   lostLinkMessage,
+  preparedLinkResult,
   resolveLinkResult,
 } from "./outcomes";
 import {
@@ -463,8 +464,11 @@ export function LinkFlow({
             note="No cierres esta pantalla."
           />
         ),
-        Refused: ({ intent, outcome }) => {
-          const screen = createLinkResult(outcome, asset);
+        Refused: ({ intent, confirmed, outcome }) => {
+          const screen = (confirmed ? createLinkResult : preparedLinkResult)(
+            outcome,
+            asset,
+          );
 
           return (
             <LinkResultScreen outcome={outcome._tag} screen={screen}>

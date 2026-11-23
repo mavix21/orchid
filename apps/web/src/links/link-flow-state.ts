@@ -103,7 +103,7 @@ const afterCreate = (
       ),
     ),
     Match.orElse((outcome) =>
-      LinkStep.Refused({ intent: step.intent, outcome }),
+      LinkStep.Refused({ intent: step.intent, confirmed: true, outcome }),
     ),
   );
 };
@@ -139,7 +139,11 @@ export const reduceLinkFlow = (
               review: answer,
               problem: Option.none(),
             })
-          : LinkStep.Refused({ intent: step.intent, outcome: answer }),
+          : LinkStep.Refused({
+              intent: step.intent,
+              confirmed: false,
+              outcome: answer,
+            }),
       );
     },
     Edited: () =>
