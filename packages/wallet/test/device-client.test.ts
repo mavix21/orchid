@@ -1,5 +1,6 @@
 import { expect, it, layer } from "@effect/vitest";
 import { Account, Keypair } from "@stellar/stellar-sdk";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -8,7 +9,8 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import {
-  type Approval,
+  type Approvals,
+  type AccountAddress,
   Offline,
   type OpenStep,
   Opened,
@@ -22,7 +24,6 @@ import {
 } from "../src/contract";
 import {
   DraftRejected,
-  NoWallet,
   SavedWallet,
   makeWalletEffects,
 } from "../src/device/client";
@@ -31,30 +32,41 @@ import { Wallet } from "../src/server/Wallet.server";
 import {
   draftOpening,
   draftRecovery,
+  pinnedSequence,
   signingPayload,
 } from "../src/stellar/envelopes";
+import { draftOpeningWithRecovery } from "../src/stellar/opening-drafts";
+import {
+  paymentLifetime,
+  recoveryDelay,
+  recoveryWindow,
+} from "../src/stellar/network";
 import {
   addressOf,
   enrolledDeviceWallet,
-  knownPhrase,
   memoryKeyStore,
-  savedWallet,
   seededDeviceWallet,
   unusedPort,
 } from "./device-fixtures";
+import {
+  approvingDevice,
+  installSealedWallet,
+  sealedKeyStore,
+} from "./sealed-wallet-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
+import { assertTagged } from "./tagged";
 import {
   findWallet,
   passkeyOrigin,
   reserveSponsor,
+  settleAttempt,
   useDisposableDatabase,
   walletTestLayer,
 } from "./wallet-harness";
 
 const passkeys = new SoftwareAuthenticator(passkeyOrigin).passkeys;
 const seeded = seededDeviceWallet(reserveSponsor);
-const holderKey = signingKey(knownPhrase);
-const farFuture = DateTime.makeUnsafe(4_000_000_000_000);
+const holderKey = signingKey(seeded.phrase);
 
 it("derives the Stellar account of a SEP-5 secret phrase", () => {
   expect(holderKey.publicKey()).toBe(
@@ -65,58 +77,135 @@ it("derives the Stellar account of a SEP-5 secret phrase", () => {
   );
 });
 
+const requestUntil = (envelope: SigningRequest["envelope"], maxTime: number) =>
+  new SigningRequest({
+    envelope,
+    expiresAt: DateTime.makeUnsafe(maxTime * 1000),
+  });
+
+interface PairedChange {
+  readonly address?: AccountAddress;
+  readonly ledgers?: number;
+  readonly sponsor?: AccountAddress;
+  readonly recoverySequence?: bigint;
+  readonly recoveryMinLedger?: boolean;
+  readonly delay?: number;
+}
+
+const pairedDraft = (change: PairedChange = {}) => {
+  const now = Math.floor(Date.now() / 1000);
+  const maxTime = now + paymentLifetime;
+  const address = change.address ?? seeded.address;
+
+  const window = {
+    minLedger: 100,
+    maxLedger: 100 + (change.ledgers ?? paymentLifetime) + 1,
+  };
+
+  const recoveryMinTime = maxTime + (change.delay ?? recoveryDelay);
+  const recoveryMaxTime = recoveryMinTime + recoveryWindow;
+
+  return new OpeningDraft({
+    request: requestUntil(
+      draftOpening({
+        source: new Account(reserveSponsor, "100"),
+        address,
+        createAccount: true,
+        minTime: now,
+        maxTime,
+        window,
+      }),
+      maxTime,
+    ),
+    recovery: requestUntil(
+      draftRecovery({
+        source: new Account(
+          address,
+          (change.recoverySequence ?? pinnedSequence(window)).toString(),
+        ),
+        reserveSponsor: change.sponsor ?? reserveSponsor,
+        minTime: recoveryMinTime,
+        maxTime: recoveryMaxTime,
+        minLedger:
+          change.recoveryMinLedger === false ? undefined : window.maxLedger,
+      }),
+      recoveryMaxTime,
+    ),
+  });
+};
+
 it.effect(
-  "polls OpeningPending until RecoveryDraft arrives and submits a valid recovery approval",
+  "polls OpeningPending until the paired opening draft arrives and submits valid approvals for both",
   () =>
     Effect.gen(function* () {
+      const enrolled = enrolledDeviceWallet();
+      const key = signingKey(enrolled.phrase);
+      const { auth } = yield* installSealedWallet(enrolled);
       const started = yield* Latch.make();
       let calls = 0;
-
-      const recoveryRequest = new SigningRequest({
-        envelope: draftRecovery({
-          source: new Account(seeded.address, "100"),
-          reserveSponsor,
-          minTime: 1,
-          maxTime: 4_000_000_000,
-        }),
-        expiresAt: farFuture,
-      });
+      let drafted: OpeningDraft | undefined;
+      let submitted: Approvals | undefined;
 
       const port = unusedPort({
-        open: (claim, approval) =>
+        open: (claim, approvals) =>
           started.open.pipe(
-            Effect.andThen(
-              Effect.sync((): OpenStep => {
-                calls += 1;
+            Effect.andThen(Clock.currentTimeMillis),
+            Effect.map((millis): OpenStep => {
+              calls += 1;
 
-                if (calls < 3) return new OpeningPending();
+              if (calls < 3) return new OpeningPending();
 
-                if (
-                  Option.isSome(approval) &&
-                  holderKey.verify(
-                    signingPayload(recoveryRequest.envelope),
-                    Buffer.from(approval.value.signature),
-                  )
-                )
-                  return new Opened({ profile: new Profile(claim) });
+              drafted ??= draftOpeningWithRecovery({
+                source: new Account(reserveSponsor, "100"),
+                address: claim.address,
+                reserveSponsor,
+                observedSequence: undefined,
+                now: Math.floor(millis / 1000),
+                latestLedger: 100,
+                pinSequence: true,
+              });
 
-                return new RecoveryDraft({ request: recoveryRequest });
-              }),
-            ),
+              if (Option.isSome(approvals)) {
+                submitted = approvals.value;
+
+                return new Opened({ profile: new Profile(claim) });
+              }
+
+              return drafted;
+            }),
           ),
       });
 
-      const attempt = yield* Effect.forkChild(
-        makeWalletEffects(
-          port,
-          memoryKeyStore(Option.some(seeded)),
-          passkeys,
-        ).create("maria"),
+      const client = makeWalletEffects(
+        port,
+        sealedKeyStore,
+        passkeys,
+        approvingDevice(auth),
       );
+
+      const attempt = yield* Effect.forkChild(client.reviewOpening("maria"));
 
       yield* started.await;
       yield* TestClock.adjust("10 seconds");
-      expect(yield* Fiber.join(attempt)).toBeInstanceOf(Opened);
+
+      const review = yield* Fiber.join(attempt);
+
+      assertTagged(review, "OpeningReview");
+      expect(yield* client.confirmOpening(review)).toBeInstanceOf(Opened);
+      expect(submitted).toHaveLength(2);
+
+      const requests = [drafted?.request, drafted?.recovery];
+
+      expect(
+        requests.map((request, index) =>
+          request === undefined
+            ? false
+            : key.verify(
+                signingPayload(request.envelope),
+                Buffer.from(submitted?.[index]?.signature ?? []),
+              ),
+        ),
+      ).toEqual([true, true]);
     }),
 );
 
@@ -128,9 +217,9 @@ const rejectedDrafts: ReadonlyArray<readonly [string, OpenStep]> = [
         envelope: draftOpening({
           source: new Account(reserveSponsor, "100"),
           address: seeded.address,
-          createAccount: true,
+          createAccount: false,
           minTime: 0,
-          maxTime: 4_000_000_000,
+          maxTime: Math.floor(Date.now() / 1000) + paymentLifetime,
         }),
         expiresAt: DateTime.makeUnsafe(Date.now() - 1000),
       }),
@@ -138,38 +227,54 @@ const rejectedDrafts: ReadonlyArray<readonly [string, OpenStep]> = [
   ],
   [
     "an opening drafted for another address",
-    new OpeningDraft({
-      request: new SigningRequest({
-        envelope: draftOpening({
-          source: new Account(reserveSponsor, "100"),
-          address: addressOf(Keypair.random()),
-          createAccount: true,
-          minTime: 0,
-          maxTime: 4_000_000_000,
-        }),
-        expiresAt: farFuture,
-      }),
+    pairedDraft({ address: addressOf(Keypair.random()) }),
+  ],
+  [
+    "an opening whose ledger window is wider than paymentLifetime + 1",
+    pairedDraft({ ledgers: paymentLifetime + 1 }),
+  ],
+  [
+    "a paired recovery with the wrong sequence",
+    pairedDraft({
+      recoverySequence:
+        pinnedSequence({
+          minLedger: 100,
+          maxLedger: 100 + paymentLifetime + 1,
+        }) + 1n,
     }),
+  ],
+  [
+    "a paired recovery that returns reserves to another sponsor",
+    pairedDraft({ sponsor: addressOf(Keypair.random()) }),
+  ],
+  [
+    "a paired recovery without a minimum ledger",
+    pairedDraft({ recoveryMinLedger: false }),
+  ],
+  [
+    "a paired recovery with a short delay",
+    pairedDraft({ delay: recoveryDelay - 1 }),
   ],
   [
     "a recovery that returns reserves to another sponsor",
     new RecoveryDraft({
-      request: new SigningRequest({
-        envelope: draftRecovery({
+      request: requestUntil(
+        draftRecovery({
           source: new Account(seeded.address, "100"),
           reserveSponsor: addressOf(Keypair.random()),
-          minTime: 1,
-          maxTime: 4_000_000_000,
+          minTime: Math.floor(Date.now() / 1000) + recoveryDelay,
+          maxTime:
+            Math.floor(Date.now() / 1000) + recoveryDelay + recoveryWindow,
         }),
-        expiresAt: farFuture,
-      }),
+        Math.floor(Date.now() / 1000) + recoveryDelay + recoveryWindow,
+      ),
     }),
   ],
 ];
 
 it.live.each(rejectedDrafts)("refuses %s without approving", ([, step]) =>
   Effect.gen(function* () {
-    const approvals: Array<Option.Option<Approval>> = [];
+    const approvals: Array<Option.Option<Approvals>> = [];
 
     const port = unusedPort({
       open: (_claim, approval) =>
@@ -184,7 +289,7 @@ it.live.each(rejectedDrafts)("refuses %s without approving", ([, step]) =>
       port,
       memoryKeyStore(Option.some(seeded)),
       passkeys,
-    ).create("maria");
+    ).reviewOpening("maria");
 
     expect(outcome).toEqual(new DraftRejected());
     expect(approvals.filter(Option.isSome)).toHaveLength(0);
@@ -196,38 +301,43 @@ useDisposableDatabase();
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect(
-      "resumes an interrupted opening with the stored phrase and bound username even if another is typed",
+      "resumes an interrupted opening with the bound username even if another is typed",
       () =>
         Effect.gen(function* () {
           const wallet = yield* Wallet;
-
-          expect(
-            yield* makeWalletEffects(wallet, memoryKeyStore(), passkeys).create(
-              "maria",
-            ),
-          ).toEqual(new NoWallet());
-
-          const store = memoryKeyStore(Option.some(enrolledDeviceWallet()));
+          const enrolled = enrolledDeviceWallet("maria");
+          const { auth } = yield* installSealedWallet(enrolled);
+          const device = approvingDevice(auth);
           let calls = 0;
 
           const interrupted: WalletPort = {
             ...wallet,
-            open: (claim, approval) =>
+            open: (claim, approvals) =>
               ++calls === 3
                 ? Effect.fail(new Offline())
-                : wallet.open(claim, approval),
+                : wallet.open(claim, approvals),
           };
 
-          expect(
-            (yield* makeWalletEffects(interrupted, store, passkeys).create(
-              "maria",
-            ))._tag,
-          ).toBe("Offline");
-          const before = yield* savedWallet(store);
+          const first = makeWalletEffects(
+            interrupted,
+            sealedKeyStore,
+            passkeys,
+            device,
+          );
 
-          expect(
-            yield* makeWalletEffects(wallet, store, passkeys).saved(),
-          ).toEqual(
+          const review = yield* first.reviewOpening("maria");
+
+          assertTagged(review, "OpeningReview");
+          expect((yield* first.confirmOpening(review))._tag).toBe("Offline");
+
+          const resumed = makeWalletEffects(
+            wallet,
+            sealedKeyStore,
+            passkeys,
+            device,
+          );
+
+          expect(yield* resumed.saved()).toEqual(
             new SavedWallet({
               username: Schema.decodeSync(Username)("maria"),
               openingApproved: true,
@@ -235,24 +345,20 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             }),
           );
           expect(
-            (yield* findWallet(before.address)).pipe(
+            (yield* findWallet(enrolled.address)).pipe(
               Option.map((r) => r.status),
             ),
           ).toEqual(Option.some("opening"));
 
-          const resumed = yield* makeWalletEffects(
-            wallet,
-            store,
-            passkeys,
-          ).create("pedro");
+          yield* settleAttempt(enrolled.address);
 
-          expect(resumed instanceof Opened && resumed.profile.username).toBe(
+          const opened = yield* resumed.reviewOpening("pedro");
+
+          expect(opened instanceof Opened && opened.profile.username).toBe(
             "maria",
           );
-          expect((yield* savedWallet(store)).phrase).toBe(before.phrase);
-          expect((yield* savedWallet(store)).username).toBe("maria");
           expect(
-            (yield* findWallet(before.address)).pipe(
+            (yield* findWallet(enrolled.address)).pipe(
               Option.map((r) => r.status),
             ),
           ).toEqual(Option.some("active"));

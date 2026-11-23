@@ -1,3 +1,4 @@
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
@@ -7,18 +8,26 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   AddressBound,
-  Approval,
+  type Approval,
+  type Approvals,
   InvalidAddress,
   NotSponsored,
   Opened,
   OpeningDraft,
   OpeningPending,
   OpenStep,
+  Profile,
   RecoveryDraft,
   SigningRequest,
+  UsernameTaken,
   WalletClaim,
 } from "../contract";
 import { readEnvelope } from "../stellar/envelopes";
+import {
+  recoveryDelay,
+  recoveryDraftLifetime,
+  settledReadGrace,
+} from "../stellar/network";
 import {
   type AccountState,
   Chain,
@@ -29,9 +38,9 @@ import {
   Directory,
   StoreFailure,
   type WalletRow,
-  openingAttempt,
   unavailability,
 } from "./Directory.server";
+import { openingAttempt, pairedRecovery } from "./opening-attempt.server";
 import { confirmedReads, live } from "./wallet-reads.server";
 
 export const openingFlow = Effect.gen(function* () {
@@ -73,15 +82,96 @@ export const openingFlow = Effect.gen(function* () {
     });
   });
 
+  const activated = (
+    active: Option.Option<Profile> | UsernameTaken | AddressBound,
+  ): OpenStep => {
+    if (
+      Predicate.isTagged(active, "UsernameTaken") ||
+      Predicate.isTagged(active, "AddressBound")
+    )
+      return active;
+
+    return Option.isSome(active)
+      ? new Opened({ profile: active.value })
+      : new OpeningPending();
+  };
+
+  const pairedActivation = Effect.fn("Wallet.pairedActivation")(function* (
+    row: WalletRow,
+    state: AccountState,
+    claim: WalletClaim,
+  ): Effect.fn.Return<
+    Option.Option<OpenStep>,
+    StoreFailure | ChainUnreachable
+  > {
+    const paired = pairedRecovery(row);
+    const attempt = openingAttempt(row);
+
+    if (
+      Option.isNone(paired) ||
+      Option.isNone(attempt) ||
+      !(attempt.value instanceof Sealed)
+    )
+      return Option.none();
+
+    const facts = readEnvelope(paired.value.request.envelope);
+
+    if (
+      Option.isNone(facts) ||
+      !Predicate.isTagged(facts.value, "RecoveryFacts") ||
+      BigInt(facts.value.sequence) !== BigInt(state.sequence) + 1n ||
+      !(yield* live(paired.value.request))
+    )
+      return Option.none();
+
+    const settlement = yield* chain.settlement(attempt.value);
+
+    if (
+      Predicate.isTagged(settlement, "Undecided") &&
+      !(yield* chain.pastOpeningWindow(attempt.value))
+    )
+      return Option.some(new OpeningPending());
+
+    if (!Predicate.isTagged(settlement, "Applied")) return Option.none();
+
+    const fresh = yield* readAccount(
+      Schema.decodeSync(AccountAddress)(row.address),
+    );
+
+    if (
+      Option.isNone(fresh) ||
+      fresh.value.sequence !== state.sequence ||
+      Option.isNone(fresh.value.balance) ||
+      !fresh.value.sponsored
+    )
+      return Option.some(new OpeningPending());
+
+    return Option.some(
+      activated(yield* directory.activatePaired(row, facts.value, claim)),
+    );
+  });
+
+  const lone = (approvals: Option.Option<Approvals>): Option.Option<Approval> =>
+    Option.flatMap(approvals, ([first, ...rest]) =>
+      rest.length === 0 ? Option.some(first) : Option.none(),
+    );
+
   const recoveryStage = Effect.fn("Wallet.recoveryStage")(function* (
     row: WalletRow,
     state: AccountState,
-    approval: Option.Option<Approval>,
+    approvals: Option.Option<Approvals>,
     claim: WalletClaim,
+    pairedAllowed: boolean,
   ): Effect.fn.Return<OpenStep, StoreFailure | ChainUnreachable> {
     const address = Schema.decodeSync(AccountAddress)(row.address);
 
     if (!state.sponsored) return new NotSponsored();
+
+    if (pairedAllowed) {
+      const paired = yield* pairedActivation(row, state, claim);
+
+      if (Option.isSome(paired)) return paired.value;
+    }
 
     const stored =
       row.recoveryDraft && row.recoveryMaxTime
@@ -94,18 +184,23 @@ export const openingFlow = Effect.gen(function* () {
         : undefined;
 
     const facts = stored ? readEnvelope(stored.envelope) : Option.none();
+    const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
 
     if (
       !stored ||
       !(yield* live(stored)) ||
       Option.isNone(facts) ||
       !Predicate.isTagged(facts.value, "RecoveryFacts") ||
+      facts.value.minLedger !== undefined ||
+      facts.value.minTime < now + recoveryDelay - recoveryDraftLifetime ||
       BigInt(facts.value.sequence) !== BigInt(state.sequence) + 1n
     ) {
       const request = yield* chain.draftRecovery(address);
 
       return yield* saveRecoveryDraft(row, request, claim);
     }
+
+    const approval = lone(approvals);
 
     if (Option.isNone(approval)) return new RecoveryDraft({ request: stored });
 
@@ -125,27 +220,59 @@ export const openingFlow = Effect.gen(function* () {
     )
       return new OpeningPending();
 
-    const active = yield* directory.activate(
-      row,
-      sealed.value,
-      facts.value,
-      claim,
+    return activated(
+      yield* directory.activate(row, sealed.value, facts.value, claim),
     );
+  });
 
-    if (
-      Predicate.isTagged(active, "UsernameTaken") ||
-      Predicate.isTagged(active, "AddressBound")
-    )
-      return active;
+  const sealDraft = Effect.fn("Wallet.sealDraft")(function* (
+    draft: OpeningDraft,
+    approvals: Approvals,
+    holder: AccountAddress,
+  ) {
+    const [openingApproval, recoveryApproval] = approvals;
 
-    return Option.isSome(active)
-      ? new Opened({ profile: active.value })
-      : new OpeningPending();
+    if (approvals.length !== (draft.recovery ? 2 : 1))
+      return Option.none<{
+        readonly opening: Sealed;
+        readonly recovery: Option.Option<Sealed>;
+      }>();
+
+    const opening = yield* chain
+      .seal(draft.request, openingApproval, holder)
+      .pipe(Effect.option);
+
+    if (Option.isNone(opening)) return Option.none();
+
+    if (draft.recovery === undefined || recoveryApproval === undefined)
+      return Option.some({
+        opening: opening.value,
+        recovery: Option.none<Sealed>(),
+      });
+
+    const recovery = yield* chain
+      .seal(draft.recovery, recoveryApproval, holder)
+      .pipe(Effect.option);
+
+    return Option.map(recovery, (signed) => ({
+      opening: opening.value,
+      recovery: Option.some(signed),
+    }));
+  });
+
+  const draftOpening = Effect.fn("Wallet.draftOpening")(function* (
+    address: AccountAddress,
+    state: Option.Option<AccountState>,
+  ) {
+    const pinSequence =
+      Option.isNone(state) || !(yield* directory.hasSignedWork(address));
+
+    return yield* chain.draftOpening(address, pinSequence);
   });
 
   const open = Effect.fn("Wallet.open")(function* (
     claim: WalletClaim,
-    approval: Option.Option<Approval>,
+    approvals: Option.Option<Approvals>,
   ): Effect.fn.Return<OpenStep, StoreFailure | ChainUnreachable> {
     if (!chain.validAddress(claim.address))
       return new InvalidAddress({ address: claim.address });
@@ -174,28 +301,27 @@ export const openingFlow = Effect.gen(function* () {
         if (row.status === "active") return yield* openedOrBound(row, claim);
 
         return row.recoveryDraft && row.recoveryMaxTime
-          ? yield* recoveryStage(row, state.value, approval, claim)
+          ? yield* recoveryStage(row, state.value, approvals, claim, false)
           : yield* saveRecoveryDraft(row, request, claim);
       }
 
-      const request = yield* chain.draftOpening(claim.address);
-      const written = yield* directory.start(claim.address, request);
+      const drafted = yield* draftOpening(claim.address, state);
+      const written = yield* directory.start(claim.address, drafted);
 
       if (written.status === "active") return new OpeningPending();
 
       const stored = openingAttempt(written);
 
       if (Option.isSome(stored))
-        return stored.value instanceof SigningRequest
-          ? new OpeningDraft({ request: stored.value })
+        return stored.value instanceof OpeningDraft
+          ? stored.value
           : new OpeningPending();
 
-      const drafted = yield* directory.draft(written, request);
-      const committed = openingAttempt(drafted);
+      const redrafted = yield* directory.draft(written, drafted);
+      const committed = openingAttempt(redrafted);
 
-      return Option.isSome(committed) &&
-        committed.value instanceof SigningRequest
-        ? new OpeningDraft({ request: committed.value })
+      return Option.isSome(committed) && committed.value instanceof OpeningDraft
+        ? committed.value
         : new OpeningPending();
     }
 
@@ -210,7 +336,7 @@ export const openingFlow = Effect.gen(function* () {
     }
 
     if (usable && Option.isSome(state))
-      return yield* recoveryStage(row, state.value, approval, claim);
+      return yield* recoveryStage(row, state.value, approvals, claim, true);
 
     const attempt = openingAttempt(row);
 
@@ -223,6 +349,13 @@ export const openingFlow = Effect.gen(function* () {
         Rejected: () => false,
         Expired: () => false,
       });
+
+      if (
+        Predicate.isTagged(settlement, "Applied") &&
+        DateTime.toEpochMillis(settlement.at) + settledReadGrace * 1000 >
+          (yield* Clock.currentTimeMillis)
+      )
+        return new OpeningPending();
 
       const expiredOpening =
         unfinished && (yield* chain.pastOpeningWindow(attempt.value));
@@ -242,26 +375,30 @@ export const openingFlow = Effect.gen(function* () {
             confirmed.value,
             Option.none(),
             claim,
+            false,
           );
       }
     }
 
     if (
       Option.isSome(attempt) &&
-      attempt.value instanceof SigningRequest &&
-      (yield* live(attempt.value))
+      attempt.value instanceof OpeningDraft &&
+      (yield* live(attempt.value.request))
     ) {
-      if (Option.isNone(approval))
-        return new OpeningDraft({ request: attempt.value });
+      const pending = attempt.value;
 
-      const sealed = yield* chain
-        .seal(attempt.value, approval.value, claim.address)
-        .pipe(Effect.option);
+      if (Option.isNone(approvals)) return pending;
 
-      if (Option.isNone(sealed))
-        return new OpeningDraft({ request: attempt.value });
+      const sealed = yield* sealDraft(pending, approvals.value, claim.address);
 
-      const written = yield* directory.seal(row, sealed.value, claim);
+      if (Option.isNone(sealed)) return pending;
+
+      const written = yield* directory.seal(
+        row,
+        sealed.value.opening,
+        claim,
+        sealed.value.recovery,
+      );
 
       if (
         Predicate.isTagged(written, "UsernameTaken") ||
@@ -277,12 +414,12 @@ export const openingFlow = Effect.gen(function* () {
       return new OpeningPending();
     }
 
-    const request = yield* chain.draftOpening(claim.address);
-    const written = yield* directory.draft(row, request);
+    const drafted = yield* draftOpening(claim.address, state);
+    const written = yield* directory.draft(row, drafted);
     const stored = openingAttempt(written);
 
-    return Option.isSome(stored) && stored.value instanceof SigningRequest
-      ? new OpeningDraft({ request: stored.value })
+    return Option.isSome(stored) && stored.value instanceof OpeningDraft
+      ? stored.value
       : new OpeningPending();
   });
 

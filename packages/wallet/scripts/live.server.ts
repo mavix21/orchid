@@ -5,12 +5,15 @@ import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import {
+  type ConfirmOpeningOutcome,
   DeviceWallet,
   type KeyStore,
   KeyStoreUnavailable,
+  type WalletClient,
   publicWalletOf,
 } from "@workspace/wallet";
 import { AssetOrders } from "../src/server/AssetOrders.server";
@@ -121,3 +124,20 @@ export function memoryKeyStore() {
 
   return { store, saved: () => saved };
 }
+
+export const openThroughReview = async (
+  client: WalletClient,
+  username: string,
+) => {
+  let outcome: ConfirmOpeningOutcome = await client.reviewOpening(username);
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    if (Predicate.isTagged(outcome, "OpeningReview"))
+      outcome = await client.confirmOpening(outcome);
+    else if (Predicate.isTagged(outcome, "OpeningPending"))
+      outcome = await client.reviewOpening(username);
+    else break;
+  }
+
+  return outcome;
+};

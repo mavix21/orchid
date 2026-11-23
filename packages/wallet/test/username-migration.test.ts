@@ -9,11 +9,9 @@ import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import {
-  type Approval,
-  Opened,
+  type Approvals,
   OpeningDraft,
   OpeningPending,
-  Profile,
   UsernameTaken,
   type WalletClaim,
 } from "../src/contract";
@@ -22,7 +20,7 @@ import { Wallet } from "../src/server/Wallet.server";
 import { assertTagged } from "./tagged";
 import {
   addressOf,
-  approve,
+  approveOpening,
   claimFor,
   dbLayer,
   walletForDb,
@@ -172,9 +170,9 @@ it.live(
 
       const reopen = (
         claim: WalletClaim,
-        approval: Option.Option<Approval> = Option.none(),
+        approvals: Option.Option<Approvals> = Option.none(),
       ) =>
-        Wallet.use((w) => w.open(claim, approval)).pipe(
+        Wallet.use((w) => w.open(claim, approvals)).pipe(
           Effect.provide(scratchWallet),
         );
 
@@ -192,14 +190,9 @@ it.live(
 
       assertTagged(draft, "OpeningDraft");
       expect(
-        yield* reopen(claim, approve(draft.request, recoveredKey)),
+        yield* reopen(claim, approveOpening(recoveredKey, draft)),
       ).toBeInstanceOf(OpeningPending);
 
-      const recoveryStep = yield* reopen(claim);
-
-      assertTagged(recoveryStep, "RecoveryDraft");
-      expect(
-        yield* reopen(claim, approve(recoveryStep.request, recoveredKey)),
-      ).toEqual(new Opened({ profile: new Profile(claim) }));
+      expect(yield* reopen(claim)).toBeInstanceOf(OpeningPending);
     }),
 );

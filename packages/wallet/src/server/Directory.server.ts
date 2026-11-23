@@ -23,16 +23,18 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   AddressBound,
+  OpeningDraft,
   Profile,
   SigningRequest,
   Username,
   UsernameTaken,
   WalletClaim,
 } from "../contract";
-import { RecoveryFacts } from "../stellar/envelopes";
+import type { RecoveryFacts } from "../stellar/envelopes";
 import { epochAt, network, sweepBatchSize } from "../stellar/network";
-import { Sealed } from "./Chain.server";
-import { usernames, wallets } from "./tables.server";
+import type { Sealed } from "./Chain.server";
+import { pairedRecovery } from "./opening-attempt.server";
+import { assetOrders, transfers, usernames, wallets } from "./tables.server";
 import { reserved } from "./usernames.server";
 
 export class StoreFailure extends Schema.TaggedError<StoreFailure>()(
@@ -85,29 +87,6 @@ function availability(
   return new Available();
 }
 
-export function openingAttempt(
-  row: WalletRow,
-): Option.Option<SigningRequest | Sealed> {
-  if (!row.attemptEnvelope || !row.attemptExpiresAt) return Option.none();
-
-  const expiresAt = DateTime.makeUnsafe(row.attemptExpiresAt);
-
-  return Option.some(
-    row.attemptHash
-      ? new Sealed({
-          envelope: row.attemptEnvelope,
-          hash: row.attemptHash,
-          expiresAt,
-        })
-      : new SigningRequest({
-          envelope: Schema.decodeSync(SigningRequest.fields.envelope)(
-            row.attemptEnvelope,
-          ),
-          expiresAt,
-        }),
-  );
-}
-
 export class Directory extends Context.Service<
   Directory,
   {
@@ -127,17 +106,18 @@ export class Directory extends Context.Service<
 
     start(
       address: AccountAddress,
-      initial?: SigningRequest,
+      initial?: OpeningDraft,
     ): Effect.Effect<WalletRow, StoreFailure>;
     draft(
       row: WalletRow,
-      request: SigningRequest,
+      draft: OpeningDraft,
     ): Effect.Effect<WalletRow, StoreFailure>;
 
     seal(
       row: WalletRow,
       sealed: Sealed,
       claim: WalletClaim,
+      recovery: Option.Option<Sealed>,
     ): Effect.Effect<WalletRow | Unavailable, StoreFailure>;
     recoveryDraft(
       row: WalletRow,
@@ -149,6 +129,14 @@ export class Directory extends Context.Service<
       facts: RecoveryFacts,
       claim: WalletClaim,
     ): Effect.Effect<Option.Option<Profile> | Unavailable, StoreFailure>;
+    activatePaired(
+      row: WalletRow,
+      facts: RecoveryFacts,
+      claim: WalletClaim,
+    ): Effect.Effect<Option.Option<Profile> | Unavailable, StoreFailure>;
+    hasSignedWork(
+      address: AccountAddress,
+    ): Effect.Effect<boolean, StoreFailure>;
 
     recover(row: WalletRow): Effect.Effect<void, StoreFailure>;
     readonly recoverable: Effect.Effect<ReadonlyArray<WalletRow>, StoreFailure>;
@@ -234,7 +222,7 @@ export class Directory extends Context.Service<
 
       const start = Effect.fn("Directory.start")(function* (
         address: AccountAddress,
-        initial?: SigningRequest,
+        initial?: OpeningDraft,
       ) {
         const now = yield* Clock.currentTimeMillis;
 
@@ -245,10 +233,11 @@ export class Directory extends Context.Service<
             status: "opening",
             network,
             testnetEpoch: epochAt(now),
-            attemptEnvelope: initial ? initial.envelope : null,
+            attemptEnvelope: initial ? initial.request.envelope : null,
             attemptExpiresAt: initial
-              ? DateTime.toDateUtc(initial.expiresAt)
+              ? DateTime.toDateUtc(initial.request.expiresAt)
               : null,
+            pairedRecoveryDraft: initial?.recovery?.envelope ?? null,
           })
           .onConflictDoNothing()
           .returning();
@@ -267,15 +256,18 @@ export class Directory extends Context.Service<
 
       const draft = Effect.fn("Directory.draft")(function* (
         row: WalletRow,
-        request: SigningRequest,
+        drafted: OpeningDraft,
       ) {
         const written = yield* db
           .update(wallets)
           .set({
             version: row.version + 1,
-            attemptEnvelope: request.envelope,
+            attemptEnvelope: drafted.request.envelope,
             attemptHash: null,
-            attemptExpiresAt: DateTime.toDateUtc(request.expiresAt),
+            attemptExpiresAt: DateTime.toDateUtc(drafted.request.expiresAt),
+            pairedRecoveryDraft: drafted.recovery?.envelope ?? null,
+            pairedRecoveryEnvelope: null,
+            pairedRecoveryHash: null,
           })
           .where(
             and(
@@ -293,6 +285,7 @@ export class Directory extends Context.Service<
         row: WalletRow,
         sealed: Sealed,
         claim: WalletClaim,
+        recovery: Option.Option<Sealed>,
       ) {
         const unchanged = and(
           scope,
@@ -319,6 +312,14 @@ export class Directory extends Context.Service<
                 attemptEnvelope: sealed.envelope,
                 attemptHash: sealed.hash,
                 attemptExpiresAt: DateTime.toDateUtc(sealed.expiresAt),
+                pairedRecoveryEnvelope: Option.match(recovery, {
+                  onNone: () => null,
+                  onSome: (signed) => signed.envelope,
+                }),
+                pairedRecoveryHash: Option.match(recovery, {
+                  onNone: () => null,
+                  onSome: (signed) => signed.hash,
+                }),
               })
               .where(unchanged)
               .returning();
@@ -346,6 +347,9 @@ export class Directory extends Context.Service<
             version: row.version + 1,
             recoveryDraft: request.envelope,
             recoveryMaxTime: DateTime.toDateUtc(request.expiresAt),
+            pairedRecoveryDraft: null,
+            pairedRecoveryEnvelope: null,
+            pairedRecoveryHash: null,
           })
           .where(
             and(
@@ -360,22 +364,14 @@ export class Directory extends Context.Service<
         return written[0] ?? (yield* current(row));
       });
 
-      const activate = (
-        row: WalletRow,
+      const activateWhere = (
+        activatable: SQL | undefined,
+        version: number,
         sealed: Sealed,
         facts: RecoveryFacts,
         claim: WalletClaim,
-      ) => {
-        const activatable = and(
-          scope,
-          eq(wallets.address, row.address),
-          or(eq(wallets.status, "opening"), eq(wallets.status, "recovered")),
-          eq(wallets.version, row.version),
-          eq(wallets.recoveryDraft, row.recoveryDraft ?? ""),
-          isNull(wallets.recoveryEnvelope),
-        );
-
-        return db.transaction((tx) =>
+      ) =>
+        db.transaction((tx) =>
           Effect.gen(function* () {
             const locked = yield* lockRow(tx, activatable);
 
@@ -393,7 +389,7 @@ export class Directory extends Context.Service<
               .update(wallets)
               .set({
                 status: "active",
-                version: row.version + 1,
+                version: version + 1,
                 testnetEpoch: epochAt(now),
                 recoveryEnvelope: sealed.envelope,
                 recoveryHash: sealed.hash,
@@ -404,6 +400,9 @@ export class Directory extends Context.Service<
                 recoveryMaxTime: DateTime.toDateUtc(
                   DateTime.makeUnsafe(facts.maxTime * 1000),
                 ),
+                pairedRecoveryDraft: null,
+                pairedRecoveryEnvelope: null,
+                pairedRecoveryHash: null,
               })
               .where(activatable)
               .returning();
@@ -411,7 +410,87 @@ export class Directory extends Context.Service<
             return written[0] ? Option.some(new Profile(claim)) : Option.none();
           }),
         );
+
+      const unactivated = (row: WalletRow) =>
+        and(
+          scope,
+          eq(wallets.address, row.address),
+          or(eq(wallets.status, "opening"), eq(wallets.status, "recovered")),
+          eq(wallets.version, row.version),
+          isNull(wallets.recoveryEnvelope),
+        );
+
+      const activate = (
+        row: WalletRow,
+        sealed: Sealed,
+        facts: RecoveryFacts,
+        claim: WalletClaim,
+      ) =>
+        activateWhere(
+          and(
+            unactivated(row),
+            eq(wallets.recoveryDraft, row.recoveryDraft ?? ""),
+          ),
+          row.version,
+          sealed,
+          facts,
+          claim,
+        );
+
+      const activatePaired = (
+        row: WalletRow,
+        facts: RecoveryFacts,
+        claim: WalletClaim,
+      ) => {
+        const signed = pairedRecovery(row);
+
+        return Option.isNone(signed)
+          ? Effect.succeed(Option.none<Profile>())
+          : activateWhere(
+              and(
+                unactivated(row),
+                eq(
+                  wallets.pairedRecoveryEnvelope,
+                  signed.value.sealed.envelope,
+                ),
+              ),
+              row.version,
+              signed.value.sealed,
+              facts,
+              claim,
+            );
       };
+
+      const signedInFlight = Effect.fn("Directory.signedInFlight")(function* (
+        address: AccountAddress,
+      ) {
+        const [authorizedTransfers, authorizedOrders] = yield* Effect.all([
+          db
+            .select({ id: transfers.id })
+            .from(transfers)
+            .where(
+              and(
+                eq(transfers.network, network),
+                eq(transfers.sender, address),
+                eq(transfers.status, "authorized"),
+              ),
+            )
+            .limit(1),
+          db
+            .select({ id: assetOrders.id })
+            .from(assetOrders)
+            .where(
+              and(
+                eq(assetOrders.network, network),
+                eq(assetOrders.wallet, address),
+                eq(assetOrders.status, "authorized"),
+              ),
+            )
+            .limit(1),
+        ]);
+
+        return authorizedTransfers.length + authorizedOrders.length > 0;
+      });
 
       const recover = (row: WalletRow) =>
         db
@@ -428,6 +507,9 @@ export class Directory extends Context.Service<
             recoverySequence: null,
             recoveryMinTime: null,
             recoveryMaxTime: null,
+            pairedRecoveryDraft: null,
+            pairedRecoveryEnvelope: null,
+            pairedRecoveryHash: null,
           })
           .where(
             and(
@@ -484,10 +566,14 @@ export class Directory extends Context.Service<
           ),
         start: (address, initial) => wrap(start(address, initial)),
         draft: (row, request) => wrap(draft(row, request)),
-        seal: (row, sealed, claim) => wrap(seal(row, sealed, claim)),
+        seal: (row, sealed, claim, recovery) =>
+          wrap(seal(row, sealed, claim, recovery)),
         recoveryDraft: (row, request) => wrap(recoveryDraft(row, request)),
         activate: (row, sealed, facts, claim) =>
           wrap(activate(row, sealed, facts, claim)),
+        activatePaired: (row, facts, claim) =>
+          wrap(activatePaired(row, facts, claim)),
+        hasSignedWork: (address) => wrap(signedInFlight(address)),
         recover: (row) => wrap(recover(row)),
         recoverable: wrap(
           Effect.gen(function* () {

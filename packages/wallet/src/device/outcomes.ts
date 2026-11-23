@@ -24,7 +24,9 @@ import {
   TransferOrder,
   type TransferStep,
   type NoBackup,
+  OpeningDraft,
   Profile,
+  RecoveryDraft,
   type RegistrationRefused,
   type Holding,
   type InvalidAddress,
@@ -175,6 +177,25 @@ export type CreateOutcome =
   | DraftRejected
   | EnrollmentRefusal
   | WalletUnavailable;
+
+export class OpeningReview extends Schema.TaggedClass<OpeningReview>()(
+  "OpeningReview",
+  {
+    username: Username,
+    address: AccountAddress,
+    draft: Schema.Union([OpeningDraft, RecoveryDraft]),
+    redrafted: Schema.Boolean,
+  },
+) {}
+
+export type ReviewOpeningOutcome = OpeningReview | CreateOutcome;
+
+export type ConfirmOpeningOutcome =
+  | ReviewOpeningOutcome
+  | WrongCredential
+  | AssertionRejected
+  | PrfOutputMissing
+  | CorruptDeviceWallet;
 
 export class TransferIntent extends Schema.Class<TransferIntent>(
   "@workspace/wallet/TransferIntent",

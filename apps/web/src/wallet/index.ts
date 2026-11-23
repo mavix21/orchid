@@ -19,7 +19,10 @@ export const walletEffects: WalletEffects = {
   overview: () => withWallet((wallet) => wallet.overview()),
   saved: () => withWallet((wallet) => wallet.saved()),
   unlock: () => withWallet((wallet) => wallet.unlock()),
-  create: (usernameText) => withWallet((wallet) => wallet.create(usernameText)),
+  reviewOpening: (usernameText) =>
+    withWallet((wallet) => wallet.reviewOpening(usernameText)),
+  confirmOpening: (shown) =>
+    withWallet((wallet) => wallet.confirmOpening(shown)),
   backUp: () => withWallet((wallet) => wallet.backUp()),
   restore: () => withWallet((wallet) => wallet.restore()),
   cancelRestore: () => withWallet((wallet) => wallet.cancelRestore()),
@@ -38,8 +41,10 @@ export const walletClient: WalletClient = {
   overview: () => Effect.runPromise(walletEffects.overview()),
   saved: () => Effect.runPromise(walletEffects.saved()),
   unlock: () => Effect.runPromise(walletEffects.unlock()),
-  create: (usernameText) =>
-    Effect.runPromise(walletEffects.create(usernameText)),
+  reviewOpening: (usernameText) =>
+    Effect.runPromise(walletEffects.reviewOpening(usernameText)),
+  confirmOpening: (shown) =>
+    Effect.runPromise(walletEffects.confirmOpening(shown)),
   backUp: () => Effect.runPromise(walletEffects.backUp()),
   restore: () => Effect.runPromise(walletEffects.restore()),
   cancelRestore: () => Effect.runPromise(walletEffects.cancelRestore()),

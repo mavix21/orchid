@@ -4,6 +4,7 @@ import {
   AssetOrder,
   AssetStep,
   Approval,
+  Approvals,
   BackupEnrollment,
   ChallengePurpose,
   EnrollStep,
@@ -35,7 +36,7 @@ const OverviewCall = Schema.Struct({ address: AccountAddress });
 
 const OpenCall = Schema.Struct({
   claim: WalletClaim,
-  approval: Schema.OptionFromNullOr(Approval),
+  approvals: Schema.OptionFromNullOr(Approvals),
 });
 
 const TransferCall = Schema.Struct({
@@ -78,7 +79,7 @@ const openFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof OpenCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(OpenCall, data, OpenStep, (decoded) =>
-      Wallet.use((wallet) => wallet.open(decoded.claim, decoded.approval)),
+      Wallet.use((wallet) => wallet.open(decoded.claim, decoded.approvals)),
     ),
   );
 
@@ -197,8 +198,8 @@ export const port: WalletPort = {
       resolvePaymentLinkFn,
     ),
   overview: (address) => reach(Overview, OverviewCall, { address }, overviewFn),
-  open: (claim, approval) =>
-    reach(OpenStep, OpenCall, { claim, approval }, openFn),
+  open: (claim, approvals) =>
+    reach(OpenStep, OpenCall, { claim, approvals }, openFn),
   transfer: (order, approval) =>
     reach(TransferStep, TransferCall, { order, approval }, transferFn),
 };

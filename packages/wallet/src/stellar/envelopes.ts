@@ -28,6 +28,16 @@ export type EnvelopeFacts =
   | RecoveryFacts
   | AssetFacts;
 
+export const LedgerWindow = Schema.Struct({
+  minLedger: Schema.Number,
+  maxLedger: Schema.Number,
+});
+
+export type LedgerWindow = typeof LedgerWindow.Type;
+
+export const pinnedSequence = (window: LedgerWindow): bigint =>
+  BigInt(window.maxLedger - 1) << 32n;
+
 export class OpeningFacts extends Schema.TaggedClass<OpeningFacts>()(
   "OpeningFacts",
   {
@@ -35,6 +45,7 @@ export class OpeningFacts extends Schema.TaggedClass<OpeningFacts>()(
     address: AccountAddress,
     reserveSponsor: AccountAddress,
     createAccount: Schema.Boolean,
+    window: Schema.optional(LedgerWindow),
   },
 ) {}
 
@@ -56,6 +67,7 @@ export class RecoveryFacts extends Schema.TaggedClass<RecoveryFacts>()(
     ...bounds,
     address: AccountAddress,
     reserveSponsor: AccountAddress,
+    minLedger: Schema.optional(Schema.Number),
   },
 ) {}
 
@@ -65,6 +77,7 @@ export interface OpeningInput {
   readonly minTime: number;
   readonly maxTime: number;
   readonly createAccount: boolean;
+  readonly window?: LedgerWindow;
 }
 
 export interface PaymentInput {
@@ -82,6 +95,7 @@ export interface RecoveryInput {
   readonly reserveSponsor: AccountAddress;
   readonly minTime: number;
   readonly maxTime: number;
+  readonly minLedger?: number;
 }
 
 export function draftOpening(input: OpeningInput): UnsignedEnvelope {
@@ -100,11 +114,22 @@ export function draftOpening(input: OpeningInput): UnsignedEnvelope {
       }),
     );
 
-  return Schema.decodeSync(UnsignedEnvelope)(
+  builder.addOperation(
+    Operation.changeTrust({ source: input.address, asset: usdc }),
+  );
+
+  if (input.window)
     builder
       .addOperation(
-        Operation.changeTrust({ source: input.address, asset: usdc }),
+        Operation.bumpSequence({
+          source: input.address,
+          bumpTo: pinnedSequence(input.window).toString(),
+        }),
       )
+      .setLedgerbounds(input.window.minLedger, input.window.maxLedger);
+
+  return Schema.decodeSync(UnsignedEnvelope)(
+    builder
       .addOperation(
         Operation.endSponsoringFutureReserves({ source: input.address }),
       )
@@ -140,16 +165,18 @@ export function draftPayment(input: PaymentInput): UnsignedEnvelope {
 }
 
 export function draftRecovery(input: RecoveryInput): UnsignedEnvelope {
-  return Schema.decodeSync(UnsignedEnvelope)(
-    new TransactionBuilder(input.source, { fee: baseFee, networkPassphrase })
-      .addOperation(Operation.changeTrust({ asset: usdc, limit: "0" }))
-      .addOperation(
-        Operation.accountMerge({ destination: input.reserveSponsor }),
-      )
-      .setTimebounds(input.minTime, input.maxTime)
-      .build()
-      .toXDR(),
-  );
+  const builder = new TransactionBuilder(input.source, {
+    fee: baseFee,
+    networkPassphrase,
+  })
+    .addOperation(Operation.changeTrust({ asset: usdc, limit: "0" }))
+    .addOperation(Operation.accountMerge({ destination: input.reserveSponsor }))
+    .setTimebounds(input.minTime, input.maxTime);
+
+  if (input.minLedger !== undefined)
+    builder.setLedgerbounds(input.minLedger, 0);
+
+  return Schema.decodeSync(UnsignedEnvelope)(builder.build().toXDR());
 }
 
 export function readEnvelope(
@@ -187,6 +214,7 @@ export function readEnvelope(
       const address = Schema.decodeSync(AccountAddress)(first.sponsoredId);
       const reserveSponsor = Schema.decodeSync(AccountAddress)(tx.source);
       const createAccount = second?.type === "createAccount";
+      const window = tx.ledgerBounds;
 
       if (
         draftOpening({
@@ -195,6 +223,7 @@ export function readEnvelope(
           minTime,
           maxTime,
           createAccount,
+          window,
         }) === envelope
       )
         return Option.some(
@@ -203,6 +232,7 @@ export function readEnvelope(
             address,
             reserveSponsor,
             createAccount,
+            window,
           }),
         );
     }
@@ -262,6 +292,8 @@ export function readEnvelope(
         second.destination,
       );
 
+      const minLedger = tx.ledgerBounds?.minLedger;
+
       if (
         minTime > 0 &&
         draftRecovery({
@@ -269,10 +301,16 @@ export function readEnvelope(
           reserveSponsor,
           minTime,
           maxTime,
+          minLedger,
         }) === envelope
       )
         return Option.some(
-          new RecoveryFacts({ ...fields, address, reserveSponsor }),
+          new RecoveryFacts({
+            ...fields,
+            address,
+            reserveSponsor,
+            minLedger,
+          }),
         );
     }
 

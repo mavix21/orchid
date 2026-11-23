@@ -3,12 +3,10 @@ import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
-import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import {
   BackupStored,
   type TransferId,
-  Username,
   type WalletPort,
   type WalletUnavailable,
 } from "../contract";
@@ -26,19 +24,20 @@ import {
 import {
   type BackUpOutcome,
   type CancelPaymentLinkOutcome,
+  type ConfirmOpeningOutcome,
   type ConfirmOutcome,
-  type CreateOutcome,
   type CreatePaymentLinkOutcome,
   type DeviceOverview,
-  InvalidUsername,
   NoWallet,
   type PaymentLinkIntent,
   type PaymentLinkTarget,
   type PaymentLinksOutcome,
+  type OpeningReview,
   type PaymentReview,
   type ResolvePaymentLinkOutcome,
   type RestoreOutcome,
   type ResumeOutcome,
+  type ReviewOpeningOutcome,
   type ReviewOutcome,
   type SavedOutcome,
   SavedWallet,
@@ -61,7 +60,8 @@ export interface WalletClient {
   overview(): Promise<DeviceOverview>;
   saved(): Promise<SavedOutcome>;
   unlock(): Promise<UnlockOutcome>;
-  create(usernameText: string): Promise<CreateOutcome>;
+  reviewOpening(usernameText: string): Promise<ReviewOpeningOutcome>;
+  confirmOpening(review: OpeningReview): Promise<ConfirmOpeningOutcome>;
   backUp(): Promise<BackUpOutcome>;
   restore(): Promise<RestoreOutcome>;
   cancelRestore(): Promise<void>;
@@ -82,7 +82,8 @@ export interface WalletEffects {
   overview(): Effect.Effect<DeviceOverview>;
   saved(): Effect.Effect<SavedOutcome>;
   unlock(): Effect.Effect<UnlockOutcome>;
-  create(usernameText: string): Effect.Effect<CreateOutcome>;
+  reviewOpening(usernameText: string): Effect.Effect<ReviewOpeningOutcome>;
+  confirmOpening(review: OpeningReview): Effect.Effect<ConfirmOpeningOutcome>;
   backUp(): Effect.Effect<BackUpOutcome>;
   restore(): Effect.Effect<RestoreOutcome>;
   cancelRestore(): Effect.Effect<void>;
@@ -111,6 +112,7 @@ export function makeWalletEffects(
   };
 
   const issuedReview = Ref.makeUnsafe(Option.none<string>());
+  const issuedOpening = Ref.makeUnsafe(Option.none<string>());
 
   const sending = loadFromServer(() => import("./sending")).pipe(
     Effect.map(({ sendTransfer }) =>
@@ -122,15 +124,11 @@ export function makeWalletEffects(
     Effect.map(({ devicePaymentLinks }) => devicePaymentLinks(port, store)),
   );
 
-  const create = Effect.fn("Device.create")(function* (usernameText: string) {
-    const username = Schema.decodeUnknownOption(Username)(usernameText);
-
-    if (Option.isNone(username)) return new InvalidUsername();
-
-    const { openWallet } = yield* loadFromServer(() => import("./opening"));
-
-    return yield* openWallet(port, store)(username.value);
-  });
+  const opening = loadFromServer(() => import("./opening")).pipe(
+    Effect.map(({ deviceOpening }) =>
+      deviceOpening(port, store, { issued: issuedOpening, device }),
+    ),
+  );
 
   const backUp = Effect.fn("Device.backUp")(function* () {
     const stored = yield* store.readPublic();
@@ -296,7 +294,19 @@ export function makeWalletEffects(
           PasskeyFailed: (failed) => Effect.succeed(failed),
         }),
       ),
-    create: (usernameText) => settle(create(usernameText)),
+    reviewOpening: (usernameText) =>
+      settle(
+        opening.pipe(Effect.flatMap(({ review }) => review(usernameText))),
+      ),
+    confirmOpening: (shown) =>
+      settle(
+        opening.pipe(
+          Effect.flatMap(({ confirm }) => confirm(shown)),
+          Effect.catchTag("CorruptDeviceWallet", (damaged) =>
+            Effect.succeed(damaged),
+          ),
+        ),
+      ),
     backUp: () => settle(backUp()),
     restore: () =>
       settle(
@@ -360,7 +370,9 @@ export function makeWalletClient(
     overview: () => Effect.runPromise(effects.overview()),
     saved: () => Effect.runPromise(effects.saved()),
     unlock: () => Effect.runPromise(effects.unlock()),
-    create: (usernameText) => Effect.runPromise(effects.create(usernameText)),
+    reviewOpening: (usernameText) =>
+      Effect.runPromise(effects.reviewOpening(usernameText)),
+    confirmOpening: (shown) => Effect.runPromise(effects.confirmOpening(shown)),
     backUp: () => Effect.runPromise(effects.backUp()),
     restore: () => Effect.runPromise(effects.restore()),
     cancelRestore: () => Effect.runPromise(effects.cancelRestore()),

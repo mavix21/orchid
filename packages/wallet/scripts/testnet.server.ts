@@ -8,6 +8,7 @@ import {
   TransactionBuilder,
   rpc,
 } from "@stellar/stellar-sdk";
+import * as Arr from "effect/Array";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -16,6 +17,7 @@ import {
   AccountAddress,
   AddressRecipient,
   Approval,
+  type Approvals,
   type DestinationAddress,
   ExternalMemoRequired,
   MemoNotAllowed,
@@ -41,9 +43,10 @@ import { Applied, Chain, Rejected, Sealed } from "../src/server/Chain.server";
 import { Directory, type WalletRow } from "../src/server/Directory.server";
 import { Authorized, Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
+import { requestsOf } from "../src/device/opening-drafts";
+import { pairedCreation } from "./testnet-paired-creation.server";
 import {
   OpeningFacts,
-  draftRecovery,
   readEnvelope,
   signingPayload,
 } from "../src/stellar/envelopes";
@@ -77,10 +80,11 @@ const run = <A, E>(
 const addressOf = (key: Keypair) =>
   Schema.decodeSync(AccountAddress)(key.publicKey());
 
+const approval = (request: SigningRequest, key: Keypair) =>
+  new Approval({ signature: key.sign(signingPayload(request.envelope)) });
+
 const approve = (request: SigningRequest, key: Keypair) =>
-  Option.some(
-    new Approval({ signature: key.sign(signingPayload(request.envelope)) }),
-  );
+  Option.some(approval(request, key));
 
 const hexHash = (transaction: { hash(): Uint8Array }) =>
   Array.from(transaction.hash(), (byte) =>
@@ -101,17 +105,19 @@ const walletRow = async (address: AccountAddress): Promise<WalletRow> =>
 
 const opening = (
   claim: WalletClaim,
-  approval: Option.Option<Approval> = Option.none(),
-) => run(Wallet.use((wallet) => wallet.open(claim, approval)));
+  approvals: Option.Option<Approvals> = Option.none(),
+) => run(Wallet.use((wallet) => wallet.open(claim, approvals)));
 
-const untilRecoveryDraft = async (claim: WalletClaim) => {
+const approvedBy = (
+  key: Keypair,
+  draft: OpeningDraft | RecoveryDraft,
+): Option.Option<Approvals> =>
+  Option.some(Arr.map(requestsOf(draft), (request) => approval(request, key)));
+
+const untilOpened = async (claim: WalletClaim) => {
   let step = await opening(claim);
 
-  for (
-    let attempt = 0;
-    attempt < 60 && !(step instanceof RecoveryDraft);
-    attempt++
-  ) {
+  for (let attempt = 0; attempt < 60 && !(step instanceof Opened); attempt++) {
     await Bun.sleep(1000);
     step = await opening(claim);
   }
@@ -137,91 +143,16 @@ const waitApplied = async (sealed: Sealed) => {
   throw new Error("Verification transaction did not settle in 60 seconds");
 };
 
-const createWithShortRecovery = async (key: Keypair, name: string) => {
-  const address = addressOf(key);
-
-  const claim = new WalletClaim({
-    address,
-    username: Schema.decodeSync(Username)(name),
-  });
-
-  const draft = await opening(claim);
-
-  assert.ok(draft instanceof OpeningDraft);
-  await opening(claim, approve(draft.request, key));
-
-  const stored = await walletRow(address);
-
-  assert.ok(
-    stored.attemptEnvelope && stored.attemptHash && stored.attemptExpiresAt,
-  );
-
-  const sealed = new Sealed({
-    envelope: stored.attemptEnvelope,
-    hash: stored.attemptHash,
-    expiresAt: DateTime.makeUnsafe(stored.attemptExpiresAt),
-  });
-
-  await waitApplied(sealed);
-  remember(`${name} opening`, sealed.hash);
-
-  const sponsorship = Option.getOrThrow(
-    await run(Chain.use((chain) => chain.account(address))),
-  );
-
-  assert.ok(
-    sponsorship.accountSponsored && sponsorship.sponsored,
-    "Raw extXdr must identify Orchid as both sponsors",
-  );
-
-  const account = await horizon.loadAccount(address);
-
-  const native = account.balances.find(
-    (balance) => balance.asset_type === "native",
-  );
-
-  assert.equal(native?.balance, "0.0000000");
-  assert.equal(account.num_sponsored, 3);
-
-  const minTime = Math.floor(Date.now() / 1000) + 30;
-  const maxTime = minTime + 120;
-
-  const recovery = new SigningRequest({
-    envelope: draftRecovery({
-      source: new Account(address, account.sequence),
-      reserveSponsor: addressOf(sponsor),
-      minTime,
-      maxTime,
-    }),
-    expiresAt: DateTime.makeUnsafe(maxTime * 1000),
-  });
-
-  await run(
-    Directory.use((directory) => directory.recoveryDraft(stored, recovery)),
-  );
-  assert.ok((await opening(claim)) instanceof RecoveryDraft);
-  assert.ok((await opening(claim, approve(recovery, key))) instanceof Opened);
-
-  const active = await walletRow(address);
-
-  assert.ok(
-    active.recoveryEnvelope && active.recoveryHash && active.recoveryMaxTime,
-  );
-  assert.equal(
-    (await server.getTransaction(active.recoveryHash)).status,
-    rpc.Api.GetTransactionStatus.NOT_FOUND,
-  );
-
-  return {
-    claim,
-    minTime,
-    sealed: new Sealed({
-      envelope: active.recoveryEnvelope,
-      hash: active.recoveryHash,
-      expiresAt: DateTime.makeUnsafe(active.recoveryMaxTime),
-    }),
-  };
-};
+const createWithShortRecovery = pairedCreation({
+  sponsor,
+  server,
+  run,
+  opening,
+  approvedBy,
+  walletRow,
+  waitApplied,
+  remember,
+});
 
 assert.equal((await server.getNetwork()).passphrase, networkPassphrase);
 
@@ -280,7 +211,7 @@ assert.ok(racerDraft instanceof OpeningDraft);
 const first = await createWithShortRecovery(user, recoveryName);
 
 assert.ok(
-  (await opening(racerClaim, approve(racerDraft.request, racer))) instanceof
+  (await opening(racerClaim, approvedBy(racer, racerDraft))) instanceof
     UsernameTaken,
 );
 
@@ -314,6 +245,33 @@ console.log(
 while (Number((await server.getLatestLedger()).closeTime) < first.minTime)
   await Bun.sleep(1000);
 
+const atTimeBound = await server.getLatestLedger();
+
+assert.ok(
+  atTimeBound.sequence + 1 < first.minLedger,
+  "The recovery time bound must pass before its ledger bound for this probe",
+);
+
+const ledgerEarly = await server.sendTransaction(
+  TransactionBuilder.fromXDR(first.sealed.envelope, networkPassphrase),
+);
+
+const ledgerEarlyResult = ledgerEarly.errorResult?.result;
+
+assert.equal(
+  ledgerEarlyResult?.type === "txFeeBumpInnerFailed"
+    ? ledgerEarlyResult.innerResultPair.result.result.type
+    : ledgerEarlyResult?.type,
+  "txTooEarly",
+);
+
+console.log(
+  "PASS recovery past its time bound is still txTooEarly below ledger N+1, so ACCOUNT_MERGE_SEQNUM_TOO_FAR cannot burn its signature.",
+);
+
+while ((await server.getLatestLedger()).sequence < first.minLedger)
+  await Bun.sleep(1000);
+
 await run(Wallet.use((wallet) => wallet.sweep));
 
 await waitApplied(first.sealed);
@@ -334,19 +292,15 @@ const reopened = await opening(first.claim);
 
 assert.ok(reopened instanceof OpeningDraft);
 
-await opening(first.claim, approve(reopened.request, user));
+assert.ok(reopened.recovery !== undefined);
+
+await opening(first.claim, approvedBy(user, reopened));
 
 const reopenedHash = (await walletRow(first.claim.address)).attemptHash;
 
 assert.ok(reopenedHash);
 
-const step = await untilRecoveryDraft(first.claim);
-
-assert.ok(step instanceof RecoveryDraft);
-
-assert.ok(
-  (await opening(first.claim, approve(step.request, user))) instanceof Opened,
-);
+assert.ok((await untilOpened(first.claim)) instanceof Opened);
 
 remember("same-key same-username reopening", reopenedHash);
 
@@ -397,20 +351,17 @@ assert.ok(repairFacts instanceof OpeningFacts);
 
 assert.equal(repairFacts.createAccount, false);
 
-await opening(first.claim, approve(repair.request, user));
+assert.ok(repairFacts.window !== undefined);
+
+assert.ok(repair.recovery !== undefined);
+
+await opening(first.claim, approvedBy(user, repair));
 
 const repairHash = (await walletRow(first.claim.address)).attemptHash;
 
 assert.ok(repairHash);
 
-const repairStep = await untilRecoveryDraft(first.claim);
-
-assert.ok(repairStep instanceof RecoveryDraft);
-
-assert.ok(
-  (await opening(first.claim, approve(repairStep.request, user))) instanceof
-    Opened,
-);
+assert.ok((await untilOpened(first.claim)) instanceof Opened);
 
 remember("sponsored trustline-only repair", repairHash);
 
@@ -678,9 +629,11 @@ const result = {
     "unsponsored Friendbot account refused before username claim",
     "username bound with the signed opening; race loser refused before submission",
     "0 XLM sponsored opening + USDC trustline",
-    "two-stage opening stores recovery unsubmitted",
+    "paired opening signs its recovery with the opening and stores it unsubmitted",
+    "CAP-21 pinned opening settles with the created account at sequence N<<32",
+    "paired recovery stays txTooEarly below ledger N+1 even past its time bound",
     "recovery txTooEarly before minTime",
-    "bounded recovery after minTime",
+    "pre-signed paired recovery settles once the ledger passes N",
     "recovered state",
     "same-key same-username reopening",
     "sponsored trustline-only repair",

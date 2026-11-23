@@ -18,3 +18,7 @@ export class Approval extends Schema.Class<Approval>(
 )({
   signature: Schema.Uint8ArrayFromBase64,
 }) {}
+
+export const Approvals = Schema.NonEmptyArray(Approval);
+
+export type Approvals = typeof Approvals.Type;

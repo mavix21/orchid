@@ -31,6 +31,9 @@ export const wallets = pgTable(
     recoverySequence: text(),
     recoveryMinTime: timestamp({ withTimezone: true }),
     recoveryMaxTime: timestamp({ withTimezone: true }),
+    pairedRecoveryDraft: text(),
+    pairedRecoveryEnvelope: text(),
+    pairedRecoveryHash: text(),
   },
   (table) => [
     check(
