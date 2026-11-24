@@ -21,9 +21,9 @@ export function TabBar() {
       <button type="button" aria-label="Swap" className={itemClass}>
         <ArrowLeftRightIcon />
       </button>
-      <button type="button" aria-label="Actividad" className={itemClass}>
+      <Link to="/activity" aria-label="Actividad" className={itemClass}>
         <ClockIcon />
-      </button>
+      </Link>
       <button type="button" aria-label="Perfil" className={itemClass}>
         <UserRoundIcon />
       </button>
