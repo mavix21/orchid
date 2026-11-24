@@ -30,6 +30,7 @@ export interface LinkChain {
   readonly channel: AccountAddress;
   draftLinkReceive(
     link: AccountAddress,
+    createsLinkAccount: boolean,
     destination: DestinationAddress,
     balance: BalanceId,
     asset: Asset,
@@ -61,6 +62,7 @@ export const linkChain = (
     channel,
     draftLinkReceive: Effect.fn("Chain.draftLinkReceive")(function* (
       link: AccountAddress,
+      createsLinkAccount: boolean,
       destination: DestinationAddress,
       balance: BalanceId,
       asset: Asset,
@@ -74,6 +76,7 @@ export const linkChain = (
           channel: yield* source(channel),
           link,
           reserveSponsor,
+          createsLinkAccount,
           destination,
           balance,
           asset,

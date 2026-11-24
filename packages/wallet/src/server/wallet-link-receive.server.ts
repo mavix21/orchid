@@ -45,7 +45,10 @@ import { Chain, type ChainUnreachable } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import { selectRecoverablePaymentLinks } from "./ledger-assets.server";
 import { type FundedLink, Transfers } from "./Transfers.server";
-import { externalLinkClaimFlow } from "./wallet-link-external.server";
+import {
+  type LinkAccountPlan,
+  externalLinkClaimFlow,
+} from "./wallet-link-external.server";
 import { live } from "./wallet-reads.server";
 
 type ReconciledStep =
@@ -118,6 +121,18 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       );
 
       return { matched, present: entries.length > 0 };
+    });
+
+    const linkAccountPlan = Effect.fn("Wallet.linkAccountPlan")(function* (
+      link: AccountAddress,
+    ) {
+      const state = yield* chain.account(link);
+
+      return Option.match(state, {
+        onNone: (): LinkAccountPlan => "Create",
+        onSome: (existing): LinkAccountPlan =>
+          existing.untouched ? "Reuse" : "Refuse",
+      });
     });
 
     const cleanUp = Effect.fn("Wallet.cleanUpReceivedLink")(function* (
@@ -265,6 +280,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       order: AssetOrder,
       action: typeof ReceiveLink.Type,
       funded: FundedLink,
+      createsLinkAccount: boolean,
     ) {
       const facts = readEnvelope(request.envelope);
       const channel = yield* chain.account(chain.channel);
@@ -277,6 +293,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
         facts.value.balance === action.balance &&
         facts.value.destination === order.wallet &&
         facts.value.memo === undefined &&
+        facts.value.createsLinkAccount === createsLinkAccount &&
         assetKey(facts.value.asset) === assetKey(funded.asset) &&
         facts.value.amount === funded.amount &&
         BigInt(channel.value.sequence) + 1n === BigInt(facts.value.sequence)
@@ -343,8 +360,12 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
           return new RecipientCannotReceive({ address: order.wallet, reason });
       }
 
-      if (Option.isSome(yield* chain.account(action.link)))
-        return new LinkUnclaimable({ reason: "link_account_exists" });
+      const plan = yield* linkAccountPlan(action.link);
+
+      if (plan === "Refuse")
+        return new LinkUnclaimable({ reason: "link_account_unexpected" });
+
+      const createsLinkAccount = plan === "Create";
 
       const proposed = Option.filter(existing, (stored) =>
         Predicate.isTagged(stored, "AssetProposed"),
@@ -359,6 +380,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
           order,
           action,
           funded.value,
+          createsLinkAccount,
         ))
       ) {
         const stored = proposed.value;
@@ -372,7 +394,13 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
         if (
           Option.isNone(sealed) ||
-          !(yield* currentReceive(stored.request, order, action, funded.value))
+          !(yield* currentReceive(
+            stored.request,
+            order,
+            action,
+            funded.value,
+            createsLinkAccount,
+          ))
         )
           return new AssetDraft({ request: stored.request });
 
@@ -392,6 +420,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
       const request = yield* chain.draftLinkReceive(
         action.link,
+        createsLinkAccount,
         order.wallet,
         action.balance,
         asset,
@@ -421,6 +450,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
     const claimExternal = yield* externalLinkClaimFlow({
       liveLink,
+      linkAccountPlan,
       settleOnBalance,
       balanceGone,
       settled,

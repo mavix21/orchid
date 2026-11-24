@@ -183,7 +183,7 @@ const mapResult = (
             `No puedes enviar ${code} a la dirección que la emite.`,
           ),
         ),
-        Match.when("link_account_exists", () =>
+        Match.when("link_account_unexpected", () =>
           concluded(
             outcome,
             new LinkScreen<ExternalClaimAction>(

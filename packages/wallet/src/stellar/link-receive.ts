@@ -31,6 +31,7 @@ export class LinkReceiveFacts extends Schema.TaggedClass<LinkReceiveFacts>()(
     channel: AccountAddress,
     link: AccountAddress,
     reserveSponsor: AccountAddress,
+    createsLinkAccount: Schema.Boolean,
     destination: DestinationAddress,
     balance: BalanceId,
     asset: Asset,
@@ -43,6 +44,7 @@ export interface LinkReceiveInput {
   readonly channel: Account;
   readonly link: AccountAddress;
   readonly reserveSponsor: AccountAddress;
+  readonly createsLinkAccount: boolean;
   readonly destination: DestinationAddress;
   readonly balance: BalanceId;
   readonly asset: Asset;
@@ -61,14 +63,15 @@ export function draftLinkReceive(input: LinkReceiveInput): UnsignedEnvelope {
     fee: baseFee,
     networkPassphrase,
     memo: toStellarMemo(input.memo),
-  })
-    .addOperation(
-      Operation.beginSponsoringFutureReserves({
-        source: input.reserveSponsor,
-        sponsoredId: input.link,
-      }),
-    )
-    .addOperation(
+  }).addOperation(
+    Operation.beginSponsoringFutureReserves({
+      source: input.reserveSponsor,
+      sponsoredId: input.link,
+    }),
+  );
+
+  if (input.createsLinkAccount)
+    builder.addOperation(
       Operation.createAccount({
         source: input.reserveSponsor,
         destination: input.link,
@@ -144,13 +147,13 @@ export function readLinkReceive(
   },
 ): Option.Option<LinkReceiveFacts> {
   const sponsoring = tx.operations[0];
+  const createsLinkAccount = tx.operations[1]?.type === "createAccount";
   const claim = tx.operations.find((op) => op.type === "claimClaimableBalance");
   const payment = tx.operations.find((op) => op.type === "payment");
 
   if (
     sponsoring?.type !== "beginSponsoringFutureReserves" ||
     !sponsoring.source ||
-    tx.operations[1]?.type !== "createAccount" ||
     claim?.type !== "claimClaimableBalance" ||
     payment?.type !== "payment"
   )
@@ -173,6 +176,7 @@ export function readLinkReceive(
     channel: Schema.decodeSync(AccountAddress)(tx.source),
     link: Schema.decodeSync(AccountAddress)(sponsoring.sponsoredId),
     reserveSponsor: Schema.decodeSync(AccountAddress)(sponsoring.source),
+    createsLinkAccount,
     destination,
     balance: Schema.decodeSync(BalanceId)(claim.balanceId),
     asset: fromStellarAsset(payment.asset),

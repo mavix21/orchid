@@ -117,7 +117,7 @@ export class LinkUnclaimable extends Schema.TaggedClass<LinkUnclaimable>()(
   "LinkUnclaimable",
   {
     reason: Schema.Literals([
-      "link_account_exists",
+      "link_account_unexpected",
       "destination_is_link",
       "destination_is_issuer",
     ]),

@@ -18,22 +18,17 @@ import {
   LinkUnclaimable,
   MemoNotAllowed,
   MuxedAddress,
-  PaymentLinkRecipient,
   PaymentLinkUsed,
   PaymentMemo,
-  PositiveAmount,
   ReceiveLink,
   RecipientCannotReceive,
-  TransferId,
-  TransferOrder,
   baseAsset,
 } from "../src/contract";
-import { signingKey } from "../src/device/signing";
 import { KnownExchangeMemo } from "../src/server/exchange-memos.server";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { draftLinkReceive } from "../src/stellar/link-receive";
 import { network } from "../src/stellar/network";
-import { memoryKeyStore } from "./device-fixtures";
+import { fundLink, linkAmount } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {
   accountState,
@@ -41,19 +36,14 @@ import {
   amount,
   approve,
   euroLine,
-  feePayer,
   fundHolder,
   fundedWallet,
   holdingsFor,
-  openSender,
   settleHash,
-  settleOnSubmit,
   useDisposableDatabase,
   walletTestLayer,
   world,
 } from "./wallet-harness";
-
-const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");
 
 const envelopeBalance = Schema.decodeSync(BalanceId)(
   `00000000${"a".repeat(64)}`,
@@ -71,6 +61,7 @@ it("link receive envelope reader rejects a muxed destination with a memo", () =>
     channel: new Account(addressOf(Keypair.random()), "100"),
     link: addressOf(Keypair.random()),
     reserveSponsor: addressOf(Keypair.random()),
+    createsLinkAccount: true,
     destination: muxed,
     balance: envelopeBalance,
     asset: baseAsset,
@@ -84,46 +75,6 @@ it("link receive envelope reader rejects a muxed destination with a memo", () =>
 });
 
 useDisposableDatabase();
-
-const fundLink = (username: string) =>
-  Effect.gen(function* () {
-    const { wallet, sender } = yield* openSender(memoryKeyStore(), username);
-
-    world.holdings.set(
-      sender.address,
-      holdingsFor(sender.address, {
-        lines: [{ ...euroLine("500000000"), asset: baseAsset }],
-      }),
-    );
-
-    const link = Keypair.random();
-
-    const funding = new TransferOrder({
-      id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
-      from: sender.address,
-      to: PaymentLinkRecipient.make({ value: addressOf(link) }),
-      asset: baseAsset,
-      amount: linkAmount,
-    });
-
-    const fundingDraft = yield* wallet.transfer(funding, Option.none());
-
-    assertTagged(fundingDraft, "TransferDraft");
-    yield* settleOnSubmit(wallet, sender.address)(
-      funding,
-      approve(fundingDraft.request, signingKey(sender.phrase)),
-    );
-
-    const funded = yield* wallet.transfer(funding, Option.none());
-
-    assertTagged(funded, "Settled");
-
-    const balance = Option.getOrThrow(Option.fromNullishOr(funded.claimable));
-
-    world.accounts.set(addressOf(feePayer), accountState());
-
-    return { wallet, sender, link, balance };
-  });
 
 const registerExchange = (address: AccountAddress) => {
   const entry = new KnownExchangeMemo({
@@ -512,16 +463,18 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
       ],
       [
-        "existing link account",
+        "link account holding signers or subentries",
         (link) => {
           const target = Keypair.random();
 
           fundHolder(target);
-          world.accounts.set(link, accountState());
+          world.accounts.set(link, accountState({ untouched: false }));
 
           return {
             destination: addressOf(target),
-            expected: new LinkUnclaimable({ reason: "link_account_exists" }),
+            expected: new LinkUnclaimable({
+              reason: "link_account_unexpected",
+            }),
           };
         },
       ],

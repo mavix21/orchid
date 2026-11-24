@@ -157,6 +157,7 @@ export const accountState = (
   ledger: 100,
   accountSponsored: true,
   sponsored: true,
+  untouched: true,
   nativeBalance: 0n,
   balance: Option.some(amount("50000000")),
   ...overrides,
@@ -292,12 +293,21 @@ export const fakeChain = Layer.effect(
             ...w,
           }),
         ),
-      draftLinkReceive: (link, destination, balance, a, val, memo) =>
+      draftLinkReceive: (
+        link,
+        createsLinkAccount,
+        destination,
+        balance,
+        a,
+        val,
+        memo,
+      ) =>
         draftWith((w) =>
           draftLinkReceive({
             channel: sourceOf(real.channel),
             link,
             reserveSponsor,
+            createsLinkAccount,
             destination,
             balance,
             asset: a,
