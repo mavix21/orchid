@@ -138,7 +138,7 @@ test("pays a username in USDC, resumes after a reload and refuses an unpayable a
   await review(page);
 
   await page.getByTestId("offer-link").click({ timeout: 30_000 });
-  await expect(page.getByTestId("link-review")).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(
+    page.getByTestId("link-review").filter({ hasText: "0.1" }),
+  ).toBeVisible({ timeout: 30_000 });
 });

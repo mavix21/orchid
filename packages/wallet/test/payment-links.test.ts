@@ -455,86 +455,87 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect(
-      "offers a payment link only when the recipient lacks an account or trustline and the asset can travel by link",
-      () =>
+    it.effect.each([
+      {
+        name: "an absent account",
+        reason: "no_account",
+        linkable: true,
+        authRequired: false,
+        clawback: false,
+        recipient: () => undefined,
+      },
+      {
+        name: "a missing trustline",
+        reason: "no_trustline",
+        linkable: true,
+        authRequired: false,
+        clawback: false,
+        recipient: (address: AccountAddress) =>
+          holdingsFor(address, { lines: [] }),
+      },
+      {
+        name: "an unauthorized trustline",
+        reason: "not_authorized",
+        linkable: false,
+        authRequired: false,
+        clawback: false,
+        recipient: (address: AccountAddress) =>
+          holdingsFor(address, {
+            lines: [{ ...euroLine("0"), authorized: false }],
+          }),
+      },
+      {
+        name: "a missing trustline for an AUTH_REQUIRED issuer",
+        reason: "no_trustline",
+        linkable: false,
+        authRequired: true,
+        clawback: false,
+        recipient: (address: AccountAddress) =>
+          holdingsFor(address, { lines: [] }),
+      },
+      {
+        name: "an absent account with clawback on the sender's trustline",
+        reason: "no_account",
+        linkable: false,
+        authRequired: false,
+        clawback: true,
+        recipient: () => undefined,
+      },
+    ] as const)(
+      "refuses an external recipient with $name and links it: $linkable",
+      ({ reason, linkable, authRequired, clawback, recipient }) =>
         Effect.gen(function* () {
           const sender = yield* fundedWallet("linkoffer");
           const senderAddr = addressOf(sender);
+          const destination = addressOf(Keypair.random());
 
-          world.holdings.set(
-            senderAddr,
-            holdingsFor(senderAddr, { lines: [euroLine("50000000")] }),
-          );
-
-          const toEuro = (recipient: AccountAddress) =>
-            new TransferOrder({
-              ...orderFor(sender, AddressRecipient.make({ value: recipient })),
-              asset: euro,
-            });
-
-          const absent = addressOf(Keypair.random());
-
-          expect(yield* send(toEuro(absent))).toEqual(
-            new RecipientCannotReceive({
-              address: absent,
-              reason: "no_account",
-              linkable: true,
-            }),
-          );
-
-          const unauthorized = addressOf(Keypair.random());
-
-          world.holdings.set(
-            unauthorized,
-            holdingsFor(unauthorized, {
-              lines: [{ ...euroLine("0"), authorized: false }],
-            }),
-          );
-
-          expect(yield* send(toEuro(unauthorized))).toEqual(
-            new RecipientCannotReceive({
-              address: unauthorized,
-              reason: "not_authorized",
-              linkable: false,
-            }),
-          );
-
-          const bare = addressOf(Keypair.random());
-
-          world.holdings.set(bare, holdingsFor(bare));
-
-          expect(yield* send(toEuro(bare))).toEqual(
-            new RecipientCannotReceive({
-              address: bare,
-              reason: "no_trustline",
-              linkable: true,
-            }),
-          );
-
-          world.issuers.set(euro.issuer, { authRequired: true });
-
-          expect(yield* send(toEuro(bare))).toEqual(
-            new RecipientCannotReceive({
-              address: bare,
-              reason: "no_trustline",
-              linkable: false,
-            }),
-          );
-
-          world.issuers.set(euro.issuer, { authRequired: false });
+          world.issuers.set(euro.issuer, { authRequired });
           world.holdings.set(
             senderAddr,
             holdingsFor(senderAddr, {
-              lines: [{ ...euroLine("50000000"), clawbackEnabled: true }],
+              lines: [{ ...euroLine("50000000"), clawbackEnabled: clawback }],
             }),
           );
 
-          expect(yield* send(toEuro(absent))).toEqual(
+          const held = recipient(destination);
+
+          if (held !== undefined) world.holdings.set(destination, held);
+
+          expect(
+            yield* send(
+              new TransferOrder({
+                ...orderFor(
+                  sender,
+                  AddressRecipient.make({ value: destination }),
+                ),
+                asset: euro,
+              }),
+            ),
+          ).toEqual(
             new RecipientCannotReceive({
-              address: absent,
-              reason: "no_account",
-              linkable: false,
+              address: destination,
+              reason,
+              linkable,
             }),
           );
         }),
