@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import {
+  type ActivityOutcome,
   type BackUpOutcome,
   type Holding,
   type SavedBackup,
@@ -13,11 +14,10 @@ import {
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 
-import { ActivityRow } from "@/components/activity-row";
+import { RecentActivity } from "@/activity/recent-activity";
 import { BalanceHeader } from "@/components/balance-header";
 import { HomeSkeleton } from "@/components/home-skeleton";
 import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
-import { recentActivity } from "@/fixtures/activity";
 import { whenUnlocked } from "@/wallet/display-lock";
 import { OpeningFlow } from "@/wallet/opening-flow";
 import { shownOverview } from "@/wallet/shown-overview";
@@ -34,12 +34,17 @@ export const Route = createFileRoute("/_wallet/_app/home")({
   loader: async ({ context, abortController }) => {
     await whenUnlocked(abortController.signal);
 
-    const [overview, saved] = await Promise.all([
+    const [overview, saved, activity] = await Promise.all([
       context.walletClient.overview(),
       context.walletClient.saved(),
+      context.walletClient.activity(),
     ]);
 
-    return { overview: shownOverview(overview), backup: savedBackup(saved) };
+    return {
+      overview: shownOverview(overview),
+      backup: savedBackup(saved),
+      activity,
+    };
   },
   component: HomeScreen,
 });
@@ -78,10 +83,12 @@ const backUpRefusal = (
   });
 
 function HomeScreen() {
-  const { overview, backup } = Route.useLoaderData();
+  const { overview, backup, activity } = Route.useLoaderData();
 
   return Match.valueTags(overview, {
-    Holding: (holding) => <Home holding={holding} backup={backup} />,
+    Holding: (holding) => (
+      <Home holding={holding} backup={backup} activity={activity} />
+    ),
     NeedsReopening: ({ profile }) => <Reopening username={profile.username} />,
     InvalidAddress: () => (
       <Problem message="La llave guardada en este dispositivo no es válida." />
@@ -100,9 +107,11 @@ function HomeScreen() {
 function Home({
   holding,
   backup,
+  activity,
 }: {
   holding: Holding;
   backup: Option.Option<SavedBackup>;
+  activity: ActivityOutcome;
 }) {
   const dollars =
     holding.balances.find(
@@ -116,22 +125,7 @@ function Home({
         {Option.isSome(backup) && backup.value !== "stored" ? (
           <BackupNotice />
         ) : null}
-        <section className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <h2 className="text-label-lg">Actividad</h2>
-            <button
-              type="button"
-              className="rounded-xs text-label text-accent-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              Ver todo
-            </button>
-          </div>
-          <div role="list" className="flex flex-col gap-1">
-            {recentActivity.map((activity) => (
-              <ActivityRow key={activity.id} activity={activity} />
-            ))}
-          </div>
-        </section>
+        <RecentActivity activity={activity} />
       </main>
     </Screen>
   );

@@ -167,7 +167,8 @@ test("receives a link into a wallet created on the link page with two passkey pr
     content: `Object.defineProperty(navigator, "share", { configurable: true, value: (data) => window.recordShare(data.text) });`,
   });
 
-  const { address } = await enrollWallet(page, freshUsername());
+  const senderUsername = freshUsername();
+  const { address } = await enrollWallet(page, senderUsername);
 
   await fundWithUsdc(address, "1");
   await reviewLink(page);
@@ -202,7 +203,10 @@ test("receives a link into a wallet created on the link page with two passkey pr
     window.location.hash = hash;
   }, link.hash);
   await recipient.getByTestId("receive-link").click();
-  await usernameInput(recipient).fill(freshUsername());
+
+  const recipientUsername = freshUsername();
+
+  await usernameInput(recipient).fill(recipientUsername);
   await submitButton(recipient).click();
 
   const step = recipient.getByTestId("enrollment-step");
@@ -244,4 +248,22 @@ test("receives a link into a wallet created on the link page with two passkey pr
       `[data-testid="received-link"][data-address="${linkAddress}"]`,
     ),
   ).toBeVisible({ timeout: 60_000 });
+
+  await page.goto("/home");
+
+  const linkEntry = page.getByTestId("activity-row").first();
+
+  await expect(linkEntry).toHaveAttribute("data-entry", "SentActivity");
+  await expect(linkEntry).toHaveAttribute("data-receipt", "Claimed");
+  await expect(linkEntry).toHaveAttribute(
+    "data-counterparty",
+    recipientUsername,
+  );
+
+  await recipient.goto("/home");
+
+  const claimEntry = recipient.getByTestId("activity-row").first();
+
+  await expect(claimEntry).toHaveAttribute("data-entry", "ClaimedLinkActivity");
+  await expect(claimEntry).toHaveAttribute("data-counterparty", senderUsername);
 });
