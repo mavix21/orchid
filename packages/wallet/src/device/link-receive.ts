@@ -12,7 +12,6 @@ import {
   AssetOrder,
   type AssetStep,
   AssetOrderId,
-  type LinkCode,
   type LinkSecret,
   type PaymentLinkOpen,
   type PaymentLinkStep,
@@ -44,7 +43,7 @@ import {
   type ReviewLinkReceiveOutcome,
 } from "./outcomes";
 import { pendingSteps, pollSchedule } from "./polling";
-import { linkKeyOf } from "./link-code";
+import { linkKeyOf, type LinkCode } from "./link-code";
 import { approveWithLinkSecret } from "./signing";
 
 export const receiveCurrentUntil = (review: LinkReceiveReview) =>

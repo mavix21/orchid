@@ -105,6 +105,7 @@ Object.defineProperty(navigator, "clipboard", { configurable: true, value: { wri
   expect(link.pathname).toBe("/r");
   expect(copied).toEqual([link.href]);
   expect(await page.content()).not.toContain(code);
+  expect(await page.content()).not.toMatch(stellarSecret);
 
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("link-share-drawer")).toBeHidden();

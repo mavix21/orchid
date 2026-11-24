@@ -163,9 +163,14 @@ export const enrollmentRelease = (
 
     yield* clearPending;
 
+    const { action } = receive.order;
+
     return new WalletEnrolled({
       profile: opened.profile,
       received: received.success,
+      receivedLink: Predicate.isTagged(action, "ReceiveLink")
+        ? action.link
+        : undefined,
     });
   });
 

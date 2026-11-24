@@ -9,7 +9,6 @@ import {
   AssetStep,
   BackupEnrollment,
   type ChallengeRefused,
-  type LinkCode,
   type OpeningPending,
   Profile,
   type RegistrationRefused,
@@ -18,6 +17,7 @@ import {
   type WalletPort,
   type WalletUnavailable,
 } from "../contract";
+import { type LinkCode } from "./link-code";
 import {
   type AssertionCeremony,
   type AssertionRejected,
@@ -67,6 +67,7 @@ export class WalletEnrolled extends Schema.TaggedClass<WalletEnrolled>()(
   {
     profile: Profile,
     received: Schema.optional(AssetStep),
+    receivedLink: Schema.optional(AccountAddress),
   },
 ) {}
 

@@ -20,7 +20,7 @@ export { currentUntil } from "./device/opening-drafts";
 
 export { receiveCurrentUntil } from "./device/link-receive";
 
-export { type ReadLinkCode, readLinkCode } from "./device/link-code";
+export { LinkCode, type ReadLinkCode, readLinkCode } from "./device/link-code";
 
 export {
   browserAssertions,

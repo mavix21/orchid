@@ -6,7 +6,6 @@ import * as Predicate from "effect/Predicate";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import {
-  type LinkCode,
   type Approval,
   AssetOrderId,
   type ExternalLinkDraft,
@@ -21,7 +20,7 @@ import { readEnvelope } from "../stellar/envelopes";
 import { sameMemo } from "../stellar/memo";
 import { network } from "../stellar/network";
 import type { ClaimIssue } from "./claim-reviews";
-import { linkKeyOf } from "./link-code";
+import { linkKeyOf, type LinkCode } from "./link-code";
 import { OpenedLink, linkSecretFor, openLink } from "./link-receive";
 import {
   type ConfirmExternalLinkOutcome,

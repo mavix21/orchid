@@ -3,9 +3,9 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import { AccountAddress, BalanceId, CredentialId, LinkCode } from "../contract";
+import { AccountAddress, BalanceId, CredentialId } from "../contract";
 import { canonicalTuple, sha256 } from "./canonical-digest";
-import { linkKeyOf } from "./link-code";
+import { LinkCode, linkKeyOf } from "./link-code";
 import { aesGcmTagLength, envelopeIvLength } from "./local-envelope";
 
 export const linkSealVersion = 2;
