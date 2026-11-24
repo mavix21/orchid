@@ -15,7 +15,9 @@ import {
   type PaymentLinkCreated,
   PaymentLinkIntent,
   type PaymentReview,
+  type PositiveAmount,
   type SavedLinkTarget,
+  formatAmount,
   parseAmount,
 } from "@workspace/wallet";
 import * as DateTime from "effect/DateTime";
@@ -50,7 +52,7 @@ import {
   forgetConcealed,
   keepConcealed,
 } from "./concealed-link";
-import { type Delivery, delivered, entering } from "./link-step";
+import { type Delivery, LinkStep, delivered, entering } from "./link-step";
 import { RecoveryAnswer, useRecovery } from "./recovery";
 import {
   LinkEvent,
@@ -438,22 +440,41 @@ function SavedLink({ link }: { link: SavedLinkTarget }) {
   );
 }
 
+const startingStep = (
+  asset: Asset,
+  initialAmount: Option.Option<PositiveAmount>,
+): LinkStep =>
+  Option.getOrElse(concealedLinkFor(asset), () =>
+    Option.match(initialAmount, {
+      onNone: entering,
+      onSome: (amount) =>
+        LinkStep.Reviewing({
+          intent: new PaymentLinkIntent({ asset, amount, saveOnDevice: true }),
+        }),
+    }),
+  );
+
 export function LinkFlow({
   asset,
   available,
+  initialAmount,
   nav,
   onChangeDestination,
 }: {
   asset: Asset;
   available: Amount;
+  initialAmount: Option.Option<PositiveAmount>;
   nav: (locked: boolean, edit?: () => void) => React.ReactNode;
   onChangeDestination: () => void;
 }) {
   const task = useWalletTask();
 
   const [state, send] = useReducer(reduceLinkFlow, undefined, () => ({
-    amount: "",
-    step: Option.getOrElse(concealedLinkFor(asset), entering),
+    amount: Option.match(initialAmount, {
+      onNone: () => "",
+      onSome: formatAmount,
+    }),
+    step: startingStep(asset, initialAmount),
   }));
 
   useEffect(() => {
@@ -476,12 +497,25 @@ export function LinkFlow({
 
   useBlocker({ shouldBlockFn: () => locked, enableBeforeUnload: locked });
 
-  const prepare = (intent: PaymentLinkIntent) => {
-    send(LinkEvent.ReviewStarted({ intent }));
+  const review = (intent: PaymentLinkIntent) =>
     task.run(walletEffects.reviewPaymentLink(intent), (answer) =>
       send(LinkEvent.ReviewAnswered({ answer })),
     );
+
+  const prepare = (intent: PaymentLinkIntent) => {
+    send(LinkEvent.ReviewStarted({ intent }));
+    review(intent);
   };
+
+  const prepareOffered = useEffectEvent(() => {
+    if (
+      Predicate.isTagged(state.step, "Reviewing") &&
+      Option.isSome(initialAmount)
+    )
+      review(state.step.intent);
+  });
+
+  useEffect(prepareOffered, []);
 
   const create = (review: PaymentReview) => {
     send(LinkEvent.CreateStarted());

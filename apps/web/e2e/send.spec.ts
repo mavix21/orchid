@@ -130,4 +130,15 @@ test("pays a username in USDC, resumes after a reload and refuses an unpayable a
   await page.getByRole("dialog").getByRole("textbox").fill("4521");
   await page.getByTestId("save-memo").click();
   await expect(page.getByTestId("edit-memo")).toBeVisible();
+
+  await page.getByTestId("change-recipient").click();
+  await page.getByTestId("change-destination").click();
+  await choose(page, "address");
+  await fill(page, Keypair.random().publicKey(), "0.1");
+  await review(page);
+
+  await page.getByTestId("offer-link").click({ timeout: 30_000 });
+  await expect(page.getByTestId("link-review")).toBeVisible({
+    timeout: 30_000,
+  });
 });

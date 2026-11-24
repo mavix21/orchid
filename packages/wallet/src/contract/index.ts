@@ -323,6 +323,7 @@ export class RecipientCannotReceive extends Schema.TaggedClass<RecipientCannotRe
       "not_authorized",
       "no_capacity",
     ]),
+    linkable: Schema.optional(Schema.Boolean),
   },
 ) {}
 
