@@ -363,6 +363,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             new RecipientCannotReceive({
               address: destination,
               reason: "no_capacity",
+              linkable: false,
             }),
           );
 

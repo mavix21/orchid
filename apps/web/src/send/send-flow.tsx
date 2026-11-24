@@ -1,14 +1,11 @@
-import { LinkIcon, PhoneIcon, UserRoundIcon, WalletIcon } from "lucide-react";
 import { useEffect, useReducer, useState } from "react";
-import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import type {
   Amount,
   Asset,
-  ConfirmOutcome,
   PaymentReview,
+  PositiveAmount,
   ResumeOutcome,
-  ReviewOutcome,
   TransferId,
   TransferIntent,
 } from "@workspace/wallet";
@@ -17,7 +14,6 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
-import { OptionRow } from "@/components/option-row";
 import { ScreenActions, ScreenStatus } from "@/components/screen";
 import { concealedLinkFor } from "@/links/concealed-link";
 import { LinkFlow } from "@/links/link-flow";
@@ -25,18 +21,30 @@ import { walletEffects } from "@/wallet";
 
 import { AmountStep } from "./amount-step";
 import {
+  type Choice,
+  DestinationChoice,
+  LinkOffer,
+} from "./destination-choice";
+import {
   type Destination,
   FieldProblem,
   type SendField,
   type SendForm,
 } from "./intent";
-import { SendScreen, deviceFailure, sendResult } from "./outcomes";
+import { amountLabel } from "./money";
+import { SendScreen } from "./outcomes";
+import {
+  Answered,
+  type ReviewAnswer,
+  readConfirm,
+  readOutcome,
+  readReview,
+  unreleased,
+} from "./send-answers";
 import { PaymentReviewCard } from "./payment-review";
 import { RecipientStep } from "./recipient-step";
 import { SendResultScreen } from "./send-result";
-import { type Answer, DeviceFailure, useWalletTask } from "./use-wallet-task";
-
-type Choice = Destination | "link";
+import { type Answer, useWalletTask } from "./use-wallet-task";
 
 type EntryField = "recipient" | "amount";
 
@@ -51,28 +59,10 @@ interface Draft {
   readonly intent: TransferIntent;
 }
 
-type Answered = Data.TaggedEnum<{
-  Shown: { readonly review: PaymentReview };
-  Refused: { readonly problem: string };
-  Corrected: { readonly outcome: string; readonly problem: FieldProblem };
-  Concluded: { readonly outcome: string; readonly screen: SendScreen };
-}>;
-
-const Answered = Data.taggedEnum<Answered>();
-
-type ReviewAnswer = Exclude<
-  Answered,
-  Data.TaggedEnum.Value<Answered, "Refused">
->;
-
-type OutcomeAnswer = Exclude<
-  ReviewAnswer,
-  Data.TaggedEnum.Value<ReviewAnswer, "Shown">
->;
-
 type SendStep = Data.TaggedEnum<{
   Choosing: {};
-  Linking: {};
+  Linking: { readonly amount: Option.Option<PositiveAmount> };
+  Offering: { readonly draft: Draft; readonly problem: FieldProblem };
   Entering: { readonly field: EntryField; readonly entry: Entry };
   Reviewing: { readonly draft: Draft };
   Reviewed: {
@@ -95,6 +85,8 @@ const SendStep = Data.taggedEnum<SendStep>();
 type SendEvent = Data.TaggedEnum<{
   Chose: { readonly choice: Choice };
   Unchose: {};
+  LinkAccepted: {};
+  LinkDeclined: {};
   Typed: { readonly field: SendField; readonly value: string };
   Invalid: { readonly problem: FieldProblem };
   Moved: { readonly field: EntryField };
@@ -110,98 +102,11 @@ const SendEvent = Data.taggedEnum<SendEvent>();
 
 const emptyForm: SendForm = { recipient: "", amount: "", memo: "" };
 
-const readOutcome = (
-  answer: Answer<ResumeOutcome>,
-  asset: Asset,
-): OutcomeAnswer => {
-  if (answer instanceof DeviceFailure)
-    return Answered.Concluded({
-      outcome: answer._tag,
-      screen: deviceFailure,
-    });
-
-  const result = sendResult(answer, asset);
-
-  return result instanceof FieldProblem
-    ? Answered.Corrected({ outcome: answer._tag, problem: result })
-    : Answered.Concluded({ outcome: answer._tag, screen: result });
-};
-
-const readReview = (
-  answer: Answer<ReviewOutcome>,
-  asset: Asset,
-): ReviewAnswer =>
-  Predicate.isTagged(answer, "PaymentReview")
-    ? Answered.Shown({ review: answer })
-    : readOutcome(answer, asset);
-
-const unsent = "Tu dinero no se movió.";
-
-const unreleased = new Set([
-  "PaymentReview",
-  "PasskeyCancelled",
-  "PasskeyFailed",
-  "WrongCredential",
-  "AssertionRejected",
-  "PrfOutputMissing",
-  "CorruptDeviceWallet",
-]);
-
-const readConfirm = (answer: Answer<ConfirmOutcome>, asset: Asset): Answered =>
-  answer instanceof DeviceFailure
-    ? readOutcome(answer, asset)
-    : Match.value(answer).pipe(
-        Match.tag("PaymentReview", (review) => Answered.Shown({ review })),
-        Match.tag("PasskeyCancelled", () =>
-          Answered.Refused({
-            problem: "No usaste tu passkey, así que no enviamos el pago.",
-          }),
-        ),
-        Match.tag("PasskeyFailed", () =>
-          Answered.Refused({
-            problem:
-              "No pudimos usar tu passkey y no enviamos el pago. Inténtalo de nuevo.",
-          }),
-        ),
-        Match.tag("WrongCredential", () =>
-          Answered.Refused({
-            problem:
-              "Usaste una passkey distinta y no enviamos el pago. Confirma con la passkey de tu cuenta.",
-          }),
-        ),
-        Match.tag("AssertionRejected", () =>
-          Answered.Refused({
-            problem:
-              "No pudimos verificar tu passkey y no enviamos el pago. Confirma con tu huella, rostro o PIN del dispositivo.",
-          }),
-        ),
-        Match.tag("PrfOutputMissing", (missing) =>
-          Answered.Concluded({
-            outcome: missing._tag,
-            screen: new SendScreen(
-              "Tu passkey no puede firmar aquí",
-              `Tu passkey no abrió tu llave en este dispositivo. ${unsent}`,
-              "home",
-            ),
-          }),
-        ),
-        Match.tag("CorruptDeviceWallet", (damaged) =>
-          Answered.Concluded({
-            outcome: damaged._tag,
-            screen: new SendScreen(
-              "No pudimos leer tu llave",
-              `Los datos guardados en este navegador están dañados. ${unsent}`,
-              "home",
-            ),
-          }),
-        ),
-        Match.orElse((outcome) => readOutcome(outcome, asset)),
-      );
-
 const draftOf = (step: SendStep): Option.Option<Draft> =>
   Match.valueTags(step, {
     Choosing: () => Option.none(),
     Linking: () => Option.none(),
+    Offering: ({ draft }) => Option.some(draft),
     Entering: () => Option.none(),
     Reviewing: ({ draft }) => Option.some(draft),
     Reviewed: ({ draft }) => Option.some(draft),
@@ -232,7 +137,7 @@ const reduceSendFlow = (step: SendStep, event: SendEvent): SendStep =>
       if (!Predicate.isTagged(step, "Choosing")) return step;
 
       return choice === "link"
-        ? SendStep.Linking()
+        ? SendStep.Linking({ amount: Option.none() })
         : SendStep.Entering({
             field: "recipient",
             entry: {
@@ -246,6 +151,14 @@ const reduceSendFlow = (step: SendStep, event: SendEvent): SendStep =>
       Predicate.isTagged(step, "Linking") ||
       (Predicate.isTagged(step, "Entering") && step.field === "recipient")
         ? SendStep.Choosing()
+        : step,
+    LinkAccepted: () =>
+      Predicate.isTagged(step, "Offering")
+        ? SendStep.Linking({ amount: Option.some(step.draft.intent.amount) })
+        : step,
+    LinkDeclined: () =>
+      Predicate.isTagged(step, "Offering")
+        ? corrected(step.draft.entry, step.problem)
         : step,
     Typed: ({ field, value }) =>
       editing(step, (entering) =>
@@ -288,6 +201,8 @@ const reduceSendFlow = (step: SendStep, event: SendEvent): SendStep =>
             problem: Option.none(),
           }),
         Corrected: ({ problem }) => corrected(step.draft.entry, problem),
+        Offered: ({ problem }) =>
+          SendStep.Offering({ draft: step.draft, problem }),
         Concluded: ({ outcome, screen }) =>
           SendStep.Concluded({
             draft: step.draft,
@@ -320,6 +235,8 @@ const reduceSendFlow = (step: SendStep, event: SendEvent): SendStep =>
             problem: Option.some(problem),
           }),
         Corrected: ({ problem }) => corrected(step.draft.entry, problem),
+        Offered: ({ problem }) =>
+          SendStep.Offering({ draft: step.draft, problem }),
         Concluded: ({ outcome, screen }) =>
           SendStep.Concluded({
             draft: step.draft,
@@ -445,74 +362,6 @@ function TransferStatus({
   });
 }
 
-function DestinationChoice({
-  onChoose,
-}: {
-  onChoose: (choice: Choice) => void;
-}) {
-  return (
-    <>
-      <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-        <h1 className="font-display text-h1">¿A dónde lo envías?</h1>
-        <div className="flex flex-col gap-3">
-          <OptionRow
-            title="A un @usuario"
-            description="Alguien que tenga Orchid"
-            media={<UserRoundIcon />}
-            render={
-              <button
-                type="button"
-                onClick={() => onChoose("username")}
-                data-testid="choose-username"
-              />
-            }
-          />
-          <OptionRow
-            title="A una dirección Stellar"
-            description="Otra wallet o un exchange"
-            media={<WalletIcon />}
-            render={
-              <button
-                type="button"
-                onClick={() => onChoose("address")}
-                data-testid="choose-address"
-              />
-            }
-          />
-          <OptionRow
-            title="Con un link de pago"
-            description="Alguien sin Orchid"
-            media={<LinkIcon />}
-            render={
-              <button
-                type="button"
-                onClick={() => onChoose("link")}
-                data-testid="choose-link"
-              />
-            }
-          />
-          <OptionRow
-            title="A un teléfono"
-            description="Los envíos por teléfono llegan pronto"
-            media={<PhoneIcon />}
-            disabled
-          />
-        </div>
-      </main>
-      <ScreenActions>
-        <Button
-          className="w-full"
-          variant="secondary"
-          nativeButton={false}
-          render={<Link to="/links" data-testid="open-links" />}
-        >
-          Ver mis links de pago
-        </Button>
-      </ScreenActions>
-    </>
-  );
-}
-
 export function SendFlow({
   asset,
   available,
@@ -534,7 +383,7 @@ export function SendFlow({
     Option.match({
       onNone: () =>
         Option.isSome(concealedLinkFor(asset))
-          ? SendStep.Linking()
+          ? SendStep.Linking({ amount: Option.none() })
           : SendStep.Choosing(),
       onSome: (id) => SendStep.Tracking({ id, draft: Option.none() }),
     }),
@@ -562,6 +411,7 @@ export function SendFlow({
 
       if (
         Predicate.isTagged(answer, "Corrected") ||
+        Predicate.isTagged(answer, "Offered") ||
         unreleased.has(answered._tag)
       )
         onTransfer(Option.none());
@@ -584,10 +434,11 @@ export function SendFlow({
   );
 
   return Match.valueTags(step, {
-    Linking: () => (
+    Linking: ({ amount }) => (
       <LinkFlow
         asset={asset}
         available={available}
+        initialAmount={amount}
         nav={nav}
         onChangeDestination={() => send(SendEvent.Unchose())}
       />
@@ -596,6 +447,15 @@ export function SendFlow({
       unlocked(
         <DestinationChoice
           onChoose={(choice) => send(SendEvent.Chose({ choice }))}
+        />,
+      ),
+    Offering: ({ draft, problem }) =>
+      unlocked(
+        <LinkOffer
+          problem={problem}
+          amount={amountLabel(draft.intent.amount, asset)}
+          onAccept={() => send(SendEvent.LinkAccepted())}
+          onDecline={() => send(SendEvent.LinkDeclined())}
         />,
       ),
     Entering: ({ field, entry }) =>

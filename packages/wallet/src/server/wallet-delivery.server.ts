@@ -118,11 +118,17 @@ export const deliveryFlow = Effect.gen(function* () {
               : undefined;
 
     if (reason) {
-      if (reason !== "no_trustline" || recipient instanceof ExternalRecipient)
+      if (reason !== "no_trustline" || recipient instanceof ExternalRecipient) {
+        const missing = reason === "no_account" || reason === "no_trustline";
+
         return new RecipientCannotReceive({
           address: baseAccountOf(recipient.address),
           reason,
+          linkable:
+            missing &&
+            Option.isNone(yield* checkLinkAsset(order, senderHoldings)),
         });
+      }
 
       if (
         (yield* transfers.openClaimables(order.from, "username")) >=

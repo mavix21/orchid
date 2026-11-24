@@ -6,6 +6,8 @@ import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
+  type AccountAddress,
+  AddressRecipient,
   type Approval,
   AssetUnsupported,
   BalanceId,
@@ -14,6 +16,7 @@ import {
   OpenPaymentLinks,
   PaymentLinkRecipient,
   PositiveAmount,
+  RecipientCannotReceive,
   TransferOrder,
   type WalletPort,
   baseAsset,
@@ -448,6 +451,91 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(authRefusal).toEqual(
             new AssetUnsupported({ reason: "authorization_required" }),
+          );
+        }),
+    );
+
+    it.effect(
+      "offers a payment link only when the recipient lacks an account or trustline and the asset can travel by link",
+      () =>
+        Effect.gen(function* () {
+          const sender = yield* fundedWallet("linkoffer");
+          const senderAddr = addressOf(sender);
+
+          world.holdings.set(
+            senderAddr,
+            holdingsFor(senderAddr, { lines: [euroLine("50000000")] }),
+          );
+
+          const toEuro = (recipient: AccountAddress) =>
+            new TransferOrder({
+              ...orderFor(sender, AddressRecipient.make({ value: recipient })),
+              asset: euro,
+            });
+
+          const absent = addressOf(Keypair.random());
+
+          expect(yield* send(toEuro(absent))).toEqual(
+            new RecipientCannotReceive({
+              address: absent,
+              reason: "no_account",
+              linkable: true,
+            }),
+          );
+
+          const unauthorized = addressOf(Keypair.random());
+
+          world.holdings.set(
+            unauthorized,
+            holdingsFor(unauthorized, {
+              lines: [{ ...euroLine("0"), authorized: false }],
+            }),
+          );
+
+          expect(yield* send(toEuro(unauthorized))).toEqual(
+            new RecipientCannotReceive({
+              address: unauthorized,
+              reason: "not_authorized",
+              linkable: false,
+            }),
+          );
+
+          const bare = addressOf(Keypair.random());
+
+          world.holdings.set(bare, holdingsFor(bare));
+
+          expect(yield* send(toEuro(bare))).toEqual(
+            new RecipientCannotReceive({
+              address: bare,
+              reason: "no_trustline",
+              linkable: true,
+            }),
+          );
+
+          world.issuers.set(euro.issuer, { authRequired: true });
+
+          expect(yield* send(toEuro(bare))).toEqual(
+            new RecipientCannotReceive({
+              address: bare,
+              reason: "no_trustline",
+              linkable: false,
+            }),
+          );
+
+          world.issuers.set(euro.issuer, { authRequired: false });
+          world.holdings.set(
+            senderAddr,
+            holdingsFor(senderAddr, {
+              lines: [{ ...euroLine("50000000"), clawbackEnabled: true }],
+            }),
+          );
+
+          expect(yield* send(toEuro(absent))).toEqual(
+            new RecipientCannotReceive({
+              address: absent,
+              reason: "no_account",
+              linkable: false,
+            }),
           );
         }),
     );
