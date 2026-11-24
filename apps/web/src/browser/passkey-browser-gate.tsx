@@ -121,16 +121,18 @@ function EmbeddedBrowserScreen({
               Si no aparece, copia el link y pégalo en la barra de tu navegador.
             </li>
           </ol>
-          <p
-            data-testid="embedded-browser-link"
-            className="rounded-lg bg-secondary p-3 text-caption break-all select-all"
-          >
-            {destination}
-          </p>
           {copied === "unavailable" ? (
-            <p role="alert" className="text-caption text-destructive">
-              No pudimos copiarlo. Mantén presionado el link para copiarlo.
-            </p>
+            <>
+              <p role="alert" className="text-caption text-destructive">
+                No pudimos copiarlo. Mantén presionado el link para copiarlo.
+              </p>
+              <p
+                data-testid="embedded-browser-link"
+                className="rounded-lg bg-secondary p-3 text-caption break-all select-all"
+              >
+                {destination}
+              </p>
+            </>
           ) : null}
         </section>
       </main>

@@ -17,6 +17,7 @@ test("an embedded browser is handed off before the account form mounts and the c
   await expect(page.getByTestId("embedded-browser")).toBeVisible();
   await expect(page.getByTestId("open-in-browser")).toBeVisible();
   await expect(submitButton(page)).toBeHidden();
+  await expect(page.getByTestId("embedded-browser-link")).toBeHidden();
 
   await page.getByTestId("copy-link").click();
 

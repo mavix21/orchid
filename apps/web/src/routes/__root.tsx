@@ -23,6 +23,10 @@ export const Route = createRootRouteWithContext<{
         content: "width=device-width, initial-scale=1, viewport-fit=cover",
       },
       {
+        name: "referrer",
+        content: "no-referrer",
+      },
+      {
         title: "Orchid",
       },
     ],

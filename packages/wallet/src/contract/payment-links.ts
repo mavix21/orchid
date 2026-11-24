@@ -1,3 +1,6 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+import { base58 } from "@scure/base";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { Asset, BalanceId, PositiveAmount } from "./assets";
 import { AccountAddress, Profile } from "./identity";
@@ -7,6 +10,43 @@ export const LinkSecret = Schema.String.check(
 ).pipe(Schema.brand("LinkSecret"));
 
 export type LinkSecret = typeof LinkSecret.Type;
+
+export const linkCodeVersion = 1;
+export const linkCodeEntropyLength = 16;
+const linkCodeChecksumLength = 2;
+const linkCodeLength = 1 + linkCodeEntropyLength + linkCodeChecksumLength;
+
+const linkCodeChecksum = (body: Uint8Array) =>
+  sha256(body).subarray(0, linkCodeChecksumLength);
+
+export const encodeLinkCodeBytes = (entropy: Uint8Array) => {
+  const body = Uint8Array.of(linkCodeVersion, ...entropy);
+
+  return base58.encode(Uint8Array.of(...body, ...linkCodeChecksum(body)));
+};
+
+const decodeBase58 = Option.liftThrowable(base58.decode);
+
+export const linkCodeEntropy = (text: string): Option.Option<Uint8Array> =>
+  decodeBase58(text).pipe(
+    Option.filter(
+      (bytes) =>
+        bytes.length === linkCodeLength &&
+        bytes[0] === linkCodeVersion &&
+        linkCodeChecksum(bytes.subarray(0, -linkCodeChecksumLength)).every(
+          (byte, index) =>
+            byte === bytes[linkCodeLength - linkCodeChecksumLength + index],
+        ) &&
+        base58.encode(bytes) === text,
+    ),
+    Option.map((bytes) => bytes.slice(1, 1 + linkCodeEntropyLength)),
+  );
+
+export const LinkCode = Schema.String.check(
+  Schema.makeFilter((text) => Option.isSome(linkCodeEntropy(text))),
+).pipe(Schema.brand("LinkCode"));
+
+export type LinkCode = typeof LinkCode.Type;
 
 export const TransferId = Schema.String.check(Schema.isUUID(4)).pipe(
   Schema.brand("TransferId"),

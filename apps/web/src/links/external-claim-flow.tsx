@@ -14,9 +14,9 @@ import {
   InputGroupInput,
 } from "@workspace/ui/components/input-group";
 import {
-  type AccountAddress,
   type ExternalLinkIntent,
   type ExternalLinkReview,
+  type LinkCode,
   type PaymentLinkOpen,
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
@@ -75,15 +75,13 @@ type ExternalStep = Data.TaggedEnum<{
 const ExternalStep = Data.taggedEnum<ExternalStep>();
 
 export function ExternalClaimFlow({
-  link,
+  code,
   open,
-  fragment,
   onBack,
   onRecheck,
 }: {
-  link: AccountAddress;
+  code: LinkCode;
   open: PaymentLinkOpen;
-  fragment: () => string;
   onBack: () => void;
   onRecheck: () => void;
 }) {
@@ -132,20 +130,17 @@ export function ExternalClaimFlow({
 
   const startReview = (intent: ExternalLinkIntent) => {
     setStep(ExternalStep.Preparing());
-    task.run(
-      walletEffects.reviewExternalLinkClaim(link, fragment(), intent),
-      (answer) => {
-        if (Predicate.isTagged(answer, "ExternalLinkReview")) {
-          setStep(
-            ExternalStep.Reviewing({ review: answer, notice: Option.none() }),
-          );
+    task.run(walletEffects.reviewExternalLinkClaim(code, intent), (answer) => {
+      if (Predicate.isTagged(answer, "ExternalLinkReview")) {
+        setStep(
+          ExternalStep.Reviewing({ review: answer, notice: Option.none() }),
+        );
 
-          return;
-        }
+        return;
+      }
 
-        applyResult(reviewExternalResult(answer, open.asset));
-      },
-    );
+      applyResult(reviewExternalResult(answer, open.asset));
+    });
   };
 
   const submitForm = (event: React.FormEvent<HTMLFormElement>) => {
@@ -160,27 +155,24 @@ export function ExternalClaimFlow({
 
   const confirm = (shown: ExternalLinkReview) => {
     setStep(ExternalStep.Confirming({ review: shown }));
-    task.run(
-      walletEffects.confirmExternalLinkClaim(shown, fragment()),
-      (answer) => {
-        if (Predicate.isTagged(answer, "ExternalLinkReview")) {
-          setStep(
-            ExternalStep.Reviewing({
-              review: answer,
-              notice: Option.some(
-                "El envío anterior venció y lo preparamos de nuevo. Revísalo y confirma otra vez.",
-              ),
-            }),
-          );
-
-          return;
-        }
-
-        applyResult(
-          confirmExternalResult(answer, open.asset, sent, shown.destination),
+    task.run(walletEffects.confirmExternalLinkClaim(shown, code), (answer) => {
+      if (Predicate.isTagged(answer, "ExternalLinkReview")) {
+        setStep(
+          ExternalStep.Reviewing({
+            review: answer,
+            notice: Option.some(
+              "El envío anterior venció y lo preparamos de nuevo. Revísalo y confirma otra vez.",
+            ),
+          }),
         );
-      },
-    );
+
+        return;
+      }
+
+      applyResult(
+        confirmExternalResult(answer, open.asset, sent, shown.destination),
+      );
+    });
   };
 
   return Match.valueTags(step, {

@@ -31,12 +31,22 @@ import {
   SecretPhrase,
   generateSecretPhrase,
 } from "../src/device/secret-phrase";
+import { generateLinkCode, linkKeyOf } from "../src/device/link-code";
 import { signingKey } from "../src/device/signing";
 import {
   draftClaimable,
   draftPaymentLink,
 } from "../src/stellar/asset-envelopes";
 import { draftPayment } from "../src/stellar/envelopes";
+
+export const linkFixture = () => {
+  const code = generateLinkCode();
+
+  return {
+    code,
+    keypair: Keypair.fromSecret(Option.getOrThrow(linkKeyOf(code)).secret),
+  };
+};
 
 export const addressOf = (key: Keypair) =>
   Schema.decodeSync(AccountAddress)(key.publicKey());

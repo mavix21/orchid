@@ -9,11 +9,12 @@ import {
   AssetStep,
   BackupEnrollment,
   type ChallengeRefused,
+  type LinkCode,
   type OpeningPending,
   Profile,
   type RegistrationRefused,
-  type UsernameTaken,
   Username,
+  type UsernameTaken,
   type WalletPort,
   type WalletUnavailable,
 } from "../contract";
@@ -78,7 +79,7 @@ export class HeldReceive extends Schema.Class<HeldReceive>(
 
 export interface EnrollmentReceive {
   readonly review: LinkReceiveReview;
-  readonly fragment: string;
+  readonly code: LinkCode;
 }
 
 export class PendingCandidate extends Schema.Class<PendingCandidate>(
@@ -171,10 +172,7 @@ export interface EnrollmentEffects {
     shown?: OpeningReview,
     receive?: EnrollmentReceive,
   ): Effect.Effect<EnrollWalletOutcome>;
-  reviewReceive(
-    link: AccountAddress,
-    fragment: string,
-  ): Effect.Effect<ReviewEnrollmentReceiveOutcome>;
+  reviewReceive(code: LinkCode): Effect.Effect<ReviewEnrollmentReceiveOutcome>;
 }
 
 export interface EnrollmentClient {
@@ -184,8 +182,5 @@ export interface EnrollmentClient {
     shown?: OpeningReview,
     receive?: EnrollmentReceive,
   ): Promise<EnrollWalletOutcome>;
-  reviewReceive(
-    link: AccountAddress,
-    fragment: string,
-  ): Promise<ReviewEnrollmentReceiveOutcome>;
+  reviewReceive(code: LinkCode): Promise<ReviewEnrollmentReceiveOutcome>;
 }

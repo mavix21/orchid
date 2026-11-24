@@ -14,7 +14,7 @@ import {
   PublicDeviceWallet,
   type SealedKeyStore,
 } from "./key-store";
-import type { SealedLinkSecret } from "./link-seal";
+import type { SealedLinkCode } from "./link-seal";
 import { ApprovalOutstanding, DraftRejected, NoWallet } from "./outcomes";
 import { Reserved } from "./reviewed-approval";
 import { restoredLinkSlot, savedLinkFor, withSavedLink } from "./saved-links";
@@ -30,7 +30,7 @@ const nowSeconds = Effect.map(DateTime.now, (now) =>
 
 export interface LinkSlot {
   readonly address: AccountAddress;
-  readonly previous: Option.Option<SealedLinkSecret>;
+  readonly previous: Option.Option<SealedLinkCode>;
 }
 
 export interface FundingReservation {
@@ -43,7 +43,7 @@ export const reserveApproval = Effect.fn("Device.reserveApproval")(function* (
   reviewed: PublicDeviceWallet,
   order: TransferOrder,
   facts: PaymentFacts | ClaimableFacts | PaymentLinkFacts,
-  sealed: Option.Option<SealedLinkSecret> = Option.none(),
+  sealed: Option.Option<SealedLinkCode> = Option.none(),
 ): Effect.fn.Return<
   Reserved<FundingReservation> | ApprovalOutstanding | DraftRejected | NoWallet,
   KeyStoreUnavailable | CorruptDeviceWallet

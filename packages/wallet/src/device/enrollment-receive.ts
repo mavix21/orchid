@@ -4,8 +4,8 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import {
-  type AccountAddress,
   type AssetOrder,
+  type LinkCode,
   RecipientCannotReceive,
   type WalletPort,
   assetKey,
@@ -111,10 +111,9 @@ export const enrollmentReceive = (
 
   const reviewOpenLink = Effect.fn("Device.reviewEnrollmentLink")(function* (
     current: Awaiting,
-    link: AccountAddress,
-    fragment: string,
+    code: LinkCode,
   ): Effect.fn.Return<ReviewEnrollmentReceiveOutcome> {
-    const opened = yield* openLink(port, link, fragment).pipe(Effect.result);
+    const opened = yield* openLink(port, code).pipe(Effect.result);
 
     if (Result.isFailure(opened)) return opened.failure;
 

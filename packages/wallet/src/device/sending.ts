@@ -24,7 +24,7 @@ import {
   type SealedDevice,
   type SealedDeviceWallet,
 } from "./key-store";
-import { SealedLinkSecret } from "./link-seal";
+import { SealedLinkCode } from "./link-seal";
 import {
   ApprovalOutstanding,
   type ConfirmOutcome,
@@ -82,7 +82,7 @@ export interface LinkSaving<W> {
   readonly seal: (
     record: SealedDeviceWallet,
     output: Option.Option<Redacted.Redacted<Uint8Array<ArrayBuffer>>>,
-  ) => Effect.Effect<SealedLinkSecret | W>;
+  ) => Effect.Effect<SealedLinkCode | W>;
 }
 
 export interface Reviews {
@@ -564,7 +564,7 @@ export function sendTransfer(
                     | NoWallet,
                     KeyStoreUnavailable | CorruptDeviceWallet
                   > =>
-                    sealedLink instanceof SealedLinkSecret
+                    sealedLink instanceof SealedLinkCode
                       ? reserveApproval(
                           device.store,
                           wallet,

@@ -8,12 +8,12 @@ import {
   InputGroupInput,
 } from "@workspace/ui/components/input-group";
 import {
-  type AccountAddress,
   currentUntil,
   type EnrollWalletOutcome,
   type EnrollmentPending,
   type EnrollmentStage,
   type LinkReceiveReview,
+  type ReadLinkCode,
   receiveCurrentUntil,
   type ReviewEnrollmentReceiveOutcome,
   type UsernameIssue,
@@ -33,7 +33,7 @@ import {
   ScreenNote,
   ScreenStatus,
 } from "@/components/screen";
-import { TopNav } from "@/components/top-nav";
+import { TopNav, type TopNavAction } from "@/components/top-nav";
 import { UserAvatar } from "@/components/user-avatar";
 import { me } from "@/fixtures/account";
 import { receiveRefusal } from "@/links/receive-outcomes";
@@ -42,11 +42,6 @@ import { displayLock } from "@/wallet/display-lock";
 import { enrollmentClient } from "@/wallet/enrollment";
 import { OpeningFlow } from "@/wallet/opening-flow";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
-
-export interface ReceiveBinding {
-  readonly link: AccountAddress;
-  readonly fragment: () => string;
-}
 
 const refusal = (
   outcome: Exclude<
@@ -165,9 +160,9 @@ export function EnrollmentFlow({
   onOpened,
 }: {
   title: string;
-  back: (disabled: boolean) => React.ReactElement;
+  back: (disabled: boolean) => TopNavAction;
   walletClient: WalletClient;
-  receive?: ReceiveBinding;
+  receive?: ReadLinkCode;
   onEnrolled: (enrolled: WalletEnrolled) => void;
   onOpened: () => void;
 }) {
@@ -272,9 +267,7 @@ export function EnrollmentFlow({
   const requestReceive = async () => {
     if (receive === undefined) return;
 
-    readReceive(
-      await enrollmentClient.reviewReceive(receive.link, receive.fragment()),
-    );
+    readReceive(await enrollmentClient.reviewReceive(receive.code));
   };
 
   const receiveFor = (current: EnrollmentPending) =>
@@ -297,11 +290,9 @@ export function EnrollmentFlow({
 
     let current = true;
 
-    void enrollmentClient
-      .reviewReceive(receive.link, receive.fragment())
-      .then((answer) => {
-        if (current) readReceive(answer);
-      });
+    void enrollmentClient.reviewReceive(receive.code).then((answer) => {
+      if (current) readReceive(answer);
+    });
 
     return () => {
       current = false;
@@ -339,7 +330,7 @@ export function EnrollmentFlow({
     );
 
     return () => clearTimeout(timer);
-  }, [pending]);
+  }, [pending, receive]);
 
   const handleOutcome = async (outcome: EnrollWalletOutcome) => {
     await Match.value(outcome).pipe(
@@ -398,7 +389,7 @@ export function EnrollmentFlow({
     const outcome = await enrollmentClient.advance(
       shown,
       receive !== undefined && shownReceive !== undefined
-        ? { review: shownReceive, fragment: receive.fragment() }
+        ? { review: shownReceive, code: receive.code }
         : undefined,
     );
 
@@ -431,8 +422,8 @@ export function EnrollmentFlow({
       title={title}
       label="Atrás"
       icon={<ChevronLeftIcon />}
-      link={back(disabled)}
       disabled={disabled}
+      {...back(disabled)}
     />
   );
 

@@ -1,14 +1,12 @@
-import { Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Ref from "effect/Ref";
-import * as Schema from "effect/Schema";
 import {
   AccountAddress,
-  LinkSecret,
+  type LinkCode,
   PaymentLinkNotFound,
   PaymentLinkRecipient,
   type Pending,
@@ -30,14 +28,15 @@ import {
   clearedLink,
   sameLinkState,
 } from "./key-store";
+import { generateLinkCode, linkKeyOf, linkPath } from "./link-code";
 import {
   LinkSecretCorrupt,
-  LinkSecretOpened,
-  type SealedLinkSecret,
+  LinkCodeOpened,
+  type SealedLinkCode,
   linkPrfInput,
   matchesLinkContext,
-  openLinkSecret,
-  sealLinkSecret,
+  openLinkCode,
+  sealLinkCode,
 } from "./link-seal";
 import {
   ApprovalOutstanding,
@@ -73,12 +72,9 @@ const nowSeconds = Effect.map(DateTime.now, (now) =>
 
 export interface HeldLink {
   readonly address: AccountAddress;
-  readonly secret: LinkSecret;
+  readonly code: LinkCode;
   readonly saveOnDevice: boolean;
 }
-
-const linkPath = (address: AccountAddress, secret: LinkSecret) =>
-  `/l/${address}#${secret}`;
 
 export function devicePaymentLinks(
   port: WalletPort,
@@ -105,19 +101,19 @@ export function devicePaymentLinks(
                 Option.match(output, {
                   onNone: () => Effect.succeed(new LinkOutputMissing()),
                   onSome: (prf) =>
-                    sealLinkSecret(
+                    sealLinkCode(
                       {
                         network,
                         wallet: record.public.address,
                         address: link.address,
                         credentialId: record.credential.id,
                       },
-                      link.secret,
+                      link.code,
                       prf,
                     ).pipe(
                       Effect.map(
                         Option.getOrElse(
-                          (): SealedLinkSecret | DraftRejected =>
+                          (): SealedLinkCode | DraftRejected =>
                             new DraftRejected(),
                         ),
                       ),
@@ -133,9 +129,12 @@ export function devicePaymentLinks(
     ReviewPaymentLinkOutcome,
     WalletUnavailable | KeyStoreUnavailable
   > {
-    const generated = Keypair.random();
-    const address = Schema.decodeSync(AccountAddress)(generated.publicKey());
-    const secret = Schema.decodeSync(LinkSecret)(generated.secret());
+    const code = generateLinkCode();
+    const key = linkKeyOf(code);
+
+    if (Option.isNone(key)) return new DraftRejected();
+
+    const { address } = key.value;
 
     const reviewed = yield* transfers.reviewLinkFunding(
       new TransferIntent({
@@ -150,7 +149,7 @@ export function devicePaymentLinks(
     if (Predicate.isTagged(reviewed, "PaymentReview"))
       yield* Ref.set(
         held,
-        Option.some({ address, secret, saveOnDevice: intent.saveOnDevice }),
+        Option.some({ address, code, saveOnDevice: intent.saveOnDevice }),
       );
 
     return reviewed;
@@ -180,7 +179,7 @@ export function devicePaymentLinks(
 
     if (outcome.claimable === undefined) return new DraftRejected();
 
-    const { address, secret, saveOnDevice } = link.value;
+    const { address, code, saveOnDevice } = link.value;
 
     yield* Ref.update(held, (current) =>
       Option.exists(current, (kept) => kept.address === address)
@@ -191,12 +190,12 @@ export function devicePaymentLinks(
     return new PaymentLinkCreated({
       id: outcome.id,
       address,
-      secret,
+      code,
       balance: outcome.claimable,
       asset: outcome.asset,
       amount: outcome.amount,
       network,
-      path: linkPath(address, secret),
+      path: linkPath(code),
       settledAt: outcome.settledAt,
       savedOnDevice: saveOnDevice,
     });
@@ -375,7 +374,7 @@ export function devicePaymentLinks(
 
     if (!(verified instanceof OperationVerified)) return verified;
 
-    const opened = yield* openLinkSecret(
+    const opened = yield* openLinkCode(
       saved.value,
       context,
       verified.prf.first,
@@ -387,14 +386,14 @@ export function devicePaymentLinks(
       ),
     );
 
-    if (!(opened instanceof LinkSecretOpened)) return opened;
+    if (!(opened instanceof LinkCodeOpened)) return opened;
 
-    const secret = Redacted.value(opened.secret);
+    const code = Redacted.value(opened.code);
 
     return new PaymentLinkRevealed({
       address: target.address,
-      secret,
-      path: linkPath(target.address, secret),
+      code,
+      path: linkPath(code),
       balance: target.balance,
       asset: target.asset,
       amount: target.amount,

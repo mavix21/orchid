@@ -26,6 +26,7 @@ import {
   type WalletEffects,
   makeWalletEffects,
 } from "../src/device/client";
+import { linkKeyOf } from "../src/device/link-code";
 import { signingKey } from "../src/device/signing";
 import { Transfers } from "../src/server/Transfers.server";
 import { DeviceWallet, memoryKeyStore, savedWallet } from "./device-fixtures";
@@ -174,10 +175,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           });
 
           assertTagged(revealed, "PaymentLinkRevealed");
-          expect(Keypair.fromSecret(revealed.secret).publicKey()).toBe(
-            funded.address,
-          );
-          expect(revealed.path).toBe(`/l/${funded.address}#${revealed.secret}`);
+          expect(
+            Option.map(linkKeyOf(revealed.code), ({ address }) => address),
+          ).toEqual(Option.some(funded.address));
+          expect(revealed.path).toBe(`/r#${revealed.code}`);
 
           const competingMiss = yield* wallet.resolvePaymentLink(
             sender.address,

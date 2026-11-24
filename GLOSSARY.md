@@ -40,6 +40,11 @@ _Avoid_: Transaction when referring to the user's instruction rather than its ne
 **Transfer intent**: What the user entered to send (recipient, asset, amount and optional payment memo) before the device turns it into a transfer order.
 _Avoid_: Order when referring to the entry before it has an id.
 
+**Payment link**: A URL that carries a claimable balance's link code, so whoever opens it can receive the funds or send them to another address.
+
+**Link code**: The short checksummed code after the `#` in a payment link. The device derives the link account's key from it; the server never receives it.
+_Avoid_: Link secret when referring to what the URL carries.
+
 **Asset order**: A uniquely identified instruction to open or close a trustline, or claim a claimable balance.
 
 **Draft**: An unsigned transaction offered for approval before its expiry.

@@ -11,7 +11,7 @@ import {
   ExternalLinkOrder,
   type ExternalLinkStep,
   IssuedAsset,
-  LinkSecret,
+  LinkCode,
   OpenPaymentLink,
   type OpenPaymentLinks,
   ReceivedPaymentLink,
@@ -291,7 +291,7 @@ export class PaymentLinkCreated extends Schema.TaggedClass<PaymentLinkCreated>()
   {
     id: TransferId,
     address: AccountAddress,
-    secret: LinkSecret,
+    code: LinkCode,
     balance: BalanceId,
     asset: Asset,
     amount: PositiveAmount,
@@ -399,7 +399,7 @@ export class PaymentLinkRevealed extends Schema.TaggedClass<PaymentLinkRevealed>
   "PaymentLinkRevealed",
   {
     address: AccountAddress,
-    secret: LinkSecret,
+    code: LinkCode,
     path: Schema.String,
     balance: BalanceId,
     asset: Asset,

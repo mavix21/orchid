@@ -8,6 +8,8 @@ export function getRouter() {
     context: { walletClient },
 
     scrollRestoration: true,
+    getScrollRestorationKey: (location) =>
+      location.state.__TSR_key ?? location.pathname,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
     defaultGcTime: 30 * 60_000,

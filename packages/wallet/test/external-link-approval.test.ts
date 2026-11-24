@@ -1,7 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import {
   Account,
-  Keypair,
   Operation,
   Transaction,
   TransactionBuilder,
@@ -37,6 +36,7 @@ import {
 import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 import {
   addressOf,
+  linkFixture,
   memoryKeyStore,
   nowSeconds,
   sendActors,
@@ -47,7 +47,7 @@ import { assertTagged } from "./tagged";
 
 const actors = sendActors();
 const passkeys = new SoftwareAuthenticator("https://orchid.example").passkeys;
-const link = Keypair.random();
+const { code: linkCode, keypair: link } = linkFixture();
 const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");
 const otherAmount = Schema.decodeSync(PositiveAmount)("20000000");
 const linkBalance = Schema.decodeSync(BalanceId)(`00000000${"e".repeat(64)}`);
@@ -215,8 +215,7 @@ it.live.each(tamperedExternalDrafts)(
         memoryKeyStore(),
         passkeys,
       ).reviewExternalLinkClaim(
-        addressOf(link),
-        link.secret(),
+        linkCode,
         new ExternalLinkIntent({
           destination: actors.stranger,
           memo: "intentMemo" in options ? options.intentMemo : textMemo,
@@ -273,8 +272,7 @@ it.live(
       const effects = makeWalletEffects(port, memoryKeyStore(), passkeys);
 
       const reviewed = yield* effects.reviewExternalLinkClaim(
-        addressOf(link),
-        link.secret(),
+        linkCode,
         new ExternalLinkIntent({
           destination: actors.stranger,
           memo: idMemo,
@@ -287,7 +285,7 @@ it.live(
 
       const settled = yield* effects.confirmExternalLinkClaim(
         reviewed,
-        link.secret(),
+        linkCode,
       );
 
       assertTagged(settled, "ExternalLinkSettled");
@@ -309,8 +307,7 @@ it.live(
         memoryKeyStore(),
         passkeys,
       ).reviewExternalLinkClaim(
-        addressOf(link),
-        link.secret(),
+        linkCode,
         new ExternalLinkIntent({
           destination: actors.muxed("42"),
           memo: textMemo,

@@ -4,21 +4,22 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import { CredentialId, LinkSecret } from "../src/contract";
+import { CredentialId } from "../src/contract";
+import { generateLinkCode } from "../src/device/link-code";
 import {
   type LinkSealContext,
-  SealedLinkSecret,
+  SealedLinkCode,
   linkSealVersion,
-  openLinkSecret,
-  sealLinkSecret,
+  openLinkCode,
+  sealLinkCode,
 } from "../src/device/link-seal";
 import { canonicalTuple } from "../src/device/canonical-digest";
 import { network } from "../src/stellar/network";
-import { addressOf } from "./device-fixtures";
+import { addressOf, linkFixture } from "./device-fixtures";
 import { assertTagged } from "./tagged";
 
 const encoder = new TextEncoder();
-const linkKey = Keypair.random();
+const { code, keypair: linkKey } = linkFixture();
 const otherLink = addressOf(Keypair.random());
 
 const context: LinkSealContext = {
@@ -28,7 +29,6 @@ const context: LinkSealContext = {
   credentialId: Schema.decodeSync(CredentialId)("Y3JlZGVudGlhbA"),
 };
 
-const secret = Schema.decodeSync(LinkSecret)(linkKey.secret());
 const prfBytes = crypto.getRandomValues(new Uint8Array(32));
 const prf = () => Redacted.make(Uint8Array.from(prfBytes));
 
@@ -47,7 +47,7 @@ const sealedText = (plaintext: string) =>
         name: "HKDF",
         hash: "SHA-256",
         salt: new Uint8Array(),
-        info: encoder.encode("orchid-payment-link-secret-v1"),
+        info: encoder.encode("orchid-payment-link-code-v2"),
       },
       hkdf,
       { name: "AES-GCM", length: 256 },
@@ -63,7 +63,7 @@ const sealedText = (plaintext: string) =>
         iv,
         additionalData: canonicalTuple(
           [
-            "orchid-payment-link-secret-v1",
+            "orchid-payment-link-code-v2",
             context.network,
             context.wallet,
             context.address,
@@ -74,7 +74,7 @@ const sealedText = (plaintext: string) =>
       encoder.encode(plaintext),
     );
 
-    return new SealedLinkSecret({
+    return new SealedLinkCode({
       version: linkSealVersion,
       ...context,
       iv,
@@ -82,18 +82,18 @@ const sealedText = (plaintext: string) =>
     });
   });
 
-const sealed = sealLinkSecret(context, secret, prf()).pipe(
+const sealed = sealLinkCode(context, code, prf()).pipe(
   Effect.map(Option.getOrThrow),
 );
 
-const withBrokenChecksum = `${secret.slice(0, -1)}${secret.endsWith("A") ? "B" : "A"}`;
+const withBrokenChecksum = `${code.slice(0, -1)}${code.endsWith("A") ? "B" : "A"}`;
 
-it.effect("opens a sealed link secret only with its own context and PRF", () =>
+it.effect("opens a sealed link code only with its own context and PRF", () =>
   Effect.gen(function* () {
-    const opened = yield* openLinkSecret(yield* sealed, context, prf());
+    const opened = yield* openLinkCode(yield* sealed, context, prf());
 
-    assertTagged(opened, "LinkSecretOpened");
-    expect(Redacted.value(opened.secret)).toBe(secret);
+    assertTagged(opened, "LinkCodeOpened");
+    expect(Redacted.value(opened.code)).toBe(code);
   }),
 );
 
@@ -109,7 +109,7 @@ it.effect.each([
     tampered: Effect.map(
       sealed,
       (record) =>
-        new SealedLinkSecret({
+        new SealedLinkCode({
           ...record,
           credentialId: Schema.decodeSync(CredentialId)("b3RoZXI"),
         }),
@@ -121,7 +121,7 @@ it.effect.each([
     name: "a record relabelled to another link address",
     tampered: Effect.map(
       sealed,
-      (record) => new SealedLinkSecret({ ...record, address: otherLink }),
+      (record) => new SealedLinkCode({ ...record, address: otherLink }),
     ),
     output: prf,
     expected: { ...context, address: otherLink },
@@ -133,26 +133,26 @@ it.effect.each([
 
       ciphertext[0] = (ciphertext[0] ?? 0) ^ 0xff;
 
-      return new SealedLinkSecret({ ...record, ciphertext });
+      return new SealedLinkCode({ ...record, ciphertext });
     }),
     output: prf,
     expected: context,
   },
   {
-    name: "a secret with an invalid StrKey checksum",
+    name: "a code with an invalid checksum",
     tampered: sealedText(withBrokenChecksum),
     output: prf,
     expected: context,
   },
   {
-    name: "a secret whose key is not the link address",
-    tampered: sealedText(Keypair.random().secret()),
+    name: "a code whose key is not the link address",
+    tampered: sealedText(generateLinkCode()),
     output: prf,
     expected: context,
   },
 ])("refuses $name as LinkSecretCorrupt", ({ tampered, output, expected }) =>
   Effect.gen(function* () {
-    const opened = yield* openLinkSecret(yield* tampered, expected, output());
+    const opened = yield* openLinkCode(yield* tampered, expected, output());
 
     expect(opened._tag).toBe("LinkSecretCorrupt");
   }),
