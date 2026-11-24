@@ -1,26 +1,34 @@
 import { cn } from "@workspace/ui/lib/utils";
 
-type PetalStyle = React.CSSProperties & {
+type PartStyle = React.CSSProperties & {
   "--angle": string;
   "--delay": string;
+  "--bud-x": string;
+  "--bud-y": string;
 };
 
-interface Petal {
-  readonly path: string;
+interface FlowerPart {
+  readonly kind: "sepal" | "petal";
   readonly angle: number;
   readonly delay: number;
-  readonly opacity: number;
+  readonly budX: number;
+  readonly budY: number;
 }
 
-const sepal = "M100 100C86 76 88 32 100 18C112 32 114 76 100 100Z";
-const wing = "M100 100C62 84 64 26 100 22C136 26 138 84 100 100Z";
+const sepalPath = "M100 96C85 84 80 44 100 20C120 44 115 84 100 96Z";
 
-const petals: ReadonlyArray<Petal> = [
-  { path: sepal, angle: 148, delay: 0.1, opacity: 0.7 },
-  { path: sepal, angle: -148, delay: 0.1, opacity: 0.7 },
-  { path: sepal, angle: 0, delay: 0, opacity: 0.8 },
-  { path: wing, angle: 74, delay: 0.25, opacity: 0.95 },
-  { path: wing, angle: -74, delay: 0.25, opacity: 0.95 },
+const petalPath =
+  "M100 96C84 92 56 72 58 44C60 22 82 14 100 14C118 14 140 22 142 44C144 72 116 92 100 96Z";
+
+const petalVeins =
+  "M100 90V30M100 88C92 74 84 56 80 36M100 88C108 74 116 56 120 36";
+
+const parts: ReadonlyArray<FlowerPart> = [
+  { kind: "sepal", angle: -148, delay: 0.4, budX: 0.8, budY: 0.78 },
+  { kind: "sepal", angle: 148, delay: 0.4, budX: 0.8, budY: 0.78 },
+  { kind: "sepal", angle: 0, delay: 0.35, budX: 0.8, budY: 0.78 },
+  { kind: "petal", angle: -70, delay: 0.45, budX: 0.24, budY: 0.48 },
+  { kind: "petal", angle: 70, delay: 0.45, budX: 0.24, budY: 0.48 },
 ];
 
 export function OrchidBloom({
@@ -30,95 +38,105 @@ export function OrchidBloom({
   stage: "bud" | "bloom";
   className?: string;
 }) {
-  const lip = stage === "bloom" ? "orchid-lip-open" : "orchid-lip";
+  const part =
+    stage === "bloom" ? "orchid-part orchid-unfold" : "orchid-folded";
 
   return (
     <svg
       viewBox="0 0 200 200"
       aria-hidden="true"
-      className={cn(stage === "bud" && "orchid-bud", className)}
+      className={cn(
+        stage === "bloom" ? "orchid-emerge" : "orchid-breathe",
+        className,
+      )}
     >
-      {petals.map(({ path, angle, delay, opacity }) => {
-        const style: PetalStyle = {
+      {parts.map(({ kind, angle, delay, budX, budY }) => {
+        const style: PartStyle = {
           "--angle": `${angle}deg`,
           "--delay": `${delay}s`,
+          "--bud-x": `${budX}`,
+          "--bud-y": `${budY}`,
         };
 
-        return (
+        return kind === "sepal" ? (
           <path
             key={angle}
-            className={stage === "bloom" ? "orchid-petal-open" : "orchid-petal"}
-            d={path}
-            fill="currentColor"
-            fillOpacity={opacity}
+            className={cn("orchid-sepal", part)}
             style={style}
+            d={sepalPath}
           />
+        ) : (
+          <g key={angle} className={part} style={style}>
+            <path className="fill-primary" d={petalPath} />
+            <path
+              className="fill-none stroke-primary-pressed opacity-40"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              d={petalVeins}
+            />
+          </g>
         );
       })}
-      <path
-        className={lip}
-        d="M100 96C78 100 74 130 100 152C126 130 122 100 100 96Z"
-      />
-      <circle className={lip} cx="100" cy="94" r="7" />
+      <g
+        className={
+          stage === "bloom" ? "orchid-lip orchid-lip-open" : "opacity-0"
+        }
+      >
+        <path
+          className="fill-primary-pressed"
+          d="M98 100C86 92 70 98 74 112C77 122 90 120 96 112Z"
+        />
+        <path
+          className="fill-primary-pressed"
+          d="M102 100C114 92 130 98 126 112C123 122 110 120 104 112Z"
+        />
+        <path
+          className="fill-primary-pressed"
+          d="M100 104C88 104 84 118 91 130C94 135 91 143 84 150C93 150 98 145 100 138C102 145 107 150 116 150C109 143 106 135 109 130C116 118 112 104 100 104Z"
+        />
+        <path
+          className="fill-primary-foreground opacity-90"
+          d="M100 84C96 84 94 89 95 95C96 100 98 102 100 102C102 102 104 100 105 95C106 89 104 84 100 84Z"
+        />
+      </g>
     </svg>
   );
 }
 
-type FallStyle = React.CSSProperties & {
-  "--x": string;
-  "--size": string;
-  "--drift": string;
-  "--spin": string;
-  "--delay": string;
-  "--duration": string;
-};
-
-const falling = [
-  { x: 8, size: 10, drift: 24, spin: 260, delay: 0.9, duration: 3.4 },
-  { x: 20, size: 14, drift: -30, spin: -200, delay: 1.3, duration: 3.9 },
-  { x: 33, size: 9, drift: 18, spin: 320, delay: 1.0, duration: 3.1 },
-  { x: 47, size: 12, drift: -22, spin: -280, delay: 1.5, duration: 3.6 },
-  { x: 60, size: 16, drift: 34, spin: 220, delay: 0.8, duration: 4.0 },
-  { x: 72, size: 10, drift: -18, spin: -300, delay: 1.2, duration: 3.3 },
-  { x: 84, size: 13, drift: 26, spin: 240, delay: 1.6, duration: 3.8 },
-  { x: 92, size: 9, drift: -26, spin: -240, delay: 1.1, duration: 3.2 },
-];
-
-export function PetalShower() {
-  return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-      {falling.map(({ x, size, drift, spin, delay, duration }) => {
-        const style: FallStyle = {
-          "--x": `${x}%`,
-          "--size": `${size}px`,
-          "--drift": `${drift}px`,
-          "--spin": `${spin}deg`,
-          "--delay": `${delay}s`,
-          "--duration": `${duration}s`,
-        };
-
-        return <span key={x} className="orchid-fall" style={style} />;
-      })}
-    </div>
-  );
-}
-
-type RiseStyle = React.CSSProperties & { "--delay": string };
-
-export function Rise({
-  delay = 0,
-  className,
+export function BloomHero({
+  stage = "bloom",
+  label,
+  amount,
   children,
 }: {
-  delay?: number;
-  className?: string;
-  children: React.ReactNode;
+  stage?: "bud" | "bloom";
+  label: string;
+  amount?: string;
+  children?: React.ReactNode;
 }) {
-  const style: RiseStyle = { "--delay": `${delay}s` };
-
   return (
-    <div className={cn("orchid-rise", className)} style={style}>
-      {children}
-    </div>
+    <section className="flex flex-1 flex-col items-center justify-center gap-6 text-center">
+      <div className="relative">
+        {stage === "bloom" ? (
+          <div
+            aria-hidden="true"
+            className="orchid-glow absolute -inset-1/4 rounded-full"
+          />
+        ) : null}
+        <OrchidBloom stage={stage} className="relative size-56" />
+      </div>
+      <div
+        className={cn(
+          "flex flex-col items-center gap-1",
+          stage === "bloom" && "orchid-reveal",
+        )}
+      >
+        <p className="text-label text-muted-foreground">{label}</p>
+        {amount === undefined ? null : (
+          <p className="font-display text-display">{amount}</p>
+        )}
+        {children}
+      </div>
+    </section>
   );
 }

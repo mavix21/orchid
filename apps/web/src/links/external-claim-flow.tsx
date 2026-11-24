@@ -25,6 +25,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 
+import { BloomHero } from "@/components/orchid-bloom";
 import { ReviewHero } from "@/components/review-hero";
 import { Screen, ScreenActions } from "@/components/screen";
 import {
@@ -413,20 +414,40 @@ export function ExternalClaimFlow({
         <LinkWorking label="Enviando…" />
       </Screen>
     ),
-    Concluded: ({ outcome, screen }) => (
-      <Screen>
-        <LinkResultScreen outcome={outcome} screen={screen}>
-          {Match.value(screen.action).pipe(
-            Match.when("check", () => (
-              <ResultButton onClick={onRecheck}>Revisar de nuevo</ResultButton>
-            )),
-            Match.when("done", () => (
-              <ResultLink link={<Link to="/" />}>Ir al inicio</ResultLink>
-            )),
-            Match.exhaustive,
-          )}
-        </LinkResultScreen>
-      </Screen>
-    ),
+    Concluded: ({ outcome, screen }) =>
+      outcome === "ExternalLinkSettled" ? (
+        <Screen>
+          <main
+            data-testid="link-outcome"
+            data-outcome={outcome}
+            className="flex flex-1 flex-col px-5"
+          >
+            <BloomHero label={screen.title} amount={sent}>
+              <p className="text-body text-muted-foreground">
+                {screen.message}
+              </p>
+            </BloomHero>
+          </main>
+          <ScreenActions>
+            <ResultLink link={<Link to="/" />}>Ir al inicio</ResultLink>
+          </ScreenActions>
+        </Screen>
+      ) : (
+        <Screen>
+          <LinkResultScreen outcome={outcome} screen={screen}>
+            {Match.value(screen.action).pipe(
+              Match.when("check", () => (
+                <ResultButton onClick={onRecheck}>
+                  Revisar de nuevo
+                </ResultButton>
+              )),
+              Match.when("done", () => (
+                <ResultLink link={<Link to="/" />}>Ir al inicio</ResultLink>
+              )),
+              Match.exhaustive,
+            )}
+          </LinkResultScreen>
+        </Screen>
+      ),
   });
 }

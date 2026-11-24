@@ -119,109 +119,113 @@
   bottom: max(env(safe-area-inset-bottom), --spacing(4));
 }
 
-@keyframes orchid-open {
+@keyframes orchid-emerge {
   from {
-    transform: rotate(calc(var(--angle) * 0.12)) scale(0.72);
-  }
-  to {
-    transform: rotate(var(--angle)) scale(1);
+    opacity: 0;
+    transform: translate3d(0, 12px, 0) scale(0.86);
   }
 }
 
-@keyframes orchid-appear {
+@keyframes orchid-unfold {
+  from {
+    transform: rotate(0deg) scale(var(--bud-x), var(--bud-y));
+  }
+}
+
+@keyframes orchid-lip-open {
   from {
     opacity: 0;
+    transform: translate(0, -14px) scale(0.3);
   }
-  to {
-    opacity: 1;
+}
+
+@keyframes orchid-glow {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+@keyframes orchid-reveal {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
   }
 }
 
 @keyframes orchid-breathe {
   50% {
-    transform: scale(1.04);
+    transform: scale(1.06);
   }
 }
 
-@keyframes orchid-fall {
-  10% {
-    opacity: 0.9;
-  }
-  to {
-    opacity: 0;
-    transform: translate3d(var(--drift), 420px, 0) rotate(var(--spin));
-  }
-}
-
-@keyframes orchid-rise {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 16px, 0);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@utility orchid-petal {
-  transform-origin: 100px 100px;
-  transform: rotate(calc(var(--angle) * 0.12)) scale(0.72);
-}
-
-@utility orchid-petal-open {
-  transform-origin: 100px 100px;
-  animation: orchid-open 1.3s cubic-bezier(0.16, 1, 0.3, 1) var(--delay) both;
+@utility orchid-emerge {
+  animation: orchid-emerge 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
-    transform: rotate(var(--angle));
   }
+}
+
+@utility orchid-part {
+  transform-origin: 100px 96px;
+  transform: rotate(var(--angle)) scale(1);
+}
+
+@utility orchid-unfold {
+  animation: orchid-unfold 0.95s cubic-bezier(0.34, 1.32, 0.5, 1) var(--delay)
+    both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility orchid-folded {
+  transform-origin: 100px 96px;
+  transform: rotate(0deg) scale(var(--bud-x), var(--bud-y));
+}
+
+@utility orchid-sepal {
+  fill: color-mix(in oklch, var(--primary) 72%, var(--background));
 }
 
 @utility orchid-lip {
-  fill: var(--primary);
-  opacity: 0;
+  transform-origin: 100px 100px;
 }
 
 @utility orchid-lip-open {
-  fill: var(--primary);
-  animation: orchid-appear 0.7s ease-out 0.9s both;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-    opacity: 1;
-  }
-}
-
-@utility orchid-bud {
-  transform-origin: 50% 85%;
-  animation: orchid-breathe 3.2s ease-in-out infinite;
+  animation: orchid-lip-open 0.6s cubic-bezier(0.34, 1.4, 0.5, 1) 0.8s both;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
   }
 }
 
-@utility orchid-fall {
-  position: absolute;
-  top: -24px;
-  left: var(--x);
-  width: var(--size);
-  height: calc(var(--size) * 1.5);
-  border-radius: 100% 0 100% 0;
-  background: currentColor;
-  opacity: 0;
-  animation: orchid-fall var(--duration) ease-in var(--delay) 1 both;
+@utility orchid-glow {
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklch, var(--primary) 40%, transparent),
+    transparent
+  );
+  animation: orchid-glow 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.45s both;
 
   @media (prefers-reduced-motion: reduce) {
-    display: none;
+    animation: none;
   }
 }
 
-@utility orchid-rise {
-  animation: orchid-rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) var(--delay, 0s)
-    both;
+@utility orchid-reveal {
+  animation: orchid-reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.6s both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility orchid-breathe {
+  transform-origin: 50% 48%;
+  animation: orchid-breathe 2.4s ease-in-out infinite;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;

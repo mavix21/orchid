@@ -17,7 +17,7 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
 import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
-import { OrchidBloom, PetalShower, Rise } from "@/components/orchid-bloom";
+import { BloomHero } from "@/components/orchid-bloom";
 import { ReviewHero } from "@/components/review-hero";
 import {
   Screen,
@@ -222,21 +222,11 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
     ),
     Offered: ({ open }) => (
       <Screen>
-        <main
-          data-testid="link-offer"
-          className="flex flex-1 flex-col px-5 pt-2"
-        >
-          <section className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl bg-accent px-5 py-10 text-center text-accent-foreground">
-            <Rise>
-              <OrchidBloom stage="bud" className="size-56 text-primary" />
-            </Rise>
-            <Rise delay={0.15} className="flex flex-col items-center gap-1">
-              <p className="text-label">@{open.sender.username} te envió</p>
-              <p className="font-display text-display">
-                {amountLabel(open.amount, open.asset)}
-              </p>
-            </Rise>
-          </section>
+        <main data-testid="link-offer" className="flex flex-1 flex-col px-5">
+          <BloomHero
+            label={`@${open.sender.username} te envió`}
+            amount={amountLabel(open.amount, open.asset)}
+          />
         </main>
         <ScreenActions>
           <Button
@@ -326,10 +316,9 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
     ),
     Confirming: () => (
       <Screen>
-        <ScreenStatus
-          title="Recibiendo tu dinero…"
-          media={<OrchidBloom stage="bud" className="size-32 text-primary" />}
-        />
+        <main role="status" className="flex flex-1 flex-col px-5">
+          <BloomHero stage="bud" label="Recibiendo tu dinero…" />
+        </main>
       </Screen>
     ),
     Concluded: ({ outcome, screen, received }) =>
@@ -338,22 +327,13 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
           <main
             data-testid="link-outcome"
             data-outcome={outcome}
-            className="flex flex-1 flex-col gap-4 px-5 pt-2"
+            className="flex flex-1 flex-col px-5"
           >
-            <section className="relative flex flex-1 flex-col items-center justify-center gap-3 overflow-hidden rounded-xl bg-primary px-5 py-10 text-center text-primary-foreground">
-              <PetalShower />
-              <OrchidBloom
-                stage="bloom"
-                className="size-44 text-primary-foreground"
-              />
-              <Rise delay={0.9} className="flex flex-col items-center gap-1">
-                <p className="text-label">Recibiste</p>
-                <p className="font-display text-display">{received}</p>
-              </Rise>
-            </section>
-            <p className="text-center text-body text-muted-foreground">
-              {screen.message}
-            </p>
+            <BloomHero label="Recibiste" amount={received}>
+              <p className="text-body text-muted-foreground">
+                {screen.message}
+              </p>
+            </BloomHero>
           </main>
           <ScreenActions>
             <ResultLink link={<Link to="/home" />}>Ir a mi cuenta</ResultLink>
