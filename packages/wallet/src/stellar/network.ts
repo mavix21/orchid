@@ -29,3 +29,5 @@ export const recoveryDraftLifetime = 10 * 60;
 export const sweepBatchSize = 4;
 
 export const claimableReadLimit = 50;
+
+export const activityPageSize = 20;

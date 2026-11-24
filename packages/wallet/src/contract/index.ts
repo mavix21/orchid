@@ -260,15 +260,16 @@ export class Reserved extends Schema.TaggedClass<Reserved>()(
   transferFields,
 ) {}
 
-export class Claimed extends Schema.TaggedClass<Claimed>()(
-  "Claimed",
-  transferFields,
-) {}
+export class Claimed extends Schema.TaggedClass<Claimed>()("Claimed", {
+  ...transferFields,
+  by: Schema.optional(Schema.Union([Profile, ExternalRecipient])),
+  closedAt: Schema.DateTimeUtcFromString,
+}) {}
 
-export class Refunded extends Schema.TaggedClass<Refunded>()(
-  "Refunded",
-  transferFields,
-) {}
+export class Refunded extends Schema.TaggedClass<Refunded>()("Refunded", {
+  ...transferFields,
+  closedAt: Schema.DateTimeUtcFromString,
+}) {}
 
 export const Receipt = Schema.Union([
   Pending,
@@ -295,6 +296,81 @@ export class TransferDraft extends Schema.TaggedClass<TransferDraft>()(
 export class NotOpened extends Schema.TaggedClass<NotOpened>()(
   "NotOpened",
   {},
+) {}
+
+export const ActivityCursor = Schema.String.check(
+  Schema.isPattern(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+  ),
+).pipe(Schema.brand("ActivityCursor"));
+
+export type ActivityCursor = typeof ActivityCursor.Type;
+
+export class SentActivity extends Schema.TaggedClass<SentActivity>()(
+  "SentActivity",
+  {
+    id: TransferId,
+    createdAt: Schema.DateTimeUtcFromString,
+    receipt: Receipt,
+  },
+) {}
+
+const receivedActivityFields = {
+  id: TransferId,
+  createdAt: Schema.DateTimeUtcFromString,
+  from: Profile,
+  asset: Asset,
+  amount: PositiveAmount,
+};
+
+export class ReceivedActivity extends Schema.TaggedClass<ReceivedActivity>()(
+  "ReceivedActivity",
+  {
+    ...receivedActivityFields,
+    closedAt: Schema.optional(Schema.DateTimeUtcFromString),
+  },
+) {}
+
+export class AwaitingAcceptanceActivity extends Schema.TaggedClass<AwaitingAcceptanceActivity>()(
+  "AwaitingAcceptanceActivity",
+  { ...receivedActivityFields, balance: BalanceId },
+) {}
+
+export class TakenBackActivity extends Schema.TaggedClass<TakenBackActivity>()(
+  "TakenBackActivity",
+  {
+    ...receivedActivityFields,
+    closedAt: Schema.DateTimeUtcFromString,
+  },
+) {}
+
+export class ClaimedLinkActivity extends Schema.TaggedClass<ClaimedLinkActivity>()(
+  "ClaimedLinkActivity",
+  {
+    id: AssetOrderId,
+    createdAt: Schema.DateTimeUtcFromString,
+    from: Profile,
+    asset: Asset,
+    amount: PositiveAmount,
+  },
+) {}
+
+export const ActivityEntry = Schema.Union([
+  SentActivity,
+  ReceivedActivity,
+  AwaitingAcceptanceActivity,
+  TakenBackActivity,
+  ClaimedLinkActivity,
+]);
+
+export type ActivityEntry = typeof ActivityEntry.Type;
+
+export class ActivityPage extends Schema.TaggedClass<ActivityPage>()(
+  "ActivityPage",
+  {
+    entries: Schema.Array(ActivityEntry),
+    next: Schema.optional(ActivityCursor),
+  },
 ) {}
 
 export class UnknownRecipient extends Schema.TaggedClass<UnknownRecipient>()(
@@ -386,6 +462,14 @@ export const PaymentLinksStep = Schema.Union([
 ]);
 
 export type PaymentLinksStep = typeof PaymentLinksStep.Type;
+
+export const ActivityStep = Schema.Union([
+  ActivityPage,
+  NotOpened,
+  InvalidAddress,
+]);
+
+export type ActivityStep = typeof ActivityStep.Type;
 
 export const ResolveReceiptStep = Schema.Union([
   ResolvedPaymentLink,
@@ -563,6 +647,10 @@ export interface WalletPort<E = WalletUnavailable> {
     approval: Option.Option<Approval>,
   ): Effect.Effect<AssetStep, E>;
   paymentLinks(address: AccountAddress): Effect.Effect<PaymentLinksStep, E>;
+  activity(
+    address: AccountAddress,
+    before?: ActivityCursor,
+  ): Effect.Effect<ActivityStep, E>;
   paymentLink(link: AccountAddress): Effect.Effect<PaymentLinkStep, E>;
   claimPaymentLink(
     order: ExternalLinkOrder,

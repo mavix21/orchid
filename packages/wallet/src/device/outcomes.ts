@@ -12,6 +12,8 @@ import {
   type ExternalLinkStep,
   IssuedAsset,
   OpenPaymentLink,
+  type ActivityPage,
+  type ActivityStep,
   type OpenPaymentLinks,
   ReceivedPaymentLink,
   type AddressBound,
@@ -334,6 +336,13 @@ export class ListedPaymentLinks extends Schema.TaggedClass<ListedPaymentLinks>()
 export type PaymentLinksOutcome =
   | ListedPaymentLinks
   | Exclude<PaymentLinksStep, OpenPaymentLinks>
+  | NoWallet
+  | UnsupportedDevice
+  | WalletUnavailable;
+
+export type ActivityOutcome =
+  | ActivityPage
+  | Exclude<ActivityStep, ActivityPage>
   | NoWallet
   | UnsupportedDevice
   | WalletUnavailable;

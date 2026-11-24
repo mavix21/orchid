@@ -61,6 +61,7 @@ import { openingFlow } from "./wallet-opening.server";
 import { Backups } from "./Backups.server";
 import { concealFailure } from "./failures.server";
 import { backupFlow } from "./wallet-backup.server";
+import { activityFlow } from "./wallet-activity.server";
 import { paymentLinksFlow } from "./wallet-payment-links.server";
 import { confirmedReads, live } from "./wallet-reads.server";
 import { sweepFlow } from "./wallet-sweep.server";
@@ -82,6 +83,7 @@ export class Wallet extends Context.Service<
       const delivery = yield* deliveryFlow;
       const checkLinkAsset = yield* paymentLinkAssetRefusal;
       const links = yield* paymentLinksFlow;
+      const history = yield* activityFlow;
       const portfolio = yield* portfolioFlow;
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
@@ -469,6 +471,7 @@ export class Wallet extends Context.Service<
         transfer: (order, approval) => wrap(transfer(order, approval)),
         overview: (address) => wrap(overview(address)),
         paymentLinks: (address) => wrap(links.paymentLinks(address)),
+        activity: (address, before) => wrap(history(address, before)),
         paymentLink: (link) => wrap(assetActions.paymentLink(link)),
         claimPaymentLink: (order, approval) =>
           wrap(assetActions.claimPaymentLink(order, approval)),

@@ -1,6 +1,8 @@
 import { type CustomFetch, createServerFn } from "@tanstack/react-start";
 import {
   AccountAddress,
+  ActivityCursor,
+  ActivityStep,
   AssetOrder,
   AssetStep,
   Approval,
@@ -53,6 +55,11 @@ const ManageCall = Schema.Struct({
 });
 
 const PaymentLinksCall = Schema.Struct({ address: AccountAddress });
+
+const ActivityCall = Schema.Struct({
+  address: AccountAddress,
+  before: Schema.optional(ActivityCursor),
+});
 
 const PaymentLinkCall = Schema.Struct({ link: AccountAddress });
 
@@ -114,6 +121,14 @@ const paymentLinksFn = createServerFn({ method: "POST" })
   .handler(({ data }) =>
     answerWallet(PaymentLinksCall, data, PaymentLinksStep, (decoded) =>
       Wallet.use((wallet) => wallet.paymentLinks(decoded.address)),
+    ),
+  );
+
+const activityFn = createServerFn({ method: "POST" })
+  .validator(accepted<typeof ActivityCall.Encoded>())
+  .handler(({ data }) =>
+    answerWallet(ActivityCall, data, ActivityStep, (decoded) =>
+      Wallet.use((wallet) => wallet.activity(decoded.address, decoded.before)),
     ),
   );
 
@@ -218,6 +233,8 @@ export const port: WalletPort = {
     reach(AssetStep, ManageCall, { order, approval }, manageFn),
   paymentLinks: (address) =>
     reach(PaymentLinksStep, PaymentLinksCall, { address }, paymentLinksFn),
+  activity: (address, before) =>
+    reach(ActivityStep, ActivityCall, { address, before }, activityFn),
   paymentLink: (link) =>
     reach(PaymentLinkStep, PaymentLinkCall, { link }, paymentLinkFn),
   claimPaymentLink: (order, approval) =>

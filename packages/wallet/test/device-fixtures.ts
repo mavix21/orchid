@@ -129,6 +129,7 @@ export const unusedPort = (overrides: Partial<WalletPort> = {}): WalletPort => {
     transfer: unused,
     manage: unused,
     paymentLinks: unused,
+    activity: unused,
     paymentLink: unused,
     claimPaymentLink: unused,
     resolvePaymentLink: unused,
