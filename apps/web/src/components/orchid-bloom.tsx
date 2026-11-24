@@ -56,7 +56,11 @@ export function OrchidBloom({
     <svg
       viewBox="0 0 200 200"
       aria-hidden="true"
-      className={cn(motion === "breathe" && "orchid-breathe", className)}
+      className={cn(
+        motion === "breathe" && "orchid-breathe",
+        motion === "bloom" && "orchid-land",
+        className,
+      )}
     >
       {parts.map(({ kind, angle, stagger, budX, budY }) => {
         const style: PartStyle = {
@@ -105,8 +109,8 @@ export function BloomHero({
   const celebrates = motion === "bloom" || motion === "flourish";
 
   const style: HeroStyle = {
-    "--glow-delay": motion === "bloom" ? "1s" : "0.05s",
-    "--reveal-delay": motion === "bloom" ? "1.15s" : "0.25s",
+    "--glow-delay": motion === "bloom" ? "1.15s" : "0.05s",
+    "--reveal-delay": motion === "bloom" ? "1.3s" : "0.25s",
   };
 
   return (
