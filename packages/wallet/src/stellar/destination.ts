@@ -17,10 +17,10 @@ export const baseAccountOf = (destination: DestinationAddress) =>
 
 const muxedPrefixLength = 53;
 
-const highestMuxedId = "9223372036854775808";
+const highBitMuxedId = "9223372036854775808";
 
 export const muxedPrefixesOf = (account: AccountAddress) =>
-  ["0", highestMuxedId].map((id) =>
+  ["0", highBitMuxedId].map((id) =>
     new MuxedAccount(new Account(account, "0"), id)
       .accountId()
       .slice(0, muxedPrefixLength),
