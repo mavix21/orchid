@@ -27,8 +27,8 @@ const sepalPath = "M100 96C85 84 80 44 100 20C120 44 115 84 100 96Z";
 const petalPath =
   "M100 96C84 92 56 72 58 44C60 22 82 14 100 14C118 14 140 22 142 44C144 72 116 92 100 96Z";
 
-const lipPath =
-  "M100 98C88 98 84 112 90 124C93 130 97 136 100 142C103 136 107 130 110 124C116 112 112 98 100 98Z";
+const petalVeins =
+  "M100 90V30M100 88C92 74 84 56 80 36M100 88C108 74 116 56 120 36";
 
 const parts: ReadonlyArray<FlowerPart> = [
   { kind: "sepal", angle: -148, stagger: 0.05, budX: 0.8, budY: 0.78 },
@@ -70,25 +70,41 @@ export function OrchidBloom({
           "--bud-y": `${budY}`,
         };
 
-        return (
+        return kind === "sepal" ? (
           <path
             key={angle}
-            className={cn(
-              kind === "sepal" ? "orchid-sepal" : "fill-primary",
-              partMotion[motion],
-            )}
+            className={cn("orchid-sepal", partMotion[motion])}
             style={style}
-            d={kind === "sepal" ? sepalPath : petalPath}
+            d={sepalPath}
           />
+        ) : (
+          <g key={angle} className={partMotion[motion]} style={style}>
+            <path className="fill-primary" d={petalPath} />
+            <path
+              className="fill-none stroke-primary-pressed opacity-40"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              d={petalVeins}
+            />
+          </g>
         );
       })}
       <g className={cn("orchid-lip", motion === "bloom" && "orchid-lip-open")}>
-        <path className="fill-primary-pressed" d={lipPath} />
-        <circle
+        <path
+          className="fill-primary-pressed"
+          d="M98 100C86 92 70 98 74 112C77 122 90 120 96 112Z"
+        />
+        <path
+          className="fill-primary-pressed"
+          d="M102 100C114 92 130 98 126 112C123 122 110 120 104 112Z"
+        />
+        <path
+          className="fill-primary-pressed"
+          d="M100 104C88 104 84 118 91 130C94 135 91 143 84 150C93 150 98 145 100 138C102 145 107 150 116 150C109 143 106 135 109 130C116 118 112 104 100 104Z"
+        />
+        <path
           className="fill-primary-foreground opacity-90"
-          cx="100"
-          cy="92"
-          r="5"
+          d="M100 84C96 84 94 89 95 95C96 100 98 102 100 102C102 102 104 100 105 95C106 89 104 84 100 84Z"
         />
       </g>
     </svg>
