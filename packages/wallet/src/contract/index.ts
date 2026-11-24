@@ -40,6 +40,7 @@ import {
   PaymentLinkOpen,
   PaymentLinkReceipt,
   PaymentLinkReceiptInvalid,
+  PaymentLinkUnrecognized,
   PaymentLinkUnresolved,
   PaymentLinkUsed,
   ResolvedPaymentLink,
@@ -399,6 +400,7 @@ export const PaymentLinkStep = Schema.Union([
   PaymentLinkChecking,
   PaymentLinkUsed,
   PaymentLinkUnresolved,
+  PaymentLinkUnrecognized,
   PaymentLinkNotFound,
   InvalidAddress,
 ]);
