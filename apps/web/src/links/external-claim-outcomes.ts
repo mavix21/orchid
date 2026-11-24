@@ -49,6 +49,12 @@ const unresolved = new LinkScreen<ExternalClaimAction>(
   "done",
 );
 
+const unrecognized = new LinkScreen<ExternalClaimAction>(
+  "No reconocemos este link",
+  "El dinero sigue en el link, pero no podemos cobrarlo desde aquí.",
+  "done",
+);
+
 const checking = new LinkScreen<ExternalClaimAction>(
   "Estamos comprobando si se envió",
   "Revisa de nuevo en un momento.",
@@ -119,6 +125,7 @@ const mapResult = (
       concluded(outcome, status === "unresolved" ? unresolved : used),
     PaymentLinkUsed: () => concluded(outcome, used),
     PaymentLinkUnresolved: () => concluded(outcome, unresolved),
+    PaymentLinkUnrecognized: () => concluded(outcome, unrecognized),
     PaymentLinkNotFound: () =>
       concluded(
         outcome,

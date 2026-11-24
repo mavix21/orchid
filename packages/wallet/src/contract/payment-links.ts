@@ -100,3 +100,8 @@ export class PaymentLinkUnresolved extends Schema.TaggedClass<PaymentLinkUnresol
   "PaymentLinkUnresolved",
   {},
 ) {}
+
+export class PaymentLinkUnrecognized extends Schema.TaggedClass<PaymentLinkUnrecognized>()(
+  "PaymentLinkUnrecognized",
+  {},
+) {}

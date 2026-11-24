@@ -25,6 +25,7 @@ import {
   PaymentLinkNotFound,
   PaymentLinkOpen,
   type PaymentLinkStep,
+  PaymentLinkUnrecognized,
   PaymentLinkUnresolved,
   PaymentLinkUsed,
   type ReceiveLink,
@@ -249,7 +250,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
       if (checking) return new PaymentLinkChecking();
 
-      const { matched } = yield* liveLink(link, funded.value);
+      const { matched, present } = yield* liveLink(link, funded.value);
 
       if (matched)
         return new PaymentLinkOpen({
@@ -258,6 +259,8 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
           amount: funded.value.amount,
           sender: funded.value.sender,
         });
+
+      if (present) return new PaymentLinkUnrecognized();
 
       yield* Effect.forEach(
         current.filter(

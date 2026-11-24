@@ -29,6 +29,12 @@ const unresolved = new LinkScreen<ReceiveAction>(
   "done",
 );
 
+const unrecognized = new LinkScreen<ReceiveAction>(
+  "No reconocemos este link",
+  "El dinero sigue en el link, pero no podemos cobrarlo desde aquí.",
+  "done",
+);
+
 const checking = new LinkScreen<ReceiveAction>(
   "Estamos comprobando si se envió",
   "Revisa de nuevo en un momento.",
@@ -69,6 +75,7 @@ export const receiveScreen = (
     BalanceGone: ({ status }) => (status === "unresolved" ? unresolved : used),
     PaymentLinkUsed: () => used,
     PaymentLinkUnresolved: () => unresolved,
+    PaymentLinkUnrecognized: () => unrecognized,
     PaymentLinkNotFound: () =>
       new LinkScreen<ReceiveAction>(
         "No encontramos este link",
