@@ -12,8 +12,6 @@ export const fakeHumanCheck = Layer.succeed(
   HumanCheck.of({
     verify: () =>
       Effect.sync(() => {
-        world.humanChecks += 1;
-
         return world.humanCheckRefused
           ? Option.some(new HumanCheckRefused())
           : Option.none();

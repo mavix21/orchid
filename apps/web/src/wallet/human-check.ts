@@ -7,8 +7,9 @@ const decodeToken = Schema.decodeUnknownOption(HumanCheckToken);
 const tokenWaitMillis = 10_000;
 
 let held = Option.none<HumanCheckToken>();
+let mounted = 0;
 
-const arrivals = new Set<() => void>();
+const changes = new Set<() => void>();
 const takes = new Set<() => void>();
 
 const settle = (listeners: Set<() => void>) => {
@@ -17,11 +18,25 @@ const settle = (listeners: Set<() => void>) => {
 
 export const offerHumanCheck = (text: string) => {
   held = decodeToken(text);
-  settle(arrivals);
+  settle(changes);
 };
 
 export const expireHumanCheck = () => {
   held = Option.none();
+};
+
+export const mountHumanCheck = () => {
+  let active = true;
+
+  mounted += 1;
+
+  return () => {
+    if (!active) return;
+
+    active = false;
+    mounted -= 1;
+    settle(changes);
+  };
 };
 
 export const onHumanCheckTaken = (listener: () => void) => {
@@ -32,26 +47,30 @@ export const onHumanCheckTaken = (listener: () => void) => {
   };
 };
 
-const arrival = () =>
+const change = () =>
   new Promise<void>((resolve) => {
-    const arrived = () => {
-      arrivals.delete(arrived);
+    const finish = () => {
+      clearTimeout(timer);
+      changes.delete(finish);
       resolve();
     };
 
-    arrivals.add(arrived);
-    setTimeout(arrived, tokenWaitMillis);
+    const timer = setTimeout(finish, tokenWaitMillis);
+
+    changes.add(finish);
   });
 
 export const takeHumanCheck = async (): Promise<
   Option.Option<HumanCheckToken>
 > => {
-  if (Option.isNone(held)) await arrival();
+  if (Option.isNone(held) && mounted > 0) await change();
 
   const taken = held;
 
-  held = Option.none();
-  settle(takes);
+  if (Option.isSome(taken)) {
+    held = Option.none();
+    settle(takes);
+  }
 
   return taken;
 };

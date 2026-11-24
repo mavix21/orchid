@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema";
 import {
   BackupEnrollment,
   BackupFound,
+  HumanCheckRefused,
   Offline,
   Username,
   type WalletPort,
@@ -175,8 +176,21 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(yield* tab.pending()).toEqual(Option.some(started));
 
           auth.cancels = false;
+          world.humanCheckRefused = true;
+          expect(yield* tab.advance(started.review)).toEqual(
+            new HumanCheckRefused(),
+          );
+          expect(world.submitted).toHaveLength(0);
+          expect((yield* tableRows).usernames).toEqual([]);
 
-          const completed = yield* tab.advance(started.review);
+          const held = yield* tab.pending();
+
+          assertTagged(Option.getOrThrow(held), "EnrollmentPending");
+          expect(Option.getOrThrow(held).stage).toBe("release");
+
+          world.humanCheckRefused = false;
+
+          const completed = yield* tab.advance();
 
           assertTagged(completed, "WalletEnrolled");
           expect(completed.profile.username).toBe("maria");

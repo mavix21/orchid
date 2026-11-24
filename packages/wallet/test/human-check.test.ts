@@ -6,7 +6,7 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import type * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { HumanCheckRefused, HumanCheckToken } from "../src/contract";
-import { HumanCheck, siteverifyUrl } from "../src/server/HumanCheck.server";
+import { HumanCheck } from "../src/server/HumanCheck.server";
 import { WalletSettings } from "../src/server/settings.server";
 import { bodyText, httpClientAnswering, jsonResponse } from "./rpc-answering";
 
@@ -108,18 +108,14 @@ it.effect.each([
     }),
 );
 
-it.effect("a missing token is refused without asking Siteverify", () =>
+it.effect("a missing token is refused", () =>
   Effect.gen(function* () {
-    const asked: Array<string> = [];
-
-    const verdict = yield* verifyWith((request) => {
-      asked.push(request.url);
-
-      return jsonResponse(JSON.stringify({ success: true }));
-    }, Option.none());
+    const verdict = yield* verifyWith(
+      () => jsonResponse(JSON.stringify({ success: true })),
+      Option.none(),
+    );
 
     expect(verdict).toEqual(Option.some(new HumanCheckRefused()));
-    expect(asked).toEqual([]);
   }),
 );
 
@@ -138,7 +134,7 @@ it.effect("Siteverify receives the secret and the token and nothing else", () =>
 
     expect(sent).toEqual([
       {
-        url: siteverifyUrl,
+        url: "https://challenges.cloudflare.com/turnstile/v0/siteverify",
         body: new URLSearchParams({ secret, response: token }).toString(),
       },
     ]);

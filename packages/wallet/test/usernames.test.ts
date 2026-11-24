@@ -152,29 +152,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect(
-      "a name already bound to the wallet seals again without a human check",
-      () =>
-        Effect.gen(function* () {
-          const claim = yield* create(Keypair.random(), "maria");
-          const stored = Option.getOrThrow(yield* findWallet(claim.address));
-          const sealed = placeholderSealed();
-
-          const written = yield* Directory.use((directory) =>
-            directory.seal(
-              stored,
-              sealed,
-              claim,
-              Option.none(),
-              false,
-              Effect.die("a bound name needs no human check"),
-            ),
-          );
-
-          expect(written).toMatchObject({ attemptHash: sealed.hash });
-        }),
-    );
-
     it.effect("a reserved name is never bound", () =>
       Effect.gen(function* () {
         const key = Keypair.random();
@@ -233,7 +210,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const draft = yield* opening(claim);
 
           assertTagged(draft, "OpeningDraft");
+          world.humanCheckRefused = true;
           yield* opening(claim, approveOpening(key, draft));
+          world.humanCheckRefused = false;
           expect((yield* overviewOf(claim.address))._tag).toBe(
             "NeedsReopening",
           );

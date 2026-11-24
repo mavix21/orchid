@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import {
   expireHumanCheck,
+  mountHumanCheck,
   offerHumanCheck,
   onHumanCheckTaken,
 } from "@/wallet/human-check";
@@ -41,8 +42,14 @@ const loadTurnstile = () => {
     script.src = turnstileScript;
     script.async = true;
     script.addEventListener("load", () => {
-      if (window.turnstile) resolve(window.turnstile);
-      else reject(new Error("Turnstile did not initialize"));
+      if (window.turnstile) {
+        resolve(window.turnstile);
+
+        return;
+      }
+
+      loading = undefined;
+      reject(new Error("Turnstile did not initialize"));
     });
     script.addEventListener("error", () => {
       loading = undefined;
@@ -64,6 +71,7 @@ export function HumanCheckWidget() {
     let active = true;
     let widgetId: string | undefined;
     let release = () => {};
+    const unmount = mountHumanCheck();
 
     void Promise.all([humanCheckSiteKeyFn(), loadTurnstile()])
       .then(([sitekey, turnstile]) => {
@@ -84,12 +92,15 @@ export function HumanCheckWidget() {
         });
       })
       .catch(() => {
+        unmount();
+
         if (active) setUnavailable(true);
       });
 
     return () => {
       active = false;
       release();
+      unmount();
       expireHumanCheck();
 
       if (widgetId !== undefined) window.turnstile?.remove(widgetId);
@@ -97,8 +108,8 @@ export function HumanCheckWidget() {
   }, [host]);
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 flex flex-col items-center pb-safe">
-      <div ref={setHost} />
+    <div className="pointer-events-none fixed inset-0 z-50 flex flex-col items-center justify-center">
+      <div ref={setHost} className="pointer-events-auto" />
       {unavailable ? (
         <p role="alert" className="px-5 pb-3 text-body text-destructive">
           No pudimos cargar la verificación de seguridad. Recarga la página.

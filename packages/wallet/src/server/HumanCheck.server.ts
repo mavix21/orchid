@@ -11,7 +11,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { HumanCheckRefused, type HumanCheckToken } from "../contract";
 import { WalletSettings } from "./settings.server";
 
-export const siteverifyUrl =
+const siteverifyUrl =
   "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
 const siteverifyDeadline = Duration.seconds(5);

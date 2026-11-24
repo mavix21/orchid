@@ -104,7 +104,11 @@ const readOutcome = (
     PasskeyFailed: () =>
       refused("No pudimos usar tu passkey. Inténtalo de nuevo."),
     HumanCheckRefused: () =>
-      refused("No pudimos verificar que eres una persona. Inténtalo de nuevo."),
+      concluded(
+        "No pudimos continuar",
+        "No pudimos verificar que eres una persona. Inténtalo de nuevo.",
+        "Reintentar",
+      ),
     WrongCredential: () =>
       refused(
         "Usaste una passkey distinta. Confirma con la passkey de tu cuenta.",

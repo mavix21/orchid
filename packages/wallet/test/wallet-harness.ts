@@ -629,7 +629,6 @@ export function useDisposableDatabase() {
     world.exchangeMemos.length = 0;
     world.failSubmit = false;
     world.humanCheckRefused = false;
-    world.humanChecks = 0;
     world.ledgerDown = false;
     world.unreadable.clear();
     world.claimablesDown = false;

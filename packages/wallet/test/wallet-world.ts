@@ -14,7 +14,6 @@ import type {
 
 export const world = {
   humanCheckRefused: false,
-  humanChecks: 0,
   accounts: new Map<AccountAddress, AccountState>(),
   evidence: new Map<string, Settlement>(),
   submitted: new Array<Sealed>(),
