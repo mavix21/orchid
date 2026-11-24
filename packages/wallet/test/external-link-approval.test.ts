@@ -68,6 +68,7 @@ const externalDraft = (overrides: Partial<LinkReceiveInput>, at: number) =>
     channel: new Account(actors.exchange, "100"),
     link: addressOf(link),
     reserveSponsor: actors.sponsor,
+    createsLinkAccount: true,
     destination: actors.stranger,
     balance: linkBalance,
     asset: baseAsset,

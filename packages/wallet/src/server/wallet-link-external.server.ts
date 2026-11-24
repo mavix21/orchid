@@ -45,7 +45,12 @@ export type OrderReceipt =
   | ExternalLinkSettled
   | ExternalLinkFailed;
 
+export type LinkAccountPlan = "Create" | "Reuse" | "Refuse";
+
 export interface LinkReceiveShared {
+  readonly linkAccountPlan: (
+    link: AccountAddress,
+  ) => Effect.Effect<LinkAccountPlan, ChainUnreachable>;
   readonly liveLink: (
     link: AccountAddress,
     funded: FundedLink,
@@ -117,6 +122,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
         request: SigningRequest,
         order: ExternalLinkOrder,
         funded: FundedLink,
+        createsLinkAccount: boolean,
       ) {
         const facts = readEnvelope(request.envelope);
         const channel = yield* chain.account(chain.channel);
@@ -129,6 +135,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
           facts.value.balance === order.balance &&
           facts.value.destination === order.destination &&
           sameMemo(facts.value.memo, order.memo) &&
+          facts.value.createsLinkAccount === createsLinkAccount &&
           assetKey(facts.value.asset) === assetKey(funded.asset) &&
           facts.value.amount === funded.amount &&
           BigInt(channel.value.sequence) + 1n === BigInt(facts.value.sequence)
@@ -248,8 +255,12 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
           });
       }
 
-      if (Option.isSome(yield* chain.account(order.link)))
-        return new LinkUnclaimable({ reason: "link_account_exists" });
+      const plan = yield* shared.linkAccountPlan(order.link);
+
+      if (plan === "Refuse")
+        return new LinkUnclaimable({ reason: "link_account_unexpected" });
+
+      const createsLinkAccount = plan === "Create";
 
       const proposed = Option.filter(existing, (stored) =>
         Predicate.isTagged(stored, "AssetProposed"),
@@ -263,6 +274,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
           proposed.value.request,
           order,
           funded.value,
+          createsLinkAccount,
         ))
       ) {
         const stored = proposed.value;
@@ -279,7 +291,12 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
 
         if (
           Option.isNone(sealed) ||
-          !(yield* currentExternalReceive(stored.request, order, funded.value))
+          !(yield* currentExternalReceive(
+            stored.request,
+            order,
+            funded.value,
+            createsLinkAccount,
+          ))
         )
           return new ExternalLinkDraft({
             request: stored.request,
@@ -304,6 +321,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
 
       const request = yield* chain.draftLinkReceive(
         order.link,
+        createsLinkAccount,
         order.destination,
         order.balance,
         asset,

@@ -371,6 +371,7 @@ const receiveDraft = (overrides: Partial<LinkReceiveInput>, at: number) =>
     channel: new Account(actors.exchange, "100"),
     link: addressOf(receivedLink),
     reserveSponsor: actors.sponsor,
+    createsLinkAccount: true,
     destination: actors.wallet.address,
     balance: cancelBalance,
     asset: baseAsset,

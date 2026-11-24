@@ -31,6 +31,7 @@ export interface AccountState {
   readonly ledger: number;
   readonly accountSponsored: boolean;
   readonly sponsored: boolean;
+  readonly untouched: boolean;
 }
 
 export type RpcParams = Readonly<
@@ -131,6 +132,20 @@ export function sponsoredBy(entry: LedgerEntry, sponsor: string): boolean {
   return Option.exists(sponsorOf(entry), (address) => address === sponsor);
 }
 
+const untouchedThresholds = [1, 0, 0, 0];
+
+function isUntouched(account: xdr.AccountEntry): boolean {
+  const { thresholds } = account;
+
+  return (
+    account.numSubEntries === 0 &&
+    account.signers.length === 0 &&
+    untouchedThresholds.every(
+      (weight, index) => thresholds.value[index] === weight,
+    )
+  );
+}
+
 export function accountFromEntries(
   entries: ReadonlyArray<LedgerEntry>,
   ledger: number,
@@ -158,5 +173,6 @@ export function accountFromEntries(
     ledger,
     accountSponsored: account.sponsored,
     sponsored: account.sponsored && trust?.sponsored === true,
+    untouched: isUntouched(account.value.value),
   });
 }
