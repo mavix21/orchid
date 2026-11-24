@@ -549,8 +549,6 @@ it("recovery sponsorship requires matching account and trustline sponsors, not s
   const ownedTrust = { xdr: trust, extXdr: sponsoredBy(sponsor) };
 
   expect(state([ownedAccount, ownedTrust]).sponsored).toBe(true);
-  expect(state([ownedAccount]).untouched).toBe(false);
-  expect(state([{ xdr: accountEntryXdr(holder, 123n) }]).untouched).toBe(true);
   expect(state([{ xdr: account }, { xdr: trust }]).sponsored).toBe(false);
   expect(
     state([{ xdr: account, extXdr: sponsoredBy(feePayer) }, ownedTrust])

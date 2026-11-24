@@ -135,13 +135,16 @@ export function sponsoredBy(entry: LedgerEntry, sponsor: string): boolean {
 const untouchedThresholds = [1, 0, 0, 0];
 
 function isUntouched(account: xdr.AccountEntry): boolean {
-  const { thresholds } = account;
+  const v1 = account.ext.type === "v1" ? account.ext.v1 : undefined;
+  const v2 = v1?.ext.type === "v2" ? v1.ext.v2 : undefined;
 
   return (
     account.numSubEntries === 0 &&
     account.signers.length === 0 &&
+    account.flags === 0 &&
+    (v2?.numSponsoring ?? 0) === 0 &&
     untouchedThresholds.every(
-      (weight, index) => thresholds.value[index] === weight,
+      (weight, index) => account.thresholds.value[index] === weight,
     )
   );
 }
