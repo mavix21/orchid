@@ -131,7 +131,7 @@ export function BloomHero({
 
   return (
     <section
-      className="flex flex-1 flex-col items-center justify-center gap-6 text-center"
+      className="flex flex-1 flex-col items-center gap-6 pt-12 text-center"
       style={style}
     >
       <div className={cn("relative", motion === "bloom" && "orchid-fall")}>

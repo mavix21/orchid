@@ -236,7 +236,7 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
             data-testid="receive-link"
             onClick={() => receive(open)}
           >
-            Recibir en mi Orchid
+            Recibir en Orchid
           </Button>
           <Button
             className="w-full"
@@ -281,50 +281,21 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
       </PasskeyBrowserGate>
     ),
     Preparing: ({ open }) => (
-      <Screen>
-        <main role="status" className="flex flex-1 flex-col px-5">
-          <BloomHero
-            motion="breathe"
-            label={`@${open.sender.username} te envió`}
-            amount={amountLabel(open.amount, open.asset)}
-          />
-        </main>
-      </Screen>
+      <ReceiveReview
+        sender={open.sender.username}
+        amount={amountLabel(open.amount, open.asset)}
+        testnet={false}
+        problem={Option.none()}
+      />
     ),
     Reviewing: ({ review: shown, problem }) => (
-      <Screen>
-        <main
-          data-testid="receive-review"
-          className="flex flex-1 flex-col px-5"
-        >
-          <BloomHero
-            motion="rest"
-            label={`De @${shown.sender.username}`}
-            amount={amountLabel(shown.amount, shown.asset)}
-          >
-            {shown.network === "testnet" ? (
-              <Badge variant="neutral">Testnet</Badge>
-            ) : null}
-            <p className="pt-3 text-body text-pretty text-muted-foreground">
-              El dinero pasa a tu cuenta y el link deja de funcionar.
-            </p>
-            {Option.isSome(problem) ? (
-              <p role="alert" className="text-body text-destructive">
-                {problem.value}
-              </p>
-            ) : null}
-          </BloomHero>
-        </main>
-        <ScreenActions>
-          <Button
-            className="w-full"
-            data-testid="confirm-receive"
-            onClick={() => confirm(shown)}
-          >
-            Recibir con passkey
-          </Button>
-        </ScreenActions>
-      </Screen>
+      <ReceiveReview
+        sender={shown.sender.username}
+        amount={amountLabel(shown.amount, shown.asset)}
+        testnet={shown.network === "testnet"}
+        problem={problem}
+        onConfirm={() => confirm(shown)}
+      />
     ),
     Confirming: () => (
       <Screen>
@@ -375,4 +346,54 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
         </Screen>
       ),
   });
+}
+
+function ReceiveReview({
+  sender,
+  amount,
+  testnet,
+  problem,
+  onConfirm,
+}: {
+  sender: string;
+  amount: string;
+  testnet: boolean;
+  problem: Option.Option<string>;
+  onConfirm?: () => void;
+}) {
+  const ready = onConfirm !== undefined;
+
+  return (
+    <Screen>
+      <main
+        data-testid={ready ? "receive-review" : undefined}
+        aria-busy={!ready}
+        className="flex flex-1 flex-col px-5"
+      >
+        <BloomHero motion="rest" label={`De @${sender}`} amount={amount}>
+          <div className="flex h-6 items-center">
+            {testnet ? <Badge variant="neutral">Testnet</Badge> : null}
+          </div>
+          <p className="pt-2 text-body text-pretty text-muted-foreground">
+            El dinero pasa a tu cuenta y el link deja de funcionar.
+          </p>
+          {Option.isSome(problem) ? (
+            <p role="alert" className="text-body text-destructive">
+              {problem.value}
+            </p>
+          ) : null}
+        </BloomHero>
+      </main>
+      <ScreenActions>
+        <Button
+          className="w-full"
+          data-testid={ready ? "confirm-receive" : undefined}
+          disabled={!ready}
+          onClick={onConfirm}
+        >
+          Recibir con passkey
+        </Button>
+      </ScreenActions>
+    </Screen>
+  );
 }
