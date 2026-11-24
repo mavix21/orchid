@@ -6,6 +6,7 @@ import {
   eq,
   getTableColumns,
   inArray,
+  isNotNull,
   ne,
   or,
   sql,
@@ -24,7 +25,7 @@ import {
   Profile,
   Username,
 } from "../contract";
-import { muxedPrefixOf } from "../stellar/destination";
+import { muxedPrefixesOf } from "../stellar/destination";
 import { activityPageSize, epochAt, network } from "../stellar/network";
 import { StoreFailure } from "./Directory.server";
 import {
@@ -77,7 +78,6 @@ type Candidate = Data.TaggedEnum<{
   LinkClaim: {
     readonly cursor: ActivityCursor;
     readonly id: string;
-    readonly order: string;
     readonly concludedAt: Date;
     readonly transferOrder: string;
     readonly sender: string;
@@ -150,7 +150,6 @@ export const activityFor = Effect.fn("Transfers.activity")(function* (
     .select({
       id: assetOrders.id,
       key: timeKey(assetOrders.concludedAt),
-      order: assetOrders.order,
       concludedAt: assetOrders.concludedAt,
       transferOrder: transfers.order,
       sender: transfers.sender,
@@ -173,6 +172,7 @@ export const activityFor = Effect.fn("Transfers.activity")(function* (
         eq(assetOrders.network, network),
         eq(assetOrders.testnetEpoch, epoch),
         eq(assetOrders.status, "settled"),
+        isNotNull(assetOrders.concludedAt),
         or(
           and(
             sql`${action} ->> '_tag' = 'ReceiveLink'`,
@@ -182,7 +182,7 @@ export const activityFor = Effect.fn("Transfers.activity")(function* (
             sql`${action} ->> '_tag' = 'ReceiveLinkExternal'`,
             or(
               sql`${action} ->> 'destination' = ${address}`,
-              sql`left(${action} ->> 'destination', 52) = ${muxedPrefixOf(address)}`,
+              sql`left(${action} ->> 'destination', 53) in (${sql.join(muxedPrefixesOf(address), sql`, `)})`,
             ),
           ),
         ),
@@ -214,7 +214,6 @@ export const activityFor = Effect.fn("Transfers.activity")(function* (
               Candidate.LinkClaim({
                 cursor: cursorOf(entry.key, entry.id),
                 id: entry.id,
-                order: entry.order,
                 concludedAt: entry.concludedAt,
                 transferOrder: entry.transferOrder,
                 sender: entry.sender,

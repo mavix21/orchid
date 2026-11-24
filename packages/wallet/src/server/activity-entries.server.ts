@@ -46,7 +46,6 @@ export interface ReceivedRow {
 
 export interface LinkClaimRow {
   readonly id: string;
-  readonly order: string;
   readonly concludedAt: Date;
   readonly transferOrder: string;
   readonly sender: string;
