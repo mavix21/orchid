@@ -131,9 +131,13 @@ export function BloomHero({
           stage === "bloom" && "orchid-reveal",
         )}
       >
-        <p className="text-label text-muted-foreground">{label}</p>
-        {amount === undefined ? null : (
-          <p className="font-display text-display">{amount}</p>
+        {amount === undefined ? (
+          <h1 className="font-display text-h2 text-balance">{label}</h1>
+        ) : (
+          <>
+            <p className="text-label text-muted-foreground">{label}</p>
+            <p className="font-display text-display">{amount}</p>
+          </>
         )}
         {children}
       </div>
