@@ -4,20 +4,10 @@ import { Database, databaseLayer } from "@workspace/db";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
-import {
-  type ConfirmOpeningOutcome,
-  type KeyStore,
-  KeyStoreUnavailable,
-  type PaymentLinkIntent,
-  type PaymentLinkTarget,
-  type PublicDeviceWallet,
-  type WalletClient,
-} from "@workspace/wallet";
-import type { SecretPhrase } from "../src/device/secret-phrase";
+import { type PaymentLinkIntent, type WalletClient } from "@workspace/wallet";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import { Chain } from "../src/server/Chain.server";
@@ -84,80 +74,6 @@ export const walletServices = (
     Layer.provide(database),
     Layer.provide(FetchHttpClient.layer),
   );
-
-export function memoryKeyStore() {
-  let saved = Option.none<{
-    readonly phrase: SecretPhrase;
-    readonly wallet: PublicDeviceWallet;
-  }>();
-
-  const store: KeyStore = {
-    readPublic: () =>
-      Effect.sync(() => Option.map(saved, ({ wallet }) => wallet)),
-    updatePublic: (update) =>
-      Effect.suspend(() => {
-        if (Option.isNone(saved)) return Effect.succeed(Option.none());
-
-        const { phrase, wallet: current } = saved.value;
-        const next = update(current);
-
-        if (Option.isNone(next))
-          return Effect.succeed(
-            Option.some({ wallet: current, updated: false }),
-          );
-
-        if (next.value.address !== current.address)
-          return Effect.fail(
-            new KeyStoreUnavailable({
-              cause: new Error("Wallet address cannot change"),
-            }),
-          );
-
-        saved = Option.some({ phrase, wallet: next.value });
-
-        return Effect.succeed(
-          Option.some({ wallet: next.value, updated: true }),
-        );
-      }),
-  };
-
-  return {
-    store,
-    seed: (phrase: SecretPhrase, wallet: PublicDeviceWallet) => {
-      saved = Option.some({ phrase, wallet });
-    },
-    saved: () =>
-      Option.map(saved, ({ phrase, wallet }) => ({ ...wallet, phrase })),
-  };
-}
-
-export const openThroughReview = async (
-  client: WalletClient,
-  username: string,
-) => {
-  let outcome: ConfirmOpeningOutcome = await client.reviewOpening(username);
-
-  for (let attempt = 0; attempt < 6; attempt++) {
-    if (Predicate.isTagged(outcome, "OpeningReview"))
-      outcome = await client.confirmOpening(outcome);
-    else if (Predicate.isTagged(outcome, "OpeningPending"))
-      outcome = await client.reviewOpening(username);
-    else break;
-  }
-
-  return outcome;
-};
-
-export const reclaimThroughReview = async (
-  client: WalletClient,
-  target: PaymentLinkTarget,
-) => {
-  const reviewed = await client.reviewReclaim(target);
-
-  return Predicate.isTagged(reviewed, "ReclaimReview")
-    ? client.confirmReclaim(reviewed)
-    : reviewed;
-};
 
 export const fundLinkThroughReview = async (
   client: WalletClient,
