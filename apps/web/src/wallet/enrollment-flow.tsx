@@ -40,6 +40,7 @@ import { receiveRefusal } from "@/links/receive-outcomes";
 import { amountLabel } from "@/send/money";
 import { displayLock } from "@/wallet/display-lock";
 import { enrollmentClient } from "@/wallet/enrollment";
+import { HumanCheckWidget } from "@/wallet/human-check-widget";
 import { OpeningFlow } from "@/wallet/opening-flow";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
 
@@ -84,6 +85,8 @@ const refusal = (
       "Este navegador no puede guardar tu llave de forma segura.",
     LinkSecretMismatch: () =>
       "Este link está incompleto. Ábrelo de nuevo desde el mensaje que te enviaron.",
+    HumanCheckRefused: () =>
+      "No pudimos verificar que eres una persona. Inténtalo de nuevo.",
     Offline: unavailableMessage,
     ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
@@ -151,21 +154,32 @@ function AccountMedia({ username }: { username: string }) {
   );
 }
 
-export function EnrollmentFlow({
-  title,
-  back,
-  walletClient,
-  receive,
-  onEnrolled,
-  onOpened,
-}: {
+interface EnrollmentFlowProps {
   title: string;
   back: (disabled: boolean) => TopNavAction;
   walletClient: WalletClient;
   receive?: ReadLinkCode;
   onEnrolled: (enrolled: WalletEnrolled) => void;
   onOpened: () => void;
-}) {
+}
+
+export function EnrollmentFlow(props: EnrollmentFlowProps) {
+  return (
+    <>
+      <EnrollmentStages {...props} />
+      <HumanCheckWidget />
+    </>
+  );
+}
+
+function EnrollmentStages({
+  title,
+  back,
+  walletClient,
+  receive,
+  onEnrolled,
+  onOpened,
+}: EnrollmentFlowProps) {
   const [hydrated, setHydrated] = useState(false);
   const [deviceChecked, setDeviceChecked] = useState(false);
   const [username, setUsername] = useState("");

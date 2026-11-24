@@ -27,7 +27,6 @@ import * as TestClock from "effect/testing/TestClock";
 import {
   AccountAddress,
   AddressRecipient,
-  Amount,
   Approval,
   type Approvals,
   BalanceId,
@@ -52,19 +51,10 @@ import {
   Applied,
   Chain,
   ChainUnreachable,
-  type Sealed,
-  type Settlement,
   Undecided,
 } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
-import {
-  type KnownExchangeMemo,
-  exchangeMemoFor,
-} from "../src/server/exchange-memos.server";
-import type {
-  ClaimableEntry,
-  Holdings,
-} from "../src/server/ledger-assets.server";
+import { exchangeMemoFor } from "../src/server/exchange-memos.server";
 import { WalletSettings } from "../src/server/settings.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
@@ -94,11 +84,17 @@ import {
   testRpcUrl,
 } from "./rpc-answering";
 import { SoftwareAuthenticator } from "./software-authenticator";
+import { fakeHumanCheck } from "./human-check-fake";
+import { accountState, amount, holdingsFor, world } from "./wallet-world";
 import { assertTagged } from "./tagged";
 
 export { addressOf };
 
 export { euro, euroLine } from "./euro-fixtures";
+
+export { bindingAllowed } from "./human-check-fake";
+
+export { accountState, amount, holdingsFor, world } from "./wallet-world";
 
 export const dbLayer = databaseLayer({
   connectionString:
@@ -125,6 +121,7 @@ const settingsFor = (rpcUrl = "https://soroban-testnet.stellar.org") =>
     reserveSponsorSecret: Redacted.make(sponsor.secret()),
     feePayerSecret: Redacted.make(feePayer.secret()),
     passkeyOrigins: [passkeyOrigin],
+    humanCheckSecret: Redacted.make("human-check-secret"),
   });
 
 const settings = settingsFor();
@@ -133,47 +130,6 @@ const realChain = Chain.layer.pipe(
   Layer.provide(settings),
   Layer.provide(FetchHttpClient.layer),
 );
-
-export const world = {
-  accounts: new Map<AccountAddress, AccountState>(),
-  evidence: new Map<string, Settlement>(),
-  submitted: new Array<Sealed>(),
-  exchangeMemos: new Array<KnownExchangeMemo>(),
-  failSubmit: false,
-  ledgerDown: false,
-  unreadable: new Set<string>(),
-  claimablesDown: false,
-  holdings: new Map<AccountAddress, Holdings>(),
-  claimables: new Map<string, ClaimableEntry>(),
-  issuers: new Map<AccountAddress, { readonly authRequired: boolean }>(),
-};
-
-export const amount = (value: string) => Schema.decodeSync(Amount)(value);
-
-export const accountState = (
-  overrides: Partial<AccountState> = {},
-): AccountState => ({
-  sequence: "1000",
-  ledger: 100,
-  accountSponsored: true,
-  sponsored: true,
-  untouched: true,
-  nativeBalance: 0n,
-  balance: Option.some(amount("50000000")),
-  ...overrides,
-});
-
-export const holdingsFor = (
-  address: AccountAddress,
-  overrides: Partial<Holdings> = {},
-): Holdings => ({
-  account: world.accounts.get(address) ?? accountState(),
-  reserveSponsor: Option.none(),
-  native: amount("0"),
-  reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
-  lines: [],
-  ...overrides,
-});
 
 export const fakeChain = Layer.effect(
   Chain,
@@ -402,6 +358,7 @@ export const walletForDb = <E>(db: Layer.Layer<Database, E>) =>
   Wallet.serviceLayer.pipe(
     Layer.provide(storesFor(db)),
     Layer.provide(fakeChain),
+    Layer.provide(fakeHumanCheck),
     Layer.provide(settings),
   );
 
@@ -420,6 +377,7 @@ export const walletWithChain = (
           Effect.map(Chain, (a) => Chain.of({ ...a, ...override(a) })),
         ).pipe(Layer.provide(fakeChain)),
       ),
+      Layer.provide(fakeHumanCheck),
       Layer.provide(settings),
     ),
   );
@@ -431,6 +389,7 @@ export const stellarWallet = (
   ) => Effect.Effect<Response, HttpClientError.HttpClientError>,
 ) =>
   Layer.fresh(Wallet.serviceLayer).pipe(
+    Layer.provide(fakeHumanCheck),
     Layer.provide(Layer.fresh(Chain.layer)),
     Layer.provide(settingsFor(testRpcUrl)),
     Layer.provide(httpClientAnswering((req) => reply(rpcMethod(req), req))),
@@ -669,6 +628,8 @@ export function useDisposableDatabase() {
     world.submitted.length = 0;
     world.exchangeMemos.length = 0;
     world.failSubmit = false;
+    world.humanCheckRefused = false;
+    world.humanChecks = 0;
     world.ledgerDown = false;
     world.unreadable.clear();
     world.claimablesDown = false;

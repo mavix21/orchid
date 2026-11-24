@@ -52,7 +52,7 @@ export const rpcOk = <A>(result: A) =>
 export const jsonResponse = (body: string) =>
   new Response(body, { headers: { "Content-Type": "application/json" } });
 
-const bodyText = (req: HttpClientRequest.HttpClientRequest) =>
+export const bodyText = (req: HttpClientRequest.HttpClientRequest) =>
   Predicate.isTagged(req.body, "Uint8Array")
     ? new TextDecoder().decode(req.body.body)
     : "";
@@ -127,6 +127,7 @@ export const chainWithHttp = (
     reserveSponsorSecret: Redacted.make(sponsor.secret()),
     feePayerSecret: Redacted.make(feePayer.secret()),
     passkeyOrigins,
+    humanCheckSecret: Redacted.make("human-check-secret"),
   };
 
   const cfg = Layer.succeed(

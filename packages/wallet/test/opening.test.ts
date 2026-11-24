@@ -40,6 +40,7 @@ import {
   feePayer,
   findWallet,
   fundedWallet,
+  bindingAllowed,
   opening,
   orderFor,
   overviewOf,
@@ -208,6 +209,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 claim,
                 Option.some(placeholder),
                 true,
+                bindingAllowed,
               ),
             ),
           ).toEqual(new SignedWorkInFlight());
@@ -273,7 +275,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           });
 
           yield* Directory.use((d) =>
-            d.seal(row, historical, claim, Option.none(), false),
+            d.seal(
+              row,
+              historical,
+              claim,
+              Option.none(),
+              false,
+              bindingAllowed,
+            ),
           );
           expect((yield* opening(claim))._tag).toBe("OpeningDraft");
           expect(world.submitted).toHaveLength(0);

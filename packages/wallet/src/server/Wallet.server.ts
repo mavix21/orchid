@@ -59,6 +59,7 @@ import { AssetOrders, assetPending } from "./AssetOrders.server";
 import { assetFlow } from "./wallet-assets.server";
 import { openingFlow } from "./wallet-opening.server";
 import { Backups } from "./Backups.server";
+import { HumanCheck } from "./HumanCheck.server";
 import { concealFailure } from "./failures.server";
 import { backupFlow } from "./wallet-backup.server";
 import { activityFlow } from "./wallet-activity.server";
@@ -467,7 +468,8 @@ export class Wallet extends Context.Service<
 
       return Wallet.of({
         manage: (order, approval) => wrap(assetActions.manage(order, approval)),
-        open: (claim, approval) => wrap(open(claim, approval)),
+        open: (claim, approval, humanCheck = Option.none()) =>
+          wrap(open(claim, approval, humanCheck)),
         transfer: (order, approval) => wrap(transfer(order, approval)),
         overview: (address) => wrap(overview(address)),
         paymentLinks: (address) => wrap(links.paymentLinks(address)),
@@ -491,6 +493,7 @@ export class Wallet extends Context.Service<
       AssetOrders.layer,
       Backups.layer,
       Chain.layer,
+      HumanCheck.layer,
     ]),
   );
 }

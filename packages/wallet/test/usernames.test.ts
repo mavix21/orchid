@@ -7,6 +7,7 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   AddressBound,
+  HumanCheckRefused,
   NeedsReopening,
   Profile,
   Username,
@@ -21,6 +22,7 @@ import {
   accountState,
   addressOf,
   amount,
+  bindingAllowed,
   approveOpening,
   claimFor,
   create,
@@ -123,6 +125,56 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
+    it.effect(
+      "a refused human check binds nothing and a later passing check binds the name",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+          const claim = claimFor(key, "maria");
+          const draft = yield* opening(claim);
+
+          assertTagged(draft, "OpeningDraft");
+          world.humanCheckRefused = true;
+          expect(yield* opening(claim, approveOpening(key, draft))).toEqual(
+            new HumanCheckRefused(),
+          );
+          expect(world.submitted).toHaveLength(0);
+          expect(
+            (yield* opening(claimFor(Keypair.random(), "maria")))._tag,
+          ).toBe("OpeningDraft");
+          world.humanCheckRefused = false;
+          expect((yield* opening(claim, approveOpening(key, draft)))._tag).toBe(
+            "OpeningPending",
+          );
+          expect(yield* opening(claimFor(Keypair.random(), "maria"))).toEqual(
+            new UsernameTaken({ username: claim.username }),
+          );
+        }),
+    );
+
+    it.effect(
+      "a name already bound to the wallet seals again without a human check",
+      () =>
+        Effect.gen(function* () {
+          const claim = yield* create(Keypair.random(), "maria");
+          const stored = Option.getOrThrow(yield* findWallet(claim.address));
+          const sealed = placeholderSealed();
+
+          const written = yield* Directory.use((directory) =>
+            directory.seal(
+              stored,
+              sealed,
+              claim,
+              Option.none(),
+              false,
+              Effect.die("a bound name needs no human check"),
+            ),
+          );
+
+          expect(written).toMatchObject({ attemptHash: sealed.hash });
+        }),
+    );
+
     it.effect("a reserved name is never bound", () =>
       Effect.gen(function* () {
         const key = Keypair.random();
@@ -221,7 +273,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           yield* create(Keypair.random(), "maria");
           expect(
             yield* Directory.use((d) =>
-              d.activate(row, placeholderSealed(), facts, claim),
+              d.activate(
+                row,
+                placeholderSealed(),
+                facts,
+                claim,
+                bindingAllowed,
+              ),
             ),
           ).toEqual(new UsernameTaken({ username: claim.username }));
           expect(

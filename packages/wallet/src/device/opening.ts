@@ -172,6 +172,8 @@ export function deviceOpening(
           Effect.succeed({ done: Option.some(outcome), pause: false }),
         UsernameTaken: (outcome) =>
           Effect.succeed({ done: Option.some(outcome), pause: false }),
+        HumanCheckRefused: (outcome) =>
+          Effect.succeed({ done: Option.some(outcome), pause: false }),
         InvalidAddress: (outcome) =>
           Effect.succeed({ done: Option.some(outcome), pause: false }),
         NotSponsored: (outcome) =>

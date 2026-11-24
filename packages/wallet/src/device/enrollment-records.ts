@@ -9,6 +9,7 @@ import {
   AssetStep,
   BackupEnrollment,
   type ChallengeRefused,
+  type HumanCheckRefused,
   type OpeningPending,
   Profile,
   type RegistrationRefused,
@@ -134,6 +135,7 @@ export type EnrollWalletOutcome =
   | NoWallet
   | InvalidUsername
   | UsernameTaken
+  | HumanCheckRefused
   | WalletOnDevice
   | BackupUnsupported
   | DraftRejected

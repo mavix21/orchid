@@ -47,6 +47,7 @@ import {
   type Opened,
   type OpeningPending,
   Username,
+  type HumanCheckRefused,
   type UsernameTaken,
   type WalletUnavailable,
 } from "../contract";
@@ -184,6 +185,7 @@ export type CreateOutcome =
   | OpeningPending
   | UsernameTaken
   | AddressBound
+  | HumanCheckRefused
   | InvalidUsername
   | NoWallet
   | UnsupportedDevice

@@ -3,7 +3,12 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
-import { type OpenStep, OpeningPending, type WalletClaim } from "../contract";
+import {
+  HumanCheckRefused,
+  type OpenStep,
+  OpeningPending,
+  type WalletClaim,
+} from "../contract";
 import {
   type EnrollWalletOutcome,
   type EnrollmentDependencies,
@@ -137,6 +142,8 @@ export const enrollmentRelease = (
       .pipe(Effect.result);
 
     if (Result.isFailure(released)) return released.failure;
+
+    if (released.success instanceof HumanCheckRefused) return released.success;
 
     const { receive } = held;
 
