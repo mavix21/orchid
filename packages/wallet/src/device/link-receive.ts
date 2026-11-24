@@ -1,4 +1,3 @@
-import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -13,7 +12,8 @@ import {
   AssetOrder,
   type AssetStep,
   AssetOrderId,
-  LinkSecret,
+  type LinkCode,
+  type LinkSecret,
   type PaymentLinkOpen,
   type PaymentLinkStep,
   ReceiveLink,
@@ -44,6 +44,7 @@ import {
   type ReviewLinkReceiveOutcome,
 } from "./outcomes";
 import { pendingSteps, pollSchedule } from "./polling";
+import { linkKeyOf } from "./link-code";
 import { approveWithLinkSecret } from "./signing";
 
 export const receiveCurrentUntil = (review: LinkReceiveReview) =>
@@ -60,14 +61,11 @@ export const receiveReviewFromJson = Schema.decodeSync(
 
 export const linkSecretFor = (
   link: AccountAddress,
-  fragment: string,
+  code: LinkCode,
 ): Option.Option<LinkSecret> =>
-  Schema.decodeUnknownOption(LinkSecret)(fragment).pipe(
-    Option.filter(
-      (secret) =>
-        StrKey.isValidEd25519SecretSeed(secret) &&
-        Keypair.fromSecret(secret).publicKey() === link,
-    ),
+  linkKeyOf(code).pipe(
+    Option.filter((key) => key.address === link),
+    Option.map((key) => key.secret),
   );
 
 export const receiveReviewOf = (
@@ -150,14 +148,16 @@ export class OpenedLink extends Data.TaggedClass(
 
 export const openLink = Effect.fn("Device.openLink")(function* (
   port: Pick<WalletPort, "paymentLink">,
-  link: AccountAddress,
-  fragment: string,
+  code: LinkCode,
 ): Effect.fn.Return<
   OpenedLink | Exclude<PaymentLinkStep, PaymentLinkOpen> | LinkSecretMismatch,
   WalletUnavailable
 > {
-  if (Option.isNone(linkSecretFor(link, fragment)))
-    return new LinkSecretMismatch();
+  const key = linkKeyOf(code);
+
+  if (Option.isNone(key)) return new LinkSecretMismatch();
+
+  const link = key.value.address;
 
   const status = yield* port.paymentLink(link);
 
@@ -197,23 +197,22 @@ export function deviceLinkReceive(
   const claims = reviewedClaims(port, reviews, linkReceiveKind);
 
   const status = Effect.fn("Device.paymentLink")(function* (
-    link: AccountAddress,
-    fragment: string,
+    code: LinkCode,
   ): Effect.fn.Return<PaymentLinkOutcome, WalletUnavailable> {
-    if (Option.isNone(linkSecretFor(link, fragment)))
-      return new LinkSecretMismatch();
+    const key = linkKeyOf(code);
 
-    return yield* port.paymentLink(link);
+    if (Option.isNone(key)) return new LinkSecretMismatch();
+
+    return yield* port.paymentLink(key.value.address);
   });
 
   const review = Effect.fn("Device.reviewLinkReceive")(function* (
-    link: AccountAddress,
-    fragment: string,
+    code: LinkCode,
   ): Effect.fn.Return<
     ReviewLinkReceiveOutcome,
     WalletUnavailable | KeyStoreUnavailable
   > {
-    const target = yield* openLink(port, link, fragment);
+    const target = yield* openLink(port, code);
 
     if (!(target instanceof OpenedLink)) return target;
 
@@ -230,12 +229,12 @@ export function deviceLinkReceive(
 
   const confirm = Effect.fn("Device.confirmLinkReceive")(function* (
     shown: LinkReceiveReview,
-    fragment: string,
+    code: LinkCode,
   ): Effect.fn.Return<
     ConfirmLinkReceiveOutcome,
     WalletUnavailable | KeyStoreUnavailable | CorruptDeviceWallet
   > {
-    const secret = linkSecretFor(shown.link, fragment);
+    const secret = linkSecretFor(shown.link, code);
 
     if (Option.isNone(secret)) return new LinkSecretMismatch();
 

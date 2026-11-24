@@ -19,7 +19,7 @@ import {
   PublicDeviceWallet,
   Restored,
   SealedDeviceWallet,
-  type SealedLinkSecret,
+  type SealedLinkCode,
   type SealedKeyStore,
   Settled,
   TransferIntent,
@@ -67,7 +67,7 @@ const device = memoryKeyStore();
 
 const memorySealedKeyStore = (): SealedKeyStore => {
   let saved = Option.none<SealedDeviceWallet>();
-  let links: ReadonlyArray<SealedLinkSecret> = [];
+  let links: ReadonlyArray<SealedLinkCode> = [];
 
   return {
     readLinks: () => Effect.sync(() => links),

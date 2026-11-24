@@ -22,7 +22,7 @@ function CreateAccount() {
   return (
     <EnrollmentFlow
       title="Crea tu cuenta"
-      back={(disabled) => <Link to="/" disabled={disabled} />}
+      back={(disabled) => ({ link: <Link to="/" disabled={disabled} /> })}
       walletClient={walletClient}
       onEnrolled={goHome}
       onOpened={goHome}

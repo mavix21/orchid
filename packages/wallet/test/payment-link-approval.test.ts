@@ -41,6 +41,7 @@ import {
 import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 import {
   addressOf,
+  linkFixture,
   memoryKeyStore,
   nowSeconds,
   sendActors,
@@ -363,7 +364,7 @@ it.live.each([
     }),
 );
 
-const receivedLink = Keypair.random();
+const { code: receivedCode, keypair: receivedLink } = linkFixture();
 
 const receiveDraft = (overrides: Partial<LinkReceiveInput>, at: number) =>
   draftLinkReceive({
@@ -473,7 +474,7 @@ it.live.each(tamperedReceives)(
         port,
         memoryKeyStore(Option.some(actors.wallet)),
         passkeys,
-      ).reviewLinkReceive(addressOf(receivedLink), receivedLink.secret());
+      ).reviewLinkReceive(receivedCode);
 
       expect(outcome).toEqual(new DraftRejected());
       expect(approvals.filter(Option.isSome)).toHaveLength(0);

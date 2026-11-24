@@ -27,8 +27,7 @@ export const shareLink = (link: ShareableLink) =>
     try {
       await navigator.share({
         title: "Link de pago de Orchid",
-        text: `Te envié ${amountLabel(link.amount, link.asset)} con Orchid. Abre el link para recibirlo.`,
-        url,
+        text: `Te envié ${amountLabel(link.amount, link.asset)} con Orchid. Abre el link para recibirlo.\n\n${url}`,
       });
 
       return "shared";

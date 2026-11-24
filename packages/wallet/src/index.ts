@@ -12,13 +12,15 @@ export * from "./device/display-lock";
 
 export * from "./device/local-envelope";
 
-export { LinkSecretCorrupt, SealedLinkSecret } from "./device/link-seal";
+export { LinkSecretCorrupt, SealedLinkCode } from "./device/link-seal";
 
 export * from "./device/enrollment";
 
 export { currentUntil } from "./device/opening-drafts";
 
 export { receiveCurrentUntil } from "./device/link-receive";
+
+export { type ReadLinkCode, readLinkCode } from "./device/link-code";
 
 export {
   browserAssertions,

@@ -41,18 +41,15 @@ export const walletEffects: WalletEffects = {
     withWallet((wallet) => wallet.reviewReclaim(target)),
   confirmReclaim: (shown) =>
     withWallet((wallet) => wallet.confirmReclaim(shown)),
-  paymentLink: (link, fragment) =>
-    withWallet((wallet) => wallet.paymentLink(link, fragment)),
-  reviewLinkReceive: (link, fragment) =>
-    withWallet((wallet) => wallet.reviewLinkReceive(link, fragment)),
-  confirmLinkReceive: (shown, fragment) =>
-    withWallet((wallet) => wallet.confirmLinkReceive(shown, fragment)),
-  reviewExternalLinkClaim: (link, fragment, intent) =>
-    withWallet((wallet) =>
-      wallet.reviewExternalLinkClaim(link, fragment, intent),
-    ),
-  confirmExternalLinkClaim: (shown, fragment) =>
-    withWallet((wallet) => wallet.confirmExternalLinkClaim(shown, fragment)),
+  paymentLink: (code) => withWallet((wallet) => wallet.paymentLink(code)),
+  reviewLinkReceive: (code) =>
+    withWallet((wallet) => wallet.reviewLinkReceive(code)),
+  confirmLinkReceive: (shown, code) =>
+    withWallet((wallet) => wallet.confirmLinkReceive(shown, code)),
+  reviewExternalLinkClaim: (code, intent) =>
+    withWallet((wallet) => wallet.reviewExternalLinkClaim(code, intent)),
+  confirmExternalLinkClaim: (shown, code) =>
+    withWallet((wallet) => wallet.confirmExternalLinkClaim(shown, code)),
 };
 
 export const walletClient: WalletClient = {
@@ -82,16 +79,13 @@ export const walletClient: WalletClient = {
     Effect.runPromise(walletEffects.reviewReclaim(target)),
   confirmReclaim: (shown) =>
     Effect.runPromise(walletEffects.confirmReclaim(shown)),
-  paymentLink: (link, fragment) =>
-    Effect.runPromise(walletEffects.paymentLink(link, fragment)),
-  reviewLinkReceive: (link, fragment) =>
-    Effect.runPromise(walletEffects.reviewLinkReceive(link, fragment)),
-  confirmLinkReceive: (shown, fragment) =>
-    Effect.runPromise(walletEffects.confirmLinkReceive(shown, fragment)),
-  reviewExternalLinkClaim: (link, fragment, intent) =>
-    Effect.runPromise(
-      walletEffects.reviewExternalLinkClaim(link, fragment, intent),
-    ),
-  confirmExternalLinkClaim: (shown, fragment) =>
-    Effect.runPromise(walletEffects.confirmExternalLinkClaim(shown, fragment)),
+  paymentLink: (code) => Effect.runPromise(walletEffects.paymentLink(code)),
+  reviewLinkReceive: (code) =>
+    Effect.runPromise(walletEffects.reviewLinkReceive(code)),
+  confirmLinkReceive: (shown, code) =>
+    Effect.runPromise(walletEffects.confirmLinkReceive(shown, code)),
+  reviewExternalLinkClaim: (code, intent) =>
+    Effect.runPromise(walletEffects.reviewExternalLinkClaim(code, intent)),
+  confirmExternalLinkClaim: (shown, code) =>
+    Effect.runPromise(walletEffects.confirmExternalLinkClaim(shown, code)),
 };

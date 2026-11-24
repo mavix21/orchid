@@ -16,13 +16,13 @@ import {
   KeyStoreUnavailable,
   type SealedKeyStore,
 } from "./key-store";
-import { SealedLinkSecret } from "./link-seal";
+import { SealedLinkCode } from "./link-seal";
 
-type SavedLinks = ReadonlyArray<SealedLinkSecret>;
+type SavedLinks = ReadonlyArray<SealedLinkCode>;
 
 const sameLink =
   (wallet: AccountAddress, address: AccountAddress) =>
-  (saved: SealedLinkSecret) =>
+  (saved: SealedLinkCode) =>
     saved.network === network &&
     saved.wallet === wallet &&
     saved.address === address;
@@ -35,7 +35,7 @@ export const savedLinkFor = (
 
 export const withSavedLink = (
   links: SavedLinks,
-  sealed: SealedLinkSecret,
+  sealed: SealedLinkCode,
 ): SavedLinks => [
   ...links.filter((saved) => !sameLink(sealed.wallet, sealed.address)(saved)),
   sealed,
@@ -45,7 +45,7 @@ export const restoredLinkSlot = (
   links: SavedLinks,
   wallet: AccountAddress,
   address: AccountAddress,
-  previous: Option.Option<SealedLinkSecret>,
+  previous: Option.Option<SealedLinkCode>,
 ): SavedLinks => [
   ...links.filter((saved) => !sameLink(wallet, address)(saved)),
   ...Option.toArray(previous),
@@ -63,7 +63,7 @@ const fundedLink = (
       : Option.some(
           withSavedLink(
             links,
-            new SealedLinkSecret({ ...saved, fundedBalance: balance }),
+            new SealedLinkCode({ ...saved, fundedBalance: balance }),
           ),
         ),
   );

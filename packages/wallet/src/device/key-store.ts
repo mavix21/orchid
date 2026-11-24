@@ -13,7 +13,7 @@ import {
   PinnedCredential,
   type RelyingParty,
 } from "./assertion";
-import type { SealedLinkSecret } from "./link-seal";
+import type { SealedLinkCode } from "./link-seal";
 import { LocalPhraseEnvelope, localEnvelopeVersion } from "./local-envelope";
 
 export const BackupState = Schema.Literals(["stored"]);
@@ -64,7 +64,7 @@ export interface PublicWalletUpdate {
 
 export interface DeviceRecords {
   readonly wallet: PublicDeviceWallet;
-  readonly links: ReadonlyArray<SealedLinkSecret>;
+  readonly links: ReadonlyArray<SealedLinkCode>;
 }
 
 export interface DeviceRecordsUpdate {
@@ -95,7 +95,7 @@ export interface SealedKeyStore {
     replacing?: "same-address",
   ): Effect.Effect<boolean, KeyStoreUnavailable | CorruptDeviceWallet>;
   readLinks(): Effect.Effect<
-    ReadonlyArray<SealedLinkSecret>,
+    ReadonlyArray<SealedLinkCode>,
     KeyStoreUnavailable
   >;
   updateRecords(

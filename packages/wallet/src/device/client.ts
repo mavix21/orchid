@@ -5,8 +5,8 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import {
-  type AccountAddress,
   BackupStored,
+  type LinkCode,
   type TransferId,
   type WalletPort,
   type WalletUnavailable,
@@ -93,26 +93,19 @@ export interface WalletClient {
   revealPaymentLink(target: SavedLinkTarget): Promise<RevealPaymentLinkOutcome>;
   reviewReclaim(target: PaymentLinkTarget): Promise<ReviewReclaimOutcome>;
   confirmReclaim(review: ReclaimReview): Promise<ConfirmReclaimOutcome>;
-  paymentLink(
-    link: AccountAddress,
-    fragment: string,
-  ): Promise<PaymentLinkOutcome>;
-  reviewLinkReceive(
-    link: AccountAddress,
-    fragment: string,
-  ): Promise<ReviewLinkReceiveOutcome>;
+  paymentLink(code: LinkCode): Promise<PaymentLinkOutcome>;
+  reviewLinkReceive(code: LinkCode): Promise<ReviewLinkReceiveOutcome>;
   confirmLinkReceive(
     review: LinkReceiveReview,
-    fragment: string,
+    code: LinkCode,
   ): Promise<ConfirmLinkReceiveOutcome>;
   reviewExternalLinkClaim(
-    link: AccountAddress,
-    fragment: string,
+    code: LinkCode,
     intent: ExternalLinkIntent,
   ): Promise<ReviewExternalLinkOutcome>;
   confirmExternalLinkClaim(
     review: ExternalLinkReview,
-    fragment: string,
+    code: LinkCode,
   ): Promise<ConfirmExternalLinkOutcome>;
 }
 
@@ -141,26 +134,19 @@ export interface WalletEffects {
   ): Effect.Effect<RevealPaymentLinkOutcome>;
   reviewReclaim(target: PaymentLinkTarget): Effect.Effect<ReviewReclaimOutcome>;
   confirmReclaim(review: ReclaimReview): Effect.Effect<ConfirmReclaimOutcome>;
-  paymentLink(
-    link: AccountAddress,
-    fragment: string,
-  ): Effect.Effect<PaymentLinkOutcome>;
-  reviewLinkReceive(
-    link: AccountAddress,
-    fragment: string,
-  ): Effect.Effect<ReviewLinkReceiveOutcome>;
+  paymentLink(code: LinkCode): Effect.Effect<PaymentLinkOutcome>;
+  reviewLinkReceive(code: LinkCode): Effect.Effect<ReviewLinkReceiveOutcome>;
   confirmLinkReceive(
     review: LinkReceiveReview,
-    fragment: string,
+    code: LinkCode,
   ): Effect.Effect<ConfirmLinkReceiveOutcome>;
   reviewExternalLinkClaim(
-    link: AccountAddress,
-    fragment: string,
+    code: LinkCode,
     intent: ExternalLinkIntent,
   ): Effect.Effect<ReviewExternalLinkOutcome>;
   confirmExternalLinkClaim(
     review: ExternalLinkReview,
-    fragment: string,
+    code: LinkCode,
   ): Effect.Effect<ConfirmExternalLinkOutcome>;
 }
 
@@ -492,33 +478,29 @@ export function makeWalletEffects(
           ),
         ),
       ),
-    paymentLink: (link, fragment) =>
-      transfer(
-        receiving.pipe(Effect.flatMap(({ status }) => status(link, fragment))),
-      ),
-    reviewLinkReceive: (link, fragment) =>
-      transfer(
-        receiving.pipe(Effect.flatMap(({ review }) => review(link, fragment))),
-      ),
-    confirmLinkReceive: (shown, fragment) =>
+    paymentLink: (code) =>
+      transfer(receiving.pipe(Effect.flatMap(({ status }) => status(code)))),
+    reviewLinkReceive: (code) =>
+      transfer(receiving.pipe(Effect.flatMap(({ review }) => review(code)))),
+    confirmLinkReceive: (shown, code) =>
       transfer(
         receiving.pipe(
-          Effect.flatMap(({ confirm }) => confirm(shown, fragment)),
+          Effect.flatMap(({ confirm }) => confirm(shown, code)),
           Effect.catchTag("CorruptDeviceWallet", (damaged) =>
             Effect.succeed(damaged),
           ),
         ),
       ),
-    reviewExternalLinkClaim: (link, fragment, intent) =>
+    reviewExternalLinkClaim: (code, intent) =>
       networkOnly(
         externalClaim.pipe(
-          Effect.flatMap(({ review }) => review(link, fragment, intent)),
+          Effect.flatMap(({ review }) => review(code, intent)),
         ),
       ),
-    confirmExternalLinkClaim: (shown, fragment) =>
+    confirmExternalLinkClaim: (shown, code) =>
       networkOnly(
         externalClaim.pipe(
-          Effect.flatMap(({ confirm }) => confirm(shown, fragment)),
+          Effect.flatMap(({ confirm }) => confirm(shown, code)),
         ),
       ),
   };
@@ -555,17 +537,14 @@ export function makeWalletClient(
       Effect.runPromise(effects.revealPaymentLink(target)),
     reviewReclaim: (target) => Effect.runPromise(effects.reviewReclaim(target)),
     confirmReclaim: (shown) => Effect.runPromise(effects.confirmReclaim(shown)),
-    paymentLink: (link, fragment) =>
-      Effect.runPromise(effects.paymentLink(link, fragment)),
-    reviewLinkReceive: (link, fragment) =>
-      Effect.runPromise(effects.reviewLinkReceive(link, fragment)),
-    confirmLinkReceive: (shown, fragment) =>
-      Effect.runPromise(effects.confirmLinkReceive(shown, fragment)),
-    reviewExternalLinkClaim: (link, fragment, intent) =>
-      Effect.runPromise(
-        effects.reviewExternalLinkClaim(link, fragment, intent),
-      ),
-    confirmExternalLinkClaim: (shown, fragment) =>
-      Effect.runPromise(effects.confirmExternalLinkClaim(shown, fragment)),
+    paymentLink: (code) => Effect.runPromise(effects.paymentLink(code)),
+    reviewLinkReceive: (code) =>
+      Effect.runPromise(effects.reviewLinkReceive(code)),
+    confirmLinkReceive: (shown, code) =>
+      Effect.runPromise(effects.confirmLinkReceive(shown, code)),
+    reviewExternalLinkClaim: (code, intent) =>
+      Effect.runPromise(effects.reviewExternalLinkClaim(code, intent)),
+    confirmExternalLinkClaim: (shown, code) =>
+      Effect.runPromise(effects.confirmExternalLinkClaim(shown, code)),
   };
 }

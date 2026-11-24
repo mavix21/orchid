@@ -28,8 +28,8 @@ export const enrollmentEffects: EnrollmentEffects = {
     withEnrollment((enrollment) => enrollment.start(usernameText)),
   advance: (shown, receive) =>
     withEnrollment((enrollment) => enrollment.advance(shown, receive)),
-  reviewReceive: (link, fragment) =>
-    withEnrollment((enrollment) => enrollment.reviewReceive(link, fragment)),
+  reviewReceive: (code) =>
+    withEnrollment((enrollment) => enrollment.reviewReceive(code)),
 };
 
 export const enrollmentClient: EnrollmentClient = {
@@ -38,6 +38,6 @@ export const enrollmentClient: EnrollmentClient = {
     Effect.runPromise(enrollmentEffects.start(usernameText)),
   advance: (shown, receive) =>
     Effect.runPromise(enrollmentEffects.advance(shown, receive)),
-  reviewReceive: (link, fragment) =>
-    Effect.runPromise(enrollmentEffects.reviewReceive(link, fragment)),
+  reviewReceive: (code) =>
+    Effect.runPromise(enrollmentEffects.reviewReceive(code)),
 };

@@ -1,6 +1,7 @@
 import { type Page, expect, test } from "@playwright/test";
-import { Keypair } from "@stellar/stellar-sdk";
+import { readLinkCode } from "@workspace/wallet";
 import { fundWithUsdc, usdc } from "@workspace/wallet/testnet";
+import * as Option from "effect/Option";
 
 import {
   addAuthenticator,
@@ -14,7 +15,22 @@ import {
   withoutPrf,
 } from "./device";
 
-const linkPath = /\/l\/(G[A-Z2-7]{55})#(S[A-Z2-7]{55})$/;
+const stellarSecret = /S[A-Z2-7]{55}/;
+
+const unfundedCode = "Bcru1zp9FViPqN8CJTvQuS2zg";
+
+const sharedLink = (text: string) => {
+  const [message = "", url = ""] = text.split("\n\n");
+  const link = new URL(url);
+  const code = link.hash.slice(1);
+
+  return {
+    message,
+    link,
+    code,
+    address: Option.getOrThrow(readLinkCode(code)).link,
+  };
+};
 
 const reviewLink = async (page: Page) => {
   await page.goto("/send");
@@ -40,14 +56,14 @@ test("saves a funded link on the device, re-shares it from the links after leavi
     requests.push(`${request.url()}\n${request.postData() ?? ""}`);
   });
 
-  await page.exposeFunction("recordShare", (url: string) => {
-    shared.push(url);
+  await page.exposeFunction("recordShare", (text: string) => {
+    shared.push(text);
   });
   await page.exposeFunction("recordCopy", (url: string) => {
     copied.push(url);
   });
   await page.addInitScript({
-    content: `Object.defineProperty(navigator, "share", { configurable: true, value: (data) => window.recordShare(data.url) });
+    content: `Object.defineProperty(navigator, "share", { configurable: true, value: (data) => window.recordShare(data.text) });
 Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (text) => window.recordCopy(text) } });`,
   });
 
@@ -82,15 +98,13 @@ Object.defineProperty(navigator, "clipboard", { configurable: true, value: { wri
   await expect.poll(() => copied).toHaveLength(1);
 
   const [original = ""] = shared;
-  const link = new URL(original);
+  const { message, link, code } = sharedLink(original);
 
-  const [, linkAddress = "", secret = ""] =
-    linkPath.exec(`${link.pathname}${link.hash}`) ?? [];
-
+  expect(message).not.toBe("");
   expect(link.origin).toBe(new URL(page.url()).origin);
-  expect(copied).toEqual([original]);
-  expect(Keypair.fromSecret(secret).publicKey()).toBe(linkAddress);
-  expect(await page.content()).not.toContain(secret);
+  expect(link.pathname).toBe("/r");
+  expect(copied).toEqual([link.href]);
+  expect(await page.content()).not.toContain(code);
 
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("link-share-drawer")).toBeHidden();
@@ -106,7 +120,8 @@ Object.defineProperty(navigator, "clipboard", { configurable: true, value: { wri
 
   const sent = requests.join("\n");
 
-  expect(sent).not.toContain(secret);
+  expect(sent).not.toContain(code);
+  expect(sent).not.toMatch(stellarSecret);
   expect(sent).not.toContain(envelopes[0]);
 
   await withoutPrf(page, authenticator);
@@ -144,11 +159,11 @@ test("receives a link into a wallet created on the link page with two passkey pr
 
   const shared: Array<string> = [];
 
-  await page.exposeFunction("recordShare", (url: string) => {
-    shared.push(url);
+  await page.exposeFunction("recordShare", (text: string) => {
+    shared.push(text);
   });
   await page.addInitScript({
-    content: `Object.defineProperty(navigator, "share", { configurable: true, value: (data) => window.recordShare(data.url) });`,
+    content: `Object.defineProperty(navigator, "share", { configurable: true, value: (data) => window.recordShare(data.text) });`,
   });
 
   const { address } = await enrollWallet(page, freshUsername());
@@ -163,10 +178,7 @@ test("receives a link into a wallet created on the link page with two passkey pr
   await expect.poll(() => shared).toHaveLength(1);
 
   const [original = ""] = shared;
-  const link = new URL(original);
-
-  const [, linkAddress = "", secret = ""] =
-    linkPath.exec(`${link.pathname}${link.hash}`) ?? [];
+  const { link, code, address: linkAddress } = sharedLink(original);
 
   const recipient = await browser.newPage();
   const requests: Array<string> = [];
@@ -179,7 +191,15 @@ test("receives a link into a wallet created on the link page with two passkey pr
 
   const prompts = await countPasskeyPrompts(recipient);
 
-  await recipient.goto(`${link.pathname}${link.hash}`);
+  await recipient.goto(`/r#${unfundedCode}`);
+  await expect(recipient.getByTestId("link-outcome")).toHaveAttribute(
+    "data-outcome",
+    "PaymentLinkNotFound",
+    { timeout: 30_000 },
+  );
+  await recipient.evaluate((hash) => {
+    window.location.hash = hash;
+  }, link.hash);
   await recipient.getByTestId("receive-link").click();
   await usernameInput(recipient).fill(freshUsername());
   await submitButton(recipient).click();
@@ -210,9 +230,12 @@ test("receives a link into a wallet created on the link page with two passkey pr
   );
   await expect(recipient.getByTestId("receive-link")).toHaveCount(0);
 
-  expect(Keypair.fromSecret(secret).publicKey()).toBe(linkAddress);
-  expect(requests.join("\n")).not.toContain(secret);
-  expect(await storedText(recipient)).not.toContain(secret);
+  const recipientStorage = `${await storedText(recipient)}\n${await recipient.evaluate(() => JSON.stringify(sessionStorage))}`;
+
+  expect(requests.join("\n")).not.toContain(code);
+  expect(requests.join("\n")).not.toMatch(stellarSecret);
+  expect(recipientStorage).not.toContain(code);
+  expect(recipientStorage).not.toMatch(stellarSecret);
 
   await page.goto("/links");
   await expect(

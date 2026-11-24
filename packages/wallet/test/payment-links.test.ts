@@ -27,7 +27,8 @@ import {
   makeWalletEffects,
 } from "../src/device/client";
 import type { PublicDeviceWallet } from "../src/device/key-store";
-import { SealedLinkSecret, linkPrfInput } from "../src/device/link-seal";
+import { linkKeyOf } from "../src/device/link-code";
+import { SealedLinkCode, linkPrfInput } from "../src/device/link-seal";
 import { holdingsFromEntries } from "../src/server/ledger-assets.server";
 import { transfers } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
@@ -69,7 +70,7 @@ const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");
 
 interface ReleasedState {
   readonly wallet: PublicDeviceWallet;
-  readonly links: ReadonlyArray<SealedLinkSecret>;
+  readonly links: ReadonlyArray<SealedLinkCode>;
 }
 
 const orderJson = Schema.encodeSync(Schema.fromJsonString(TransferOrder));
@@ -174,7 +175,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             .pipe(Effect.provide(Logger.layer([captureLogger])));
 
           assertTagged(created, "PaymentLinkCreated");
-          expect(created.path).toBe(`/l/${created.address}#${created.secret}`);
+          expect(created.path).toBe(`/r#${created.code}`);
+          expect(
+            Option.map(linkKeyOf(created.code), ({ address }) => address),
+          ).toEqual(Option.some(created.address));
           expect(created.savedOnDevice).toBe(true);
 
           const linkInput = yield* linkPrfInput({
@@ -208,7 +212,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(savedLink?.fundedBalance).toBe(created.balance);
 
-          const ciphertext = Schema.encodeSync(SealedLinkSecret)(
+          const ciphertext = Schema.encodeSync(SealedLinkCode)(
             Option.getOrThrow(Option.fromNullishOr(savedLink)),
           ).ciphertext;
 
@@ -284,9 +288,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             serializedRows,
           ].join("\n");
 
-          expect(exposed).not.toContain(created.secret);
+          const linkSecret = Option.getOrThrow(linkKeyOf(created.code)).secret;
+
+          expect(exposed).not.toContain(created.code);
+          expect(exposed).not.toContain(linkSecret);
           expect(exposed).not.toContain(ciphertext);
-          expect(storeSnapshots.join("\n")).not.toContain(created.secret);
+          expect(storeSnapshots.join("\n")).not.toContain(created.code);
+          expect(storeSnapshots.join("\n")).not.toContain(linkSecret);
         }),
     );
 

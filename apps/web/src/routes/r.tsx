@@ -1,23 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { createIsomorphicFn } from "@tanstack/react-start";
+import { getRequestUrl } from "@tanstack/react-start/server";
 import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
 import {
-  AccountAddress,
   type AssetStep,
   DraftRejected,
   type LinkReceiveReview,
   type PaymentLinkOpen,
+  type ReadLinkCode,
   type WalletEnrolled,
+  readLinkCode,
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
-import * as Schema from "effect/Schema";
 
 import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
+import { BrandLogo } from "@/components/brand-logo";
 import { BloomActions, BloomHero } from "@/components/orchid-bloom";
 import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
 import { ExternalClaimFlow } from "@/links/external-claim-flow";
@@ -38,8 +41,35 @@ import { walletEffects } from "@/wallet";
 import { enrollmentEffects } from "@/wallet/enrollment";
 import { EnrollmentFlow } from "@/wallet/enrollment-flow";
 
-export const Route = createFileRoute("/l/$link")({
+const publicOrigin = createIsomorphicFn()
+  .server(() => getRequestUrl().origin)
+  .client(() => window.location.origin);
+
+const previewTitle = "Link de pago de Orchid";
+const previewDescription = "Ábrelo para ver el pago y recibirlo en Orchid.";
+
+export const Route = createFileRoute("/r")({
   ssr: false,
+  head: () => {
+    const origin = publicOrigin();
+
+    return {
+      meta: [
+        { title: previewTitle },
+        { name: "description", content: previewDescription },
+        { name: "robots", content: "noindex, nofollow" },
+        { property: "og:type", content: "website" },
+        { property: "og:site_name", content: "Orchid" },
+        { property: "og:title", content: previewTitle },
+        { property: "og:description", content: previewDescription },
+        { property: "og:url", content: `${origin}/r` },
+        { property: "og:image", content: `${origin}/og-payment-link.png` },
+        { property: "og:image:width", content: "1200" },
+        { property: "og:image:height", content: "630" },
+        { name: "twitter:card", content: "summary_large_image" },
+      ],
+    };
+  },
   component: PaymentLinkPage,
 });
 
@@ -63,7 +93,19 @@ type ReceiveStep = Data.TaggedEnum<{
 
 const ReceiveStep = Data.taggedEnum<ReceiveStep>();
 
-const fragment = () => window.location.hash.slice(1);
+const subscribeToLocation = (onChange: () => void) => {
+  window.addEventListener("hashchange", onChange);
+  window.addEventListener("popstate", onChange);
+
+  return () => {
+    window.removeEventListener("hashchange", onChange);
+    window.removeEventListener("popstate", onChange);
+  };
+};
+
+const readFragment = () => window.location.hash.slice(1);
+
+const noFragmentOnServer = () => "";
 
 const concluded = (outcome: ReceiveConclusion, received: string) =>
   ReceiveStep.Concluded({
@@ -79,41 +121,53 @@ const retriesReview = (answer: ReceiveConclusion) =>
   Predicate.isTagged(answer, "AssertionRejected");
 
 function PaymentLinkPage() {
-  const { link } = Route.useParams();
-
-  const address = useMemo(
-    () => Schema.decodeUnknownOption(AccountAddress)(link),
-    [link],
+  const fragment = useSyncExternalStore(
+    subscribeToLocation,
+    readFragment,
+    noFragmentOnServer,
   );
 
-  return Option.match(address, {
+  const opened = useMemo(() => readLinkCode(fragment), [fragment]);
+
+  return Option.match(opened, {
     onNone: () => (
       <Screen>
         <ScreenStatus
-          title="Este link no es válido"
+          title={
+            fragment === ""
+              ? "Falta parte del link"
+              : "Este link está incompleto"
+          }
           data-testid="link-outcome"
-          data-outcome="InvalidAddress"
+          data-outcome={fragment === "" ? "LinkCodeMissing" : "LinkCodeInvalid"}
         >
           <ScreenNote>
-            Ábrelo de nuevo desde el mensaje que te enviaron.
+            Copia el link completo del mensaje que te enviaron y ábrelo de
+            nuevo.
           </ScreenNote>
         </ScreenStatus>
       </Screen>
     ),
-    onSome: (valid) => <ReceiveLink link={valid} />,
+    onSome: (valid) => <ReceiveLink key={valid.code} opened={valid} />,
   });
 }
 
-function ReceiveLink({ link }: { link: AccountAddress }) {
+const stepForAnotherLink = (received: AssetStep, opened: ReadLinkCode) =>
+  "action" in received &&
+  !(
+    Predicate.isTagged(received.action, "ReceiveLink") &&
+    received.action.link === opened.link
+  );
+
+function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
   const { walletClient } = Route.useRouteContext();
   const task = useWalletTask();
   const [step, setStep] = useState<ReceiveStep>(ReceiveStep.Reading());
-
-  const binding = useMemo(() => ({ link, fragment }), [link]);
+  const { code } = opened;
 
   const read = () => {
     setStep(ReceiveStep.Reading());
-    task.run(walletEffects.paymentLink(link, fragment()), (answer) =>
+    task.run(walletEffects.paymentLink(code), (answer) =>
       setStep(
         Predicate.isTagged(answer, "PaymentLinkOpen")
           ? ReceiveStep.Offered({ open: answer })
@@ -122,13 +176,13 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
     );
   };
 
-  useEffect(read, [link]);
+  useEffect(read, []);
 
   const review = (open: PaymentLinkOpen) => {
     const received = amountLabel(open.amount, open.asset);
 
     setStep(ReceiveStep.Preparing({ open }));
-    task.run(walletEffects.reviewLinkReceive(link, fragment()), (answer) =>
+    task.run(walletEffects.reviewLinkReceive(code), (answer) =>
       setStep(
         Predicate.isTagged(answer, "LinkReceiveReview")
           ? ReceiveStep.Reviewing({ review: answer, problem: Option.none() })
@@ -175,7 +229,7 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
     const received = amountLabel(shown.amount, shown.asset);
 
     setStep(ReceiveStep.Confirming({ review: shown }));
-    task.run(walletEffects.confirmLinkReceive(shown, fragment()), (answer) =>
+    task.run(walletEffects.confirmLinkReceive(shown, code), (answer) =>
       setStep(
         Predicate.isTagged(answer, "LinkReceiveReview")
           ? ReceiveStep.Reviewing({ review: answer, problem: Option.none() })
@@ -194,6 +248,12 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
 
     if (received === undefined) {
       review(open);
+
+      return;
+    }
+
+    if (stepForAnotherLink(received, opened)) {
+      read();
 
       return;
     }
@@ -218,6 +278,7 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
     ),
     Offered: ({ open }) => (
       <Screen>
+        <ClaimHeader />
         <main data-testid="link-offer" className="flex flex-1 flex-col px-5">
           <BloomHero
             motion="bloom"
@@ -246,9 +307,8 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
     ),
     ExternalClaiming: ({ open }) => (
       <ExternalClaimFlow
-        link={link}
+        code={code}
         open={open}
-        fragment={fragment}
         onBack={() => setStep(ReceiveStep.Offered({ open }))}
         onRecheck={read}
       />
@@ -257,19 +317,11 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
       <PasskeyBrowserGate>
         <EnrollmentFlow
           title="Recibe tu dinero"
-          back={(disabled) => (
-            <a
-              href={`/l/${link}`}
-              aria-disabled={disabled}
-              onClick={(event) => {
-                event.preventDefault();
-
-                if (!disabled) setStep(ReceiveStep.Offered({ open }));
-              }}
-            />
-          )}
+          back={() => ({
+            onClick: () => setStep(ReceiveStep.Offered({ open })),
+          })}
           walletClient={walletClient}
-          receive={binding}
+          receive={opened}
           onEnrolled={enrolled(open)}
           onOpened={() => review(open)}
         />
@@ -294,6 +346,7 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
     ),
     Confirming: ({ review: shown }) => (
       <Screen>
+        <ClaimHeader />
         <main role="status" className="flex flex-1 flex-col px-5">
           <BloomHero
             motion="breathe"
@@ -307,6 +360,7 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
     Concluded: ({ outcome, screen, received }) =>
       outcome === "AssetSettled" ? (
         <Screen>
+          <ClaimHeader />
           <main
             data-testid="link-outcome"
             data-outcome={outcome}
@@ -365,6 +419,7 @@ function ReceiveReview({
 
   return (
     <Screen>
+      <ClaimHeader />
       <main
         data-testid={ready ? "receive-review" : undefined}
         aria-busy={!ready}
@@ -395,5 +450,13 @@ function ReceiveReview({
         </Button>
       </BloomActions>
     </Screen>
+  );
+}
+
+function ClaimHeader() {
+  return (
+    <header className="flex h-14 items-center justify-center px-5">
+      <BrandLogo />
+    </header>
   );
 }

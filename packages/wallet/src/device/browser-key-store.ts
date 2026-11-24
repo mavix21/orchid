@@ -12,7 +12,7 @@ import {
   SealedDeviceWallet,
   type SealedKeyStore,
 } from "./key-store";
-import { SealedLinkSecret } from "./link-seal";
+import { SealedLinkCode } from "./link-seal";
 import { localEnvelopeVersion, matchesEnvelopeContext } from "./local-envelope";
 
 const databaseName = "orchid-device";
@@ -31,8 +31,8 @@ const decodeStoredEntries = Schema.decodeUnknownOption(
   Schema.Array(Schema.Unknown),
 );
 
-const decodeStoredLink = Schema.decodeUnknownOption(SealedLinkSecret);
-const encodeStoredLink = Schema.encodeSync(SealedLinkSecret);
+const decodeStoredLink = Schema.decodeUnknownOption(SealedLinkCode);
+const encodeStoredLink = Schema.encodeSync(SealedLinkCode);
 
 function settle<A>(request: IDBRequest<A>): Promise<A> {
   return new Promise((resolve, reject) => {
@@ -209,7 +209,7 @@ const storedLinks = (stored: Option.Option<ReadonlyArray<unknown>>) => {
   };
 };
 
-async function readLinks(): Promise<ReadonlyArray<SealedLinkSecret>> {
+async function readLinks(): Promise<ReadonlyArray<SealedLinkCode>> {
   const database = await openDatabase();
 
   try {

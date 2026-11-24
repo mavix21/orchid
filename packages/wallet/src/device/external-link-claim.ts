@@ -6,7 +6,7 @@ import * as Predicate from "effect/Predicate";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import {
-  type AccountAddress,
+  type LinkCode,
   type Approval,
   AssetOrderId,
   type ExternalLinkDraft,
@@ -21,6 +21,7 @@ import { readEnvelope } from "../stellar/envelopes";
 import { sameMemo } from "../stellar/memo";
 import { network } from "../stellar/network";
 import type { ClaimIssue } from "./claim-reviews";
+import { linkKeyOf } from "./link-code";
 import { OpenedLink, linkSecretFor, openLink } from "./link-receive";
 import {
   type ConfirmExternalLinkOutcome,
@@ -273,23 +274,21 @@ export function deviceExternalLinkClaim(
     );
 
   const review = Effect.fn("Device.reviewExternalLinkClaim")(function* (
-    link: AccountAddress,
-    fragment: string,
+    code: LinkCode,
     intent: ExternalLinkIntent,
   ): Effect.fn.Return<ReviewExternalLinkOutcome, WalletUnavailable> {
-    if (Option.isNone(linkSecretFor(link, fragment)))
-      return new LinkSecretMismatch();
+    if (Option.isNone(linkKeyOf(code))) return new LinkSecretMismatch();
 
     if (isMuxed(intent.destination) && intent.memo !== undefined)
       return new MemoNotAllowed({ reason: "muxed" });
 
-    const target = yield* openLink(port, link, fragment);
+    const target = yield* openLink(port, code);
 
     if (!(target instanceof OpenedLink)) return target;
 
     const order = new ExternalLinkOrder({
       id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
-      link,
+      link: target.link,
       balance: target.balance,
       destination: intent.destination,
       memo: intent.memo,
@@ -302,9 +301,9 @@ export function deviceExternalLinkClaim(
 
   const confirm = Effect.fn("Device.confirmExternalLinkClaim")(function* (
     shown: ExternalLinkReview,
-    fragment: string,
+    code: LinkCode,
   ): Effect.fn.Return<ConfirmExternalLinkOutcome, WalletUnavailable> {
-    const secret = linkSecretFor(shown.link, fragment);
+    const secret = linkSecretFor(shown.link, code);
 
     if (Option.isNone(secret)) return new LinkSecretMismatch();
 

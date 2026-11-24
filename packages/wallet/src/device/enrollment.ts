@@ -9,12 +9,13 @@ import * as Semaphore from "effect/Semaphore";
 import {
   AccountAddress,
   BackupEnrollment,
+  InvalidResponse,
+  type LinkCode,
   type OpenStep,
   RegistrationRefused,
-  type UsernameTaken,
   Username,
+  type UsernameTaken,
   type WalletUnavailable,
-  InvalidResponse,
 } from "../contract";
 import { network } from "../stellar/network";
 import {
@@ -374,7 +375,7 @@ export function makeEnrollmentEffects(
     const secret =
       receive === undefined
         ? Option.none()
-        : linkSecretFor(receive.review.link, receive.fragment);
+        : linkSecretFor(receive.review.link, receive.code);
 
     if (receive !== undefined) {
       if (Option.isNone(secret)) return new LinkSecretMismatch();
@@ -449,7 +450,7 @@ export function makeEnrollmentEffects(
       )
         return pendingNotice(current);
 
-      if (Option.isNone(linkSecretFor(receive.review.link, receive.fragment)))
+      if (Option.isNone(linkSecretFor(receive.review.link, receive.code)))
         return new LinkSecretMismatch();
 
       if ((yield* receiveStanding(current, receive.review)) !== "current")
@@ -605,8 +606,7 @@ export function makeEnrollmentEffects(
   });
 
   const reviewReceive = Effect.fn("Device.reviewEnrollmentReceive")(function* (
-    link: AccountAddress,
-    fragment: string,
+    code: LinkCode,
   ): Effect.fn.Return<ReviewEnrollmentReceiveOutcome> {
     const current = yield* loadPending;
 
@@ -617,15 +617,14 @@ export function makeEnrollmentEffects(
 
     if (isHeld(current)) return pendingNotice(current);
 
-    return yield* reviewOpenLink(current, link, fragment);
+    return yield* reviewOpenLink(current, code);
   });
 
   return {
     pending: () => lock.withPermit(pending()),
     start: (usernameText) => lock.withPermit(start(usernameText)),
     advance: (shown, receive) => lock.withPermit(advance(shown, receive)),
-    reviewReceive: (link, fragment) =>
-      lock.withPermit(reviewReceive(link, fragment)),
+    reviewReceive: (code) => lock.withPermit(reviewReceive(code)),
   };
 }
 
@@ -639,7 +638,6 @@ export function makeEnrollmentClient(
     start: (usernameText) => Effect.runPromise(effects.start(usernameText)),
     advance: (shown, receive) =>
       Effect.runPromise(effects.advance(shown, receive)),
-    reviewReceive: (link, fragment) =>
-      Effect.runPromise(effects.reviewReceive(link, fragment)),
+    reviewReceive: (code) => Effect.runPromise(effects.reviewReceive(code)),
   };
 }

@@ -1,27 +1,22 @@
-import { Keypair } from "@stellar/stellar-sdk";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import {
-  AccountAddress,
-  BalanceId,
-  CredentialId,
-  LinkSecret,
-} from "../contract";
+import { AccountAddress, BalanceId, CredentialId, LinkCode } from "../contract";
 import { canonicalTuple, sha256 } from "./canonical-digest";
+import { linkKeyOf } from "./link-code";
 import { aesGcmTagLength, envelopeIvLength } from "./local-envelope";
 
-export const linkSealVersion = 1;
+export const linkSealVersion = 2;
 
-const linkSealDomain = "orchid-payment-link-secret-v1";
+const linkSealDomain = "orchid-payment-link-code-v2";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
-export class SealedLinkSecret extends Schema.Class<SealedLinkSecret>(
-  "@workspace/wallet/SealedLinkSecret",
+export class SealedLinkCode extends Schema.Class<SealedLinkCode>(
+  "@workspace/wallet/SealedLinkCode",
 )({
   version: Schema.Literal(linkSealVersion),
   network: Schema.NonEmptyString,
@@ -33,8 +28,8 @@ export class SealedLinkSecret extends Schema.Class<SealedLinkSecret>(
   fundedBalance: Schema.optional(BalanceId),
 }) {}
 
-export class LinkSecretOpened extends Data.TaggedClass("LinkSecretOpened")<{
-  readonly secret: Redacted.Redacted<LinkSecret>;
+export class LinkCodeOpened extends Data.TaggedClass("LinkCodeOpened")<{
+  readonly code: Redacted.Redacted<LinkCode>;
 }> {}
 
 export class LinkSecretCorrupt extends Schema.TaggedClass<LinkSecretCorrupt>()(
@@ -91,23 +86,18 @@ const linkKey = (
     }
   }).pipe(Effect.option);
 
-const linkAddressOf = (secret: LinkSecret) => {
-  try {
-    return Option.some(Keypair.fromSecret(secret).publicKey());
-  } catch {
-    return Option.none();
-  }
-};
+const linkAddressOf = (code: LinkCode) =>
+  Option.map(linkKeyOf(code), (key) => key.address);
 
-export const sealLinkSecret = Effect.fn("Device.sealLinkSecret")(function* (
+export const sealLinkCode = Effect.fn("Device.sealLinkCode")(function* (
   context: LinkSealContext,
-  secret: LinkSecret,
+  code: LinkCode,
   prf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
-): Effect.fn.Return<Option.Option<SealedLinkSecret>> {
+): Effect.fn.Return<Option.Option<SealedLinkCode>> {
   if (
     context.network.length === 0 ||
     Redacted.value(prf).byteLength === 0 ||
-    !Option.contains(linkAddressOf(secret), context.address)
+    !Option.contains(linkAddressOf(code), context.address)
   )
     return Option.none();
 
@@ -118,7 +108,7 @@ export const sealLinkSecret = Effect.fn("Device.sealLinkSecret")(function* (
   const iv = crypto.getRandomValues(new Uint8Array(envelopeIvLength));
 
   const ciphertext = yield* Effect.tryPromise(async () => {
-    const plaintext = encoder.encode(secret);
+    const plaintext = encoder.encode(code);
 
     try {
       return new Uint8Array(
@@ -136,7 +126,7 @@ export const sealLinkSecret = Effect.fn("Device.sealLinkSecret")(function* (
   return Option.map(
     ciphertext,
     (sealed) =>
-      new SealedLinkSecret({
+      new SealedLinkCode({
         version: linkSealVersion,
         network: context.network,
         wallet: context.wallet,
@@ -149,7 +139,7 @@ export const sealLinkSecret = Effect.fn("Device.sealLinkSecret")(function* (
 });
 
 export const matchesLinkContext = (
-  sealed: SealedLinkSecret,
+  sealed: SealedLinkCode,
   expected: LinkSealContext,
 ) =>
   sealed.network === expected.network &&
@@ -159,11 +149,11 @@ export const matchesLinkContext = (
   sealed.iv.byteLength === envelopeIvLength &&
   sealed.ciphertext.byteLength > aesGcmTagLength;
 
-export const openLinkSecret = Effect.fn("Device.openLinkSecret")(function* (
-  sealed: SealedLinkSecret,
+export const openLinkCode = Effect.fn("Device.openLinkCode")(function* (
+  sealed: SealedLinkCode,
   expected: LinkSealContext,
   prf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
-): Effect.fn.Return<LinkSecretOpened | LinkSecretCorrupt> {
+): Effect.fn.Return<LinkCodeOpened | LinkSecretCorrupt> {
   if (
     !matchesLinkContext(sealed, expected) ||
     Redacted.value(prf).byteLength === 0
@@ -194,13 +184,13 @@ export const openLinkSecret = Effect.fn("Device.openLinkSecret")(function* (
     }
   }).pipe(Effect.option);
 
-  const secret = Option.flatMap(text, Schema.decodeUnknownOption(LinkSecret));
+  const code = Option.flatMap(text, Schema.decodeUnknownOption(LinkCode));
 
   if (
-    Option.isNone(secret) ||
-    !Option.contains(linkAddressOf(secret.value), expected.address)
+    Option.isNone(code) ||
+    !Option.contains(linkAddressOf(code.value), expected.address)
   )
     return new LinkSecretCorrupt();
 
-  return new LinkSecretOpened({ secret: Redacted.make(secret.value) });
+  return new LinkCodeOpened({ code: Redacted.make(code.value) });
 });
