@@ -179,6 +179,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               memo,
             });
 
+          world.accounts.set(addressOf(link), accountState());
+
           const claim = claimOrder();
           const drafted = yield* wallet.claimPaymentLink(claim, Option.none());
 
@@ -190,6 +192,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           assertTagged(facts, "LinkReceiveFacts");
+          expect(facts.createsLinkAccount).toBe(false);
           expect(facts.destination).toBe(addressOf(external));
           expect(facts.memo).toEqual(memo);
 
