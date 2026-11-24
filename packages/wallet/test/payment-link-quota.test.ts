@@ -8,7 +8,9 @@ import {
   baseAsset,
 } from "../src/contract";
 import { Wallet } from "../src/server/Wallet.server";
+import { Transfers } from "../src/server/Transfers.server";
 import { readEnvelope } from "../src/stellar/envelopes";
+import { sweepBatchSize } from "../src/stellar/network";
 import { linkAmount } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {
@@ -29,64 +31,95 @@ import {
 
 useDisposableDatabase();
 
+const linkSender = Effect.gen(function* () {
+  const sender = yield* fundedWallet("linkquota");
+  const senderAddr = addressOf(sender);
+
+  world.holdings.set(
+    senderAddr,
+    holdingsFor(senderAddr, {
+      lines: [{ ...euroLine("500000000"), asset: baseAsset }],
+    }),
+  );
+
+  const createLinkAt = Effect.fn(function* (sequence: string) {
+    world.accounts.set(senderAddr, accountState({ sequence }));
+
+    const linkKey = addressOf(Keypair.random());
+
+    const order = orderFor(
+      sender,
+      PaymentLinkRecipient.make({ value: linkKey }),
+    );
+
+    const draft = yield* send(order);
+
+    assertTagged(draft, "TransferDraft");
+
+    const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
+
+    assertTagged(facts, "PaymentLinkFacts");
+    expect((yield* send(order, approve(draft.request, sender)))._tag).toBe(
+      "Pending",
+    );
+
+    const submitted = world.submitted.at(-1);
+
+    if (!submitted) throw new Error("Expected submission");
+
+    world.claimables.set(facts.balance, {
+      balance: facts.balance,
+      asset: baseAsset,
+      amount: linkAmount,
+      sponsored: true,
+      claimants: [
+        new Claimant(linkKey, Claimant.predicateUnconditional()),
+        new Claimant(senderAddr, Claimant.predicateUnconditional()),
+      ],
+    });
+    settleHash(submitted.hash);
+    yield* sweep;
+
+    return facts.balance;
+  });
+
+  return { sender, senderAddr, createLinkAt };
+});
+
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
+    it.effect(
+      "the sweep closes one batch of gone payment link balances per run",
+      () =>
+        Effect.gen(function* () {
+          const { senderAddr, createLinkAt } = yield* linkSender;
+
+          yield* Effect.forEach(
+            Array.from(
+              { length: sweepBatchSize + 1 },
+              (_, index) => `${2000 + index}`,
+            ),
+            createLinkAt,
+          );
+
+          world.claimables.clear();
+
+          const open = Transfers.use((transfers) =>
+            transfers.openClaimables(senderAddr, "paymentLink"),
+          );
+
+          yield* sweep;
+          expect(yield* open).toBe(1);
+          yield* sweep;
+          expect(yield* open).toBe(0);
+        }),
+    );
+
     it.effect(
       "refuses the 6th open payment link while five are live and allows it once they are claimed",
       () =>
         Effect.gen(function* () {
-          const sender = yield* fundedWallet("linkquota");
-          const senderAddr = addressOf(sender);
-
-          world.holdings.set(
-            senderAddr,
-            holdingsFor(senderAddr, {
-              lines: [{ ...euroLine("500000000"), asset: baseAsset }],
-            }),
-          );
-
-          const createLinkAt = Effect.fn(function* (sequence: string) {
-            world.accounts.set(senderAddr, accountState({ sequence }));
-
-            const linkKey = addressOf(Keypair.random());
-
-            const order = orderFor(
-              sender,
-              PaymentLinkRecipient.make({ value: linkKey }),
-            );
-
-            const draft = yield* send(order);
-
-            assertTagged(draft, "TransferDraft");
-
-            const facts = Option.getOrThrow(
-              readEnvelope(draft.request.envelope),
-            );
-
-            assertTagged(facts, "PaymentLinkFacts");
-            expect(
-              (yield* send(order, approve(draft.request, sender)))._tag,
-            ).toBe("Pending");
-
-            const submitted = world.submitted.at(-1);
-
-            if (!submitted) throw new Error("Expected submission");
-
-            world.claimables.set(facts.balance, {
-              balance: facts.balance,
-              asset: baseAsset,
-              amount: linkAmount,
-              sponsored: true,
-              claimants: [
-                new Claimant(linkKey, Claimant.predicateUnconditional()),
-                new Claimant(senderAddr, Claimant.predicateUnconditional()),
-              ],
-            });
-            settleHash(submitted.hash);
-            yield* sweep;
-
-            return facts.balance;
-          });
+          const { sender, senderAddr, createLinkAt } = yield* linkSender;
 
           const createdBalances = [
             yield* createLinkAt("2000"),

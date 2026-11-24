@@ -12,6 +12,6 @@ export default {
     await runWallet(Wallet.use((wallet) => wallet.sweep));
   },
   queue: async (batch: MessageBatch) => {
-    await Promise.all(batch.messages.map(attendMessage));
+    for (const message of batch.messages) await attendMessage(message);
   },
 };

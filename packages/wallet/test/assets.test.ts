@@ -68,8 +68,7 @@ const assetOrder = (key: Keypair, action: AssetOrder["action"]) =>
     action,
   });
 
-const heldTrustline = Effect.gen(function* () {
-  const key = yield* fundedWallet("assetowner");
+const holdTrustline = Effect.fn(function* (key: Keypair) {
   const opening = assetOrder(key, OpenTrustline.make({ asset: euro }));
   const draft = yield* manage(opening);
 
@@ -87,7 +86,13 @@ const heldTrustline = Effect.gen(function* () {
 
   assertTagged(held, "AssetAuthorized");
 
-  return { key, opening, hash: held.sealed.hash };
+  return { opening, hash: held.sealed.hash };
+});
+
+const heldTrustline = Effect.gen(function* () {
+  const key = yield* fundedWallet("assetowner");
+
+  return { key, ...(yield* holdTrustline(key)) };
 });
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
@@ -131,30 +136,16 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const order = selfOrder(key);
           const draft = yield* draftTransfer(order);
 
-          const opening = assetOrder(key, OpenTrustline.make({ asset: euro }));
-          const drafted = yield* manage(opening);
+          const held = yield* holdTrustline(key);
 
-          assertTagged(drafted, "AssetDraft");
-          world.failSubmit = true;
-          assertTagged(
-            yield* manage(opening, approve(drafted.request, key)),
-            "AssetPending",
-          );
-          world.failSubmit = false;
-
-          const held = Option.getOrThrow(
-            yield* AssetOrders.use((orders) => orders.find(opening.id)),
-          );
-
-          assertTagged(held, "AssetAuthorized");
           expect((yield* send(order, approve(draft.request, key)))._tag).toBe(
             "AssetBusy",
           );
 
-          settleHash(held.sealed.hash);
+          settleHash(held.hash);
           assertTagged(
             yield* send(order, approve(draft.request, key)),
-            "TransferDraft",
+            "Pending",
           );
         }),
     );
@@ -446,6 +437,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(
             yield* send(third, approve(thirdDraft.request, sender)),
           ).toEqual(new ClaimableLimitReached({ limit: 2 }));
+
+          world.claimables.clear();
+          assertTagged(
+            yield* send(third, approve(thirdDraft.request, sender)),
+            "Settled",
+          );
         }),
     );
 

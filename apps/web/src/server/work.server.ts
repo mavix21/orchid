@@ -13,7 +13,9 @@ export const attendMessage = async (message: Message) => {
   const work = Schema.decodeUnknownOption(PendingWork)(message.body);
 
   if (Option.isNone(work)) {
-    await runWallet(Effect.logError("Pending work message is unreadable"));
+    await Effect.runPromise(
+      Effect.logError("Pending work message is unreadable"),
+    );
 
     return message.ack();
   }

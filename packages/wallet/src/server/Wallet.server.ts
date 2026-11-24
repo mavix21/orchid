@@ -42,7 +42,7 @@ import {
 } from "../contract";
 import { baseAccountOf, isMuxed } from "../stellar/destination";
 import { readEnvelope } from "../stellar/envelopes";
-import { Chain, ChainUnreachable } from "./Chain.server";
+import { Chain, ChainUnreachable, type Sealed } from "./Chain.server";
 import type { KnownExchangeMemo } from "./exchange-memos.server";
 import { memoRefusal } from "./memo-refusal.server";
 import { Directory, StoreFailure } from "./Directory.server";
@@ -176,6 +176,61 @@ export class Wallet extends Context.Service<
         );
       });
 
+      const authorizing = Effect.fn("Wallet.authorizing")(function* (
+        stored: Proposed,
+        sealed: Sealed,
+        requirement: Option.Option<KnownExchangeMemo>,
+        mayRetry: boolean,
+      ): Effect.fn.Return<TransferStep, StoreFailure | ChainUnreachable> {
+        const authorized = yield* transfers.authorize(stored, sealed);
+
+        const retried = () =>
+          mayRetry
+            ? authorizing(stored, sealed, requirement, false)
+            : resumed(stored, requirement);
+
+        return yield* Match.valueTags(authorized, {
+          SlotTaken: ({ holder }) =>
+            Effect.gen(function* () {
+              const receipt = yield* reconcile(holder);
+
+              return Predicate.isTagged(receipt, "Pending")
+                ? new SenderBusy({ inFlight: receipt })
+                : (yield* currentDraft(stored))
+                  ? yield* resumed(stored, requirement)
+                  : yield* redrafted(stored, requirement);
+            }),
+          ClaimablesFull: ({ limit }) =>
+            Effect.gen(function* () {
+              const full = yield* quotaFull(
+                stored.order.from,
+                stored.claimableKind ?? "username",
+              );
+
+              return full
+                ? new ClaimableLimitReached({ limit })
+                : yield* retried();
+            }),
+          SlotOccupied: () =>
+            Effect.gen(function* () {
+              const busy = yield* assets.inFlightFor(stored.order.from);
+
+              if (Option.isNone(busy)) return proposedStep(stored, requirement);
+
+              if (yield* assetActions.reconcilePending(busy.value))
+                return new AssetBusy({ inFlight: assetPending(busy.value) });
+
+              return (yield* currentDraft(stored))
+                ? yield* retried()
+                : yield* redrafted(stored, requirement);
+            }),
+          WalletInactive: () => Effect.succeed(new NotOpened()),
+          Proposed: (proposed) => resumed(proposed, requirement),
+          Authorized: reconcile,
+          Concluded: signedStep,
+        });
+      });
+
       const transfer = Effect.fn("Wallet.transfer")(function* (
         order: TransferOrder,
         approval: Option.Option<Approval>,
@@ -252,51 +307,7 @@ export class Wallet extends Context.Service<
             if (!(yield* currentDraft(stored)))
               return yield* redrafted(stored, requirement);
 
-            const authorized = yield* transfers.authorize(stored, sealed.value);
-
-            return yield* Match.valueTags(authorized, {
-              SlotTaken: ({ holder }) =>
-                Effect.gen(function* () {
-                  const receipt = yield* reconcile(holder);
-
-                  return Predicate.isTagged(receipt, "Pending")
-                    ? new SenderBusy({ inFlight: receipt })
-                    : (yield* currentDraft(stored))
-                      ? yield* resumed(stored, requirement)
-                      : yield* redrafted(stored, requirement);
-                }),
-              ClaimablesFull: ({ limit }) =>
-                Effect.gen(function* () {
-                  const full = yield* quotaFull(
-                    order.from,
-                    stored.claimableKind ?? "username",
-                  );
-
-                  return full
-                    ? new ClaimableLimitReached({ limit })
-                    : yield* resumed(stored, requirement);
-                }),
-              SlotOccupied: () =>
-                Effect.gen(function* () {
-                  const busy = yield* assets.inFlightFor(order.from);
-
-                  if (Option.isNone(busy))
-                    return proposedStep(stored, requirement);
-
-                  if (yield* assetActions.reconcilePending(busy.value))
-                    return new AssetBusy({
-                      inFlight: assetPending(busy.value),
-                    });
-
-                  return (yield* currentDraft(stored))
-                    ? yield* resumed(stored, requirement)
-                    : yield* redrafted(stored, requirement);
-                }),
-              WalletInactive: () => Effect.succeed(new NotOpened()),
-              Proposed: (proposed) => resumed(proposed, requirement),
-              Authorized: reconcile,
-              Concluded: signedStep,
-            });
+            return yield* authorizing(stored, sealed.value, requirement, true);
           }
         }
 
