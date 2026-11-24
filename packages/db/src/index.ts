@@ -4,6 +4,7 @@ import {
   makeWithDefaults,
 } from "drizzle-orm/effect-postgres";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 
@@ -18,7 +19,10 @@ export function databaseLayer(hyperdrive: {
 }) {
   return Database.layer.pipe(
     Layer.provide(
-      PgClient.layer({ url: Redacted.make(hyperdrive.connectionString) }),
+      PgClient.layer({
+        url: Redacted.make(hyperdrive.connectionString),
+        connectTimeout: Duration.seconds(30),
+      }),
     ),
   );
 }
