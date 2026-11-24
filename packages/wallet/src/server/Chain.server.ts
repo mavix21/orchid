@@ -462,7 +462,10 @@ export class Chain extends Context.Service<
 
                 if (sponsoring) inner.sign(sponsor);
 
-                if (Predicate.isTagged(facts.value, "LinkReceiveFacts"))
+                if (
+                  Predicate.isTagged(facts.value, "LinkReceiveFacts") &&
+                  feePayer.publicKey() !== sponsor.publicKey()
+                )
                   inner.sign(feePayer);
 
                 const outer = TransactionBuilder.buildFeeBumpTransaction(

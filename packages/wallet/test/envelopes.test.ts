@@ -18,6 +18,8 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import {
   AccountAddress,
   Approval,
+  BalanceId,
+  DestinationAddress,
   PaymentMemo,
   PositiveAmount,
   SigningRequest,
@@ -49,6 +51,7 @@ import {
   readEnvelope,
   signingPayload,
 } from "../src/stellar/envelopes";
+import { draftLinkReceive } from "../src/stellar/link-receive";
 import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 import { accountEntryXdr, chainWithHttp } from "./rpc-answering";
 import { assertTagged } from "./tagged";
@@ -607,3 +610,52 @@ it.each([
     true,
   );
 });
+
+it.live(
+  "a link receive sealed with one key as fee payer and reserve sponsor carries each signature once",
+  () =>
+    Effect.gen(function* () {
+      const shared = Keypair.random();
+      const now = Math.floor(Date.now() / 1000);
+
+      const envelope = draftLinkReceive({
+        channel: new Account(shared.publicKey(), "123"),
+        link: address,
+        reserveSponsor: Schema.decodeSync(AccountAddress)(shared.publicKey()),
+        createsLinkAccount: true,
+        destination: Schema.decodeSync(DestinationAddress)(to),
+        balance: Schema.decodeSync(BalanceId)(`00000000${"ab".repeat(32)}`),
+        asset: baseAsset,
+        amount: Schema.decodeSync(PositiveAmount)("10000000"),
+        minTime: now,
+        maxTime: now + 120,
+      });
+
+      const sealed = yield* Chain.use((c) =>
+        c.seal(
+          new SigningRequest({
+            envelope,
+            expiresAt: DateTime.makeUnsafe((now + 120) * 1000),
+          }),
+          new Approval({ signature: holder.sign(signingPayload(envelope)) }),
+          address,
+        ),
+      ).pipe(
+        Effect.provide(
+          chainWithHttp(FetchHttpClient.layer, {
+            rpcUrl: "https://soroban-testnet.stellar.org",
+            sponsor: shared,
+            feePayer: shared,
+          }),
+        ),
+      );
+
+      const hints = decodeFeeBump(
+        sealed.envelope,
+      ).innerTransaction.signatures.map((signature) =>
+        signature.hint.toXDR("hex"),
+      );
+
+      expect(new Set(hints).size).toBe(hints.length);
+    }),
+);

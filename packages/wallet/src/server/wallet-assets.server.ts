@@ -69,9 +69,12 @@ export const assetFlow = Effect.gen(function* () {
       Rejected: concluded,
       Expired: concluded,
       Undecided: () =>
-        chain
-          .submit(stored.sealed)
-          .pipe(Effect.ignore, Effect.as(orderPending(stored))),
+        chain.submit(stored.sealed).pipe(
+          Effect.catch((failure) =>
+            Effect.logWarning("Asset order resubmission failed", failure),
+          ),
+          Effect.as(orderPending(stored)),
+        ),
     });
   });
 
