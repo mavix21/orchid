@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import {
+  type ActivityCursor,
   BackupStored,
   type TransferId,
   type WalletPort,
@@ -23,6 +24,7 @@ import {
   type SealedDevice,
 } from "./key-store";
 import {
+  type ActivityOutcome,
   type BackUpOutcome,
   type ConfirmExternalLinkOutcome,
   type ConfirmOpeningOutcome,
@@ -89,6 +91,7 @@ export interface WalletClient {
   ): Promise<ReviewPaymentLinkOutcome>;
   confirmPaymentLink(review: PaymentReview): Promise<ConfirmPaymentLinkOutcome>;
   paymentLinks(): Promise<PaymentLinksOutcome>;
+  activity(cursor?: ActivityCursor): Promise<ActivityOutcome>;
   resolvePaymentLink(): Promise<ResolvePaymentLinkOutcome>;
   revealPaymentLink(target: SavedLinkTarget): Promise<RevealPaymentLinkOutcome>;
   reviewReclaim(target: PaymentLinkTarget): Promise<ReviewReclaimOutcome>;
@@ -128,6 +131,7 @@ export interface WalletEffects {
     review: PaymentReview,
   ): Effect.Effect<ConfirmPaymentLinkOutcome>;
   paymentLinks(): Effect.Effect<PaymentLinksOutcome>;
+  activity(cursor?: ActivityCursor): Effect.Effect<ActivityOutcome>;
   resolvePaymentLink(): Effect.Effect<ResolvePaymentLinkOutcome>;
   revealPaymentLink(
     target: SavedLinkTarget,
@@ -288,6 +292,16 @@ export function makeWalletEffects(
       });
 
     return overview;
+  });
+
+  const activity = Effect.fn("Device.activity")(function* (
+    cursor: ActivityCursor | undefined,
+  ) {
+    const stored = yield* store.readPublic();
+
+    if (Option.isNone(stored)) return new NoWallet();
+
+    return yield* port.activity(stored.value.address, cursor);
   });
 
   const saved = Effect.fn("Device.saved")(function* () {
@@ -452,6 +466,7 @@ export function makeWalletEffects(
       transfer(
         links.pipe(Effect.flatMap(({ paymentLinks }) => paymentLinks())),
       ),
+    activity: (cursor) => transfer(activity(cursor)),
     resolvePaymentLink: () =>
       transfer(
         links.pipe(
@@ -532,6 +547,7 @@ export function makeWalletClient(
     confirmPaymentLink: (shown) =>
       Effect.runPromise(effects.confirmPaymentLink(shown)),
     paymentLinks: () => Effect.runPromise(effects.paymentLinks()),
+    activity: (cursor) => Effect.runPromise(effects.activity(cursor)),
     resolvePaymentLink: () => Effect.runPromise(effects.resolvePaymentLink()),
     revealPaymentLink: (target) =>
       Effect.runPromise(effects.revealPaymentLink(target)),

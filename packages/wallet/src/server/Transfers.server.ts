@@ -1,3 +1,4 @@
+import { activityFor } from "./activity-reads.server";
 import { balancesToCheck } from "./balance-sweep.server";
 import {
   fundedLinkAt,
@@ -30,6 +31,8 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
+  type ActivityCursor,
+  type ActivityPage,
   type BalanceId,
   Profile,
   type ReceivedPaymentLink,
@@ -139,6 +142,11 @@ export class Transfers extends Context.Service<
     fundedLink(
       link: AccountAddress,
     ): Effect.Effect<Option.Option<FundedLink>, StoreFailure>;
+
+    activity(
+      address: AccountAddress,
+      before?: ActivityCursor,
+    ): Effect.Effect<ActivityPage, StoreFailure>;
 
     closeBalance(balance: BalanceId): Effect.Effect<void, StoreFailure>;
   }
@@ -579,6 +587,12 @@ export class Transfers extends Context.Service<
           ),
         fundedLink: (link) =>
           wrap(fundedLinkAt(link).pipe(Effect.provideService(Database, db))),
+        activity: (address, before) =>
+          wrap(
+            activityFor(address, before).pipe(
+              Effect.provideService(Database, db),
+            ),
+          ),
         closeBalance: (balance) =>
           wrap(
             DateTime.now.pipe(

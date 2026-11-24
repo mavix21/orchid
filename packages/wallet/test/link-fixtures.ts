@@ -3,14 +3,16 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
+  type AccountAddress,
   PaymentLinkRecipient,
   PositiveAmount,
   TransferId,
   TransferOrder,
+  type WalletPort,
   baseAsset,
 } from "../src/contract";
 import { signingKey } from "../src/device/signing";
-import { memoryKeyStore } from "./device-fixtures";
+import { type DeviceWallet, memoryKeyStore } from "./device-fixtures";
 import { assertTagged } from "./tagged";
 import {
   accountState,
@@ -24,12 +26,19 @@ import {
   world,
 } from "./wallet-harness";
 
+export const advanceSequence = (address: AccountAddress) => {
+  const current = world.accounts.get(address) ?? accountState();
+
+  world.accounts.set(address, {
+    ...current,
+    sequence: (BigInt(current.sequence) + 1n).toString(),
+  });
+};
+
 export const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");
 
-export const fundLink = (username: string) =>
+export const fundLinkFrom = (wallet: WalletPort, sender: DeviceWallet) =>
   Effect.gen(function* () {
-    const { wallet, sender } = yield* openSender(memoryKeyStore(), username);
-
     world.holdings.set(
       sender.address,
       holdingsFor(sender.address, {
@@ -62,6 +71,14 @@ export const fundLink = (username: string) =>
     const balance = Option.getOrThrow(Option.fromNullishOr(funded.claimable));
 
     world.accounts.set(addressOf(feePayer), accountState());
+    advanceSequence(sender.address);
 
-    return { wallet, sender, link, balance };
+    return { link, balance, transferId: funding.id };
+  });
+
+export const fundLink = (username: string) =>
+  Effect.gen(function* () {
+    const { wallet, sender } = yield* openSender(memoryKeyStore(), username);
+
+    return { wallet, sender, ...(yield* fundLinkFrom(wallet, sender)) };
   });
