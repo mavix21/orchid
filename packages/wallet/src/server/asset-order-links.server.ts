@@ -1,9 +1,8 @@
 import { Database } from "@workspace/db";
-import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Predicate from "effect/Predicate";
 import type { AssetOrderId, BalanceId } from "../contract";
 import {
   approvalMargin,
@@ -14,7 +13,6 @@ import {
 import type { Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import {
-  type AssetConcluded,
   type AssetProposed,
   type StoredAssetOrder,
   StoredExternalOrder,
@@ -26,7 +24,7 @@ type Decode = (
   row: typeof assetOrders.$inferSelect,
 ) => Effect.Effect<StoredAssetOrder, StoreFailure>;
 
-const scopeAt = (now: number) =>
+export const scopeAt = (now: number) =>
   and(
     eq(assetOrders.network, network),
     eq(assetOrders.testnetEpoch, epochAt(now)),
@@ -47,41 +45,6 @@ export const ordersOnBalance = Effect.fn("AssetOrders.onBalance")(function* (
     .limit(sweepBatchSize * 4);
 
   return yield* Effect.forEach(rows, decode);
-});
-
-export const receivedLinksToClean = Effect.fn(
-  "AssetOrders.receivedLinksToClean",
-)(function* (decode: Decode) {
-  const db = yield* Database;
-  const now = yield* Clock.currentTimeMillis;
-
-  const rows = yield* db
-    .select()
-    .from(assetOrders)
-    .where(
-      and(
-        scopeAt(now),
-        eq(assetOrders.status, "settled"),
-        isNull(assetOrders.linkCleanedAt),
-        sql`${assetOrders.order}::jsonb -> 'action' ->> '_tag' in ('ReceiveLink', 'ReceiveLinkExternal')`,
-      ),
-    )
-    .orderBy(assetOrders.concludedAt)
-    .limit(sweepBatchSize);
-
-  return yield* Effect.forEach(rows, (row) =>
-    Effect.flatMap(
-      decode(row),
-      (stored): Effect.Effect<AssetConcluded, StoreFailure> =>
-        Predicate.isTagged(stored, "AssetConcluded")
-          ? Effect.succeed(stored)
-          : Effect.fail(
-              new StoreFailure({
-                cause: new Error("Settled asset order is not concluded"),
-              }),
-            ),
-    ),
-  );
 });
 
 export const linkCleaned = Effect.fn("AssetOrders.linkCleaned")(function* (

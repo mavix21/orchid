@@ -33,7 +33,7 @@ import {
   type AccountAddress,
   type ActivityCursor,
   type ActivityPage,
-  type BalanceId,
+  BalanceId,
   Profile,
   type ReceivedPaymentLink,
   type ResolvedRecipient,
@@ -44,15 +44,17 @@ import {
 import { claimableBalanceOf } from "../stellar/asset-envelopes";
 import {
   approvalMargin,
+  claimableReadLimit,
   epochAt,
   claimableQuota,
   network,
-  sweepBatchSize,
 } from "../stellar/network";
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import { SlotOccupied, WalletInactive, walletLock } from "./slot.server";
 import { assetOrders, transfers, wallets } from "./tables.server";
+import { stuckTransfers } from "./transfer-sweep.server";
+import { ReconcileTransfer, WorkQueue, announcer } from "./work-queue.server";
 import {
   AttemptsJson,
   type Authorized,
@@ -116,7 +118,9 @@ export class Transfers extends Context.Service<
       id: TransferId,
       settlement: Applied | Rejected | Expired,
     ): Effect.Effect<Concluded, StoreFailure>;
-    readonly inFlight: Effect.Effect<ReadonlyArray<Authorized>, StoreFailure>;
+    inFlight(
+      runStartedAt: DateTime.Utc,
+    ): Effect.Effect<ReadonlyArray<Authorized>, StoreFailure>;
 
     readonly balancesToCheck: Effect.Effect<
       ReadonlyArray<BalanceId>,
@@ -126,6 +130,11 @@ export class Transfers extends Context.Service<
       sender: AccountAddress,
       kind?: ClaimableKind,
     ): Effect.Effect<number, StoreFailure>;
+
+    settledOpenBalanceIds(
+      sender: AccountAddress,
+      kind: ClaimableKind,
+    ): Effect.Effect<ReadonlyArray<BalanceId>, StoreFailure>;
 
     openBalances(
       address: AccountAddress,
@@ -503,47 +512,19 @@ export class Transfers extends Context.Service<
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.mapError((cause) => new StoreFailure({ cause })));
 
-      const inFlight = Effect.gen(function* () {
-        const now = yield* DateTime.now;
-        const scope = scopeAt(DateTime.toEpochMillis(now));
+      const announce = announcer(yield* WorkQueue);
 
-        const rows = yield* db
-          .update(transfers)
-          .set({ sweepCheckedAt: DateTime.toDateUtc(now) })
-          .where(
-            and(
-              scope,
-              eq(transfers.status, "authorized"),
-              inArray(
-                transfers.id,
-                db
-                  .select({ id: transfers.id })
-                  .from(transfers)
-                  .where(and(scope, eq(transfers.status, "authorized")))
-                  .orderBy(
-                    sql`${transfers.sweepCheckedAt} asc nulls first`,
-                    transfers.id,
-                  )
-                  .limit(sweepBatchSize),
-              ),
-            ),
-          )
-          .returning();
-
-        return yield* Effect.forEach(rows, (row) =>
-          decode(row).pipe(
-            Effect.flatMap((transfer) =>
-              Predicate.isTagged(transfer, "Authorized")
-                ? Effect.succeed(transfer)
-                : Effect.fail(
-                    new StoreFailure({
-                      cause: new Error("Invalid in-flight state"),
-                    }),
-                  ),
-            ),
-          ),
-        );
-      });
+      const announceAuthorized = (
+        outcome:
+          | Transfer
+          | SlotTaken
+          | SlotOccupied
+          | ClaimablesFull
+          | WalletInactive,
+      ) =>
+        Predicate.isTagged(outcome, "Authorized")
+          ? announce(new ReconcileTransfer({ id: outcome.order.id }))
+          : Effect.void;
 
       return Transfers.of({
         find: (id) => wrap(find(id)),
@@ -551,9 +532,17 @@ export class Transfers extends Context.Service<
         propose: (order, recipient, request) =>
           wrap(propose(order, recipient, request)),
         redraft: (proposed, request) => wrap(redraft(proposed, request)),
-        authorize: (proposed, sealed) => wrap(authorize(proposed, sealed)),
+        authorize: (proposed, sealed) =>
+          wrap(
+            authorize(proposed, sealed).pipe(Effect.tap(announceAuthorized)),
+          ),
         conclude: (id, settlement) => wrap(conclude(id, settlement)),
-        inFlight: wrap(inFlight),
+        inFlight: (runStartedAt) =>
+          wrap(
+            stuckTransfers(runStartedAt, decode).pipe(
+              Effect.provideService(Database, db),
+            ),
+          ),
         balancesToCheck: wrap(
           balancesToCheck.pipe(Effect.provideService(Database, db)),
         ),
@@ -567,6 +556,30 @@ export class Transfers extends Context.Service<
                   .where(openFromAt(sender, kind, now)),
               ),
               Effect.map((rows) => rows[0]?.total ?? 0),
+            ),
+          ),
+        settledOpenBalanceIds: (sender, kind) =>
+          wrap(
+            Clock.currentTimeMillis.pipe(
+              Effect.flatMap((now) =>
+                db
+                  .select({ balance: transfers.balanceId })
+                  .from(transfers)
+                  .where(
+                    and(
+                      openFromAt(sender, kind, now),
+                      eq(transfers.status, "settled"),
+                    ),
+                  )
+                  .limit(claimableReadLimit),
+              ),
+              Effect.map((rows) =>
+                rows.flatMap((row) =>
+                  row.balance
+                    ? [Schema.decodeSync(BalanceId)(row.balance)]
+                    : [],
+                ),
+              ),
             ),
           ),
         openBalances: (address) =>

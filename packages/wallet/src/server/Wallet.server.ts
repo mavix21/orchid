@@ -53,7 +53,6 @@ import {
   Proposed,
   type Transfer,
   Transfers,
-  pending,
 } from "./Transfers.server";
 import { AssetOrders, assetPending } from "./AssetOrders.server";
 import { assetFlow } from "./wallet-assets.server";
@@ -64,12 +63,20 @@ import { backupFlow } from "./wallet-backup.server";
 import { activityFlow } from "./wallet-activity.server";
 import { paymentLinksFlow } from "./wallet-payment-links.server";
 import { confirmedReads, live } from "./wallet-reads.server";
+import { claimableQuotaFlow } from "./claimable-quota.server";
+import { transferReconcileFlow } from "./wallet-reconcile.server";
+import type { PendingWork, WorkAttended } from "./work-queue.server";
 import { sweepFlow } from "./wallet-sweep.server";
+import { workFlow } from "./wallet-work.server";
 
 export class Wallet extends Context.Service<
   Wallet,
   WalletPort<ServerFailure> & {
     readonly sweep: Effect.Effect<void, ServerFailure>;
+    attend(
+      work: PendingWork,
+      attempt: number,
+    ): Effect.Effect<WorkAttended, ServerFailure>;
   }
 >()("@workspace/wallet/server/Wallet") {
   static readonly serviceLayer = Layer.effect(
@@ -79,9 +86,11 @@ export class Wallet extends Context.Service<
       const directory = yield* Directory;
       const transfers = yield* Transfers;
       const assets = yield* AssetOrders;
+      const reconcile = yield* transferReconcileFlow;
       const assetActions = yield* assetFlow;
       const delivery = yield* deliveryFlow;
       const checkLinkAsset = yield* paymentLinkAssetRefusal;
+      const { quotaFull } = yield* claimableQuotaFlow;
       const links = yield* paymentLinksFlow;
       const history = yield* activityFlow;
       const portfolio = yield* portfolioFlow;
@@ -92,41 +101,6 @@ export class Wallet extends Context.Service<
       const { readBalance } = yield* confirmedReads;
       const open = yield* openingFlow;
       const backup = yield* backupFlow;
-
-      const reconcile = Effect.fn("Wallet.reconcile")(function* (
-        authorized: Authorized,
-      ) {
-        const settlement = yield* chain.settlement(authorized.sealed);
-
-        return yield* Match.valueTags(settlement, {
-          Applied: (evidence) =>
-            transfers
-              .conclude(authorized.order.id, evidence)
-              .pipe(Effect.map((done) => done.receipt)),
-          Rejected: (evidence) =>
-            transfers
-              .conclude(authorized.order.id, evidence)
-              .pipe(Effect.map((done) => done.receipt)),
-          Expired: (evidence) =>
-            transfers
-              .conclude(authorized.order.id, evidence)
-              .pipe(Effect.map((done) => done.receipt)),
-          Undecided: () =>
-            Effect.gen(function* () {
-              const liveEvidence = yield* links.reconcileLiveLink(authorized);
-
-              if (Option.isSome(liveEvidence))
-                return (yield* transfers.conclude(
-                  authorized.order.id,
-                  liveEvidence.value,
-                )).receipt;
-
-              yield* chain.submit(authorized.sealed).pipe(Effect.ignore);
-
-              return pending(authorized);
-            }),
-        });
-      });
 
       const memoRequirement = Effect.fn("Wallet.memoRequirement")(function* (
         recipient: ResolvedRecipient,
@@ -292,17 +266,32 @@ export class Wallet extends Context.Service<
                       : yield* redrafted(stored, requirement);
                 }),
               ClaimablesFull: ({ limit }) =>
-                Effect.succeed(new ClaimableLimitReached({ limit })),
+                Effect.gen(function* () {
+                  const full = yield* quotaFull(
+                    order.from,
+                    stored.claimableKind ?? "username",
+                  );
+
+                  return full
+                    ? new ClaimableLimitReached({ limit })
+                    : yield* resumed(stored, requirement);
+                }),
               SlotOccupied: () =>
-                assets
-                  .inFlightFor(order.from)
-                  .pipe(
-                    Effect.map((busy) =>
-                      Option.isSome(busy)
-                        ? new AssetBusy({ inFlight: assetPending(busy.value) })
-                        : proposedStep(stored, requirement),
-                    ),
-                  ),
+                Effect.gen(function* () {
+                  const busy = yield* assets.inFlightFor(order.from);
+
+                  if (Option.isNone(busy))
+                    return proposedStep(stored, requirement);
+
+                  if (yield* assetActions.reconcilePending(busy.value))
+                    return new AssetBusy({
+                      inFlight: assetPending(busy.value),
+                    });
+
+                  return (yield* currentDraft(stored))
+                    ? yield* resumed(stored, requirement)
+                    : yield* redrafted(stored, requirement);
+                }),
               WalletInactive: () => Effect.succeed(new NotOpened()),
               Proposed: (proposed) => resumed(proposed, requirement),
               Authorized: reconcile,
@@ -457,13 +446,21 @@ export class Wallet extends Context.Service<
         });
       });
 
+      const records = {
+        reconcileTransfer: (entry: Authorized) =>
+          reconcile(entry).pipe(
+            Effect.map((receipt) => Predicate.isTagged(receipt, "Pending")),
+          ),
+        reconcileAsset: assetActions.reconcilePending,
+        cleanUpReceivedLink: assetActions.cleanUpReceivedLink,
+      };
+
       const sweep = yield* sweepFlow({
-        reconcileTransfer: (entry) => reconcile(entry).pipe(Effect.asVoid),
-        reconcileAsset: (entry) =>
-          assetActions.reconcile(entry).pipe(Effect.asVoid),
+        ...records,
         closeGoneBalance: links.closeGoneBalance,
-        cleanUpReceivedLinks: assetActions.cleanUpReceivedLinks,
       });
+
+      const attend = yield* workFlow(records);
 
       return Wallet.of({
         manage: (order, approval) => wrap(assetActions.manage(order, approval)),
@@ -481,6 +478,7 @@ export class Wallet extends Context.Service<
         enroll: (enrollment) => wrap(backup.enroll(enrollment)),
         restore: (assertion) => wrap(backup.restore(assertion)),
         sweep: wrap(sweep),
+        attend: (work, attempt) => wrap(attend(work, attempt)),
       });
     }),
   );

@@ -1,0 +1,134 @@
+import { expect, layer } from "@effect/vitest";
+import { Claimant, Keypair } from "@stellar/stellar-sdk";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import {
+  ClaimableLimitReached,
+  PaymentLinkRecipient,
+  baseAsset,
+} from "../src/contract";
+import { Wallet } from "../src/server/Wallet.server";
+import { readEnvelope } from "../src/stellar/envelopes";
+import { linkAmount } from "./link-fixtures";
+import { assertTagged } from "./tagged";
+import {
+  accountState,
+  addressOf,
+  approve,
+  euroLine,
+  fundedWallet,
+  holdingsFor,
+  orderFor,
+  send,
+  settleHash,
+  sweep,
+  useDisposableDatabase,
+  walletTestLayer,
+  world,
+} from "./wallet-harness";
+
+useDisposableDatabase();
+
+layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
+  (it) => {
+    it.effect(
+      "refuses the 6th open payment link while five are live and allows it once they are claimed",
+      () =>
+        Effect.gen(function* () {
+          const sender = yield* fundedWallet("linkquota");
+          const senderAddr = addressOf(sender);
+
+          world.holdings.set(
+            senderAddr,
+            holdingsFor(senderAddr, {
+              lines: [{ ...euroLine("500000000"), asset: baseAsset }],
+            }),
+          );
+
+          const createLinkAt = Effect.fn(function* (sequence: string) {
+            world.accounts.set(senderAddr, accountState({ sequence }));
+
+            const linkKey = addressOf(Keypair.random());
+
+            const order = orderFor(
+              sender,
+              PaymentLinkRecipient.make({ value: linkKey }),
+            );
+
+            const draft = yield* send(order);
+
+            assertTagged(draft, "TransferDraft");
+
+            const facts = Option.getOrThrow(
+              readEnvelope(draft.request.envelope),
+            );
+
+            assertTagged(facts, "PaymentLinkFacts");
+            expect(
+              (yield* send(order, approve(draft.request, sender)))._tag,
+            ).toBe("Pending");
+
+            const submitted = world.submitted.at(-1);
+
+            if (!submitted) throw new Error("Expected submission");
+
+            world.claimables.set(facts.balance, {
+              balance: facts.balance,
+              asset: baseAsset,
+              amount: linkAmount,
+              sponsored: true,
+              claimants: [
+                new Claimant(linkKey, Claimant.predicateUnconditional()),
+                new Claimant(senderAddr, Claimant.predicateUnconditional()),
+              ],
+            });
+            settleHash(submitted.hash);
+            yield* sweep;
+
+            return facts.balance;
+          });
+
+          const createdBalances = [
+            yield* createLinkAt("2000"),
+            yield* createLinkAt("2001"),
+            yield* createLinkAt("2002"),
+            yield* createLinkAt("2003"),
+            yield* createLinkAt("2004"),
+          ];
+
+          world.accounts.set(senderAddr, accountState({ sequence: "2005" }));
+
+          const sixth = yield* send(
+            orderFor(
+              sender,
+              PaymentLinkRecipient.make({ value: addressOf(Keypair.random()) }),
+            ),
+          );
+
+          expect(sixth).toEqual(new ClaimableLimitReached({ limit: 5 }));
+
+          const openLinks = yield* Wallet.use((w) =>
+            w.paymentLinks(senderAddr),
+          );
+
+          assertTagged(openLinks, "OpenPaymentLinks");
+          expect(openLinks.links.map((l) => l.balance).sort()).toEqual(
+            [...createdBalances].sort(),
+          );
+
+          world.claimables.clear();
+          assertTagged(
+            yield* send(
+              orderFor(
+                sender,
+                PaymentLinkRecipient.make({
+                  value: addressOf(Keypair.random()),
+                }),
+              ),
+            ),
+            "TransferDraft",
+          );
+        }),
+    );
+  },
+);

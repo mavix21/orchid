@@ -15,9 +15,9 @@ import {
 import { baseAccountOf } from "../stellar/destination";
 import { claimableQuota } from "../stellar/network";
 import { Chain } from "./Chain.server";
+import { claimableQuotaFlow } from "./claimable-quota.server";
 import type { Holdings } from "./ledger-assets.server";
 import { rpcReadConcurrency } from "./settings.server";
-import { Transfers } from "./Transfers.server";
 
 export const paymentLinkAssetRefusal = Effect.gen(function* () {
   const chain = yield* Chain;
@@ -64,7 +64,7 @@ export const paymentLinkAssetRefusal = Effect.gen(function* () {
 
 export const deliveryFlow = Effect.gen(function* () {
   const chain = yield* Chain;
-  const transfers = yield* Transfers;
+  const { quotaFull } = yield* claimableQuotaFlow;
   const checkLinkAsset = yield* paymentLinkAssetRefusal;
 
   return Effect.fn("Wallet.delivery")(function* (
@@ -77,10 +77,7 @@ export const deliveryFlow = Effect.gen(function* () {
 
       if (Option.isSome(refusal)) return refusal.value;
 
-      if (
-        (yield* transfers.openClaimables(order.from, "paymentLink")) >=
-        claimableQuota.paymentLink
-      )
+      if (yield* quotaFull(order.from, "paymentLink"))
         return new ClaimableLimitReached({ limit: claimableQuota.paymentLink });
 
       return yield* chain.draftPaymentLink(
@@ -130,10 +127,7 @@ export const deliveryFlow = Effect.gen(function* () {
         });
       }
 
-      if (
-        (yield* transfers.openClaimables(order.from, "username")) >=
-        claimableQuota.username
-      )
+      if (yield* quotaFull(order.from, "username"))
         return new ClaimableLimitReached({ limit: claimableQuota.username });
 
       return yield* chain.draftClaimable(

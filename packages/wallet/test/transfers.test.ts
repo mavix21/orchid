@@ -6,7 +6,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import { Profile, ServiceFailed } from "../src/contract";
 import { Directory } from "../src/server/Directory.server";
-import { Transfers } from "../src/server/Transfers.server";
+import { ReconcileTransfer } from "../src/server/work-queue.server";
 import { assertTagged } from "./tagged";
 import {
   addressOf,
@@ -17,6 +17,10 @@ import {
   selfOrder,
   send,
   settleHash,
+  ageSignedWork,
+  attend,
+  authorizeTransfer,
+  authorizedTransfers,
   sweep,
   useDisposableDatabase,
   walletTestLayer,
@@ -62,6 +66,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(yield* send(order)).toEqual(draft);
 
           world.failSubmit = true;
+          world.queueDown = true;
           expect((yield* send(order, approve(draft.request, key)))._tag).toBe(
             "Pending",
           );
@@ -69,6 +74,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const stored = Option.getOrThrow(yield* findTransfer(order.id));
 
           assertTagged(stored, "Authorized");
+          expect(world.queued).toEqual([]);
           world.failSubmit = false;
           yield* sweep;
           expect(world.submitted.at(-1)?.hash).toBe(stored.sealed.hash);
@@ -76,6 +82,59 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           settleHash(stored.sealed.hash);
           yield* sweep;
           expect((yield* send(order))._tag).toBe("Settled");
+        }),
+    );
+
+    it.effect(
+      "a queue message resubmits a lost transfer submission and concludes it before the transaction expires",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet();
+          const order = selfOrder(key);
+
+          const { authorized } = yield* authorizeTransfer(key, order, {
+            failSubmit: true,
+          });
+
+          const message = new ReconcileTransfer({ id: order.id });
+          const submissions = world.submitted.length;
+
+          expect(world.queued).toEqual([message]);
+          assertTagged(yield* attend(message), "WorkRetry");
+          expect(world.submitted).toHaveLength(submissions + 1);
+          expect(world.submitted.at(-1)?.hash).toBe(authorized.sealed.hash);
+
+          settleHash(authorized.sealed.hash);
+          assertTagged(yield* attend(message, 2), "WorkFinished");
+          assertTagged(
+            Option.getOrThrow(yield* findTransfer(order.id)),
+            "Concluded",
+          );
+        }),
+    );
+
+    it.effect(
+      "a queue message stops retrying an undecided transfer once the transaction is long expired",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet();
+          const order = selfOrder(key);
+
+          yield* authorizeTransfer(key, order);
+          assertTagged(
+            yield* attend(new ReconcileTransfer({ id: order.id })),
+            "WorkRetry",
+          );
+
+          yield* ageSignedWork;
+          assertTagged(
+            yield* attend(new ReconcileTransfer({ id: order.id })),
+            "WorkFinished",
+          );
+          assertTagged(
+            Option.getOrThrow(yield* findTransfer(order.id)),
+            "Authorized",
+          );
         }),
     );
 
@@ -106,7 +165,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(results.filter(Predicate.isTagged("SenderBusy"))).toHaveLength(
             1,
           );
-          expect(yield* Transfers.use((t) => t.inFlight)).toHaveLength(1);
+          expect(yield* authorizedTransfers).toHaveLength(1);
         }),
     );
 
@@ -128,10 +187,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           expect(results.map((r) => r._tag)).toEqual(["Pending", "Pending"]);
-          const inFlight = yield* Transfers.use((t) => t.inFlight);
+          const inFlight = yield* authorizedTransfers;
 
           expect(inFlight).toHaveLength(1);
-          const storedEnvelope = inFlight[0]?.sealed.envelope;
+          const storedEnvelope = inFlight[0]?.envelope;
           const submitted = world.submitted.slice(before);
 
           expect(new Set(submitted.map((s) => s.envelope))).toEqual(

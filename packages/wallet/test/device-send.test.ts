@@ -19,6 +19,7 @@ import {
   installSealedWallet,
   sealedKeyStore,
 } from "./sealed-wallet-fixtures";
+import { settleOnSubmit } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {
   create,
@@ -29,7 +30,6 @@ import {
   openSender,
   reserveSponsor,
   settleHash,
-  settleOnSubmit,
   useDisposableDatabase,
   walletTestLayer,
   world,

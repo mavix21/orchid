@@ -67,4 +67,4 @@ _Avoid_: Session, login.
 **Embedded browser**: The in-app browser of an app such as Instagram, Facebook, TikTok or WhatsApp. It cannot evaluate a passkey's PRF, so Orchid hands the user off to their own browser before any passkey ceremony.
 _Avoid_: Webview when talking to users.
 
-**Sweep**: Scheduled reconciliation of pending operations and eligible reserve recovery.
+**Sweep**: Hourly backstop that reconciles pending operations the queue left unfinished, cleans up received links and recovers eligible reserves.

@@ -30,6 +30,7 @@ import {
   selfOrder,
   send,
   settleHash,
+  authorizedTransfers,
   sweep,
   useDisposableDatabase,
   walletTestLayer,
@@ -188,7 +189,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
           yield* sweep;
           expect((yield* send(order))._tag).toBe("Failed");
-          expect(yield* Transfers.use((s) => s.inFlight)).toHaveLength(0);
+          expect(yield* authorizedTransfers).toHaveLength(0);
 
           const nextOrder = selfOrder(key);
           const next = yield* draftTransfer(nextOrder);
@@ -259,7 +260,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(Option.getOrThrow(yield* findTransfer(order.id))._tag).toBe(
             "Proposed",
           );
-          expect(yield* Transfers.use((s) => s.inFlight)).toHaveLength(0);
+          expect(yield* authorizedTransfers).toHaveLength(0);
         }),
     );
 

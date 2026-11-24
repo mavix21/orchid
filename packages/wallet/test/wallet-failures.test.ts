@@ -11,6 +11,7 @@ import {
   submittedTransaction,
   testnetReply,
 } from "./rpc-answering";
+import { stellarAnswering, stellarWallet, timeOutRpc } from "./stellar-wallet";
 import { assertTagged } from "./tagged";
 import {
   authorizeTransfer,
@@ -19,10 +20,7 @@ import {
   selfOrder,
   send,
   settleHash,
-  stellarAnswering,
-  stellarWallet,
   sweep,
-  timeOutRpc,
   useDisposableDatabase,
   walletTestLayer,
   world,

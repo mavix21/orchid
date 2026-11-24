@@ -19,6 +19,7 @@ import {
 } from "../contract";
 import { network } from "../stellar/network";
 import { Applied, Chain, type ChainUnreachable } from "./Chain.server";
+import { claimableQuotaFlow } from "./claimable-quota.server";
 import { Directory, type StoreFailure } from "./Directory.server";
 import { selectRecoverablePaymentLinks } from "./ledger-assets.server";
 import { rpcReadConcurrency } from "./settings.server";
@@ -29,14 +30,7 @@ export const paymentLinksFlow = Effect.gen(function* () {
   const directory = yield* Directory;
   const transfers = yield* Transfers;
 
-  const closeGoneBalance = (id: BalanceId) =>
-    chain
-      .claimable([id])
-      .pipe(
-        Effect.flatMap((confirmed) =>
-          confirmed.length === 0 ? transfers.closeBalance(id) : Effect.void,
-        ),
-      );
+  const { closeGoneBalance } = yield* claimableQuotaFlow;
 
   const paymentLinks = Effect.fn("Wallet.paymentLinks")(function* (
     address: AccountAddress,

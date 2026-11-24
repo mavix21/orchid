@@ -7,13 +7,18 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AccountAddress, type BalanceId } from "../contract";
-import { AssetOrders, type AssetAuthorized } from "./AssetOrders.server";
+import {
+  type AssetAuthorized,
+  type AssetConcluded,
+  AssetOrders,
+} from "./AssetOrders.server";
 import { Chain, type ChainUnreachable, Sealed } from "./Chain.server";
 import {
   Directory,
   type StoreFailure,
   type WalletRow,
 } from "./Directory.server";
+import { sweepTimeBudget } from "../stellar/network";
 import { rpcReadConcurrency } from "./settings.server";
 import { type Authorized, Transfers } from "./Transfers.server";
 import { confirmedReads } from "./wallet-reads.server";
@@ -21,17 +26,16 @@ import { confirmedReads } from "./wallet-reads.server";
 export const sweepFlow = (actions: {
   readonly reconcileTransfer: (
     entry: Authorized,
-  ) => Effect.Effect<void, StoreFailure | ChainUnreachable>;
+  ) => Effect.Effect<boolean, StoreFailure | ChainUnreachable>;
   readonly reconcileAsset: (
     entry: AssetAuthorized,
-  ) => Effect.Effect<void, StoreFailure | ChainUnreachable>;
+  ) => Effect.Effect<boolean, StoreFailure | ChainUnreachable>;
   readonly closeGoneBalance: (
     id: BalanceId,
   ) => Effect.Effect<void, StoreFailure | ChainUnreachable>;
-  readonly cleanUpReceivedLinks: Effect.Effect<
-    void,
-    StoreFailure | ChainUnreachable
-  >;
+  readonly cleanUpReceivedLink: (
+    concluded: AssetConcluded,
+  ) => Effect.Effect<boolean, StoreFailure | ChainUnreachable>;
 }) =>
   Effect.gen(function* () {
     const chain = yield* Chain;
@@ -112,7 +116,65 @@ export const sweepFlow = (actions: {
       );
     });
 
+    const settleStuckRecords = (runStartedAt: DateTime.Utc) =>
+      Effect.gen(function* () {
+        const inFlight = yield* transfers.inFlight(runStartedAt);
+        const assetOrders = yield* assets.inFlight(runStartedAt);
+        const receivedLinks = yield* assets.receivedLinksToClean(runStartedAt);
+
+        const records = yield* Effect.forEach(
+          [
+            ...assetOrders.map((entry) =>
+              actions.reconcileAsset(entry).pipe(Effect.asVoid),
+            ),
+            ...inFlight.map((entry) =>
+              actions.reconcileTransfer(entry).pipe(Effect.asVoid),
+            ),
+            ...receivedLinks.map((entry) =>
+              actions.cleanUpReceivedLink(entry).pipe(Effect.asVoid),
+            ),
+          ],
+          (program) => program.pipe(Effect.exit),
+          { concurrency: rpcReadConcurrency },
+        );
+
+        return {
+          picked: records.length,
+          failed: records.flatMap((exit) =>
+            Exit.isFailure(exit) ? [exit.cause] : [],
+          ),
+        };
+      });
+
+    const drainStuckRecords = Effect.fn("Wallet.drainStuckRecords")(function* (
+      runStartedAt: DateTime.Utc,
+    ) {
+      const budgetEndsAt = DateTime.add(runStartedAt, {
+        seconds: sweepTimeBudget,
+      });
+
+      const failed: Array<Cause.Cause<unknown>> = [];
+
+      while (true) {
+        const round = yield* settleStuckRecords(runStartedAt);
+
+        failed.push(...round.failed);
+
+        if (round.picked === 0) break;
+
+        if (DateTime.isGreaterThan(yield* DateTime.now, budgetEndsAt)) {
+          yield* Effect.logWarning("Sweep stopped at its time budget");
+
+          break;
+        }
+      }
+
+      return failed;
+    });
+
     return Effect.gen(function* () {
+      const runStartedAt = yield* DateTime.now;
+
       const balanceExits = yield* goneBalanceIds.pipe(
         Effect.flatMap((ids) =>
           Effect.forEach(
@@ -124,23 +186,15 @@ export const sweepFlow = (actions: {
         Effect.exit,
       );
 
-      const inFlight = yield* transfers.inFlight;
       const wallets = yield* directory.recoverable;
-      const assetOrders = yield* assets.inFlight;
 
-      const records = yield* Effect.forEach(
-        [
-          ...assetOrders.map((entry) =>
-            actions.reconcileAsset(entry).pipe(Effect.asVoid),
-          ),
-          ...inFlight.map((entry) =>
-            actions.reconcileTransfer(entry).pipe(Effect.asVoid),
-          ),
-          ...wallets.map(recoverWallet),
-          actions.cleanUpReceivedLinks,
-        ],
-        (program) => program.pipe(Effect.exit),
+      const recoveries = yield* Effect.forEach(
+        wallets,
+        (row) => recoverWallet(row).pipe(Effect.exit),
+        { concurrency: rpcReadConcurrency },
       );
+
+      const drained = yield* drainStuckRecords(runStartedAt).pipe(Effect.exit);
 
       const failed = [
         ...(Exit.isFailure(balanceExits)
@@ -148,9 +202,10 @@ export const sweepFlow = (actions: {
           : balanceExits.value.flatMap((exit) =>
               Exit.isFailure(exit) ? [exit.cause] : [],
             )),
-        ...records.flatMap((exit) =>
+        ...recoveries.flatMap((exit) =>
           Exit.isFailure(exit) ? [exit.cause] : [],
         ),
+        ...(Exit.isFailure(drained) ? [drained.cause] : drained.value),
       ];
 
       yield* Effect.forEach(failed, (cause) =>
