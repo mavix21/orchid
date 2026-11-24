@@ -10,13 +10,13 @@ import {
   AccountAddress,
   BackupEnrollment,
   InvalidResponse,
-  type LinkCode,
   type OpenStep,
   RegistrationRefused,
   Username,
   type UsernameTaken,
   type WalletUnavailable,
 } from "../contract";
+import { type LinkCode } from "./link-code";
 import { network } from "../stellar/network";
 import {
   AssertionIntent,

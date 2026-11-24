@@ -11,7 +11,6 @@ import {
   ExternalLinkOrder,
   type ExternalLinkStep,
   IssuedAsset,
-  LinkCode,
   OpenPaymentLink,
   type OpenPaymentLinks,
   ReceivedPaymentLink,
@@ -50,6 +49,7 @@ import {
   type UsernameTaken,
   type WalletUnavailable,
 } from "../contract";
+import { LinkCode } from "./link-code";
 import type {
   AssertionRejected,
   PrfOutputMissing,

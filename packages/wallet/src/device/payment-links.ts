@@ -6,7 +6,6 @@ import * as Redacted from "effect/Redacted";
 import * as Ref from "effect/Ref";
 import {
   AccountAddress,
-  type LinkCode,
   PaymentLinkNotFound,
   PaymentLinkRecipient,
   type Pending,
@@ -28,7 +27,12 @@ import {
   clearedLink,
   sameLinkState,
 } from "./key-store";
-import { generateLinkCode, linkKeyOf, linkPath } from "./link-code";
+import {
+  generateLinkCode,
+  linkKeyOf,
+  linkPath,
+  type LinkCode,
+} from "./link-code";
 import {
   LinkSecretCorrupt,
   LinkCodeOpened,

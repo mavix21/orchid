@@ -1,8 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { LinkCode } from "../src/contract";
-import { linkKeyOf } from "../src/device/link-code";
+import { LinkCode, linkKeyOf } from "../src/device/link-code";
 
 const issued = "Bcru1zp9FViPqN8CJTvQuS2zg";
 

@@ -22,7 +22,7 @@ import * as Predicate from "effect/Predicate";
 import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
 import { BrandLogo } from "@/components/brand-logo";
 import { BloomActions, BloomHero } from "@/components/orchid-bloom";
-import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
+import { Screen } from "@/components/screen";
 import { ExternalClaimFlow } from "@/links/external-claim-flow";
 import {
   LinkResultScreen,
@@ -132,32 +132,24 @@ function PaymentLinkPage() {
   return Option.match(opened, {
     onNone: () => (
       <Screen>
-        <ScreenStatus
-          title={
-            fragment === ""
-              ? "Falta parte del link"
-              : "Este link está incompleto"
-          }
-          data-testid="link-outcome"
-          data-outcome={fragment === "" ? "LinkCodeMissing" : "LinkCodeInvalid"}
+        <LinkResultScreen
+          outcome={fragment === "" ? "LinkCodeMissing" : "LinkCodeInvalid"}
+          screen={{
+            title:
+              fragment === ""
+                ? "Falta parte del link"
+                : "Este link está incompleto",
+            message:
+              "Copia el link completo del mensaje que te enviaron y ábrelo de nuevo.",
+          }}
         >
-          <ScreenNote>
-            Copia el link completo del mensaje que te enviaron y ábrelo de
-            nuevo.
-          </ScreenNote>
-        </ScreenStatus>
+          <ResultLink link={<Link to="/" />}>Ir al inicio</ResultLink>
+        </LinkResultScreen>
       </Screen>
     ),
     onSome: (valid) => <ReceiveLink key={valid.code} opened={valid} />,
   });
 }
-
-const stepForAnotherLink = (received: AssetStep, opened: ReadLinkCode) =>
-  "action" in received &&
-  !(
-    Predicate.isTagged(received.action, "ReceiveLink") &&
-    received.action.link === opened.link
-  );
 
 function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
   const { walletClient } = Route.useRouteContext();
@@ -252,7 +244,7 @@ function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
       return;
     }
 
-    if (stepForAnotherLink(received, opened)) {
+    if (outcome.receivedLink !== opened.link) {
       read();
 
       return;

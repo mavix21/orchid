@@ -6,11 +6,11 @@ import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import {
   BackupStored,
-  type LinkCode,
   type TransferId,
   type WalletPort,
   type WalletUnavailable,
 } from "../contract";
+import { type LinkCode } from "./link-code";
 import {
   AssertionIntent,
   AssertionRejected,

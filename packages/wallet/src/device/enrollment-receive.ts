@@ -5,12 +5,12 @@ import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import {
   type AssetOrder,
-  type LinkCode,
   RecipientCannotReceive,
   type WalletPort,
   assetKey,
   baseAsset,
 } from "../contract";
+import { type LinkCode } from "./link-code";
 import { claimStanding } from "./claim-reviews";
 import type {
   EnrollWalletOutcome,
