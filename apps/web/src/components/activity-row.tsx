@@ -22,9 +22,13 @@ import {
   createdWhen,
   shownEntry,
 } from "@/activity/entry";
-import type { AvatarTone } from "@/fixtures/types";
 
-const tones: ReadonlyArray<AvatarTone> = ["orchid", "lila", "rosa", "durazno"];
+const tones: ReadonlyArray<React.ComponentProps<typeof Avatar>["tone"]> = [
+  "orchid",
+  "lila",
+  "rosa",
+  "durazno",
+];
 
 const usernameTone = (username: string) =>
   tones[

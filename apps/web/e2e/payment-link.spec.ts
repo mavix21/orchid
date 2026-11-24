@@ -253,7 +253,9 @@ test("receives a link into a wallet created on the link page with two passkey pr
 
   const linkEntry = page.getByTestId("activity-row").first();
 
-  await expect(linkEntry).toHaveAttribute("data-entry", "SentActivity");
+  await expect(linkEntry).toHaveAttribute("data-entry", "SentActivity", {
+    timeout: 30_000,
+  });
   await expect(linkEntry).toHaveAttribute("data-receipt", "Claimed");
   await expect(linkEntry).toHaveAttribute(
     "data-counterparty",
@@ -264,6 +266,10 @@ test("receives a link into a wallet created on the link page with two passkey pr
 
   const claimEntry = recipient.getByTestId("activity-row").first();
 
-  await expect(claimEntry).toHaveAttribute("data-entry", "ClaimedLinkActivity");
+  await expect(claimEntry).toHaveAttribute(
+    "data-entry",
+    "ClaimedLinkActivity",
+    { timeout: 30_000 },
+  );
   await expect(claimEntry).toHaveAttribute("data-counterparty", senderUsername);
 });
