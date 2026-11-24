@@ -153,7 +153,7 @@ export const sweepFlow = (actions: {
         seconds: sweepTimeBudget,
       });
 
-      const failed: Array<Cause.Cause<unknown>> = [];
+      const failed: Array<Cause.Cause<StoreFailure | ChainUnreachable>> = [];
 
       while (true) {
         const round = yield* settleStuckRecords(runStartedAt);
