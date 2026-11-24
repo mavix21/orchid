@@ -611,51 +611,67 @@ it.each([
   );
 });
 
-it.live(
-  "a link receive sealed with one key as fee payer and reserve sponsor carries each signature once",
-  () =>
-    Effect.gen(function* () {
-      const shared = Keypair.random();
-      const now = Math.floor(Date.now() / 1000);
+const sharedKey = Keypair.random();
 
-      const envelope = draftLinkReceive({
-        channel: new Account(shared.publicKey(), "123"),
-        link: address,
-        reserveSponsor: Schema.decodeSync(AccountAddress)(shared.publicKey()),
-        createsLinkAccount: true,
-        destination: Schema.decodeSync(DestinationAddress)(to),
-        balance: Schema.decodeSync(BalanceId)(`00000000${"ab".repeat(32)}`),
-        asset: baseAsset,
-        amount: Schema.decodeSync(PositiveAmount)("10000000"),
-        minTime: now,
-        maxTime: now + 120,
-      });
+it.live.each([
+  {
+    name: "one key as fee payer and reserve sponsor signs once",
+    sponsor: sharedKey,
+    feePayer: sharedKey,
+    signers: [holder, sharedKey],
+  },
+  {
+    name: "distinct fee payer and reserve sponsor each sign",
+    sponsor,
+    feePayer,
+    signers: [holder, sponsor, feePayer],
+  },
+])("a sealed link receive with $name", (scenario) =>
+  Effect.gen(function* () {
+    const now = Math.floor(Date.now() / 1000);
 
-      const sealed = yield* Chain.use((c) =>
-        c.seal(
-          new SigningRequest({
-            envelope,
-            expiresAt: DateTime.makeUnsafe((now + 120) * 1000),
-          }),
-          new Approval({ signature: holder.sign(signingPayload(envelope)) }),
-          address,
-        ),
-      ).pipe(
-        Effect.provide(
-          chainWithHttp(FetchHttpClient.layer, {
-            rpcUrl: "https://soroban-testnet.stellar.org",
-            sponsor: shared,
-            feePayer: shared,
-          }),
-        ),
-      );
+    const envelope = draftLinkReceive({
+      channel: new Account(scenario.feePayer.publicKey(), "123"),
+      link: address,
+      reserveSponsor: Schema.decodeSync(AccountAddress)(
+        scenario.sponsor.publicKey(),
+      ),
+      createsLinkAccount: true,
+      destination: Schema.decodeSync(DestinationAddress)(to),
+      balance: Schema.decodeSync(BalanceId)(`00000000${"ab".repeat(32)}`),
+      asset: baseAsset,
+      amount: Schema.decodeSync(PositiveAmount)("10000000"),
+      minTime: now,
+      maxTime: now + 120,
+    });
 
-      const hints = decodeFeeBump(
-        sealed.envelope,
-      ).innerTransaction.signatures.map((signature) =>
-        signature.hint.toXDR("hex"),
-      );
+    const sealed = yield* Chain.use((c) =>
+      c.seal(
+        new SigningRequest({
+          envelope,
+          expiresAt: DateTime.makeUnsafe((now + 120) * 1000),
+        }),
+        new Approval({ signature: holder.sign(signingPayload(envelope)) }),
+        address,
+      ),
+    ).pipe(
+      Effect.provide(
+        chainWithHttp(FetchHttpClient.layer, {
+          rpcUrl: "https://soroban-testnet.stellar.org",
+          sponsor: scenario.sponsor,
+          feePayer: scenario.feePayer,
+        }),
+      ),
+    );
 
-      expect(new Set(hints).size).toBe(hints.length);
-    }),
+    expect(
+      decodeFeeBump(sealed.envelope).innerTransaction.signatures.map(
+        (signature) => signature.hint.toXDR("hex"),
+      ),
+    ).toEqual(
+      scenario.signers.map((signer) =>
+        Buffer.from(signer.signatureHint()).toString("hex"),
+      ),
+    );
+  }),
 );
