@@ -1,9 +1,16 @@
-import { Keypair } from "@stellar/stellar-sdk";
+import {
+  Claimant,
+  FeeBumpTransaction,
+  Keypair,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
+  BalanceId,
   PaymentLinkRecipient,
   PositiveAmount,
   TransferId,
@@ -12,6 +19,7 @@ import {
   baseAsset,
 } from "../src/contract";
 import { signingKey } from "../src/device/signing";
+import { networkPassphrase } from "../src/stellar/network";
 import { type DeviceWallet, memoryKeyStore } from "./device-fixtures";
 import { assertTagged } from "./tagged";
 import {
@@ -22,9 +30,54 @@ import {
   feePayer,
   holdingsFor,
   openSender,
-  settleOnSubmit,
+  settleHash,
   world,
 } from "./wallet-harness";
+
+export const settleOnSubmit =
+  (wallet: WalletPort, sender: AccountAddress): WalletPort["transfer"] =>
+  (order, approval) =>
+    wallet.transfer(order, approval).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          const sealed = world.submitted.at(-1);
+
+          if (Option.isNone(approval) || !sealed) return;
+
+          settleHash(sealed.hash);
+
+          const outer = TransactionBuilder.fromXDR(
+            sealed.envelope,
+            networkPassphrase,
+          );
+
+          const inner =
+            outer instanceof FeeBumpTransaction
+              ? outer.innerTransaction
+              : outer;
+
+          if (
+            inner.operations[1]?.type === "createClaimableBalance" &&
+            Predicate.isTagged(order.to, "PaymentLink")
+          ) {
+            const balance = Schema.decodeSync(BalanceId)(
+              inner.getClaimableBalanceId(1),
+            );
+
+            world.claimables.set(balance, {
+              balance,
+              asset: order.asset,
+              amount: order.amount,
+              sponsored: true,
+              claimants: [
+                new Claimant(order.to.value, Claimant.predicateUnconditional()),
+                new Claimant(sender, Claimant.predicateUnconditional()),
+              ],
+            });
+          }
+        }),
+      ),
+    );
 
 export const advanceSequence = (address: AccountAddress) => {
   const current = world.accounts.get(address) ?? accountState();

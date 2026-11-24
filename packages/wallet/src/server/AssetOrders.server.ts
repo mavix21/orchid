@@ -1,5 +1,5 @@
 import { Database } from "@workspace/db";
-import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -23,7 +23,6 @@ import {
   epochAt,
   maxSponsoredTrustlines,
   network,
-  sweepBatchSize,
 } from "../stellar/network";
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
@@ -31,7 +30,6 @@ import {
   authorizeExternalOrder,
   linkCleaned,
   ordersOnBalance,
-  receivedLinksToClean,
 } from "./asset-order-links.server";
 import {
   type AssetAuthorized,
@@ -47,7 +45,17 @@ import {
   readRow,
 } from "./asset-order-records.server";
 import { SlotOccupied, WalletInactive, walletLock } from "./slot.server";
+import {
+  stuckAssetOrders,
+  receivedLinksToClean,
+} from "./asset-order-sweep.server";
 import { assetOrders, transfers, trustlines, wallets } from "./tables.server";
+import {
+  CleanUpReceivedLink,
+  ReconcileAssetOrder,
+  WorkQueue,
+  announcer,
+} from "./work-queue.server";
 
 export {
   AssetAuthorized,
@@ -103,10 +111,9 @@ export class AssetOrders extends Context.Service<
       id: AssetOrderId,
       settlement: Applied | Rejected | Expired,
     ): Effect.Effect<AssetConcluded, StoreFailure>;
-    readonly inFlight: Effect.Effect<
-      ReadonlyArray<AssetAuthorized>,
-      StoreFailure
-    >;
+    inFlight(
+      runStartedAt: DateTime.Utc,
+    ): Effect.Effect<ReadonlyArray<AssetAuthorized>, StoreFailure>;
 
     tracked(
       wallet: AccountAddress,
@@ -121,10 +128,9 @@ export class AssetOrders extends Context.Service<
       balance: BalanceId,
     ): Effect.Effect<ReadonlyArray<StoredAssetOrder>, StoreFailure>;
 
-    readonly receivedLinksToClean: Effect.Effect<
-      ReadonlyArray<AssetConcluded>,
-      StoreFailure
-    >;
+    receivedLinksToClean(
+      runStartedAt: DateTime.Utc,
+    ): Effect.Effect<ReadonlyArray<AssetConcluded>, StoreFailure>;
 
     linkCleaned(id: AssetOrderId): Effect.Effect<void, StoreFailure>;
   }
@@ -534,36 +540,6 @@ export class AssetOrders extends Context.Service<
         return current;
       });
 
-      const inFlight = Effect.gen(function* () {
-        const now = yield* DateTime.now;
-        const scope = scopeAt(DateTime.toEpochMillis(now));
-
-        const rows = yield* db
-          .update(assetOrders)
-          .set({ sweepCheckedAt: DateTime.toDateUtc(now) })
-          .where(
-            and(
-              scope,
-              eq(assetOrders.status, "authorized"),
-              inArray(
-                assetOrders.id,
-                db
-                  .select({ id: assetOrders.id })
-                  .from(assetOrders)
-                  .where(and(scope, eq(assetOrders.status, "authorized")))
-                  .orderBy(
-                    sql`${assetOrders.sweepCheckedAt} asc nulls first`,
-                    assetOrders.id,
-                  )
-                  .limit(sweepBatchSize),
-              ),
-            ),
-          )
-          .returning();
-
-        return yield* Effect.forEach(rows, signed);
-      });
-
       const tracked = Effect.fn("AssetOrders.tracked")(function* (
         wallet: AccountAddress,
       ) {
@@ -593,20 +569,47 @@ export class AssetOrders extends Context.Service<
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.mapError((cause) => new StoreFailure({ cause })));
 
+      const announce = announcer(yield* WorkQueue);
+
+      const announceAuthorized = (
+        outcome: StoredAssetOrder | SlotOccupied | WalletInactive,
+      ) =>
+        Predicate.isTagged(outcome, "AssetAuthorized")
+          ? announce(new ReconcileAssetOrder({ id: outcome.order.id }))
+          : Effect.void;
+
+      const announceConcluded = (concluded: AssetConcluded) =>
+        (Predicate.isTagged(concluded.order.action, "ReceiveLink") ||
+          Predicate.isTagged(concluded.order.action, "ReceiveLinkExternal")) &&
+        (Predicate.isTagged(concluded.receipt, "AssetSettled") ||
+          Predicate.isTagged(concluded.receipt, "ExternalLinkSettled"))
+          ? announce(new CleanUpReceivedLink({ id: concluded.order.id }))
+          : Effect.void;
+
       return AssetOrders.of({
         find: (id) => wrap(find(id)),
         inFlightFor: (wallet) => wrap(inFlightFor(wallet)),
         propose: (order, request) => wrap(propose(order, request)),
         redraft: (proposed, request) => wrap(redraft(proposed, request)),
-        authorize: (proposed, sealed) => wrap(authorize(proposed, sealed)),
+        authorize: (proposed, sealed) =>
+          wrap(
+            authorize(proposed, sealed).pipe(Effect.tap(announceAuthorized)),
+          ),
         authorizeExternal: (proposed, sealed) =>
           wrap(
             authorizeExternalOrder(proposed, sealed, decode).pipe(
               Effect.provideService(Database, db),
+              Effect.tap(announceAuthorized),
             ),
           ),
-        conclude: (id, settlement) => wrap(conclude(id, settlement)),
-        inFlight: wrap(inFlight),
+        conclude: (id, settlement) =>
+          wrap(conclude(id, settlement).pipe(Effect.tap(announceConcluded))),
+        inFlight: (runStartedAt) =>
+          wrap(
+            stuckAssetOrders(runStartedAt, signed).pipe(
+              Effect.provideService(Database, db),
+            ),
+          ),
         tracked: (wallet) => wrap(tracked(wallet)),
         onBalance: (balance) =>
           wrap(
@@ -614,11 +617,12 @@ export class AssetOrders extends Context.Service<
               Effect.provideService(Database, db),
             ),
           ),
-        receivedLinksToClean: wrap(
-          receivedLinksToClean(decode).pipe(
-            Effect.provideService(Database, db),
+        receivedLinksToClean: (runStartedAt) =>
+          wrap(
+            receivedLinksToClean(runStartedAt, decode).pipe(
+              Effect.provideService(Database, db),
+            ),
           ),
-        ),
         linkCleaned: (id) =>
           wrap(linkCleaned(id).pipe(Effect.provideService(Database, db))),
         forget: (wallet, asset) =>

@@ -147,10 +147,13 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
         (!Predicate.isTagged(concluded.receipt, "AssetSettled") &&
           !Predicate.isTagged(concluded.receipt, "ExternalLinkSettled"))
       )
-        return;
+        return true;
 
-      if (yield* chain.cleanUpLink(action.link))
-        yield* orders.linkCleaned(concluded.order.id);
+      const gone = yield* chain.cleanUpLink(action.link);
+
+      if (gone) yield* orders.linkCleaned(concluded.order.id);
+
+      return gone;
     });
 
     const settled = (
@@ -445,12 +448,6 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       });
     });
 
-    const cleanUpReceived = Effect.gen(function* () {
-      const pending = yield* orders.receivedLinksToClean;
-
-      yield* Effect.forEach(pending, cleanUp, { discard: true });
-    });
-
     const claimExternal = yield* externalLinkClaimFlow({
       liveLink,
       linkAccountPlan,
@@ -465,6 +462,6 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       paymentLink,
       settled,
       balanceGone,
-      cleanUpReceived,
+      cleanUpReceived: cleanUp,
     };
   });

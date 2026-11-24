@@ -92,6 +92,7 @@ export const transfers = pgTable(
       .where(
         sql`${table.balanceId} is not null and ${table.balanceClosedAt} is null`,
       ),
+    index("transfers_hash").on(table.hash),
     check("transfers_positive_amount", sql`${table.amount} > 0`),
     check(
       "transfers_signed_has_hash",
@@ -129,6 +130,7 @@ export const assetOrders = pgTable(
       .where(
         sql`${table.status} = 'authorized' and ${table.wallet} is not null`,
       ),
+    index("asset_orders_hash").on(table.hash),
     check(
       "asset_orders_signed_has_hash",
       sql`${table.status} = 'proposed' or ${table.hash} is not null`,
