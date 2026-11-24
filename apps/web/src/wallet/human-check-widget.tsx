@@ -108,8 +108,8 @@ export function HumanCheckWidget() {
   }, [host]);
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-50 flex flex-col items-center justify-center">
-      <div ref={setHost} className="pointer-events-auto" />
+    <div className="flex flex-col items-center">
+      <div ref={setHost} />
       {unavailable ? (
         <p role="alert" className="px-5 pb-3 text-body text-destructive">
           No pudimos cargar la verificación de seguridad. Recarga la página.

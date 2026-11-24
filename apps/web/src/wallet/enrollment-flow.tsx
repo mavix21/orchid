@@ -165,10 +165,10 @@ interface EnrollmentFlowProps {
 
 export function EnrollmentFlow(props: EnrollmentFlowProps) {
   return (
-    <>
+    <Screen>
       <EnrollmentStages {...props} />
       <HumanCheckWidget />
-    </>
+    </Screen>
   );
 }
 
@@ -441,16 +441,16 @@ function EnrollmentStages({
     />
   );
 
-  if (!deviceChecked) return <Screen>{nav(false)}</Screen>;
+  if (!deviceChecked) return <>{nav(false)}</>;
 
   if (Option.isSome(finishing))
     return (
-      <Screen>
+      <>
         {nav(false)}
         <div className="flex flex-1 flex-col pb-30">
           <OpeningFlow username={finishing.value} onOpened={onOpened} />
         </div>
-      </Screen>
+      </>
     );
 
   if (Option.isSome(pending)) {
@@ -469,7 +469,7 @@ function EnrollmentStages({
       Option.isNone(shownReceive);
 
     return (
-      <Screen>
+      <>
         {nav(busy)}
         <ScreenStatus
           title={copy.title}
@@ -517,12 +517,12 @@ function EnrollmentStages({
             {busy ? copy.busyAction : copy.action}
           </Button>
         </ScreenActions>
-      </Screen>
+      </>
     );
   }
 
   return (
-    <Screen>
+    <>
       {nav(busy)}
       <form className="flex flex-1 flex-col" noValidate onSubmit={submit}>
         <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
@@ -592,6 +592,6 @@ function EnrollmentStages({
           </Button>
         </ScreenActions>
       </form>
-    </Screen>
+    </>
   );
 }
