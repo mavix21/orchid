@@ -5,6 +5,7 @@ import { Skeleton } from "@workspace/ui/components/skeleton";
 import type {
   ActivityCursor,
   ActivityEntry,
+  ActivityOutcome,
   ActivityPage,
 } from "@workspace/wallet";
 import * as Match from "effect/Match";
@@ -13,10 +14,11 @@ import * as Predicate from "effect/Predicate";
 
 import { ActivityList } from "@/activity/activity-list";
 import { NoEntries } from "@/activity/recent-activity";
-import { Screen, ScreenStatus } from "@/components/screen";
+import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
 import { useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
 import { whenUnlocked } from "@/wallet/display-lock";
+import { unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/_wallet/_app/activity")({
   ssr: false,
@@ -66,17 +68,35 @@ function ActivitySkeleton() {
   );
 }
 
+const activityProblem = (
+  activity: Exclude<ActivityOutcome, { _tag: "ActivityPage" }>,
+) =>
+  Match.valueTags(activity, {
+    NotOpened: () => "Tu cuenta aún se está activando.",
+    InvalidAddress: () => "La llave guardada en este dispositivo no es válida.",
+    NoWallet: () => "Este dispositivo no tiene una cuenta de Orchid.",
+    UnsupportedDevice: () =>
+      "Este navegador no puede leer tu llave de forma segura.",
+    Offline: unavailableMessage,
+    ServerUnreachable: unavailableMessage,
+    LedgerUnreachable: unavailableMessage,
+    ServiceFailed: unavailableMessage,
+    InvalidResponse: unavailableMessage,
+  });
+
 function AllActivity() {
   const { activity } = Route.useLoaderData();
+  const loadedAt = Route.useMatch({ select: (match) => match.updatedAt });
 
-  if (!Predicate.isTagged(activity, "ActivityPage")) return <ActivityProblem />;
+  if (!Predicate.isTagged(activity, "ActivityPage"))
+    return <ActivityProblem message={activityProblem(activity)} />;
 
   return (
     <ActivityFrame>
       {activity.entries.length === 0 ? (
         <NoEntries />
       ) : (
-        <ActivityPages key={activity.next ?? "last"} first={activity} />
+        <ActivityPages key={loadedAt} first={activity} />
       )}
     </ActivityFrame>
   );
@@ -148,13 +168,14 @@ function ActivityPages({ first }: { first: ActivityPage }) {
   );
 }
 
-function ActivityProblem() {
+function ActivityProblem({ message }: { message: string }) {
   const router = useRouter();
   const [retrying, setRetrying] = useState(false);
 
   return (
     <Screen>
       <ScreenStatus title="No pudimos cargar tu actividad">
+        <ScreenNote>{message}</ScreenNote>
         <Button
           className="mt-4 w-full"
           disabled={retrying}
