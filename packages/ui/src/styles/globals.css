@@ -119,16 +119,31 @@
   bottom: max(env(safe-area-inset-bottom), --spacing(4));
 }
 
-@keyframes orchid-emerge {
-  from {
+@keyframes orchid-fall {
+  0% {
     opacity: 0;
-    transform: translate3d(0, 12px, 0) scale(0.86);
+    transform: translate3d(-14px, -200px, 0) rotate(-16deg);
+  }
+  20% {
+    opacity: 1;
+  }
+  45% {
+    transform: translate3d(10px, -90px, 0) rotate(9deg);
+  }
+  75% {
+    transform: translate3d(-4px, -22px, 0) rotate(-3deg);
   }
 }
 
 @keyframes orchid-unfold {
   from {
     transform: rotate(0deg) scale(var(--bud-x), var(--bud-y));
+  }
+}
+
+@keyframes orchid-flourish {
+  from {
+    transform: rotate(calc(var(--angle) * 0.72)) scale(0.84);
   }
 }
 
@@ -139,7 +154,7 @@
   }
 }
 
-@keyframes orchid-glow {
+@keyframes orchid-glow-in {
   from {
     opacity: 0;
     transform: scale(0.4);
@@ -155,12 +170,13 @@
 
 @keyframes orchid-breathe {
   50% {
-    transform: scale(1.06);
+    transform: scale(1.04);
   }
 }
 
-@utility orchid-emerge {
-  animation: orchid-emerge 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+@utility orchid-fall {
+  transform-origin: 50% 35%;
+  animation: orchid-fall 1s ease-in-out both;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
@@ -173,17 +189,21 @@
 }
 
 @utility orchid-unfold {
-  animation: orchid-unfold 0.95s cubic-bezier(0.34, 1.32, 0.5, 1) var(--delay)
-    both;
+  animation: orchid-unfold 0.95s cubic-bezier(0.34, 1.32, 0.5, 1)
+    calc(0.9s + var(--stagger)) both;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
   }
 }
 
-@utility orchid-folded {
-  transform-origin: 100px 96px;
-  transform: rotate(0deg) scale(var(--bud-x), var(--bud-y));
+@utility orchid-flourish {
+  animation: orchid-flourish 0.9s cubic-bezier(0.34, 1.5, 0.5, 1)
+    calc(0.05s + var(--stagger)) both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 }
 
 @utility orchid-sepal {
@@ -195,7 +215,7 @@
 }
 
 @utility orchid-lip-open {
-  animation: orchid-lip-open 0.6s cubic-bezier(0.34, 1.4, 0.5, 1) 0.8s both;
+  animation: orchid-lip-open 0.6s cubic-bezier(0.34, 1.4, 0.5, 1) 1.3s both;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
@@ -208,7 +228,11 @@
     color-mix(in oklch, var(--primary) 40%, transparent),
     transparent
   );
-  animation: orchid-glow 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.45s both;
+}
+
+@utility orchid-glow-in {
+  animation: orchid-glow-in 1.2s cubic-bezier(0.16, 1, 0.3, 1) var(--glow-delay)
+    both;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
@@ -216,7 +240,8 @@
 }
 
 @utility orchid-reveal {
-  animation: orchid-reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.6s both;
+  animation: orchid-reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1)
+    var(--reveal-delay) both;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;

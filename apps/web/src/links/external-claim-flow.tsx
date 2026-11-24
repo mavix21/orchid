@@ -422,7 +422,7 @@ export function ExternalClaimFlow({
             data-outcome={outcome}
             className="flex flex-1 flex-col px-5"
           >
-            <BloomHero label={screen.title}>
+            <BloomHero motion="flourish" label={screen.title}>
               <p className="text-body text-muted-foreground">
                 {screen.message}
               </p>

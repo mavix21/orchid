@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
 import {
   AccountAddress,
@@ -18,7 +19,6 @@ import * as Schema from "effect/Schema";
 
 import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
 import { BloomHero } from "@/components/orchid-bloom";
-import { ReviewHero } from "@/components/review-hero";
 import {
   Screen,
   ScreenActions,
@@ -28,7 +28,6 @@ import {
 import { ExternalClaimFlow } from "@/links/external-claim-flow";
 import {
   LinkResultScreen,
-  LinkWorking,
   ResultButton,
   ResultLink,
 } from "@/links/link-result";
@@ -217,13 +216,16 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
   return Match.valueTags(step, {
     Reading: () => (
       <Screen>
-        <LinkWorking label="Revisando el link…" />
+        <p role="status" className="sr-only">
+          Revisando el link…
+        </p>
       </Screen>
     ),
     Offered: ({ open }) => (
       <Screen>
         <main data-testid="link-offer" className="flex flex-1 flex-col px-5">
           <BloomHero
+            motion="bloom"
             label={`@${open.sender.username} te envió`}
             amount={amountLabel(open.amount, open.asset)}
           />
@@ -278,30 +280,40 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
         />
       </PasskeyBrowserGate>
     ),
-    Preparing: () => (
+    Preparing: ({ open }) => (
       <Screen>
-        <LinkWorking label="Preparando tu cobro…" />
+        <main role="status" className="flex flex-1 flex-col px-5">
+          <BloomHero
+            motion="breathe"
+            label={`@${open.sender.username} te envió`}
+            amount={amountLabel(open.amount, open.asset)}
+          />
+        </main>
       </Screen>
     ),
     Reviewing: ({ review: shown, problem }) => (
       <Screen>
         <main
           data-testid="receive-review"
-          className="flex flex-1 flex-col gap-6 px-5 pt-2"
+          className="flex flex-1 flex-col px-5"
         >
-          <ReviewHero
-            title={`De @${shown.sender.username}`}
+          <BloomHero
+            motion="rest"
+            label={`De @${shown.sender.username}`}
             amount={amountLabel(shown.amount, shown.asset)}
-            network={shown.network}
-          />
-          <p className="text-body text-muted-foreground">
-            El dinero pasa a tu cuenta y el link deja de funcionar.
-          </p>
-          {Option.isSome(problem) ? (
-            <p role="alert" className="text-body text-destructive">
-              {problem.value}
+          >
+            {shown.network === "testnet" ? (
+              <Badge variant="neutral">Testnet</Badge>
+            ) : null}
+            <p className="pt-3 text-body text-pretty text-muted-foreground">
+              El dinero pasa a tu cuenta y el link deja de funcionar.
             </p>
-          ) : null}
+            {Option.isSome(problem) ? (
+              <p role="alert" className="text-body text-destructive">
+                {problem.value}
+              </p>
+            ) : null}
+          </BloomHero>
         </main>
         <ScreenActions>
           <Button
@@ -317,7 +329,7 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
     Confirming: () => (
       <Screen>
         <main role="status" className="flex flex-1 flex-col px-5">
-          <BloomHero stage="bud" label="Recibiendo tu dinero…" />
+          <BloomHero motion="breathe" label="Recibiendo tu dinero…" />
         </main>
       </Screen>
     ),
@@ -329,7 +341,7 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
             data-outcome={outcome}
             className="flex flex-1 flex-col px-5"
           >
-            <BloomHero label="Recibiste" amount={received}>
+            <BloomHero motion="flourish" label="Recibiste" amount={received}>
               <p className="text-body text-muted-foreground">
                 {screen.message}
               </p>
