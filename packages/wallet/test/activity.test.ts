@@ -450,16 +450,20 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               insert into transfers (id, sender, recipient, destination, "order", "resolvedRecipient", amount, network, "testnetEpoch", status, envelope, hash, "expiresAt", "concludedAt", "createdAt")
               select copy.id, t.sender, t.recipient, t.destination, replace(t."order", t.id::text, copy.id::text), t."resolvedRecipient", t.amount, t.network, t."testnetEpoch", t.status, t.envelope, t.hash, t."expiresAt", t."concludedAt", t."createdAt" + copy.step * interval '10 microseconds'
               from transfers t
-              cross join lateral (select gen_random_uuid() as id, step from generate_series(1, 21) as step) copy
-              returning id, "createdAt"::text as at
+              cross join lateral (select gen_random_uuid() as id, (series + 1) / 2 as step from generate_series(1, 21) as series) copy
+              returning id, to_char("createdAt" at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') as at
             `),
           );
 
           const expected = [...copies.rows]
+            .map((copy) => ({
+              id: String(copy.id),
+              key: `${copy.at}_${copy.id}`,
+            }))
             .sort((left, right) =>
-              String(right.at).localeCompare(String(left.at)),
+              left.key < right.key ? 1 : left.key > right.key ? -1 : 0,
             )
-            .map((copy) => String(copy.id));
+            .map((copy) => copy.id);
 
           const first = yield* activityOf(wallet, addressOf(alice));
 

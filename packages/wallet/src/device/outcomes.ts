@@ -12,7 +12,6 @@ import {
   type ExternalLinkStep,
   IssuedAsset,
   OpenPaymentLink,
-  type ActivityPage,
   type ActivityStep,
   type OpenPaymentLinks,
   ReceivedPaymentLink,
@@ -341,8 +340,7 @@ export type PaymentLinksOutcome =
   | WalletUnavailable;
 
 export type ActivityOutcome =
-  | ActivityPage
-  | Exclude<ActivityStep, ActivityPage>
+  | ActivityStep
   | NoWallet
   | UnsupportedDevice
   | WalletUnavailable;

@@ -15,9 +15,13 @@ export const isMuxed = Schema.is(MuxedAddress);
 export const baseAccountOf = (destination: DestinationAddress) =>
   Schema.decodeSync(AccountAddress)(extractBaseAddress(destination));
 
-const muxedPrefixLength = 52;
+const muxedPrefixLength = 53;
 
-export const muxedPrefixOf = (account: AccountAddress) =>
-  new MuxedAccount(new Account(account, "0"), "0")
-    .accountId()
-    .slice(0, muxedPrefixLength);
+const highestMuxedId = "9223372036854775808";
+
+export const muxedPrefixesOf = (account: AccountAddress) =>
+  ["0", highestMuxedId].map((id) =>
+    new MuxedAccount(new Account(account, "0"), id)
+      .accountId()
+      .slice(0, muxedPrefixLength),
+  );
