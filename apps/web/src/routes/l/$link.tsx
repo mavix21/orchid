@@ -18,13 +18,8 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
 import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
-import { BloomHero } from "@/components/orchid-bloom";
-import {
-  Screen,
-  ScreenActions,
-  ScreenNote,
-  ScreenStatus,
-} from "@/components/screen";
+import { BloomActions, BloomHero } from "@/components/orchid-bloom";
+import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
 import { ExternalClaimFlow } from "@/links/external-claim-flow";
 import {
   LinkResultScreen,
@@ -230,7 +225,7 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
             amount={amountLabel(open.amount, open.asset)}
           />
         </main>
-        <ScreenActions>
+        <BloomActions>
           <Button
             className="w-full"
             data-testid="receive-link"
@@ -246,7 +241,7 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
           >
             Enviar a otra dirección
           </Button>
-        </ScreenActions>
+        </BloomActions>
       </Screen>
     ),
     ExternalClaiming: ({ open }) => (
@@ -297,11 +292,16 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
         onConfirm={() => confirm(shown)}
       />
     ),
-    Confirming: () => (
+    Confirming: ({ review: shown }) => (
       <Screen>
         <main role="status" className="flex flex-1 flex-col px-5">
-          <BloomHero motion="breathe" label="Recibiendo tu dinero…" />
+          <BloomHero
+            motion="breathe"
+            label="Recibiendo tu dinero…"
+            amount={amountLabel(shown.amount, shown.asset)}
+          />
         </main>
+        <BloomActions />
       </Screen>
     ),
     Concluded: ({ outcome, screen, received }) =>
@@ -318,9 +318,9 @@ function ReceiveLink({ link }: { link: AccountAddress }) {
               </p>
             </BloomHero>
           </main>
-          <ScreenActions>
+          <BloomActions>
             <ResultLink link={<Link to="/home" />}>Ir a mi cuenta</ResultLink>
-          </ScreenActions>
+          </BloomActions>
         </Screen>
       ) : (
         <Screen>
@@ -374,7 +374,7 @@ function ReceiveReview({
           <div className="flex h-6 items-center">
             {testnet ? <Badge variant="neutral">Testnet</Badge> : null}
           </div>
-          <p className="pt-2 text-body text-pretty text-muted-foreground">
+          <p className="text-body text-pretty text-muted-foreground">
             El dinero pasa a tu cuenta y el link deja de funcionar.
           </p>
           {Option.isSome(problem) ? (
@@ -384,7 +384,7 @@ function ReceiveReview({
           ) : null}
         </BloomHero>
       </main>
-      <ScreenActions>
+      <BloomActions>
         <Button
           className="w-full"
           data-testid={ready ? "confirm-receive" : undefined}
@@ -393,7 +393,7 @@ function ReceiveReview({
         >
           Recibir con passkey
         </Button>
-      </ScreenActions>
+      </BloomActions>
     </Screen>
   );
 }

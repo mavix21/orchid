@@ -1,5 +1,7 @@
 import { cn } from "@workspace/ui/lib/utils";
 
+import { ScreenActions } from "@/components/screen";
+
 type OrchidMotion = "bloom" | "flourish" | "rest" | "breathe";
 
 type PartStyle = React.CSSProperties & {
@@ -131,35 +133,51 @@ export function BloomHero({
 
   return (
     <section
-      className="flex flex-1 flex-col items-center gap-6 pt-12 text-center"
+      className="flex flex-1 flex-col items-center justify-center text-center"
       style={style}
     >
-      <div className={cn("relative", motion === "bloom" && "orchid-fall")}>
+      <div className="flex w-full flex-col items-center gap-6">
+        <div className={cn("relative", motion === "bloom" && "orchid-fall")}>
+          <div
+            aria-hidden="true"
+            className={cn(
+              "orchid-glow absolute -inset-1/4 rounded-full",
+              celebrates && "orchid-glow-in",
+            )}
+          />
+          <OrchidBloom motion={motion} className="relative size-56" />
+        </div>
         <div
-          aria-hidden="true"
           className={cn(
-            "orchid-glow absolute -inset-1/4 rounded-full",
-            celebrates && "orchid-glow-in",
+            "relative flex w-full flex-col items-center gap-1",
+            celebrates && "orchid-reveal",
           )}
-        />
-        <OrchidBloom motion={motion} className="relative size-56" />
-      </div>
-      <div
-        className={cn(
-          "flex flex-col items-center gap-1",
-          celebrates && "orchid-reveal",
-        )}
-      >
-        {amount === undefined ? (
-          <h1 className="font-display text-h2 text-balance">{label}</h1>
-        ) : (
-          <>
-            <p className="text-label text-muted-foreground">{label}</p>
-            <p className="font-display text-display">{amount}</p>
-          </>
-        )}
-        {children}
+        >
+          {amount === undefined ? (
+            <h1 className="font-display text-h2 text-balance">{label}</h1>
+          ) : (
+            <>
+              <p className="text-label text-muted-foreground">{label}</p>
+              <p className="font-display text-display">{amount}</p>
+            </>
+          )}
+          {children === undefined ? null : (
+            <div className="absolute inset-x-0 top-full flex flex-col items-center gap-2 pt-2">
+              {children}
+            </div>
+          )}
+        </div>
       </div>
     </section>
+  );
+}
+
+export function BloomActions({ children }: { children?: React.ReactNode }) {
+  return (
+    <ScreenActions>
+      <div className="flex min-h-30 w-full flex-col justify-end gap-2">
+        {children}
+      </div>
+    </ScreenActions>
   );
 }
