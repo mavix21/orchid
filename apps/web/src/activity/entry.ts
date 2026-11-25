@@ -316,6 +316,19 @@ export const shownEntry = (entry: ActivityEntry): ShownEntry =>
         direction: "in",
         detail: `Cobraste un link de pago de ${partyName(claimed.from)}.`,
       }),
+    DepositActivity: (deposit): ShownEntry => ({
+      title: "Depósito",
+      subtitle: "Desde otra billetera",
+      badge: Option.none(),
+      direction: "in",
+      detail: "Llegó desde otra billetera o exchange.",
+      media: deposit.from,
+      counterparty: Option.some({ label: "De", party: deposit.from }),
+      amount: signedAmount("in", deposit.amount, deposit.asset),
+      memo: Option.none(),
+      createdAt: deposit.createdAt,
+      openLink: false,
+    }),
   });
 
 export const entryKey = (entry: ActivityEntry) => `${entry._tag}:${entry.id}`;

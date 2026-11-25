@@ -11,6 +11,8 @@ export function epochAt(time: number): string {
 
 export const usdc = new Asset(baseAsset.code, baseAsset.issuer);
 
+export const depositContract = usdc.contractId(networkPassphrase);
+
 export const baseReserve = 5_000_000n;
 
 export const maxSponsoredTrustlines = 6;
@@ -41,3 +43,15 @@ export const workSettlementGrace = 2 * 60;
 export const claimableReadLimit = 50;
 
 export const activityPageSize = 20;
+
+export const depositPageLimit = 10_000;
+
+export const depositCatchUpLimit = 1_000;
+
+export const depositLedgerScan = 10_000;
+
+export const depositFreshness = 60;
+
+export const depositCatchUpSpan = 13 * 60 * 60;
+
+export const depositTimeBudget = 4 * 60;

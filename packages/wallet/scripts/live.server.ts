@@ -12,6 +12,7 @@ import { type PaymentLinkIntent, type WalletClient } from "@workspace/wallet";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import { Chain } from "../src/server/Chain.server";
+import { Deposits } from "../src/server/Deposits.server";
 import { Directory } from "../src/server/Directory.server";
 import { HumanCheck } from "../src/server/HumanCheck.server";
 import { Transfers } from "../src/server/Transfers.server";
@@ -58,6 +59,7 @@ const dependencies = Layer.mergeAll(
   Transfers.layer,
   AssetOrders.layer,
   Backups.layer,
+  Deposits.layer,
 );
 
 export const walletServices = (

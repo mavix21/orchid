@@ -34,9 +34,13 @@ export interface AccountState {
   readonly untouched: boolean;
 }
 
-export type RpcParams = Readonly<
-  Record<string, string | ReadonlyArray<string>>
->;
+export type RpcValue =
+  | string
+  | number
+  | ReadonlyArray<RpcValue>
+  | { readonly [key: string]: RpcValue };
+
+export type RpcParams = Readonly<Record<string, RpcValue>>;
 
 export interface StellarRpc {
   call<A, I>(
