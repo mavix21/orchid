@@ -12,6 +12,7 @@ import {
   InvalidAddress,
   MuxedAddress,
   NotOpened,
+  OpenPaymentLinks,
   Profile,
 } from "../src/contract";
 import { signingKey } from "../src/device/signing";
@@ -335,12 +336,15 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(yield* wallet.activity(address)).toEqual(
             new ActivityPage({ entries: [] }),
           );
+          expect(yield* wallet.paymentLinks(address)).toEqual(
+            new OpenPaymentLinks({ links: [], received: [] }),
+          );
         }),
     );
 
     it.effect.each([
       {
-        name: "an unopened wallet",
+        name: "an unknown address",
         address: () => addressOf(Keypair.random()),
         expected: () => new NotOpened(),
       },

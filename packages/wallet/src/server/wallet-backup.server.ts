@@ -170,12 +170,12 @@ export const backupFlow = Effect.gen(function* () {
 
   const enrolledUnopened = Effect.fn("Wallet.enrolledUnopened")(function* (
     claim: WalletClaim,
-    binding: Binding,
+    alongside: Binding["alongside"],
   ): Effect.fn.Return<
     Enrolled | UsernameTaken | AddressBound | ChallengeRefused,
     StoreFailure
   > {
-    const standing = yield* directory.enrollUnopened(claim, binding);
+    const standing = yield* directory.enrollUnopened(claim, alongside);
 
     return Match.valueTags(standing, {
       Available: () => new Enrolled({ profile: new Profile(claim) }),
@@ -242,7 +242,7 @@ export const backupFlow = Effect.gen(function* () {
 
     const step = Option.isSome(approvals)
       ? yield* openWith(claim, approvals, binding)
-      : yield* enrolledUnopened(claim, binding);
+      : yield* enrolledUnopened(claim, binding.alongside);
 
     const committed = Effect.fn("Wallet.enrollmentCommitted")(function* (
       opened: Enrolled | OpeningPending | Opened,

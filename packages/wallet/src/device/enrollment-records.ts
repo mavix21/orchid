@@ -153,6 +153,7 @@ export type EnrollWalletOutcome =
 
 export type ReviewEnrollmentReceiveOutcome =
   | EnrollmentPending
+  | UsernameTaken
   | Exclude<ReviewLinkReceiveOutcome, LinkReceiveReview>
   | WalletUnavailable;
 

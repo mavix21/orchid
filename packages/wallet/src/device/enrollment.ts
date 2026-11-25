@@ -613,10 +613,13 @@ export function makeEnrollmentEffects(
 
     if (Result.isFailure(requested)) return requested.failure;
 
-    if (!(requested.success instanceof OpeningReview))
-      return Predicate.isTagged(requested.success, "InvalidResponse")
-        ? requested.success
-        : new DraftRejected();
+    if (Predicate.isTagged(requested.success, "UsernameTaken")) {
+      yield* clearPending;
+
+      return requested.success;
+    }
+
+    if (!(requested.success instanceof OpeningReview)) return requested.success;
 
     const reviewed = withReview(current, Option.some(requested.success));
 

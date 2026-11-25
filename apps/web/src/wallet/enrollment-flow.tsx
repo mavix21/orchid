@@ -147,6 +147,18 @@ export function EnrollmentFlow({
       return;
     }
 
+    if (Predicate.isTagged(answer, "UsernameTaken")) {
+      send(
+        EnrollmentEvent.Refused({
+          refusal: answer,
+          moment: "activation",
+          pending: Option.none(),
+        }),
+      );
+
+      return;
+    }
+
     send(
       EnrollmentEvent.ReceiveBlocked({
         problem: notice(receiveRefusal(answer)),

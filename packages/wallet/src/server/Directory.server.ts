@@ -69,7 +69,7 @@ export class Directory extends Context.Service<
 
     enrollUnopened(
       claim: WalletClaim,
-      binding: Binding,
+      alongside: Binding["alongside"],
     ): Effect.Effect<Available | Unavailable, StoreFailure>;
 
     unopened(
@@ -224,7 +224,7 @@ export class Directory extends Context.Service<
 
       const enrollUnopened = Effect.fn("Directory.enrollUnopened")(function* (
         claim: WalletClaim,
-        binding: Binding,
+        alongside: Binding["alongside"],
       ) {
         const now = yield* Clock.currentTimeMillis;
 
@@ -241,7 +241,11 @@ export class Directory extends Context.Service<
                 })
                 .onConflictDoNothing();
 
-              const bound = yield* bind(tx, claim, "verified", binding);
+              const bound = yield* bind(tx, claim, "verified", {
+                check: Effect.succeed(Option.none()),
+                alongside,
+              });
+
               const refused = unavailability(bound);
 
               if (Option.isSome(refused))
@@ -601,8 +605,8 @@ export class Directory extends Context.Service<
               ),
             ).pipe(Effect.map((found) => found.length > 0)),
           ),
-        enrollUnopened: (claim, binding) =>
-          wrap(proven(enrollUnopened(claim, binding))),
+        enrollUnopened: (claim, alongside) =>
+          wrap(proven(enrollUnopened(claim, alongside))),
         unopened: (row) => wrap(unopened(row)),
         start: (address, initial) => wrap(start(address, initial)),
         draft: (row, request) => wrap(draft(row, request)),
