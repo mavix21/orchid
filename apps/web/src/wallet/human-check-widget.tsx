@@ -129,18 +129,42 @@ export function HumanCheckWidget({ quiet = false }: { quiet?: boolean }) {
     };
   }, [host]);
 
+  const retry = (
+    <div
+      role="alert"
+      className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-background text-center"
+    >
+      <p className="text-label text-destructive">
+        No pudimos verificar que eres una persona.
+      </p>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setAttempt((current) => current + 1)}
+      >
+        Reintentar
+      </Button>
+    </div>
+  );
+
   if (quiet)
     return (
-      <div
-        key={attempt}
-        ref={setHost}
-        aria-hidden={status !== "interactive"}
-        className={
-          status === "interactive"
-            ? "flex justify-center px-5 pb-safe"
-            : "pointer-events-none h-0 overflow-hidden opacity-0"
-        }
-      />
+      <div className="relative">
+        <div
+          key={attempt}
+          ref={setHost}
+          aria-hidden={status !== "interactive"}
+          className={
+            status === "interactive"
+              ? "flex justify-center px-5 pb-safe"
+              : "pointer-events-none h-0 overflow-hidden opacity-0"
+          }
+        />
+        {status === "unavailable" ? (
+          <div className="relative h-18 pb-safe">{retry}</div>
+        ) : null}
+      </div>
     );
 
   return (
@@ -170,24 +194,7 @@ export function HumanCheckWidget({ quiet = false }: { quiet?: boolean }) {
           </p>
         ) : null}
       </div>
-      {status === "unavailable" ? (
-        <div
-          role="alert"
-          className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-background text-center"
-        >
-          <p className="text-label text-destructive">
-            No pudimos verificar que eres una persona.
-          </p>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setAttempt((current) => current + 1)}
-          >
-            Reintentar
-          </Button>
-        </div>
-      ) : null}
+      {status === "unavailable" ? retry : null}
     </div>
   );
 }
