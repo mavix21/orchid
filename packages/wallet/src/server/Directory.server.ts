@@ -167,13 +167,7 @@ export class Directory extends Context.Service<
       const lockRow = (tx: Transaction, matching: SQL | undefined) =>
         tx.select().from(wallets).where(matching).for("update");
 
-      const unopenedRow = and(
-        eq(wallets.status, "opening"),
-        or(
-          isNull(wallets.attemptHash),
-          eq(wallets.depositOpening, "attempted"),
-        ),
-      );
+      const unopenedRow = eq(wallets.status, "opening");
 
       const enrollUnopened = Effect.fn("Directory.enrollUnopened")(function* (
         claim: WalletClaim,
@@ -216,11 +210,7 @@ export class Directory extends Context.Service<
       const unopened = Effect.fn("Directory.unopened")(function* (
         row: WalletRow,
       ) {
-        if (
-          row.status !== "opening" ||
-          (row.attemptHash !== null && row.depositOpening !== "attempted")
-        )
-          return Option.none<Profile>();
+        if (row.status !== "opening") return Option.none<Profile>();
 
         const names = yield* boundNames(db, eq(usernames.address, row.address));
 

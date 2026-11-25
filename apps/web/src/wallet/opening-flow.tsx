@@ -214,11 +214,13 @@ const closing =
 
 function OpeningReviewScreen({
   review,
+  arrival,
   problem,
   copy,
   onConfirm,
 }: {
   review: OpeningReview;
+  arrival: Option.Option<string>;
   problem: Option.Option<string>;
   copy: OpeningCopy;
   onConfirm: () => void;
@@ -229,12 +231,18 @@ function OpeningReviewScreen({
     <>
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
         <h1 className="font-display text-h1">
-          {reopening ? copy.reopenTitle : "Autoriza el cierre por inactividad"}
+          {Option.getOrElse(arrival, () =>
+            reopening ? copy.reopenTitle : "Autoriza el cierre por inactividad",
+          )}
         </h1>
         <p className="text-label-lg" data-testid="opening-username">
           @{review.username}
         </p>
-        <p className="text-body text-muted-foreground">{closing}</p>
+        <p className="text-body text-muted-foreground">
+          {Option.isSome(arrival)
+            ? "Abrimos tu cuenta y recibimos tu pago con tu passkey."
+            : closing}
+        </p>
         {Option.isSome(problem) ? (
           <p role="alert" className="text-body text-destructive">
             {problem.value}
@@ -247,7 +255,11 @@ function OpeningReviewScreen({
           onClick={onConfirm}
           data-testid="confirm-opening"
         >
-          {reopening ? copy.reopenAction : "Autorizar con passkey"}
+          {Option.isSome(arrival)
+            ? "Recibir con passkey"
+            : reopening
+              ? copy.reopenAction
+              : "Autorizar con passkey"}
         </Button>
       </ScreenActions>
     </>
@@ -256,24 +268,17 @@ function OpeningReviewScreen({
 
 export function OpeningFlow({
   username,
+  arrival = Option.none(),
   onOpened,
   copy = reopeningCopy,
 }: {
   username: string;
+  arrival?: Option.Option<string>;
   onOpened: () => void;
   copy?: OpeningCopy;
 }) {
   const task = useWalletTask();
   const [step, setStep] = useState<OpeningStep>(OpeningStep.Preparing());
-
-  const look = () => {
-    setStep(OpeningStep.Preparing());
-    task.run(walletEffects.reviewOpening(username), (answer) =>
-      setStep(readAnswer(answer, Option.none(), onOpened, copy)),
-    );
-  };
-
-  useEffect(look, [username]);
 
   const confirm = (shown: OpeningReview) => {
     setStep(OpeningStep.Confirming());
@@ -282,14 +287,41 @@ export function OpeningFlow({
     );
   };
 
+  const look = () => {
+    setStep(OpeningStep.Preparing());
+    task.run(walletEffects.reviewOpening(username), (answer) => {
+      const next = readAnswer(answer, Option.none(), onOpened, copy);
+
+      if (
+        Option.isSome(arrival) &&
+        Predicate.isTagged(next, "Shown") &&
+        Option.isNone(next.problem)
+      )
+        confirm(next.review);
+      else setStep(next);
+    });
+  };
+
+  useEffect(look, [username]);
+
   return Match.valueTags(step, {
-    Preparing: () => <OrchidPending title={copy.preparing} />,
+    Preparing: () => (
+      <OrchidPending title={Option.getOrElse(arrival, () => copy.preparing)} />
+    ),
     Confirming: () => (
-      <OrchidPending title={copy.confirming} note="Esto toma unos segundos." />
+      <OrchidPending
+        title={Option.getOrElse(arrival, () => copy.confirming)}
+        note={
+          Option.isSome(arrival)
+            ? "Abriendo tu cuenta. Esto toma unos segundos."
+            : "Esto toma unos segundos."
+        }
+      />
     ),
     Shown: ({ review, problem }) => (
       <OpeningReviewScreen
         review={review}
+        arrival={arrival}
         problem={problem}
         copy={copy}
         onConfirm={() => confirm(review)}

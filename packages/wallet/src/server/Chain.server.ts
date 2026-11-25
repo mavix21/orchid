@@ -22,6 +22,7 @@ import {
   DestinationAddress,
   Approval,
   type Asset,
+  type BalanceId,
   type OpeningDraft,
   PaymentMemo,
   PositiveAmount,
@@ -133,6 +134,7 @@ export class Chain extends Context.Service<
       draftOpening(
         address: AccountAddress,
         pinSequence: boolean,
+        claim?: BalanceId,
       ): Effect.Effect<OpeningDraft, ChainUnreachable>;
       draftPayment(
         from: AccountAddress,
@@ -223,6 +225,7 @@ export class Chain extends Context.Service<
       const draftOpen = Effect.fn("Chain.draftOpening")(function* (
         address: AccountAddress,
         pinSequence: boolean,
+        claim?: BalanceId,
       ) {
         const [sponsorState, current] = yield* Effect.all(
           [account(sponsorAddress), account(address)],
@@ -242,6 +245,7 @@ export class Chain extends Context.Service<
           now: Math.floor((yield* Clock.currentTimeMillis) / 1000),
           latestLedger: sponsorState.value.ledger,
           pinSequence,
+          claim,
         });
       });
 

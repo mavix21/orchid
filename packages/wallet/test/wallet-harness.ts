@@ -334,7 +334,7 @@ export const fakeChain = Layer.effect(
         ),
       balance: (addr) =>
         account(addr).pipe(Effect.map(Option.flatMap((s) => s.balance))),
-      draftOpening: (addr, pinSequence) =>
+      draftOpening: (addr, pinSequence, claim) =>
         Effect.map(Clock.currentTimeMillis, (ms) =>
           draftOpeningWithRecovery({
             source: new Account(reserveSponsor, "100"),
@@ -344,6 +344,7 @@ export const fakeChain = Layer.effect(
             now: Math.floor(ms / 1000),
             latestLedger: 100,
             pinSequence,
+            claim,
           }),
         ),
       draftPayment: (from, to, a, val, memo) =>

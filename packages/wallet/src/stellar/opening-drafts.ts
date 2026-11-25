@@ -2,6 +2,7 @@ import { Account } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import {
   type AccountAddress,
+  type BalanceId,
   OpeningDraft,
   SigningRequest,
   type UnsignedEnvelope,
@@ -31,6 +32,7 @@ export interface OpeningDraftInput {
   readonly now: number;
   readonly latestLedger: number;
   readonly pinSequence: boolean;
+  readonly claim?: BalanceId;
   readonly schedule?: OpeningSchedule;
 }
 
@@ -64,6 +66,7 @@ export function draftOpeningWithRecovery(
       maxTime,
       createAccount: input.observedSequence === undefined,
       window: pinned ? window : undefined,
+      claim: input.claim,
     }),
     maxTime,
   );

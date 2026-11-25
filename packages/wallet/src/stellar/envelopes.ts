@@ -1,5 +1,6 @@
 import {
   Account,
+  FeeBumpTransaction,
   Operation,
   Transaction,
   TransactionBuilder,
@@ -9,6 +10,7 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   Asset,
+  BalanceId,
   DestinationAddress,
   PaymentMemo,
   PositiveAmount,
@@ -48,6 +50,7 @@ export class OpeningFacts extends Schema.TaggedClass<OpeningFacts>()(
     reserveSponsor: AccountAddress,
     createAccount: Schema.Boolean,
     window: Schema.optional(LedgerWindow),
+    claim: Schema.optional(BalanceId),
   },
 ) {}
 
@@ -80,6 +83,7 @@ export interface OpeningInput {
   readonly maxTime: number;
   readonly createAccount: boolean;
   readonly window?: LedgerWindow;
+  readonly claim?: BalanceId;
 }
 
 export interface PaymentInput {
@@ -130,14 +134,20 @@ export function draftOpening(input: OpeningInput): UnsignedEnvelope {
       )
       .setLedgerbounds(input.window.minLedger, input.window.maxLedger);
 
+  builder.addOperation(
+    Operation.endSponsoringFutureReserves({ source: input.address }),
+  );
+
+  if (input.claim)
+    builder.addOperation(
+      Operation.claimClaimableBalance({
+        source: input.address,
+        balanceId: input.claim,
+      }),
+    );
+
   return Schema.decodeSync(UnsignedEnvelope)(
-    builder
-      .addOperation(
-        Operation.endSponsoringFutureReserves({ source: input.address }),
-      )
-      .setTimebounds(input.minTime, input.maxTime)
-      .build()
-      .toXDR(),
+    builder.setTimebounds(input.minTime, input.maxTime).build().toXDR(),
   );
 }
 
@@ -212,6 +222,12 @@ export function readEnvelope(
       const reserveSponsor = Schema.decodeSync(AccountAddress)(tx.source);
       const createAccount = second?.type === "createAccount";
       const window = tx.ledgerBounds;
+      const last = tx.operations.at(-1);
+
+      const claim =
+        last?.type === "claimClaimableBalance"
+          ? Schema.decodeSync(BalanceId)(last.balanceId)
+          : undefined;
 
       if (
         draftOpening({
@@ -221,6 +237,7 @@ export function readEnvelope(
           maxTime,
           createAccount,
           window,
+          claim,
         }) === envelope
       )
         return Option.some(
@@ -230,6 +247,7 @@ export function readEnvelope(
             reserveSponsor,
             createAccount,
             window,
+            claim,
           }),
         );
     }
@@ -298,6 +316,30 @@ export function readEnvelope(
     return Option.orElse(readAssetEnvelope(tx, envelope, fields), () =>
       readLinkReceive(tx, envelope, fields),
     );
+  } catch {
+    return Option.none();
+  }
+}
+
+export function claimedByOpening(
+  envelope: string,
+  address: AccountAddress,
+): Option.Option<BalanceId> {
+  try {
+    const outer = TransactionBuilder.fromXDR(envelope, networkPassphrase);
+
+    const inner =
+      outer instanceof FeeBumpTransaction ? outer.innerTransaction : outer;
+
+    const [first] = inner.operations;
+    const last = inner.operations.at(-1);
+
+    return first?.type === "beginSponsoringFutureReserves" &&
+      first.sponsoredId === address &&
+      last?.type === "claimClaimableBalance" &&
+      last.source === address
+      ? Option.some(Schema.decodeSync(BalanceId)(last.balanceId))
+      : Option.none();
   } catch {
     return Option.none();
   }

@@ -1,5 +1,5 @@
 import { Database } from "@workspace/db";
-import { and, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import * as Option from "effect/Option";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
@@ -83,6 +83,40 @@ export const openBalancesFor = Effect.fn("Transfers.openBalances")(function* (
     catch: (cause) => new StoreFailure({ cause }),
   });
 });
+
+export const waitingBalancesFor = Effect.fn("Transfers.waitingBalances")(
+  function* (address: AccountAddress) {
+    const db = yield* Database;
+    const now = yield* Clock.currentTimeMillis;
+
+    const rows = yield* db
+      .select({ balance: transfers.balanceId })
+      .from(transfers)
+      .where(
+        and(
+          unclaimedAt(now),
+          or(
+            eq(transfers.claimableKind, "username"),
+            isNull(transfers.claimableKind),
+          ),
+          eq(transfers.status, "settled"),
+          eq(transfers.recipient, address),
+        ),
+      )
+      .orderBy(asc(transfers.createdAt))
+      .limit(claimableReadLimit);
+
+    return yield* Effect.try({
+      try: () =>
+        rows.flatMap((row) =>
+          row.balance === null
+            ? []
+            : [Schema.decodeUnknownSync(BalanceId)(row.balance)],
+        ),
+      catch: (cause) => new StoreFailure({ cause }),
+    });
+  },
+);
 
 export const openPaymentLinksFor = Effect.fn("Transfers.openPaymentLinks")(
   function* (sender: AccountAddress) {

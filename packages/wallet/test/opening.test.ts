@@ -1,6 +1,7 @@
 import { expect, layer } from "@effect/vitest";
 import {
   Account,
+  Claimant,
   Keypair,
   Transaction,
   TransactionBuilder,
@@ -10,6 +11,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
@@ -18,6 +20,8 @@ import {
   baseAsset,
   DepositOpeningSpent,
   DepositOpeningsFull,
+  NeedsReopening,
+  PositiveAmount,
   Opened,
   Profile,
   Username,
@@ -33,6 +37,7 @@ import { epochAt, network, networkPassphrase } from "../src/stellar/network";
 import { deposits, wallets } from "../src/server/tables.server";
 import { assertTagged } from "./tagged";
 import { enrollUnopened, walletWithDepositCap } from "./deposit-openings";
+import { payUsername } from "./activity-fixtures";
 import {
   accountState,
   addressOf,
@@ -436,11 +441,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(unapplied, "OpeningDraft");
           yield* opening(claim, approveOpening(key, unapplied));
+          expect(yield* overviewOf(claim.address)).toEqual(
+            new NeedsReopening({ profile: new Profile(claim) }),
+          );
           world.failSubmit = false;
-          const pending = yield* overviewOf(claim.address);
-
-          assertTagged(pending, "NotOpened");
-          expect(pending.profile).toEqual(Option.some(new Profile(claim)));
           yield* Database.use((db) =>
             db
               .update(wallets)
@@ -496,6 +500,35 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               Option.map((row) => row.attemptHash),
             ),
           ).toEqual(Option.some(null));
+
+          const payer = yield* fundedWallet("payer");
+          const paid = yield* enrollUnopened(Keypair.random(), "luisa");
+          const payment = yield* payUsername(payer, "luisa");
+
+          const balance = Option.getOrThrow(
+            Option.fromNullishOr(payment.settled.claimable),
+          );
+
+          world.claimables.set(balance, {
+            balance,
+            asset: baseAsset,
+            amount: Schema.decodeSync(PositiveAmount)("10000000"),
+            sponsored: true,
+            claimants: [
+              new Claimant(paid.address, Claimant.predicateUnconditional()),
+            ],
+          });
+
+          const claiming = yield* opening(paid);
+
+          assertTagged(claiming, "OpeningDraft");
+          expect(
+            Option.map(readEnvelope(claiming.request.envelope), (facts) =>
+              Predicate.isTagged(facts, "OpeningFacts")
+                ? facts.claim
+                : undefined,
+            ),
+          ).toEqual(Option.some(balance));
 
           yield* Database.use((db) =>
             db.insert(deposits).values({
