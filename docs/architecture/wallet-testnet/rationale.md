@@ -1,6 +1,6 @@
 # Rationale: wallet server on testnet
 
-Platform constraints are in [ground.md](ground.md). Behaviour and current limits are in the [wallet README](../../../packages/wallet/README.md).
+Platform constraints are in [ground.md](ground.md).
 
 ## Problem
 
@@ -30,14 +30,14 @@ The ledger is the truth for balances and for whether a payment happened. Postgre
 - One in-flight payment per sender, in exchange for a no-double-send rule that is trivially true.
 - Up to two minutes of pending for a payment that never reaches the network, in exchange for never guessing an outcome.
 - The server could misdirect a payment by lying about a username, in exchange for usernames at all. It cannot change the amount.
-- An opening abandoned before recovery signing keeps its reserve locked, because the server cannot produce the missing signature. Creating a wallet opens nothing, so abandoned sign-ups lock no reserve.
+- Every created wallet keeps its sponsored reserves locked for good. Orchid never closes a wallet to take them back, so an address or username someone was given keeps receiving. The Turnstile check on creation and the rate limits are the only bound on what sign-ups cost the reserve sponsor.
 
 ## Decisions
 
 - **Usernames.** `[a-z0-9_]`, 3-20 characters, lowercase and permanent, bound when the wallet is created, in the same transaction that consumes the single-use enrollment challenge and stores the backup, so a creation either binds the name and stores the backup or does neither. The challenge is issued only after the server validates a Cloudflare Turnstile token with Siteverify, so a binding needs a passing check; retrying a creation whose name is already bound to the address needs no new token, and nothing from the check is stored. A name resolves as a recipient while its wallet is unopened or active. Restore returns only the name bound to the restored address. Names containing `orchid` and reserved words cannot be bound.
 - **Paying an unopened wallet.** A payment in the base asset to the username of an unopened wallet is a claimable balance naming its address, counted against the sender's open claimables. The opening draft of a wallet with waiting balances claims the oldest one usable in the same transaction; the others are claimed with asset orders. An opening whose attempt is sealed still resolves the username and is resumed by the next `overview`.
 - **Registration.** Open, with no invite or quota.
-- **Deposit openings.** Opening a wallet whose username is already bound while no payment waits for it, as the receive screen and reopening do, brings no money with it, so it has a budget; an opening that claims a waiting payment has none. A wallet gets one such opening; once recovery returns it empty, `open` refuses it with `DepositOpeningSpent`. At most `MAX_EMPTY_DEPOSIT_OPENINGS` of these openings may be in flight or open with no deposit or settled payment received; above it `open` answers `DepositOpeningsFull` and drafts nothing. The seal rechecks both under one advisory lock.
+- **Opening at creation.** The second passkey prompt of creation signs the wallet's opening with its backup, so a new wallet shows its deposit address with no further prompt. A wallet still unopened, because its opening failed or it was created before this, opens from the receive screen or when a payment to it arrives. An account already on the network activates without a signature only when its username is already bound to it; otherwise its key signs an opening first.
 - **Schema location.** Tables and migrations live in `packages/wallet`; `packages/db` is the driver.
 - **External memos.** Required for addresses in the known-exchange registry and for accounts that publish the SEP-29 `config.memo_required` data entry as `1`; other external sends accept an optional text or ID memo. Orchid sends carry none.
 - **Unauthenticated reads.** `overview` takes an address without authentication on testnet.
