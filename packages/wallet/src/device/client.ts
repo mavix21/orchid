@@ -212,6 +212,7 @@ export function makeWalletEffects(
         LedgerUnreachable: (failure) => Effect.succeed(failure),
         ServiceFailed: (failure) => Effect.succeed(failure),
         SessionRequired: (failure) => Effect.succeed(failure),
+        RateLimited: (failure) => Effect.succeed(failure),
         InvalidResponse: (failure) => Effect.succeed(failure),
         PasskeyCancelled: (cancelled) => Effect.succeed(cancelled),
         PasskeyFailed: (failed) => Effect.succeed(failed),
@@ -229,6 +230,7 @@ export function makeWalletEffects(
         LedgerUnreachable: (failure) => Effect.succeed(failure),
         ServiceFailed: (failure) => Effect.succeed(failure),
         SessionRequired: (failure) => Effect.succeed(failure),
+        RateLimited: (failure) => Effect.succeed(failure),
         InvalidResponse: (failure) => Effect.succeed(failure),
       }),
     );
@@ -241,6 +243,7 @@ export function makeWalletEffects(
         LedgerUnreachable: (failure) => Effect.succeed(failure),
         ServiceFailed: (failure) => Effect.succeed(failure),
         SessionRequired: (failure) => Effect.succeed(failure),
+        RateLimited: (failure) => Effect.succeed(failure),
         InvalidResponse: (failure) => Effect.succeed(failure),
       }),
     );
@@ -261,6 +264,7 @@ export function makeWalletEffects(
           LedgerUnreachable: (failure) => Effect.succeed(failure),
           ServiceFailed: (failure) => Effect.succeed(failure),
           SessionRequired: (failure) => Effect.succeed(failure),
+          RateLimited: (failure) => Effect.succeed(failure),
           InvalidResponse: (failure) => Effect.succeed(failure),
         }),
       ),

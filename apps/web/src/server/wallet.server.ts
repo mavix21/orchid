@@ -1,12 +1,14 @@
 import { env } from "cloudflare:workers";
 import {
   getCookie,
+  getRequestHeader,
   getRequestUrl,
   setCookie,
 } from "@tanstack/react-start/server";
 import { databaseLayer } from "@workspace/db";
 import { ServerFailure } from "@workspace/wallet";
 import {
+  ClientAddress,
   Principal,
   SessionCookie,
   type SessionGrant,
@@ -22,6 +24,7 @@ import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import { rateLimitsLayer } from "./rate-limits.server";
 import { workQueueLayer } from "./work-queue.server";
 
 const requestWalletLayer = Layer.suspend(() =>
@@ -38,6 +41,12 @@ const requestWalletLayer = Layer.suspend(() =>
     ),
     Layer.provide(databaseLayer(env.HYPERDRIVE)),
     Layer.provide(workQueueLayer(env.WALLET_WORK)),
+    Layer.provide(
+      rateLimitsLayer({
+        principal: env.WALLET_RATE_LIMITER,
+        client: env.PUBLIC_RATE_LIMITER,
+      }),
+    ),
     Layer.provide(FetchHttpClient.layer),
   ),
 );
@@ -94,12 +103,16 @@ export async function answerWallet<C, D, A, I, E>(
   program: (decoded: C) => Effect.Effect<A, E, Wallet | Principal>,
 ): Promise<I | typeof ServerFailure.Encoded> {
   const cookie = getCookie(sessionCookieFor(getRequestUrl()).name);
+  const clientAddress = getRequestHeader("cf-connecting-ip");
 
   const outcome = await Effect.runPromise(
     answered(
       step,
       Schema.decodeEffect(call)(data).pipe(Effect.flatMap(program)),
-    ).pipe(Effect.provideService(SessionCookie, Option.fromNullishOr(cookie))),
+    ).pipe(
+      Effect.provideService(SessionCookie, Option.fromNullishOr(cookie)),
+      Effect.provideService(ClientAddress, Option.fromNullishOr(clientAddress)),
+    ),
   );
 
   return Result.match(outcome, {

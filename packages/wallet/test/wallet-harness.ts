@@ -66,6 +66,7 @@ import {
   QueueUnavailable,
   WorkQueue,
 } from "../src/server/work-queue.server";
+import { RateLimits } from "../src/server/RateLimits.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import {
@@ -423,9 +424,13 @@ export const fakeHumanCheck = Layer.succeed(
   }),
 );
 
-export const walletForDb = <E>(db: Layer.Layer<Database, E>) =>
+export const walletForDb = <E>(
+  db: Layer.Layer<Database, E>,
+  limits: Layer.Layer<RateLimits> = RateLimits.unlimited,
+) =>
   Wallet.serviceLayer.pipe(
     Layer.provide(storesFor(db)),
+    Layer.provide(limits),
     Layer.provide(fakeChain),
     Layer.provide(fakeHumanCheck),
     Layer.provide(settings),
@@ -440,6 +445,7 @@ export const walletWithChain = (
   Layer.fresh(
     Wallet.serviceLayer.pipe(
       Layer.provide(stores),
+      Layer.provide(RateLimits.unlimited),
       Layer.provide(
         Layer.effect(
           Chain,

@@ -24,6 +24,18 @@
       "SESSION_SECRET",
     ],
   },
+  "ratelimits": [
+    {
+      "name": "WALLET_RATE_LIMITER",
+      "namespace_id": "4801",
+      "simple": { "limit": 120, "period": 60 },
+    },
+    {
+      "name": "PUBLIC_RATE_LIMITER",
+      "namespace_id": "4802",
+      "simple": { "limit": 300, "period": 60 },
+    },
+  ],
   "triggers": { "crons": ["0 * * * *"] },
   "queues": {
     "producers": [{ "binding": "WALLET_WORK", "queue": "orchid-testnet-work" }],

@@ -83,6 +83,9 @@ function ChooseAsset() {
         SessionRequired: (unavailable) => (
           <SendUnavailable overview={unavailable} />
         ),
+        RateLimited: (unavailable) => (
+          <SendUnavailable overview={unavailable} />
+        ),
         InvalidResponse: (unavailable) => (
           <SendUnavailable overview={unavailable} />
         ),

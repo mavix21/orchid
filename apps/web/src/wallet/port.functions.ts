@@ -109,6 +109,11 @@ const speakingFor = <A, E, R>(
     Effect.andThen(program),
   );
 
+const publicly = <A, E, R>(program: Effect.Effect<A, E, R>) =>
+  Principal.use((principal) => principal.admitsPublicCall).pipe(
+    Effect.andThen(program),
+  );
+
 const overviewFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof OverviewCall.Encoded>())
   .handler(({ data }) =>
@@ -124,8 +129,10 @@ const openFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof OpenCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(OpenCall, data, OpenStep, (decoded) =>
-      Wallet.use((wallet) =>
-        wallet.open(decoded.claim, decoded.approvals, decoded.humanCheck),
+      publicly(
+        Wallet.use((wallet) =>
+          wallet.open(decoded.claim, decoded.approvals, decoded.humanCheck),
+        ),
       ),
     ),
   );
@@ -187,7 +194,7 @@ const paymentLinkFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof PaymentLinkCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(PaymentLinkCall, data, PaymentLinkStep, (decoded) =>
-      Wallet.use((wallet) => wallet.paymentLink(decoded.link)),
+      publicly(Wallet.use((wallet) => wallet.paymentLink(decoded.link))),
     ),
   );
 
@@ -195,8 +202,10 @@ const claimPaymentLinkFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof ClaimPaymentLinkCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(ClaimPaymentLinkCall, data, ExternalLinkStep, (decoded) =>
-      Wallet.use((wallet) =>
-        wallet.claimPaymentLink(decoded.order, decoded.approval),
+      publicly(
+        Wallet.use((wallet) =>
+          wallet.claimPaymentLink(decoded.order, decoded.approval),
+        ),
       ),
     ),
   );
@@ -218,7 +227,7 @@ const restoreChallengeFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof RestoreChallengeCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(RestoreChallengeCall, data, PasskeyChallenge, () =>
-      Wallet.use((wallet) => wallet.restoreChallenge()),
+      publicly(Wallet.use((wallet) => wallet.restoreChallenge())),
     ),
   );
 
@@ -230,8 +239,10 @@ const enrollmentChallengeFn = createServerFn({ method: "POST" })
       data,
       EnrollmentChallengeStep,
       (decoded) =>
-        Wallet.use((wallet) =>
-          wallet.enrollmentChallenge(decoded.claim, decoded.humanCheck),
+        publicly(
+          Wallet.use((wallet) =>
+            wallet.enrollmentChallenge(decoded.claim, decoded.humanCheck),
+          ),
         ),
     ),
   );
@@ -240,8 +251,10 @@ const enrollFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof EnrollCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(EnrollCall, data, EnrollStep, (decoded) =>
-      Wallet.use((wallet) =>
-        wallet.enroll(decoded.enrollment, decoded.approvals),
+      publicly(
+        Wallet.use((wallet) =>
+          wallet.enroll(decoded.enrollment, decoded.approvals),
+        ),
       ),
     ),
   );
@@ -250,7 +263,7 @@ const restoreFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof RestoreCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(RestoreCall, data, RestoreStep, (decoded) =>
-      Wallet.use((wallet) => wallet.restore(decoded.assertion)),
+      publicly(Wallet.use((wallet) => wallet.restore(decoded.assertion))),
     ),
   );
 
@@ -258,7 +271,7 @@ const sessionChallengeFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof SessionChallengeCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(SessionChallengeCall, data, PasskeyChallenge, () =>
-      Wallet.use((wallet) => wallet.sessionChallenge()),
+      publicly(Wallet.use((wallet) => wallet.sessionChallenge())),
     ),
   );
 
@@ -266,7 +279,7 @@ const beginSessionFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof BeginSessionCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(BeginSessionCall, data, SessionStep, (decoded) =>
-      Wallet.use((wallet) => wallet.beginSession(decoded.assertion)),
+      publicly(Wallet.use((wallet) => wallet.beginSession(decoded.assertion))),
     ),
   );
 

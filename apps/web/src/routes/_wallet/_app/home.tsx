@@ -56,6 +56,7 @@ const savedBackup = (saved: SavedOutcome): Option.Option<SavedBackup> =>
     LedgerUnreachable: () => Option.none(),
     ServiceFailed: () => Option.none(),
     SessionRequired: () => Option.none(),
+    RateLimited: () => Option.none(),
     InvalidResponse: () => Option.none(),
   });
 
@@ -78,6 +79,7 @@ const backUpRefusal = (
     LedgerUnreachable: unavailableMessage,
     ServiceFailed: unavailableMessage,
     SessionRequired: unavailableMessage,
+    RateLimited: unavailableMessage,
     InvalidResponse: unavailableMessage,
   });
 
@@ -100,6 +102,7 @@ function HomeScreen() {
     LedgerUnreachable: (failure) => <Unavailable failure={failure} />,
     ServiceFailed: (failure) => <Unavailable failure={failure} />,
     SessionRequired: (failure) => <Unavailable failure={failure} />,
+    RateLimited: (failure) => <Unavailable failure={failure} />,
     InvalidResponse: (failure) => <Unavailable failure={failure} />,
   });
 }

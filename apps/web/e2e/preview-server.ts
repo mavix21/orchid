@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 
 import { fundWithFriendbot } from "@workspace/wallet/testnet";
 
-const humanCheckTestKeys: Pick<
-  NodeJS.ProcessEnv,
-  "TURNSTILE_SITE_KEY" | "TURNSTILE_SECRET_KEY"
+const humanCheckTestKeys: Record<
+  "TURNSTILE_SITE_KEY" | "TURNSTILE_SECRET_KEY",
+  string
 > = {
   TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
   TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
@@ -49,10 +49,10 @@ const [secrets, buildExitCode] = await Promise.all([
 if (buildExitCode !== 0) process.exit(buildExitCode);
 
 process.exit(
-  await runScript(["preview", "--port", "4173", "--strictPort"], {
-    ...process.env,
-    ...secrets,
-    ...humanCheckTestKeys,
-    SESSION_SECRET: randomBytes(32).toString("base64url"),
-  }),
+  await runScript(
+    ["preview", "--port", "4173", "--strictPort"],
+    Object.assign({}, process.env, secrets, humanCheckTestKeys, {
+      SESSION_SECRET: randomBytes(32).toString("base64url"),
+    }),
+  ),
 );

@@ -36,6 +36,11 @@ export const unavailableNotice = (failure: WalletUnavailable) =>
         "Confirma con tu passkey para seguir usando tu cuenta.",
         true,
       ),
+    RateLimited: () =>
+      new UnavailableNotice(
+        "Hiciste demasiadas solicitudes seguidas. Espera un momento e inténtalo de nuevo.",
+        true,
+      ),
     InvalidResponse: () =>
       new UnavailableNotice("No pudimos leer la respuesta de Orchid.", false),
   });

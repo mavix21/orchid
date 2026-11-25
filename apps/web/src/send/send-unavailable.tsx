@@ -45,6 +45,7 @@ export function SendUnavailable({
     LedgerUnreachable: unavailableNotice,
     ServiceFailed: unavailableNotice,
     SessionRequired: unavailableNotice,
+    RateLimited: unavailableNotice,
     InvalidResponse: unavailableNotice,
   });
 

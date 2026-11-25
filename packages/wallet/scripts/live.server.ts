@@ -15,6 +15,7 @@ import { Chain } from "../src/server/Chain.server";
 import { Deposits } from "../src/server/Deposits.server";
 import { Directory } from "../src/server/Directory.server";
 import { HumanCheck } from "../src/server/HumanCheck.server";
+import { RateLimits } from "../src/server/RateLimits.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { WalletSettings } from "../src/server/settings.server";
@@ -75,6 +76,7 @@ export const walletServices = (
     dependencies,
   ).pipe(
     Layer.provide(WorkQueue.discarding),
+    Layer.provide(RateLimits.unlimited),
     Layer.provide(
       Layer.succeed(WalletSettings, {
         rpcUrl,

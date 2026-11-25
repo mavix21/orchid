@@ -11,6 +11,7 @@ import {
   ExternalMemoRequired,
   ExternalRecipient,
   Pending,
+  RateLimited,
   SessionRequired,
   TransferId,
   TransferIntent,
@@ -188,18 +189,21 @@ const sessionCheckedClient = Effect.fn(function* (
 const confirmingTransfer = (client: WalletEffects) =>
   reviewed(client, toExchange).pipe(Effect.flatMap(client.confirm));
 
-it.live(
-  "a session refusal of the approval-bearing call withdraws the reservation because nothing was released",
-  () =>
+it.live.each([
+  { name: "a session", refusal: () => new SessionRequired() },
+  { name: "a rate limit", refusal: () => new RateLimited() },
+])(
+  "$name refusal of the approval-bearing call withdraws the reservation because nothing was released",
+  ({ refusal }) =>
     Effect.gen(function* () {
       const client = yield* sessionCheckedClient(
         (drafted) => (order, approval) =>
           Option.isSome(approval)
-            ? Effect.fail(new SessionRequired())
+            ? Effect.fail(refusal())
             : drafted(order, approval),
       );
 
-      assertTagged(yield* confirmingTransfer(client), "SessionRequired");
+      assertTagged(yield* confirmingTransfer(client), refusal()._tag);
       expect(
         Option.getOrThrow(yield* sealedKeyStore.readPublic()).approvedUntil,
       ).toBeUndefined();

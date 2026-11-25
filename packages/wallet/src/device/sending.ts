@@ -157,7 +157,10 @@ export function sendTransfer(
 
         const response = yield* submitted
           ? attempt.pipe(
-              Effect.tapErrorTag("SessionRequired", () => refusedBeforeRelease),
+              Effect.tapErrorTag(
+                ["SessionRequired", "RateLimited"],
+                () => refusedBeforeRelease,
+              ),
             )
           : attempt;
 

@@ -15,7 +15,12 @@ import {
   CredentialId,
   ReceiveLink,
 } from "../src/contract";
-import { Principal, SessionCookie } from "../src/server/Principal.server";
+import {
+  ClientAddress,
+  Principal,
+  SessionCookie,
+} from "../src/server/Principal.server";
+import { RateLimits } from "../src/server/RateLimits.server";
 import { mintedClaims, sealToken } from "../src/server/session-token.server";
 import { assertTagged } from "./tagged";
 import {
@@ -38,15 +43,40 @@ const tokenFor = (address: AccountAddress, secret = "session-secret") =>
     mintedClaims(address, credentialId, Date.now()),
   );
 
-const walletRequest = Layer.fresh(walletForDb(dbLayer));
+const budget = (allowed: number) => {
+  const spent = new Map<string, number>();
+
+  const spend = (key: string) =>
+    Effect.sync(() => {
+      const total = (spent.get(key) ?? 0) + 1;
+
+      spent.set(key, total);
+
+      return total <= allowed;
+    });
+
+  return Layer.succeed(RateLimits, {
+    admitsPrincipal: spend,
+    admitsClient: spend,
+  });
+};
 
 const atRequest = <A, E>(
   cookie: Option.Option<string>,
   program: Effect.Effect<A, E, Principal>,
+  limits: Layer.Layer<RateLimits> = RateLimits.unlimited,
 ) =>
   program.pipe(
-    Effect.provide(walletRequest),
+    Effect.provide(Layer.fresh(walletForDb(dbLayer, limits))),
     Effect.provideService(SessionCookie, cookie),
+  );
+
+const fromClient = <A, E, R>(
+  clientAddress: string,
+  program: Effect.Effect<A, E, R>,
+) =>
+  program.pipe(
+    Effect.provideService(ClientAddress, Option.some(clientAddress)),
   );
 
 const speaksFor = (address: AccountAddress) =>
@@ -169,6 +199,100 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           assertTagged(refusal, "SessionRequired");
+        }),
+    );
+
+    it.effect("meters each verified wallet against its own budget", () =>
+      Effect.gen(function* () {
+        const limits = Layer.fresh(budget(2));
+        const busy = addressOf(Keypair.random());
+        const quiet = addressOf(Keypair.random());
+        const busyCookie = Option.some(yield* tokenFor(busy));
+        const quietCookie = Option.some(yield* tokenFor(quiet));
+
+        yield* atRequest(busyCookie, speaksFor(busy), limits);
+        yield* atRequest(busyCookie, speaksFor(busy), limits);
+
+        assertTagged(
+          yield* Effect.flip(atRequest(busyCookie, speaksFor(busy), limits)),
+          "RateLimited",
+        );
+
+        yield* atRequest(quietCookie, speaksFor(quiet), limits);
+      }),
+    );
+
+    it.effect("meters public calls per client and skips unknown clients", () =>
+      Effect.gen(function* () {
+        const limits = Layer.fresh(budget(1));
+
+        const admitted = Principal.use(
+          (principal) => principal.admitsPublicCall,
+        );
+
+        yield* atRequest(
+          Option.none(),
+          fromClient("203.0.113.7", admitted),
+          limits,
+        );
+
+        assertTagged(
+          yield* Effect.flip(
+            atRequest(
+              Option.none(),
+              fromClient("203.0.113.7", admitted),
+              limits,
+            ),
+          ),
+          "RateLimited",
+        );
+
+        yield* atRequest(
+          Option.none(),
+          fromClient("203.0.113.8", admitted),
+          limits,
+        );
+        yield* atRequest(Option.none(), admitted, limits);
+        yield* atRequest(Option.none(), admitted, limits);
+      }),
+    );
+
+    it.effect(
+      "meters a sessionless receive into an opening wallet per client, not per wallet",
+      () =>
+        Effect.gen(function* () {
+          const limits = Layer.fresh(budget(1));
+          const key = Keypair.random();
+          const wallet = addressOf(key);
+
+          assertTagged(yield* opening(claimFor(key, "paso")), "OpeningDraft");
+
+          const drafting = Principal.use((principal) =>
+            principal.admitsDrafting(receiving(wallet), Option.none()),
+          );
+
+          yield* atRequest(
+            Option.none(),
+            fromClient("198.51.100.1", drafting),
+            limits,
+          );
+
+          assertTagged(
+            yield* Effect.flip(
+              atRequest(
+                Option.none(),
+                fromClient("198.51.100.1", drafting),
+                limits,
+              ),
+            ),
+            "RateLimited",
+          );
+
+          yield* atRequest(
+            Option.none(),
+            fromClient("198.51.100.2", drafting),
+            limits,
+          );
         }),
     );
   },

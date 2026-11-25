@@ -4,7 +4,10 @@ export { WalletSettings } from "./settings.server";
 
 export { Wallet } from "./Wallet.server";
 
+export { RateLimits } from "./RateLimits.server";
+
 export {
+  ClientAddress,
   Principal,
   SessionCookie,
   type SessionGrant,
