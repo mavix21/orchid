@@ -27,13 +27,6 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import { rateLimitsLayer } from "./rate-limits.server";
 import { workQueueLayer } from "./work-queue.server";
 
-const decodeOpeningCap = Schema.decodeSync(
-  Schema.NumberFromString.check(
-    Schema.isInt(),
-    Schema.isGreaterThanOrEqualTo(0),
-  ),
-);
-
 const requestWalletLayer = Layer.suspend(() =>
   Wallet.layer.pipe(
     Layer.provide(
@@ -44,9 +37,6 @@ const requestWalletLayer = Layer.suspend(() =>
         passkeyOrigins: env.PASSKEY_ORIGINS.split(","),
         humanCheckSecret: Redacted.make(env.TURNSTILE_SECRET_KEY),
         sessionSecret: Redacted.make(env.SESSION_SECRET),
-        maxEmptyDepositOpenings: decodeOpeningCap(
-          env.MAX_EMPTY_DEPOSIT_OPENINGS,
-        ),
       }),
     ),
     Layer.provide(databaseLayer(env.HYPERDRIVE)),

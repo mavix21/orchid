@@ -28,12 +28,10 @@ const preparing = "Preparando tu dirección…";
 const depositCopy: OpeningCopy = {
   preparing,
   confirming: preparing,
-  reopenTitle: "Prepara tu dirección",
-  reopenAction: "Continuar con passkey",
-  depositOpeningsFull:
-    "No pudimos preparar tu dirección ahora, intenta en unos minutos.",
-  depositOpeningSpent:
-    "Tu dirección ya se preparó una vez y se cerró sin recibir dinero, así que no podemos prepararla otra vez.",
+  title: "Abre tu cuenta",
+  explanation:
+    "Tu cuenta todavía no está abierta en la red Stellar. Confirma con tu passkey para abrirla y ver tu dirección.",
+  action: "Abrir con passkey",
 };
 
 class Unopened extends Data.TaggedClass("Unopened")<{

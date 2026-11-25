@@ -8,7 +8,6 @@ import {
   type BalanceId,
   ClaimableLimitReached,
   PositiveAmount,
-  Profile,
   RecipientCannotReceive,
   TransferOrder,
   UsernameRecipient,
@@ -22,7 +21,6 @@ import {
   payUsername,
   username,
 } from "./activity-fixtures";
-import { advanceSequence } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import { Wallet } from "../src/server/Wallet.server";
 import {
@@ -277,38 +275,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(received, "ReceivedActivity");
           expect(received.closedAt).toBeDefined();
-        }),
-    );
-
-    it.effect(
-      "an applied opening that cannot activate from its paired recovery sends the wallet back to reopening",
-      () =>
-        Effect.gen(function* () {
-          const payer = yield* fundedWallet("sidepayer");
-          const { key, claim } = yield* unopenedWallet("sidestep");
-          const paid = yield* payUsername(payer, "sidestep");
-
-          waiting(
-            Option.getOrThrow(Option.fromNullishOr(paid.settled.claimable)),
-            claim.address,
-          );
-
-          const draft = yield* opening(claim);
-
-          assertTagged(draft, "OpeningDraft");
-          yield* opening(claim, approveOpening(key, draft));
-          advanceSequence(claim.address);
-          yield* settleAttempt(claim.address);
-
-          const overview = yield* overviewOf(claim.address);
-
-          assertTagged(overview, "NeedsReopening");
-          expect(overview.profile).toEqual(
-            new Profile({
-              username: username("sidestep"),
-              address: claim.address,
-            }),
-          );
         }),
     );
   },

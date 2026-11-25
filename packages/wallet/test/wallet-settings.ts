@@ -9,10 +9,7 @@ export const feePayer = Keypair.random();
 export const reserveSponsor = addressOf(sponsor);
 export const passkeyOrigin = "http://localhost:3000";
 
-export const settingsFor = (
-  rpcUrl = "https://soroban-testnet.stellar.org",
-  maxEmptyDepositOpenings = 1000,
-) =>
+export const settingsFor = (rpcUrl = "https://soroban-testnet.stellar.org") =>
   Layer.succeed(WalletSettings, {
     rpcUrl,
     reserveSponsorSecret: Redacted.make(sponsor.secret()),
@@ -20,5 +17,4 @@ export const settingsFor = (
     passkeyOrigins: [passkeyOrigin],
     humanCheckSecret: Redacted.make("human-check-secret"),
     sessionSecret: Redacted.make("session-secret"),
-    maxEmptyDepositOpenings,
   });

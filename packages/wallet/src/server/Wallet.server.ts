@@ -346,9 +346,8 @@ export class Wallet extends Context.Service<
           return Option.exists(
             resumed,
             (step) =>
-              Predicate.isTagged(step, "RecoveryDraft") ||
-              (Predicate.isTagged(step, "OpeningPending") &&
-                claimable.length === 0),
+              Predicate.isTagged(step, "OpeningPending") &&
+              claimable.length === 0,
           )
             ? new NeedsReopening({ profile: unopened.value })
             : new NotOpened({ profile: unopened, claimable });

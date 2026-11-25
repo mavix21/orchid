@@ -25,7 +25,6 @@ const humanCheckAnswering = (
         passkeyOrigins: [],
         humanCheckSecret: Redacted.make(secret),
         sessionSecret: Redacted.make("unused"),
-        maxEmptyDepositOpenings: 1000,
       }),
     ),
     Layer.provide(

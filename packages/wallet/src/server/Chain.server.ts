@@ -23,26 +23,19 @@ import {
   Approval,
   type Asset,
   type BalanceId,
-  type OpeningDraft,
+  OpeningDraft,
   PaymentMemo,
   PositiveAmount,
   SigningRequest,
   Amount,
 } from "../contract";
 import { baseAccountOf, isMuxed } from "../stellar/destination";
-import {
-  draftPayment,
-  draftRecovery,
-  readEnvelope,
-} from "../stellar/envelopes";
-import { draftOpeningWithRecovery } from "../stellar/opening-drafts";
+import { draftOpening, draftPayment, readEnvelope } from "../stellar/envelopes";
 import {
   approvalMargin,
   baseFee,
   networkPassphrase,
   paymentLifetime,
-  recoveryDelay,
-  recoveryWindow,
   usdc,
 } from "../stellar/network";
 import { type AssetChain, assetChain } from "./chain-assets.server";
@@ -133,7 +126,6 @@ export class Chain extends Context.Service<
       ): Effect.Effect<Option.Option<Amount>, ChainUnreachable>;
       draftOpening(
         address: AccountAddress,
-        pinSequence: boolean,
         claim?: BalanceId,
       ): Effect.Effect<OpeningDraft, ChainUnreachable>;
       draftPayment(
@@ -142,9 +134,6 @@ export class Chain extends Context.Service<
         asset: Asset,
         amount: PositiveAmount,
         memo?: PaymentMemo,
-      ): Effect.Effect<SigningRequest, ChainUnreachable>;
-      draftRecovery(
-        address: AccountAddress,
       ): Effect.Effect<SigningRequest, ChainUnreachable>;
       seal(
         request: SigningRequest,
@@ -224,7 +213,6 @@ export class Chain extends Context.Service<
 
       const draftOpen = Effect.fn("Chain.draftOpening")(function* (
         address: AccountAddress,
-        pinSequence: boolean,
         claim?: BalanceId,
       ) {
         const [sponsorState, current] = yield* Effect.all(
@@ -235,17 +223,20 @@ export class Chain extends Context.Service<
         if (Option.isNone(sponsorState))
           return yield* Effect.die(new Error("Account does not exist"));
 
-        return draftOpeningWithRecovery({
-          source: new Account(sponsorAddress, sponsorState.value.sequence),
-          address,
-          reserveSponsor: sponsorAddress,
-          observedSequence: Option.getOrUndefined(
-            Option.map(current, (state) => state.sequence),
+        const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
+
+        return new OpeningDraft({
+          request: request(
+            draftOpening({
+              source: new Account(sponsorAddress, sponsorState.value.sequence),
+              address,
+              minTime: now,
+              maxTime: now + paymentLifetime,
+              createAccount: Option.isNone(current),
+              claim,
+            }),
+            now + paymentLifetime,
           ),
-          now: Math.floor((yield* Clock.currentTimeMillis) / 1000),
-          latestLedger: sponsorState.value.ledger,
-          pinSequence,
-          claim,
         });
       });
 
@@ -273,27 +264,6 @@ export class Chain extends Context.Service<
         );
       });
 
-      const draftRecover = Effect.fn("Chain.draftRecovery")(function* (
-        address: AccountAddress,
-      ) {
-        const holder = yield* source(address);
-
-        const minTime =
-          Math.floor((yield* Clock.currentTimeMillis) / 1000) + recoveryDelay;
-
-        const maxTime = minTime + recoveryWindow;
-
-        return request(
-          draftRecovery({
-            source: holder,
-            reserveSponsor: sponsorAddress,
-            minTime,
-            maxTime,
-          }),
-          maxTime,
-        );
-      });
-
       const seal = (
         signingRequest: SigningRequest,
         approval: Approval,
@@ -311,8 +281,6 @@ export class Chain extends Context.Service<
                   OpeningFacts: (f) =>
                     f.address === holder && f.reserveSponsor === sponsorAddress,
                   PaymentFacts: (f) => f.from === holder,
-                  RecoveryFacts: (f) =>
-                    f.address === holder && f.reserveSponsor === sponsorAddress,
                   TrustlineFacts: (f) =>
                     f.address === holder && f.reserveSponsor === sponsorAddress,
                   TrustlineRemovalFacts: (f) => f.address === holder,
@@ -336,7 +304,6 @@ export class Chain extends Context.Service<
                 const sponsoring = Match.valueTags(facts.value, {
                   OpeningFacts: () => true,
                   PaymentFacts: () => false,
-                  RecoveryFacts: () => false,
                   TrustlineFacts: () => true,
                   TrustlineRemovalFacts: () => false,
                   ClaimableFacts: () => true,
@@ -486,7 +453,6 @@ export class Chain extends Context.Service<
           ),
         draftOpening: draftOpen,
         draftPayment: draftPay,
-        draftRecovery: draftRecover,
         ...links,
         seal,
         submit,

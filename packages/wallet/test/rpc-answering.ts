@@ -129,7 +129,6 @@ export const chainWithHttp = (
     passkeyOrigins,
     humanCheckSecret: Redacted.make("human-check-secret"),
     sessionSecret: Redacted.make("session-secret"),
-    maxEmptyDepositOpenings: 1000,
   };
 
   const cfg = Layer.succeed(
