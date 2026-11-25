@@ -150,7 +150,7 @@ export function HumanCheckWidget({ quiet = false }: { quiet?: boolean }) {
 
   if (quiet)
     return (
-      <div className="relative">
+      <div>
         <div
           key={attempt}
           ref={setHost}
@@ -162,7 +162,9 @@ export function HumanCheckWidget({ quiet = false }: { quiet?: boolean }) {
           }
         />
         {status === "unavailable" ? (
-          <div className="relative h-18 pb-safe">{retry}</div>
+          <div className="px-5 pb-safe">
+            <div className="relative h-18">{retry}</div>
+          </div>
         ) : null}
       </div>
     );
