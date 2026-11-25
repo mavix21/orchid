@@ -624,6 +624,18 @@ const depositor = Keypair.random();
 
 await fundWithFriendbot(depositor.publicKey());
 
+const depositorTrust = new TransactionBuilder(
+  await horizon.loadAccount(depositor.publicKey()),
+  { fee: baseFee, networkPassphrase },
+)
+  .addOperation(Operation.changeTrust({ asset: usdc }))
+  .setTimeout(120)
+  .build();
+
+depositorTrust.sign(depositor);
+
+await horizon.submitTransaction(depositorTrust);
+
 await fundWithUsdc(depositor.publicKey(), "10");
 
 const depositPayment = new TransactionBuilder(
