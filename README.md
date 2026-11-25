@@ -41,11 +41,11 @@ Sending and receiving are free; that is how Orchid spreads. Revenue comes from w
 
 ## Roadmap
 
-| Stage                       | Features                                                                                                                                                         |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Live on Stellar testnet** | Permanent usernames, sponsored accounts, passkey backup and restore, USDC payments from the app with exchange memos checked against the ledger, reserve recovery |
-| **Next**                    | Payment links, activity, accounts that open on first deposit, deposits from Solana and Tron                                                                      |
-| **Then**                    | Sending to Solana, Base and other networks, payouts to Yape and Plin, Ahorro, swaps, tokenized stocks and Bitcoin                                                |
+| Stage                       | Features                                                                                                                                       |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Live on Stellar testnet** | Permanent usernames, sponsored accounts, passkey backup and restore, USDC payments from the app with exchange memos checked against the ledger |
+| **Next**                    | Payment links, activity, accounts that open on first deposit, deposits from Solana and Tron                                                    |
+| **Then**                    | Sending to Solana, Base and other networks, payouts to Yape and Plin, Ahorro, swaps, tokenized stocks and Bitcoin                              |
 
 ## Built with
 
@@ -67,7 +67,7 @@ bun run dev
 
 Open http://localhost:3000.
 
-Creating an account opens nothing on the network. Opening one needs two funded testnet accounts: the reserve sponsor and the fee payer. Put their secret keys in the gitignored `apps/web/.dev.vars`:
+Creating an account opens it on the network, which needs two funded testnet accounts: the reserve sponsor and the fee payer. Put their secret keys in the gitignored `apps/web/.dev.vars`:
 
 ```sh
 RESERVE_SPONSOR_SECRET=S...

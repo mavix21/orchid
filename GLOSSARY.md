@@ -14,18 +14,18 @@ _Avoid_: Recovery phrase, seed, private key when referring to the words.
 _Avoid_: Recovery, seed backup.
 
 **Restore**: Recovering a wallet on a device from its backup, after the device proves it holds the passkey.
-_Avoid_: Recovery, reserve recovery, import.
+_Avoid_: Recovery, import.
 
 **Account address**: The public Stellar address identifying an account on the network.
 _Avoid_: Username, private key.
 
-**Username**: A permanent name bound to one account address when the wallet is created. It resolves as a recipient while the wallet is unopened or active and stays bound after reserve recovery.
+**Username**: A permanent name bound to one account address when the wallet is created. It resolves as a recipient while the wallet is unopened or active and stays bound if the wallet's account leaves the network.
 _Avoid_: Temporary alias, recyclable handle.
 
-**Unopened wallet**: A wallet whose username is bound and whose backup is stored, but whose sponsored account does not exist on the network yet. Creating a wallet leaves it unopened.
+**Unopened wallet**: A wallet whose username is bound and whose backup is stored, but whose sponsored account does not exist on the network yet. Creating a wallet signs its opening, so a new wallet stays unopened only until that opening settles, or if it fails.
 _Avoid_: Inactive wallet, pending wallet.
 
-**Opening**: Establishing or repairing the sponsored account and base trustline so an unopened or recovered wallet can become active.
+**Opening**: Establishing or repairing the sponsored account and base trustline so an unopened wallet, or one whose account left the network, can become active. Orchid never closes an open wallet to take its reserves back.
 
 **Reserve sponsor**: The account providing the Stellar reserves needed for sponsored accounts and trustlines.
 _Avoid_: Fee payer when referring to reserves.
@@ -61,9 +61,6 @@ _Avoid_: Submission acknowledgement.
 
 **Payment memo**: A text or numeric reference accompanying a payment to an external address, such as an exchange deposit reference.
 
-**Reserve recovery**: Returning eligible sponsored reserves to the sponsor using the user's pre-signed recovery transaction.
-_Avoid_: Key recovery, passkey recovery.
-
 **Wallet session**: Orchid's proof, given after the wallet's passkey is verified, that requests come from the wallet's holder. It lets the device read the wallet and request **Drafts**; it never authorizes an **Approval**.
 _Avoid_: Login when talking to users.
 
@@ -73,4 +70,4 @@ _Avoid_: Webview when talking to users.
 **Deposit**: USDC that reached a wallet from outside Orchid, such as an exchange or another wallet app, read from the network's asset events and listed in activity.
 _Avoid_: Payment or transfer when the money did not go through Orchid.
 
-**Sweep**: Hourly backstop that reconciles pending operations the queue left unfinished, cleans up received links, prunes expired drafts and abandoned openings, and recovers eligible reserves.
+**Sweep**: Hourly backstop that reconciles pending operations the queue left unfinished, cleans up received links, and prunes expired drafts and abandoned openings.
