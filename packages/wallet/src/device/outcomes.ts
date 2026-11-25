@@ -24,7 +24,6 @@ import {
   type PaymentLinkOpen,
   type PaymentLinkStep,
   PositiveAmount,
-  Recipient,
   type Receipt,
   type ResolveReceiptStep,
   type ResolvedPaymentLink,
@@ -211,15 +210,6 @@ export type ConfirmOpeningOutcome =
   | AssertionRejected
   | PrfOutputMissing
   | CorruptDeviceWallet;
-
-export class TransferIntent extends Schema.Class<TransferIntent>(
-  "@workspace/wallet/TransferIntent",
-)({
-  to: Recipient,
-  asset: Asset,
-  amount: PositiveAmount,
-  memo: Schema.optional(PaymentMemo),
-}) {}
 
 export class ApprovalOutstanding extends Schema.TaggedClass<ApprovalOutstanding>()(
   "ApprovalOutstanding",

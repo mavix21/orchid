@@ -14,13 +14,10 @@ import {
   Offline,
   Profile,
   Settled,
+  TransferIntent,
   type UnsignedEnvelope,
 } from "../src/contract";
-import {
-  DraftRejected,
-  TransferIntent,
-  makeWalletEffects,
-} from "../src/device/client";
+import { DraftRejected, makeWalletEffects } from "../src/device/client";
 import type { KeyStore } from "../src/device/key-store";
 import {
   DeviceWallet,

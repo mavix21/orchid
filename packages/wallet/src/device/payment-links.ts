@@ -11,6 +11,7 @@ import {
   type Pending,
   type WalletPort,
   type WalletUnavailable,
+  TransferIntent,
 } from "../contract";
 import { network } from "../stellar/network";
 import {
@@ -61,7 +62,6 @@ import {
   type RevealPaymentLinkOutcome,
   type ReviewPaymentLinkOutcome,
   type SavedLinkTarget,
-  TransferIntent,
   UnsupportedDevice,
 } from "./outcomes";
 import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";

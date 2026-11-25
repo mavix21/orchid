@@ -3,6 +3,11 @@ import {
   deliveryFlow,
   paymentLinkAssetRefusal,
 } from "./wallet-delivery.server";
+import {
+  Examined,
+  type TransferEffects,
+  transferCheckFlow,
+} from "./wallet-transfer-check.server";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
@@ -12,35 +17,28 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
-  DestinationAddress,
   SigningRequest,
+  AssessmentStep,
   AssetBusy,
   ClaimableLimitReached,
-  Amount,
-  assetKey,
   Approval,
-  ExternalRecipient,
   Holding,
   InvalidAddress,
   LinkRecipient,
   MemoNotAllowed,
   ExternalMemoRequired,
-  InsufficientBalance,
   NeedsReopening,
   NotOpened,
   Overview,
-  PhoneNotSupported,
   Receipt,
-  ResolvedRecipient,
   SenderBusy,
   TransferDraft,
+  TransferIntent,
   TransferOrder,
   TransferStep,
-  UnknownRecipient,
   type WalletPort,
   type ServerFailure,
 } from "../contract";
-import { baseAccountOf, isMuxed } from "../stellar/destination";
 import { readEnvelope } from "../stellar/envelopes";
 import { Chain, ChainUnreachable, type Sealed } from "./Chain.server";
 import type { KnownExchangeMemo } from "./exchange-memos.server";
@@ -73,6 +71,10 @@ import { workFlow } from "./wallet-work.server";
 export class Wallet extends Context.Service<
   Wallet,
   WalletPort<ServerFailure> & {
+    assess(
+      address: AccountAddress,
+      intent: TransferIntent,
+    ): Effect.Effect<AssessmentStep, ServerFailure>;
     readonly sweep: Effect.Effect<void, ServerFailure>;
     attend(
       work: PendingWork,
@@ -89,7 +91,8 @@ export class Wallet extends Context.Service<
       const assets = yield* AssetOrders;
       const reconcile = yield* transferReconcileFlow;
       const assetActions = yield* assetFlow;
-      const delivery = yield* deliveryFlow;
+      const { delivery, draft } = yield* deliveryFlow;
+      const check = yield* transferCheckFlow;
       const checkLinkAsset = yield* paymentLinkAssetRefusal;
       const { quotaFull } = yield* claimableQuotaFlow;
       const links = yield* paymentLinksFlow;
@@ -102,15 +105,6 @@ export class Wallet extends Context.Service<
       const { readBalance } = yield* confirmedReads;
       const { open } = yield* openingFlow;
       const backup = yield* backupFlow;
-
-      const memoRequirement = Effect.fn("Wallet.memoRequirement")(function* (
-        recipient: ResolvedRecipient,
-      ) {
-        return recipient instanceof ExternalRecipient &&
-          !isMuxed(recipient.address)
-          ? yield* chain.memoRequiredFor(baseAccountOf(recipient.address))
-          : Option.none<KnownExchangeMemo>();
-      });
 
       const proposedStep = (
         proposed: Proposed,
@@ -232,38 +226,19 @@ export class Wallet extends Context.Service<
         });
       });
 
+      const settling: TransferEffects = {
+        settle: reconcile,
+        recover: directory.recover,
+        quota: quotaFull,
+      };
+
       const transfer = Effect.fn("Wallet.transfer")(function* (
         order: TransferOrder,
         approval: Option.Option<Approval>,
       ): Effect.fn.Return<TransferStep, StoreFailure | ChainUnreachable> {
-        if (!chain.validAddress(order.from))
-          return new InvalidAddress({ address: order.from });
+        const malformed = check.malformed(order);
 
-        const invalidRecipient = Match.valueTags(order.to, {
-          Address: ({ value }) =>
-            chain.validAddress(value)
-              ? Option.none<DestinationAddress>()
-              : Option.some(value),
-          PaymentLink: ({ value }) =>
-            chain.validAddress(value) && value !== order.from
-              ? Option.none<DestinationAddress>()
-              : Option.some(value),
-          Username: () => Option.none<DestinationAddress>(),
-          Phone: () => Option.none<DestinationAddress>(),
-        });
-
-        if (Option.isSome(invalidRecipient))
-          return new InvalidAddress({ address: invalidRecipient.value });
-
-        if (
-          Match.valueTags(order.to, {
-            Phone: () => true,
-            Username: () => false,
-            Address: () => false,
-            PaymentLink: () => false,
-          })
-        )
-          return new PhoneNotSupported();
+        if (Option.isSome(malformed)) return malformed.value;
 
         const existing = yield* transfers.find(order.id);
 
@@ -281,7 +256,7 @@ export class Wallet extends Context.Service<
           if (!Predicate.isTagged(stored, "Proposed"))
             return yield* signedStep(stored);
 
-          const requirement = yield* memoRequirement(stored.recipient);
+          const requirement = yield* check.memoRequirement(stored.recipient);
           const refusal = memoRefusal(order, stored.recipient, requirement);
 
           if (Option.isSome(refusal)) return refusal.value;
@@ -312,105 +287,19 @@ export class Wallet extends Context.Service<
           }
         }
 
-        const sender = yield* directory.byAddress(order.from);
+        const examined = yield* check.examine(order, settling);
 
-        if (Option.isNone(sender) || sender.value.status !== "active")
-          return new NotOpened();
+        if (!(examined instanceof Examined)) return examined;
 
-        const held = yield* transfers.latestFrom(order.from);
+        const request = yield* draft(order, examined.delivery);
 
-        if (
-          Option.isSome(held) &&
-          Predicate.isTagged(held.value, "Authorized")
-        ) {
-          const receipt = yield* reconcile(held.value);
-
-          if (Predicate.isTagged(receipt, "Pending"))
-            return new SenderBusy({ inFlight: receipt });
-        }
-
-        const recipient = yield* Match.valueTags(order.to, {
-          Username: ({ value }) =>
-            directory
-              .byUsername(value)
-              .pipe(
-                Effect.map((found): ResolvedRecipient | UnknownRecipient =>
-                  Option.isSome(found)
-                    ? found.value
-                    : new UnknownRecipient({ username: value }),
-                ),
-              ),
-          Address: ({ value }) =>
-            isMuxed(value)
-              ? Effect.succeed<ResolvedRecipient>(
-                  new ExternalRecipient({ address: value }),
-                )
-              : directory
-                  .byAddress(value)
-                  .pipe(
-                    Effect.flatMap(
-                      (found): Effect.Effect<ResolvedRecipient, StoreFailure> =>
-                        Option.isSome(found) && found.value.status === "active"
-                          ? directory.profile(found.value)
-                          : Effect.succeed(
-                              new ExternalRecipient({ address: value }),
-                            ),
-                    ),
-                  ),
-          PaymentLink: ({ value }) =>
-            Effect.succeed<ResolvedRecipient>(
-              new LinkRecipient({ kind: "paymentLink", address: value }),
-            ),
-          Phone: () =>
-            Effect.die("Phone was rejected before recipient resolution"),
-        });
-
-        if (Predicate.isTagged(recipient, "UnknownRecipient")) return recipient;
-
-        const requirement = yield* memoRequirement(recipient);
-        const refusal = memoRefusal(order, recipient, requirement);
-
-        if (Option.isSome(refusal)) return refusal.value;
-
-        const state = yield* chain.holdings(
-          order.from,
-          Match.valueTags(order.asset, {
-            Native: () => [],
-            Issued: (asset) => [asset],
-          }),
+        const proposed = yield* transfers.propose(
+          order,
+          examined.recipient,
+          request,
         );
 
-        if (Option.isNone(state)) {
-          yield* directory.recover(sender.value);
-
-          return new NotOpened();
-        }
-
-        if (recipient instanceof LinkRecipient) {
-          const linkRefusal = yield* checkLinkAsset(order, state.value);
-
-          if (Option.isSome(linkRefusal)) return linkRefusal.value;
-        }
-
-        const balance = Match.valueTags(order.asset, {
-          Native: () => state.value.native,
-          Issued: (asset) =>
-            state.value.lines.find(
-              (line) =>
-                assetKey(line.asset) === assetKey(asset) && line.authorized,
-            )?.spendable ?? Schema.decodeSync(Amount)("0"),
-        });
-
-        if (balance < order.amount)
-          return new InsufficientBalance({ available: balance });
-
-        const request = yield* delivery(order, recipient, state.value);
-
-        if (!(request instanceof SigningRequest)) return request;
-
-        const proposed = yield* transfers.propose(order, recipient, request);
-
-        return yield* resumed(proposed, requirement);
+        return yield* resumed(proposed, examined.requirement);
       });
 
       const overview = Effect.fn("Wallet.overview")(function* (
@@ -493,6 +382,8 @@ export class Wallet extends Context.Service<
         enroll: (enrollment, approvals) =>
           wrap(backup.enroll(enrollment, approvals)),
         restore: (assertion) => wrap(backup.restore(assertion)),
+        assess: (address, intent) =>
+          wrap(check.assess({ from: address, ...intent })),
         sweep: wrap(sweep),
         attend: (work, attempt) => wrap(attend(work, attempt)),
       });

@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 import { AccountAddress, Profile, Username } from "./identity";
 
 export const PasskeyChallenge = Schema.String.check(
-  Schema.isPattern(/^[A-Za-z0-9_-]{43}$/),
+  Schema.isPattern(/^[A-Za-z0-9_-]{43}$/u),
 ).pipe(Schema.brand("PasskeyChallenge"));
 
 export type PasskeyChallenge = typeof PasskeyChallenge.Type;
@@ -12,7 +12,7 @@ export const ChallengePurpose = Schema.Literals(["enrollment", "restore"]);
 export type ChallengePurpose = typeof ChallengePurpose.Type;
 
 export const Base64Url = Schema.String.check(
-  Schema.isPattern(/^[A-Za-z0-9_-]+$/),
+  Schema.isPattern(/^[A-Za-z0-9_-]+$/u),
 );
 
 export const CredentialId = Base64Url.pipe(Schema.brand("CredentialId"));

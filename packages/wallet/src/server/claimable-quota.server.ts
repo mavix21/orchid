@@ -1,9 +1,15 @@
 import * as Effect from "effect/Effect";
 import type { AccountAddress, BalanceId } from "../contract";
 import { claimableQuota } from "../stellar/network";
-import { Chain } from "./Chain.server";
+import { Chain, type ChainUnreachable } from "./Chain.server";
+import type { StoreFailure } from "./Directory.server";
 import { rpcReadConcurrency } from "./settings.server";
 import { type ClaimableKind, Transfers } from "./Transfers.server";
+
+export type QuotaCheck = (
+  sender: AccountAddress,
+  kind: ClaimableKind,
+) => Effect.Effect<boolean, StoreFailure | ChainUnreachable>;
 
 export const claimableQuotaFlow = Effect.gen(function* () {
   const chain = yield* Chain;
@@ -18,13 +24,20 @@ export const claimableQuotaFlow = Effect.gen(function* () {
         ),
       );
 
+  const quotaReached = Effect.fn("Wallet.claimableQuotaReached")(function* (
+    sender: AccountAddress,
+    kind: ClaimableKind,
+  ) {
+    return (
+      (yield* transfers.openClaimables(sender, kind)) >= claimableQuota[kind]
+    );
+  });
+
   const quotaFull = Effect.fn("Wallet.claimableQuotaFull")(function* (
     sender: AccountAddress,
     kind: ClaimableKind,
   ) {
-    const limit = claimableQuota[kind];
-
-    if ((yield* transfers.openClaimables(sender, kind)) < limit) return false;
+    if (!(yield* quotaReached(sender, kind))) return false;
 
     yield* Effect.forEach(
       yield* transfers.settledOpenBalanceIds(sender, kind),
@@ -32,8 +45,8 @@ export const claimableQuotaFlow = Effect.gen(function* () {
       { concurrency: rpcReadConcurrency, discard: true },
     );
 
-    return (yield* transfers.openClaimables(sender, kind)) >= limit;
+    return yield* quotaReached(sender, kind);
   });
 
-  return { closeGoneBalance, quotaFull };
+  return { closeGoneBalance, quotaFull, quotaReached };
 });

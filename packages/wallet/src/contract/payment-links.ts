@@ -3,7 +3,7 @@ import { Asset, BalanceId, PositiveAmount } from "./assets";
 import { AccountAddress, Profile } from "./identity";
 
 export const LinkSecret = Schema.String.check(
-  Schema.isPattern(/^S[A-Z2-7]{55}$/),
+  Schema.isPattern(/^S[A-Z2-7]{55}$/u),
 ).pipe(Schema.brand("LinkSecret"));
 
 export type LinkSecret = typeof LinkSecret.Type;

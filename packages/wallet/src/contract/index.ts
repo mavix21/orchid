@@ -187,7 +187,7 @@ export const PaymentMemo = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("id"),
     value: Schema.String.check(
-      Schema.isPattern(/^(0|[1-9][0-9]{0,19})$/),
+      Schema.isPattern(/^(0|[1-9][0-9]{0,19})$/u),
       Schema.makeFilter(
         (value) =>
           /^[0-9]+$/.test(value) && BigInt(value) <= 18446744073709551615n,
@@ -228,15 +228,23 @@ export const Recipient = Schema.Union([
 
 export type Recipient = typeof Recipient.Type;
 
+const transferIntentFields = {
+  to: Recipient,
+  asset: Asset,
+  amount: PositiveAmount,
+  memo: Schema.optional(PaymentMemo),
+};
+
+export class TransferIntent extends Schema.Class<TransferIntent>(
+  "@workspace/wallet/TransferIntent",
+)(transferIntentFields) {}
+
 export class TransferOrder extends Schema.Class<TransferOrder>(
   "@workspace/wallet/TransferOrder",
 )({
   id: TransferId,
   from: AccountAddress,
-  to: Recipient,
-  asset: Asset,
-  amount: PositiveAmount,
-  memo: Schema.optional(PaymentMemo),
+  ...transferIntentFields,
 }) {}
 
 export class LinkRecipient extends Schema.Class<LinkRecipient>(
@@ -329,7 +337,7 @@ export class NotOpened extends Schema.TaggedClass<NotOpened>()(
 
 export const ActivityCursor = Schema.String.check(
   Schema.isPattern(
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
   ),
 ).pipe(Schema.brand("ActivityCursor"));
 
@@ -462,6 +470,32 @@ export const TransferStep = Schema.Union([
 ]);
 
 export type TransferStep = typeof TransferStep.Type;
+
+export class TransferAssessment extends Schema.TaggedClass<TransferAssessment>()(
+  "TransferAssessment",
+  {
+    recipient: ResolvedRecipient,
+    memoRequired: Schema.Boolean,
+    exchange: Schema.OptionFromNullOr(Schema.String),
+  },
+) {}
+
+export const AssessmentStep = Schema.Union([
+  TransferAssessment,
+  NotOpened,
+  UnknownRecipient,
+  PhoneNotSupported,
+  InsufficientBalance,
+  SenderBusy,
+  InvalidAddress,
+  ExternalMemoRequired,
+  MemoNotAllowed,
+  RecipientCannotReceive,
+  ClaimableLimitReached,
+  AssetUnsupported,
+]);
+
+export type AssessmentStep = typeof AssessmentStep.Type;
 
 export const AssetStep = Schema.Union([
   AssetDraft,

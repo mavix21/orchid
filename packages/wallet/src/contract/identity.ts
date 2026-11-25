@@ -7,7 +7,7 @@ export const usernameMaxLength = 20;
 const usernameCharacter = /^[a-z0-9_]$/;
 
 export const Username = Schema.String.check(
-  Schema.isPattern(/^[a-z0-9_]*$/),
+  Schema.isPattern(/^[a-z0-9_]*$/u),
   Schema.isMinLength(usernameMinLength),
   Schema.isMaxLength(usernameMaxLength),
 ).pipe(Schema.brand("Username"));
@@ -54,13 +54,13 @@ export function usernameIssue(text: string): Option.Option<UsernameIssue> {
 }
 
 export const AccountAddress = Schema.String.check(
-  Schema.isPattern(/^G[A-Z2-7]{55}$/),
+  Schema.isPattern(/^G[A-Z2-7]{55}$/u),
 ).pipe(Schema.brand("AccountAddress"));
 
 export type AccountAddress = typeof AccountAddress.Type;
 
 export const MuxedAddress = Schema.String.check(
-  Schema.isPattern(/^M[A-Z2-7]{68}$/),
+  Schema.isPattern(/^M[A-Z2-7]{68}$/u),
 ).pipe(Schema.brand("MuxedAddress"));
 
 export type MuxedAddress = typeof MuxedAddress.Type;
