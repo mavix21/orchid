@@ -2,18 +2,18 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@workspace/ui/components/drawer";
 import { cn } from "@workspace/ui/lib/utils";
 import { type ActivityEntry, Profile } from "@workspace/wallet";
 import * as Option from "effect/Option";
 
+import {
+  Modal,
+  ModalContent,
+  ModalDescription,
+  ModalFooter,
+  ModalHeader,
+  ModalTitle,
+} from "@/components/modal";
 import { ActivityRow, amountTone } from "@/components/activity-row";
 
 import {
@@ -44,14 +44,13 @@ export function ActivityList({
           />
         ))}
       </div>
-      <Drawer
+      <Modal
         open={Option.isSome(opened)}
         onOpenChange={(open) => {
           if (!open) setOpened(Option.none());
         }}
-        showSwipeHandle
       >
-        <DrawerContent data-testid="activity-detail">
+        <ModalContent testId="activity-detail">
           {Option.match(opened, {
             onNone: () => null,
             onSome: (entry) => (
@@ -61,8 +60,8 @@ export function ActivityList({
               />
             ),
           })}
-        </DrawerContent>
-      </Drawer>
+        </ModalContent>
+      </Modal>
     </>
   );
 }
@@ -78,8 +77,8 @@ function EntryDetail({
 
   return (
     <>
-      <DrawerHeader>
-        <DrawerTitle>{shown.title}</DrawerTitle>
+      <ModalHeader>
+        <ModalTitle>{shown.title}</ModalTitle>
         <p
           className={cn(
             "py-2 font-display text-h1 tabular-nums",
@@ -88,8 +87,8 @@ function EntryDetail({
         >
           {shown.amount}
         </p>
-        <DrawerDescription>{shown.detail}</DrawerDescription>
-      </DrawerHeader>
+        <ModalDescription>{shown.detail}</ModalDescription>
+      </ModalHeader>
       <dl className="flex flex-col gap-4 p-4 pt-6">
         {Option.match(shown.counterparty, {
           onNone: () => null,
@@ -111,7 +110,7 @@ function EntryDetail({
           ),
         })}
       </dl>
-      <DrawerFooter>
+      <ModalFooter>
         {shown.openLink ? (
           <Button
             className="w-full"
@@ -128,7 +127,7 @@ function EntryDetail({
         >
           Cerrar
         </Button>
-      </DrawerFooter>
+      </ModalFooter>
     </>
   );
 }

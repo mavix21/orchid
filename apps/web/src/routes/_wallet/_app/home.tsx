@@ -143,7 +143,7 @@ function Home({
 
   return (
     <Screen>
-      <main className="flex flex-1 flex-col gap-10 px-5 pt-2 pb-30">
+      <main className="flex flex-1 flex-col gap-10 px-5 pt-2 pb-30 md:pb-16">
         <BalanceHeader username={holding.profile.username} dollars={dollars} />
         {Option.isSome(arrival) ? (
           <WaitingPayment
@@ -224,7 +224,7 @@ function Reopening({
 
   return (
     <Screen>
-      <div className="flex flex-1 flex-col pb-30">
+      <div className="flex flex-1 flex-col pb-30 md:pb-16">
         <OpeningFlow
           username={username}
           arrival={arrival}

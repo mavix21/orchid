@@ -31,7 +31,7 @@ import {
 import { TopNav } from "@/components/top-nav";
 import { type RecoverableLink, lostLinkMessage } from "@/links/outcomes";
 import { ResultButton } from "@/links/link-result";
-import { LinkShareDrawer, useLinkReveal } from "@/links/link-reveal";
+import { LinkShareModal, useLinkReveal } from "@/links/link-reveal";
 import { RecoveryAnswer, useRecovery } from "@/links/recovery";
 import { amountLabel } from "@/send/money";
 import { unavailableMessage } from "@/wallet/unavailable";
@@ -237,10 +237,7 @@ function PaymentLinks() {
       ) : (
         <ListProblem message={listProblem(links)} />
       )}
-      <LinkShareDrawer
-        sharing={sharing}
-        onRecover={(target) => begin(target)}
-      />
+      <LinkShareModal sharing={sharing} onRecover={(target) => begin(target)} />
     </LinksFrame>
   );
 }

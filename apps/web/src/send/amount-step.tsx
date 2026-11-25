@@ -21,7 +21,7 @@ import {
   intentOf,
 } from "./intent";
 import { AmountPad } from "./amount-pad";
-import { MemoDrawer } from "./memo-drawer";
+import { MemoModal } from "./memo-modal";
 import { shortAddress } from "./money";
 
 const messageFor = (problem: Option.Option<FieldProblem>, field: SendField) =>
@@ -130,7 +130,7 @@ export function AmountStep({
         </ScreenActions>
       </form>
       {destination === "address" ? (
-        <MemoDrawer
+        <MemoModal
           open={memoOpen}
           memo={form.memo}
           problem={memoProblem}

@@ -34,7 +34,7 @@ const skeletonRows = ["first", "second", "third", "fourth"];
 function ActivityFrame({ children }: { children: React.ReactNode }) {
   return (
     <Screen>
-      <main className="flex flex-1 flex-col gap-4 px-5 pt-6 pb-30">
+      <main className="flex flex-1 flex-col gap-4 px-5 pt-6 pb-30 md:pt-2 md:pb-16">
         <h1 className="font-display text-h1">Actividad</h1>
         {children}
       </main>

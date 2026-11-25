@@ -1,0 +1,150 @@
+import {
+  ArrowLeftRightIcon,
+  ClockIcon,
+  HouseIcon,
+  MoonIcon,
+  SunIcon,
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { Button } from "@workspace/ui/components/button";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@workspace/ui/components/sidebar";
+import { Skeleton } from "@workspace/ui/components/skeleton";
+import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
+
+import { BrandLogo } from "@/components/brand-logo";
+import { useTheme } from "@/components/theme-provider";
+import { UserAvatar } from "@/components/user-avatar";
+import { me } from "@/fixtures/account";
+import { useWalletTask } from "@/send/use-wallet-task";
+import { walletEffects } from "@/wallet";
+
+type SavedUsername = {
+  readonly read: boolean;
+  readonly username: Option.Option<string>;
+};
+
+function useSavedUsername() {
+  const task = useWalletTask();
+
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+
+  const [saved, setSaved] = useState<SavedUsername>({
+    read: false,
+    username: Option.none(),
+  });
+
+  useEffect(() => {
+    task.run(walletEffects.saved(), (answer) =>
+      setSaved({
+        read: true,
+        username: Predicate.isTagged(answer, "SavedWallet")
+          ? Option.some(answer.username)
+          : Option.none(),
+      }),
+    );
+  }, [pathname]);
+
+  return saved;
+}
+
+function SidebarIdentity() {
+  const { read, username } = useSavedUsername();
+
+  if (!read)
+    return <Skeleton aria-label="Cargando tu usuario" className="h-4 w-24" />;
+
+  return Option.match(username, {
+    onNone: () => <span>Perfil</span>,
+    onSome: (name) => <span data-testid="sidebar-username">@{name}</span>,
+  });
+}
+
+function ThemeToggle() {
+  const { setTheme } = useTheme();
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label="Cambiar entre modo claro y oscuro"
+      onClick={() =>
+        setTheme(
+          document.documentElement.classList.contains("dark")
+            ? "light"
+            : "dark",
+        )
+      }
+    >
+      <MoonIcon className="text-icon-muted dark:hidden" />
+      <SunIcon className="hidden text-icon-muted dark:block" />
+    </Button>
+  );
+}
+
+export function AppSidebar() {
+  return (
+    <Sidebar collapsible="none" className="sticky top-0 hidden h-svh md:flex">
+      <SidebarHeader>
+        <Link
+          to="/home"
+          aria-label="Orchid, ir al inicio"
+          className="w-fit rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          <BrandLogo />
+        </Link>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <nav aria-label="Principal">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton render={<Link to="/home" />}>
+                  <HouseIcon />
+                  <span>Inicio</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton>
+                  <ArrowLeftRightIcon />
+                  <span>Swap</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton render={<Link to="/activity" />}>
+                  <ClockIcon />
+                  <span>Actividad</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </nav>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarFooter>
+        <div className="flex items-center gap-1">
+          <SidebarMenu className="min-w-0 flex-1">
+            <SidebarMenuItem>
+              <SidebarMenuButton size="lg">
+                <UserAvatar profile={me} />
+                <SidebarIdentity />
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+          <ThemeToggle />
+        </div>
+      </SidebarFooter>
+    </Sidebar>
+  );
+}
