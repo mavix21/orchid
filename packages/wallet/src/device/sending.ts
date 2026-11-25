@@ -15,6 +15,7 @@ import {
   TransferOrder,
   type WalletPort,
   type WalletUnavailable,
+  type TransferIntent,
 } from "../contract";
 import {
   type CorruptDeviceWallet,
@@ -34,7 +35,6 @@ import {
   PaymentReview,
   type ResumeOutcome,
   type SendOutcome,
-  type TransferIntent,
   UnsupportedDevice,
 } from "./outcomes";
 import {

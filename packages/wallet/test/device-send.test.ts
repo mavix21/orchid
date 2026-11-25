@@ -7,12 +7,13 @@ import {
   Offline,
   PositiveAmount,
   Settled,
+  TransferIntent,
   Username,
   UsernameRecipient,
   type WalletPort,
   baseAsset,
 } from "../src/contract";
-import { TransferIntent, makeWalletEffects } from "../src/device/client";
+import { makeWalletEffects } from "../src/device/client";
 import { DeviceWallet, memoryKeyStore } from "./device-fixtures";
 import {
   approvingDevice,

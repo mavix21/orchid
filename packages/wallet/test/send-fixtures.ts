@@ -11,6 +11,7 @@ import {
   PaymentMemo,
   PositiveAmount,
   type ResolvedRecipient,
+  TransferIntent,
   TransferOrder,
   type TransferStep,
   type UnsignedEnvelope,
@@ -18,7 +19,7 @@ import {
   baseAsset,
 } from "../src/contract";
 import { browserKeyStore } from "../src/device/browser-key-store";
-import { TransferIntent, type WalletEffects } from "../src/device/client";
+import type { WalletEffects } from "../src/device/client";
 import type { DeviceRecords, SealedKeyStore } from "../src/device/key-store";
 import {
   type DeviceWallet,

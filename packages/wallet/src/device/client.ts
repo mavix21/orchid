@@ -10,6 +10,7 @@ import {
   type TransferId,
   type WalletPort,
   type WalletUnavailable,
+  type TransferIntent,
 } from "../contract";
 import { type LinkCode } from "./link-code";
 import {
@@ -57,7 +58,6 @@ import {
   type ReviewOutcome,
   type SavedOutcome,
   SavedWallet,
-  type TransferIntent,
   type UnlockOutcome,
   Unlocked,
   UnsupportedDevice,

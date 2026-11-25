@@ -1,9 +1,12 @@
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import {
+  type AccountAddress,
   AssetUnsupported,
+  type DestinationAddress,
   ClaimableLimitReached,
   ExternalRecipient,
   LinkRecipient,
@@ -15,15 +18,33 @@ import {
 import { baseAccountOf } from "../stellar/destination";
 import { claimableQuota } from "../stellar/network";
 import { Chain } from "./Chain.server";
-import { claimableQuotaFlow } from "./claimable-quota.server";
+import { type QuotaCheck, claimableQuotaFlow } from "./claimable-quota.server";
 import type { Holdings } from "./ledger-assets.server";
 import { rpcReadConcurrency } from "./settings.server";
+
+export type TransferTerms = Pick<
+  TransferOrder,
+  "from" | "to" | "asset" | "amount" | "memo"
+>;
+
+export type DeliveryRoute = Data.TaggedEnum<{
+  PaymentLink: { readonly address: AccountAddress };
+  Claimable: { readonly address: AccountAddress };
+  Payment: { readonly address: DestinationAddress };
+}>;
+
+export const DeliveryRoute = Data.taggedEnum<DeliveryRoute>();
+
+export const isDeliveryRoute = (value: unknown): value is DeliveryRoute =>
+  DeliveryRoute.$is("PaymentLink")(value) ||
+  DeliveryRoute.$is("Claimable")(value) ||
+  DeliveryRoute.$is("Payment")(value);
 
 export const paymentLinkAssetRefusal = Effect.gen(function* () {
   const chain = yield* Chain;
 
   return Effect.fn("Wallet.paymentLinkAssetRefusal")(function* (
-    order: TransferOrder,
+    order: TransferTerms,
     senderHoldings?: Holdings,
   ) {
     if (!Predicate.isTagged(order.asset, "Issued"))
@@ -67,28 +88,24 @@ export const deliveryFlow = Effect.gen(function* () {
   const { quotaFull } = yield* claimableQuotaFlow;
   const checkLinkAsset = yield* paymentLinkAssetRefusal;
 
-  return Effect.fn("Wallet.delivery")(function* (
-    order: TransferOrder,
+  const route = Effect.fn("Wallet.deliveryRoute")(function* (
+    terms: TransferTerms,
     recipient: ResolvedRecipient,
+    quota: QuotaCheck,
     senderHoldings?: Holdings,
   ) {
     if (recipient instanceof LinkRecipient) {
-      const refusal = yield* checkLinkAsset(order, senderHoldings);
+      const refusal = yield* checkLinkAsset(terms, senderHoldings);
 
       if (Option.isSome(refusal)) return refusal.value;
 
-      if (yield* quotaFull(order.from, "paymentLink"))
+      if (yield* quota(terms.from, "paymentLink"))
         return new ClaimableLimitReached({ limit: claimableQuota.paymentLink });
 
-      return yield* chain.draftPaymentLink(
-        order.from,
-        recipient.address,
-        order.asset,
-        order.amount,
-      );
+      return DeliveryRoute.PaymentLink({ address: recipient.address });
     }
 
-    const assets = Match.valueTags(order.asset, {
+    const assets = Match.valueTags(terms.asset, {
       Native: () => [],
       Issued: (asset) => [asset],
     });
@@ -110,7 +127,7 @@ export const deliveryFlow = Effect.gen(function* () {
           ? "no_trustline"
           : !line.value.authorized
             ? "not_authorized"
-            : line.value.capacity < order.amount
+            : line.value.capacity < terms.amount
               ? "no_capacity"
               : undefined;
 
@@ -123,27 +140,44 @@ export const deliveryFlow = Effect.gen(function* () {
           reason,
           linkable:
             missing &&
-            Option.isNone(yield* checkLinkAsset(order, senderHoldings)),
+            Option.isNone(yield* checkLinkAsset(terms, senderHoldings)),
         });
       }
 
-      if (yield* quotaFull(order.from, "username"))
+      if (yield* quota(terms.from, "username"))
         return new ClaimableLimitReached({ limit: claimableQuota.username });
 
-      return yield* chain.draftClaimable(
-        order.from,
-        recipient.address,
-        order.asset,
-        order.amount,
-      );
+      return DeliveryRoute.Claimable({ address: recipient.address });
     }
 
-    return yield* chain.draftPayment(
-      order.from,
-      recipient.address,
-      order.asset,
-      order.amount,
-      order.memo,
-    );
+    return DeliveryRoute.Payment({ address: recipient.address });
   });
+
+  const draft = (order: TransferOrder, delivery: DeliveryRoute) =>
+    Match.valueTags(delivery, {
+      PaymentLink: ({ address }) =>
+        chain.draftPaymentLink(order.from, address, order.asset, order.amount),
+      Claimable: ({ address }) =>
+        chain.draftClaimable(order.from, address, order.asset, order.amount),
+      Payment: ({ address }) =>
+        chain.draftPayment(
+          order.from,
+          address,
+          order.asset,
+          order.amount,
+          order.memo,
+        ),
+    });
+
+  const delivery = Effect.fn("Wallet.delivery")(function* (
+    order: TransferOrder,
+    recipient: ResolvedRecipient,
+    senderHoldings?: Holdings,
+  ) {
+    const routed = yield* route(order, recipient, quotaFull, senderHoldings);
+
+    return isDeliveryRoute(routed) ? yield* draft(order, routed) : routed;
+  });
+
+  return { route, draft, delivery };
 });

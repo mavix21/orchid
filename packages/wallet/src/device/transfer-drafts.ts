@@ -11,12 +11,12 @@ import {
   type TransferDraft,
   TransferOrder,
   assetKey,
+  type TransferIntent,
 } from "../contract";
 import type { PaymentLinkFacts } from "../stellar/asset-envelopes";
 import { readEnvelope } from "../stellar/envelopes";
 import { network } from "../stellar/network";
 import { type PublicDeviceWallet, receiptJson } from "./key-store";
-import type { TransferIntent } from "./outcomes";
 
 export const clockAllowance = 60;
 

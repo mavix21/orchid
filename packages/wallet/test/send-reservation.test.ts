@@ -12,12 +12,12 @@ import {
   ExternalRecipient,
   Pending,
   TransferId,
+  TransferIntent,
   TransferOrder,
   baseAsset,
 } from "../src/contract";
 import {
   PaymentLinkIntent,
-  TransferIntent,
   type WalletEffects,
   makeWalletEffects,
 } from "../src/device/client";

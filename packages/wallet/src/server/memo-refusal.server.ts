@@ -11,7 +11,7 @@ import { baseAccountOf, isMuxed } from "../stellar/destination";
 import type { KnownExchangeMemo } from "./exchange-memos.server";
 
 export const memoRefusal = (
-  order: TransferOrder,
+  order: Pick<TransferOrder, "memo">,
   recipient: ResolvedRecipient,
   requirement: Option.Option<KnownExchangeMemo>,
 ): Option.Option<ExternalMemoRequired | MemoNotAllowed> => {

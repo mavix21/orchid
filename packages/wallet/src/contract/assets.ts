@@ -4,7 +4,7 @@ import * as Schema from "effect/Schema";
 import { AccountAddress } from "./identity";
 
 export const AssetCode = Schema.String.check(
-  Schema.isPattern(/^[a-zA-Z0-9]{1,12}$/),
+  Schema.isPattern(/^[a-zA-Z0-9]{1,12}$/u),
 ).pipe(Schema.brand("AssetCode"));
 
 export type AssetCode = typeof AssetCode.Type;
@@ -71,7 +71,7 @@ export function formatAmount(amount: Amount): string {
 }
 
 export const BalanceId = Schema.String.check(
-  Schema.isPattern(/^00000000[0-9a-f]{64}$/),
+  Schema.isPattern(/^00000000[0-9a-f]{64}$/u),
 ).pipe(Schema.brand("BalanceId"));
 
 export type BalanceId = typeof BalanceId.Type;
