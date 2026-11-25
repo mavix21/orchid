@@ -10,6 +10,8 @@ import {
   AddressBound,
   type Approval,
   type Approvals,
+  HumanCheckRefused,
+  type HumanCheckToken,
   InvalidAddress,
   NotSponsored,
   Opened,
@@ -30,12 +32,9 @@ import {
   ChainUnreachable,
   Sealed,
 } from "./Chain.server";
-import {
-  Directory,
-  StoreFailure,
-  type WalletRow,
-  unavailability,
-} from "./Directory.server";
+import { Directory, StoreFailure, type WalletRow } from "./Directory.server";
+import { type BindingCheck, unavailability } from "./username-standing.server";
+import { HumanCheck } from "./HumanCheck.server";
 import { openingAttempt, pairedRecovery } from "./opening-attempt.server";
 import { SignedWorkInFlight } from "./slot.server";
 import { confirmedReads, live } from "./wallet-reads.server";
@@ -43,6 +42,7 @@ import { confirmedReads, live } from "./wallet-reads.server";
 export const openingFlow = Effect.gen(function* () {
   const chain = yield* Chain;
   const directory = yield* Directory;
+  const humanCheck = yield* HumanCheck;
   const { readAccount } = yield* confirmedReads;
 
   const openedOrBound = Effect.fn("Wallet.openedOrBound")(function* (
@@ -80,11 +80,16 @@ export const openingFlow = Effect.gen(function* () {
   });
 
   const activated = (
-    active: Option.Option<Profile> | UsernameTaken | AddressBound,
+    active:
+      | Option.Option<Profile>
+      | UsernameTaken
+      | AddressBound
+      | HumanCheckRefused,
   ): OpenStep => {
     if (
       Predicate.isTagged(active, "UsernameTaken") ||
-      Predicate.isTagged(active, "AddressBound")
+      Predicate.isTagged(active, "AddressBound") ||
+      active instanceof HumanCheckRefused
     )
       return active;
 
@@ -97,6 +102,7 @@ export const openingFlow = Effect.gen(function* () {
     row: WalletRow,
     state: AccountState,
     claim: WalletClaim,
+    check: BindingCheck,
   ): Effect.fn.Return<
     Option.Option<OpenStep>,
     StoreFailure | ChainUnreachable
@@ -144,7 +150,9 @@ export const openingFlow = Effect.gen(function* () {
       return Option.some(new OpeningPending());
 
     return Option.some(
-      activated(yield* directory.activatePaired(row, facts.value, claim)),
+      activated(
+        yield* directory.activatePaired(row, facts.value, claim, check),
+      ),
     );
   });
 
@@ -158,6 +166,7 @@ export const openingFlow = Effect.gen(function* () {
     state: AccountState,
     approvals: Option.Option<Approvals>,
     claim: WalletClaim,
+    check: BindingCheck,
     pairedAllowed: boolean,
   ): Effect.fn.Return<OpenStep, StoreFailure | ChainUnreachable> {
     const address = Schema.decodeSync(AccountAddress)(row.address);
@@ -165,7 +174,7 @@ export const openingFlow = Effect.gen(function* () {
     if (!state.sponsored) return new NotSponsored();
 
     if (pairedAllowed) {
-      const paired = yield* pairedActivation(row, state, claim);
+      const paired = yield* pairedActivation(row, state, claim, check);
 
       if (Option.isSome(paired)) return paired.value;
     }
@@ -218,7 +227,7 @@ export const openingFlow = Effect.gen(function* () {
       return new OpeningPending();
 
     return activated(
-      yield* directory.activate(row, sealed.value, facts.value, claim),
+      yield* directory.activate(row, sealed.value, facts.value, claim, check),
     );
   });
 
@@ -270,7 +279,10 @@ export const openingFlow = Effect.gen(function* () {
   const open = Effect.fn("Wallet.open")(function* (
     claim: WalletClaim,
     approvals: Option.Option<Approvals>,
+    token: Option.Option<HumanCheckToken>,
   ): Effect.fn.Return<OpenStep, StoreFailure | ChainUnreachable> {
+    const check = humanCheck.verify(token);
+
     if (!chain.validAddress(claim.address))
       return new InvalidAddress({ address: claim.address });
 
@@ -298,7 +310,14 @@ export const openingFlow = Effect.gen(function* () {
         if (row.status === "active") return yield* openedOrBound(row, claim);
 
         return row.recoveryDraft && row.recoveryMaxTime
-          ? yield* recoveryStage(row, state.value, approvals, claim, false)
+          ? yield* recoveryStage(
+              row,
+              state.value,
+              approvals,
+              claim,
+              check,
+              false,
+            )
           : yield* saveRecoveryDraft(row, request, claim);
       }
 
@@ -333,7 +352,14 @@ export const openingFlow = Effect.gen(function* () {
     }
 
     if (usable && Option.isSome(state))
-      return yield* recoveryStage(row, state.value, approvals, claim, true);
+      return yield* recoveryStage(
+        row,
+        state.value,
+        approvals,
+        claim,
+        check,
+        true,
+      );
 
     const attempt = openingAttempt(row);
 
@@ -368,6 +394,7 @@ export const openingFlow = Effect.gen(function* () {
             confirmed.value,
             Option.none(),
             claim,
+            check,
             false,
           );
       }
@@ -392,6 +419,7 @@ export const openingFlow = Effect.gen(function* () {
         claim,
         sealed.value.recovery,
         Option.isSome(state),
+        check,
       );
 
       if (written instanceof SignedWorkInFlight) {
@@ -406,7 +434,8 @@ export const openingFlow = Effect.gen(function* () {
 
       if (
         Predicate.isTagged(written, "UsernameTaken") ||
-        Predicate.isTagged(written, "AddressBound")
+        Predicate.isTagged(written, "AddressBound") ||
+        written instanceof HumanCheckRefused
       )
         return written;
 

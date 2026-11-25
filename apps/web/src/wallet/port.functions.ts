@@ -12,6 +12,7 @@ import {
   EnrollStep,
   ExternalLinkOrder,
   ExternalLinkStep,
+  HumanCheckToken,
   PasskeyAssertion,
   PasskeyChallenge,
   RestoreStep,
@@ -33,15 +34,18 @@ import {
 } from "@workspace/wallet";
 import { Wallet } from "@workspace/wallet/server";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import { answerWallet } from "../server/wallet.server";
+import { takeHumanCheck } from "./human-check";
 
 const OverviewCall = Schema.Struct({ address: AccountAddress });
 
 const OpenCall = Schema.Struct({
   claim: WalletClaim,
   approvals: Schema.OptionFromNullOr(Approvals),
+  humanCheck: Schema.OptionFromNullOr(HumanCheckToken),
 });
 
 const TransferCall = Schema.Struct({
@@ -96,7 +100,9 @@ const openFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof OpenCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(OpenCall, data, OpenStep, (decoded) =>
-      Wallet.use((wallet) => wallet.open(decoded.claim, decoded.approvals)),
+      Wallet.use((wallet) =>
+        wallet.open(decoded.claim, decoded.approvals, decoded.humanCheck),
+      ),
     ),
   );
 
@@ -253,7 +259,15 @@ export const port: WalletPort = {
     ),
   overview: (address) => reach(Overview, OverviewCall, { address }, overviewFn),
   open: (claim, approvals) =>
-    reach(OpenStep, OpenCall, { claim, approvals }, openFn),
+    Effect.promise(() =>
+      Option.isSome(approvals)
+        ? takeHumanCheck()
+        : Promise.resolve(Option.none<HumanCheckToken>()),
+    ).pipe(
+      Effect.flatMap((humanCheck) =>
+        reach(OpenStep, OpenCall, { claim, approvals, humanCheck }, openFn),
+      ),
+    ),
   transfer: (order, approval) =>
     reach(TransferStep, TransferCall, { order, approval }, transferFn),
 };

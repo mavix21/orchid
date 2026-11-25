@@ -17,17 +17,15 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
-import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
-  AddressBound,
+  HumanCheckRefused,
   OpeningDraft,
   Profile,
   SigningRequest,
   Username,
-  UsernameTaken,
   WalletClaim,
 } from "../contract";
 import type { RecoveryFacts } from "../stellar/envelopes";
@@ -37,7 +35,15 @@ import { pairedRecovery } from "./opening-attempt.server";
 import { walletHasSignedWork } from "./signed-work.server";
 import { SignedWorkInFlight, walletLock } from "./slot.server";
 import { usernames, wallets } from "./tables.server";
-import { reserved } from "./usernames.server";
+import {
+  type BindingCheck,
+  type Unavailable,
+  availability,
+  decidedWithoutBinding,
+  profileOf,
+  unavailability,
+  Available,
+} from "./username-standing.server";
 
 export class StoreFailure extends Schema.TaggedError<StoreFailure>()(
   "StoreFailure",
@@ -47,47 +53,6 @@ export class StoreFailure extends Schema.TaggedError<StoreFailure>()(
 ) {}
 
 export type WalletRow = typeof wallets.$inferSelect;
-
-type NameRow = Pick<typeof usernames.$inferSelect, "username" | "address">;
-
-export class Available extends Schema.TaggedClass<Available>()(
-  "Available",
-  {},
-) {}
-
-export type Unavailable = UsernameTaken | AddressBound;
-
-export const unavailability = (
-  availability: Available | Unavailable,
-): Option.Option<Unavailable> =>
-  Match.valueTags(availability, {
-    Available: () => Option.none(),
-    UsernameTaken: Option.some,
-    AddressBound: Option.some,
-  });
-
-const profileOf = (name: NameRow) =>
-  new Profile({
-    address: Schema.decodeSync(AccountAddress)(name.address),
-    username: Schema.decodeSync(Username)(name.username),
-  });
-
-function availability(
-  claim: WalletClaim,
-  found: ReadonlyArray<NameRow>,
-): Available | Unavailable {
-  const own = found.find((name) => name.address === claim.address);
-
-  if (own)
-    return own.username === claim.username
-      ? new Available()
-      : new AddressBound({ profile: profileOf(own) });
-
-  if (found.length > 0 || reserved(claim.username))
-    return new UsernameTaken({ username: claim.username });
-
-  return new Available();
-}
 
 export class Directory extends Context.Service<
   Directory,
@@ -121,6 +86,7 @@ export class Directory extends Context.Service<
       claim: WalletClaim,
       recovery: Option.Option<Sealed>,
       repairing: boolean,
+      check: BindingCheck,
     ): Effect.Effect<
       WalletRow | Unavailable | SignedWorkInFlight,
       StoreFailure
@@ -134,11 +100,13 @@ export class Directory extends Context.Service<
       sealed: Sealed,
       facts: RecoveryFacts,
       claim: WalletClaim,
+      check: BindingCheck,
     ): Effect.Effect<Option.Option<Profile> | Unavailable, StoreFailure>;
     activatePaired(
       row: WalletRow,
       facts: RecoveryFacts,
       claim: WalletClaim,
+      check: BindingCheck,
     ): Effect.Effect<Option.Option<Profile> | Unavailable, StoreFailure>;
     hasSignedWork(
       address: AccountAddress,
@@ -196,17 +164,31 @@ export class Directory extends Context.Service<
       const lockRow = (tx: Transaction, matching: SQL | undefined) =>
         tx.select().from(wallets).where(matching).for("update");
 
+      const prepareBind = Effect.fn("Directory.prepareBind")(function* (
+        claim: WalletClaim,
+        check: BindingCheck,
+      ) {
+        const holders = yield* boundNames(db, nameOrAddress(claim));
+
+        if (Option.isSome(decidedWithoutBinding(claim, holders)))
+          return "unchecked";
+
+        const refused = yield* check;
+
+        return Option.isSome(refused) ? refused.value : "verified";
+      });
+
       const bind = Effect.fn("Directory.bind")(function* (
         tx: Transaction,
         claim: WalletClaim,
+        prepared: "verified" | "unchecked",
       ) {
-        if (reserved(claim.username)) {
-          const own = yield* boundNames(tx, nameOrAddress(claim));
+        const holders = yield* boundNames(tx, nameOrAddress(claim));
+        const decided = decidedWithoutBinding(claim, holders);
 
-          return own.some((name) => name.address === claim.address)
-            ? availability(claim, own)
-            : new UsernameTaken({ username: claim.username });
-        }
+        if (Option.isSome(decided)) return decided.value;
+
+        if (prepared !== "verified") return new HumanCheckRefused();
 
         const inserted = yield* tx
           .insert(usernames)
@@ -216,14 +198,14 @@ export class Directory extends Context.Service<
 
         if (inserted[0]) return new Available();
 
-        const holders = yield* boundNames(tx, nameOrAddress(claim));
+        const raced = yield* boundNames(tx, nameOrAddress(claim));
 
-        if (holders.length === 0)
+        if (raced.length === 0)
           return yield* new StoreFailure({
             cause: new Error("Binding conflict without a holder"),
           });
 
-        return availability(claim, holders);
+        return availability(claim, raced);
       });
 
       const start = Effect.fn("Directory.start")(function* (
@@ -293,12 +275,17 @@ export class Directory extends Context.Service<
         claim: WalletClaim,
         recovery: Option.Option<Sealed>,
         repairing: boolean,
+        check: BindingCheck,
       ) {
         const unchanged = and(
           scope,
           eq(wallets.address, row.address),
           eq(wallets.version, row.version),
         );
+
+        const prepared = yield* prepareBind(claim, check);
+
+        if (prepared instanceof HumanCheckRefused) return prepared;
 
         const outcome = yield* db.transaction((tx) =>
           Effect.gen(function* () {
@@ -317,7 +304,7 @@ export class Directory extends Context.Service<
             )
               return new SignedWorkInFlight();
 
-            const bound = yield* bind(tx, claim);
+            const bound = yield* bind(tx, claim, prepared);
 
             const refused = unavailability(bound);
 
@@ -349,6 +336,7 @@ export class Directory extends Context.Service<
         if (
           Predicate.isTagged(outcome, "UsernameTaken") ||
           Predicate.isTagged(outcome, "AddressBound") ||
+          outcome instanceof HumanCheckRefused ||
           Predicate.isTagged(outcome, "SignedWorkInFlight")
         )
           return outcome;
@@ -383,20 +371,25 @@ export class Directory extends Context.Service<
         return written[0] ?? (yield* current(row));
       });
 
-      const activateWhere = (
+      const activateWhere = Effect.fn("Directory.activateWhere")(function* (
         activatable: SQL | undefined,
         version: number,
         sealed: Sealed,
         facts: RecoveryFacts,
         claim: WalletClaim,
-      ) =>
-        db.transaction((tx) =>
+        check: BindingCheck,
+      ) {
+        const prepared = yield* prepareBind(claim, check);
+
+        if (prepared instanceof HumanCheckRefused) return prepared;
+
+        return yield* db.transaction((tx) =>
           Effect.gen(function* () {
             const locked = yield* lockRow(tx, activatable);
 
             if (!locked[0]) return Option.none<Profile>();
 
-            const bound = yield* bind(tx, claim);
+            const bound = yield* bind(tx, claim, prepared);
 
             const refused = unavailability(bound);
 
@@ -429,6 +422,7 @@ export class Directory extends Context.Service<
             return written[0] ? Option.some(new Profile(claim)) : Option.none();
           }),
         );
+      });
 
       const unactivated = (row: WalletRow) =>
         and(
@@ -444,6 +438,7 @@ export class Directory extends Context.Service<
         sealed: Sealed,
         facts: RecoveryFacts,
         claim: WalletClaim,
+        check: BindingCheck,
       ) =>
         activateWhere(
           and(
@@ -454,12 +449,14 @@ export class Directory extends Context.Service<
           sealed,
           facts,
           claim,
+          check,
         );
 
       const activatePaired = (
         row: WalletRow,
         facts: RecoveryFacts,
         claim: WalletClaim,
+        check: BindingCheck,
       ) => {
         const signed = pairedRecovery(row);
 
@@ -477,6 +474,7 @@ export class Directory extends Context.Service<
               signed.value.sealed,
               facts,
               claim,
+              check,
             );
       };
 
@@ -554,13 +552,13 @@ export class Directory extends Context.Service<
           ),
         start: (address, initial) => wrap(start(address, initial)),
         draft: (row, request) => wrap(draft(row, request)),
-        seal: (row, sealed, claim, recovery, repairing) =>
-          wrap(seal(row, sealed, claim, recovery, repairing)),
+        seal: (row, sealed, claim, recovery, repairing, check) =>
+          wrap(seal(row, sealed, claim, recovery, repairing, check)),
         recoveryDraft: (row, request) => wrap(recoveryDraft(row, request)),
-        activate: (row, sealed, facts, claim) =>
-          wrap(activate(row, sealed, facts, claim)),
-        activatePaired: (row, facts, claim) =>
-          wrap(activatePaired(row, facts, claim)),
+        activate: (row, sealed, facts, claim, check) =>
+          wrap(activate(row, sealed, facts, claim, check)),
+        activatePaired: (row, facts, claim, check) =>
+          wrap(activatePaired(row, facts, claim, check)),
         hasSignedWork: (address) => wrap(walletHasSignedWork(db, address)),
         recover: (row) => wrap(recover(row)),
         recoverable: wrap(

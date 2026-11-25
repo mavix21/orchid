@@ -72,9 +72,10 @@ Creating an account needs two funded testnet accounts: the reserve sponsor and t
 ```sh
 RESERVE_SPONSOR_SECRET=S...
 FEE_PAYER_SECRET=S...
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
 ```
 
-Fund each public key with Friendbot (`https://friendbot.stellar.org/?addr=G...`). `STELLAR_RPC_URL` and `PASSKEY_ORIGINS` (the comma-separated origins whose passkeys the server accepts) are set in `apps/web/wrangler.jsonc`. Testnet resets wipe both accounts; fund them again afterwards.
+Fund each public key with Friendbot (`https://friendbot.stellar.org/?addr=G...`). `TURNSTILE_SECRET_KEY` above is Cloudflare's documented test secret, which accepts the test widget's token; `TURNSTILE_SITE_KEY` in `apps/web/wrangler.jsonc` is the matching test site key. Deploys replace both with the real pair: the site key in `wrangler.jsonc` and the secret with `wrangler secret put TURNSTILE_SECRET_KEY`. `STELLAR_RPC_URL` and `PASSKEY_ORIGINS` (the comma-separated origins whose passkeys the server accepts) are also set in `apps/web/wrangler.jsonc`. Testnet resets wipe both accounts; fund them again afterwards.
 
 `bun run --cwd apps/web test:e2e` builds the app, serves it with `vite preview`, and creates and restores real testnet wallets in Chromium with a virtual passkey (`bunx playwright install chromium` once). It needs Docker. If `apps/web/.dev.vars` exists, the run uses its reserve sponsor and fee payer: the build copies them into the gitignored `apps/web/dist/server/.dev.vars`, which `vite preview` reads. Otherwise it creates a fresh pair, funds both with Friendbot and passes them only to the `vite preview` process as environment variables, so no key is written to disk. It never touches the database above: it starts a throwaway `orchid-e2e-database` container on port 55434, applies the migrations, points the preview server at it, and removes it when the run ends. Restart the development database with `docker start orchid-postgres`.
 

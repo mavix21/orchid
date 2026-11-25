@@ -27,6 +27,7 @@ import type {
   PasskeyChallenge,
   RestoreStep,
 } from "./backup";
+import { HumanCheckRefused, type HumanCheckToken } from "./human-check";
 import {
   AccountAddress,
   DestinationAddress,
@@ -54,6 +55,8 @@ export * from "./asset-orders";
 export * from "./assets";
 
 export * from "./backup";
+
+export * from "./human-check";
 
 export * from "./identity";
 
@@ -134,6 +137,7 @@ export const OpenStep = Schema.Union([
   Opened,
   UsernameTaken,
   AddressBound,
+  HumanCheckRefused,
   InvalidAddress,
   NotSponsored,
 ]);
@@ -637,6 +641,7 @@ export interface WalletPort<E = WalletUnavailable> {
   open(
     claim: WalletClaim,
     approvals: Option.Option<Approvals>,
+    humanCheck?: Option.Option<HumanCheckToken>,
   ): Effect.Effect<OpenStep, E>;
   transfer(
     order: TransferOrder,

@@ -14,5 +14,6 @@ export class WalletSettings extends Context.Service<
     readonly reserveSponsorSecret: Redacted.Redacted<string>;
     readonly feePayerSecret: Redacted.Redacted<string>;
     readonly passkeyOrigins: ReadonlyArray<string>;
+    readonly humanCheckSecret: Redacted.Redacted<string>;
   }
 >()("@workspace/wallet/server/WalletSettings") {}

@@ -4,6 +4,7 @@ import { Database, databaseLayer } from "@workspace/db";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
@@ -12,6 +13,7 @@ import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import { Chain } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
+import { HumanCheck } from "../src/server/HumanCheck.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { WalletSettings } from "../src/server/settings.server";
@@ -44,7 +46,13 @@ export const freshDatabase = async () => {
   return layer;
 };
 
+const acceptingHumanCheck = Layer.succeed(
+  HumanCheck,
+  HumanCheck.of({ verify: () => Effect.succeed(Option.none()) }),
+);
+
 const dependencies = Layer.mergeAll(
+  acceptingHumanCheck,
   Chain.layer,
   Directory.layer,
   Transfers.layer,
@@ -71,6 +79,7 @@ export const walletServices = (
         reserveSponsorSecret: Redacted.make(settings.sponsor.secret()),
         feePayerSecret: Redacted.make(settings.feePayer.secret()),
         passkeyOrigins: settings.passkeyOrigins,
+        humanCheckSecret: Redacted.make("1x0000000000000000000000000000000AA"),
       }),
     ),
     Layer.provide(database),

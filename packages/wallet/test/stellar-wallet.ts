@@ -14,7 +14,7 @@ import {
   rpcMethod,
   testRpcUrl,
 } from "./rpc-answering";
-import { settingsFor } from "./wallet-harness";
+import { fakeHumanCheck, settingsFor } from "./wallet-harness";
 
 export const stellarWallet = (
   reply: (
@@ -23,6 +23,7 @@ export const stellarWallet = (
   ) => Effect.Effect<Response, HttpClientError.HttpClientError>,
 ) =>
   Layer.fresh(Wallet.serviceLayer).pipe(
+    Layer.provide(fakeHumanCheck),
     Layer.provide(Layer.fresh(Chain.layer)),
     Layer.provide(settingsFor(testRpcUrl)),
     Layer.provide(httpClientAnswering((req) => reply(rpcMethod(req), req))),

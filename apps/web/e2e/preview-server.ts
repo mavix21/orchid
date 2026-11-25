@@ -5,6 +5,10 @@ import { fileURLToPath } from "node:url";
 
 import { fundWithFriendbot } from "@workspace/wallet/testnet";
 
+const humanCheckTestSecret = {
+  TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
+};
+
 const developerSecrets = fileURLToPath(
   new URL("../.dev.vars", import.meta.url),
 );
@@ -43,5 +47,6 @@ process.exit(
   await runScript(["preview", "--port", "4173", "--strictPort"], {
     ...process.env,
     ...secrets,
+    ...humanCheckTestSecret,
   }),
 );

@@ -21,6 +21,7 @@ const requestWalletLayer = Layer.suspend(() =>
         reserveSponsorSecret: Redacted.make(env.RESERVE_SPONSOR_SECRET),
         feePayerSecret: Redacted.make(env.FEE_PAYER_SECRET),
         passkeyOrigins: env.PASSKEY_ORIGINS.split(","),
+        humanCheckSecret: Redacted.make(env.TURNSTILE_SECRET_KEY),
       }),
     ),
     Layer.provide(databaseLayer(env.HYPERDRIVE)),

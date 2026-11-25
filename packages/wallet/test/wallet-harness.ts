@@ -23,6 +23,7 @@ import {
   Amount,
   Approval,
   type Approvals,
+  HumanCheckRefused,
   type OpeningDraft,
   PositiveAmount,
   type Recipient,
@@ -48,6 +49,7 @@ import {
   Undecided,
 } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
+import { HumanCheck } from "../src/server/HumanCheck.server";
 import { transfers } from "../src/server/tables.server";
 import {
   type KnownExchangeMemo,
@@ -97,6 +99,7 @@ export const dbLayer = databaseLayer({
 });
 
 export const world = {
+  humanCheckRefused: false,
   accounts: new Map<AccountAddress, AccountState>(),
   evidence: new Map<string, Settlement>(),
   submitted: new Array<Sealed>(),
@@ -142,6 +145,7 @@ export const settingsFor = (rpcUrl = "https://soroban-testnet.stellar.org") =>
     reserveSponsorSecret: Redacted.make(sponsor.secret()),
     feePayerSecret: Redacted.make(feePayer.secret()),
     passkeyOrigins: [passkeyOrigin],
+    humanCheckSecret: Redacted.make("human-check-secret"),
   });
 
 const settings = settingsFor();
@@ -404,10 +408,25 @@ export const fakeChain = Layer.effect(
   }),
 ).pipe(Layer.provide(realChain));
 
+export const bindingAllowed = Effect.succeed(Option.none<HumanCheckRefused>());
+
+export const fakeHumanCheck = Layer.succeed(
+  HumanCheck,
+  HumanCheck.of({
+    verify: () =>
+      Effect.succeed(
+        world.humanCheckRefused
+          ? Option.some(new HumanCheckRefused())
+          : Option.none(),
+      ),
+  }),
+);
+
 export const walletForDb = <E>(db: Layer.Layer<Database, E>) =>
   Wallet.serviceLayer.pipe(
     Layer.provide(storesFor(db)),
     Layer.provide(fakeChain),
+    Layer.provide(fakeHumanCheck),
     Layer.provide(settings),
   );
 
@@ -426,6 +445,7 @@ export const walletWithChain = (
           Effect.map(Chain, (a) => Chain.of({ ...a, ...override(a) })),
         ).pipe(Layer.provide(fakeChain)),
       ),
+      Layer.provide(fakeHumanCheck),
       Layer.provide(settings),
     ),
   );
@@ -626,6 +646,7 @@ export function useDisposableDatabase() {
     world.unmergeable.clear();
     world.exchangeMemos.length = 0;
     world.failSubmit = false;
+    world.humanCheckRefused = false;
     world.ledgerDown = false;
     world.unreadable.clear();
     world.claimablesDown = false;

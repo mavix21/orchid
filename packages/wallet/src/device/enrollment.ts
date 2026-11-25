@@ -200,6 +200,7 @@ export function makeEnrollmentEffects(
         );
       },
       UsernameTaken: Effect.succeed,
+      HumanCheckRefused: unexpected,
       RecoveryDraft: unexpected,
       OpeningPending: unexpected,
       Opened: unexpected,
