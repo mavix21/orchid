@@ -18,6 +18,7 @@ import {
   type AddressBound,
   type AssertionRefused,
   type BackupStored,
+  type ChallengeIssued,
   type ChallengeRefused,
   PaymentMemo,
   type PaymentLinksStep,
@@ -127,16 +128,29 @@ export class BackupLocated extends Schema.TaggedClass<BackupLocated>()(
 
 export class Unlocked extends Schema.TaggedClass<Unlocked>()("Unlocked", {}) {}
 
-export type UnlockOutcome =
-  | Unlocked
+export class SessionConfirmed extends Schema.TaggedClass<SessionConfirmed>()(
+  "SessionConfirmed",
+  {},
+) {}
+
+export type SessionRefusal =
   | NoWallet
   | PasskeyCancelled
   | PasskeyFailed
   | WrongCredential
   | AssertionRejected
+  | AssertionRefused
+  | ChallengeRefused
+  | NoBackup
   | UnsupportedDevice
   | CorruptDeviceWallet
   | WalletUnavailable;
+
+export type UnlockOutcome = Unlocked | SessionRefusal;
+
+export type SessionChallengeOutcome = ChallengeIssued | WalletUnavailable;
+
+export type ConfirmSessionOutcome = SessionConfirmed | SessionRefusal;
 
 export type EnrollmentRefusal =
   | BackupUnsupported

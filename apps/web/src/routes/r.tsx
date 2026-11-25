@@ -40,6 +40,7 @@ import { DeviceFailure, useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
 import { enrollmentEffects } from "@/wallet/enrollment";
 import { EnrollmentFlow } from "@/wallet/enrollment-flow";
+import { SessionConfirmation } from "@/wallet/session-confirmation";
 
 const publicOrigin = createIsomorphicFn()
   .server(() => getRequestUrl().origin)
@@ -79,7 +80,9 @@ type ReceiveStep = Data.TaggedEnum<{
   ExternalClaiming: { readonly open: PaymentLinkOpen };
   Enrolling: { readonly open: PaymentLinkOpen };
   Preparing: { readonly open: PaymentLinkOpen };
+  SessionNeeded: { readonly open: PaymentLinkOpen };
   Reviewing: {
+    readonly open: PaymentLinkOpen;
     readonly review: LinkReceiveReview;
     readonly problem: Option.Option<string>;
   };
@@ -177,8 +180,14 @@ function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
     task.run(walletEffects.reviewLinkReceive(code), (answer) =>
       setStep(
         Predicate.isTagged(answer, "LinkReceiveReview")
-          ? ReceiveStep.Reviewing({ review: answer, problem: Option.none() })
-          : concluded(answer, received),
+          ? ReceiveStep.Reviewing({
+              open,
+              review: answer,
+              problem: Option.none(),
+            })
+          : Predicate.isTagged(answer, "SessionRequired")
+            ? ReceiveStep.SessionNeeded({ open })
+            : concluded(answer, received),
       ),
     );
   };
@@ -217,20 +226,27 @@ function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
     );
   };
 
-  const confirm = (shown: LinkReceiveReview) => {
+  const confirm = (open: PaymentLinkOpen, shown: LinkReceiveReview) => {
     const received = amountLabel(shown.amount, shown.asset);
 
     setStep(ReceiveStep.Confirming({ review: shown }));
     task.run(walletEffects.confirmLinkReceive(shown, code), (answer) =>
       setStep(
         Predicate.isTagged(answer, "LinkReceiveReview")
-          ? ReceiveStep.Reviewing({ review: answer, problem: Option.none() })
-          : retriesReview(answer)
-            ? ReceiveStep.Reviewing({
-                review: shown,
-                problem: Option.some(receiveScreen(answer, received).message),
-              })
-            : concluded(answer, received),
+          ? ReceiveStep.Reviewing({
+              open,
+              review: answer,
+              problem: Option.none(),
+            })
+          : Predicate.isTagged(answer, "SessionRequired")
+            ? ReceiveStep.SessionNeeded({ open })
+            : retriesReview(answer)
+              ? ReceiveStep.Reviewing({
+                  open,
+                  review: shown,
+                  problem: Option.some(receiveScreen(answer, received).message),
+                })
+              : concluded(answer, received),
       ),
     );
   };
@@ -327,13 +343,27 @@ function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
         problem={Option.none()}
       />
     ),
-    Reviewing: ({ review: shown, problem }) => (
+    SessionNeeded: ({ open }) => (
+      <>
+        <ReceiveReview
+          sender={open.sender.username}
+          amount={amountLabel(open.amount, open.asset)}
+          testnet={false}
+          problem={Option.none()}
+        />
+        <SessionConfirmation
+          client={walletClient}
+          onConfirmed={() => review(open)}
+        />
+      </>
+    ),
+    Reviewing: ({ open, review: shown, problem }) => (
       <ReceiveReview
         sender={shown.sender.username}
         amount={amountLabel(shown.amount, shown.asset)}
         testnet={shown.network === "testnet"}
         problem={problem}
-        onConfirm={() => confirm(shown)}
+        onConfirm={() => confirm(open, shown)}
       />
     ),
     Confirming: ({ review: shown }) => (

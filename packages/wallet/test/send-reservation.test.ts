@@ -11,9 +11,11 @@ import {
   ExternalMemoRequired,
   ExternalRecipient,
   Pending,
+  SessionRequired,
   TransferId,
   TransferIntent,
   TransferOrder,
+  type WalletPort,
   baseAsset,
 } from "../src/contract";
 import {
@@ -167,6 +169,71 @@ it.effect(
       expect(
         Option.getOrThrow(yield* sealedKeyStore.readPublic()).approvedUntil,
       ).toBeUndefined();
+    }),
+);
+
+const sessionCheckedClient = Effect.fn(function* (
+  intercept: (drafted: WalletPort["transfer"]) => WalletPort["transfer"],
+) {
+  const drafting = yield* sealedDrafting(() => payment());
+
+  return makeWalletEffects(
+    { ...drafting.port, transfer: intercept(drafting.port.transfer) },
+    sealedKeyStore,
+    passkeys,
+    drafting.device,
+  );
+});
+
+const confirmingTransfer = (client: WalletEffects) =>
+  reviewed(client, toExchange).pipe(Effect.flatMap(client.confirm));
+
+it.live(
+  "a session refusal of the approval-bearing call withdraws the reservation because nothing was released",
+  () =>
+    Effect.gen(function* () {
+      const client = yield* sessionCheckedClient(
+        (drafted) => (order, approval) =>
+          Option.isSome(approval)
+            ? Effect.fail(new SessionRequired())
+            : drafted(order, approval),
+      );
+
+      assertTagged(yield* confirmingTransfer(client), "SessionRequired");
+      expect(
+        Option.getOrThrow(yield* sealedKeyStore.readPublic()).approvedUntil,
+      ).toBeUndefined();
+    }),
+);
+
+it.live(
+  "a session refusal of a poll after the order went pending keeps the reservation",
+  () =>
+    Effect.gen(function* () {
+      let released = false;
+
+      const client = yield* sessionCheckedClient(
+        (drafted) => (order, approval) => {
+          if (released) return Effect.fail(new SessionRequired());
+
+          if (Option.isNone(approval)) return drafted(order, approval);
+
+          released = true;
+
+          return Effect.succeed(
+            new Pending({
+              ...order,
+              recipient: new ExternalRecipient({ address: actors.exchange }),
+              expiresAt: DateTime.makeUnsafe(Date.now() + 60_000),
+            }),
+          );
+        },
+      );
+
+      assertTagged(yield* confirmingTransfer(client), "SessionRequired");
+      expect(
+        Option.getOrThrow(yield* sealedKeyStore.readPublic()).approvedUntil,
+      ).toBeDefined();
     }),
 );
 

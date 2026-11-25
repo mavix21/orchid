@@ -17,6 +17,8 @@ import {
 
 const stellarSecret = /S[A-Z2-7]{55}/;
 
+const sessionCookie = "orchid-session";
+
 const unfundedCode = "Bcru1zp9FViPqN8CJTvQuS2zg";
 
 const sharedLink = (text: string) => {
@@ -30,6 +32,32 @@ const sharedLink = (text: string) => {
     code,
     address: Option.getOrThrow(readLinkCode(code)).link,
   };
+};
+
+const sharedFundedLink = async (page: Page, senderUsername: string) => {
+  const shared: Array<string> = [];
+
+  await page.exposeFunction("recordShare", (text: string) => {
+    shared.push(text);
+  });
+  await page.addInitScript({
+    content: `Object.defineProperty(navigator, "share", { configurable: true, value: (data) => window.recordShare(data.text) });`,
+  });
+
+  const { address } = await enrollWallet(page, senderUsername);
+
+  await fundWithUsdc(address, "1");
+  await reviewLink(page);
+  await page.getByTestId("confirm-link").click();
+  await expect(page.getByTestId("link-created")).toBeVisible({
+    timeout: 120_000,
+  });
+  await page.getByTestId("share-link").click();
+  await expect.poll(() => shared).toHaveLength(1);
+
+  const [original = ""] = shared;
+
+  return sharedLink(original);
 };
 
 const reviewLink = async (page: Page) => {
@@ -158,29 +186,13 @@ test("receives a link into a wallet created on the link page with two passkey pr
 }) => {
   test.setTimeout(600_000);
 
-  const shared: Array<string> = [];
-
-  await page.exposeFunction("recordShare", (text: string) => {
-    shared.push(text);
-  });
-  await page.addInitScript({
-    content: `Object.defineProperty(navigator, "share", { configurable: true, value: (data) => window.recordShare(data.text) });`,
-  });
-
   const senderUsername = freshUsername();
-  const { address } = await enrollWallet(page, senderUsername);
 
-  await fundWithUsdc(address, "1");
-  await reviewLink(page);
-  await page.getByTestId("confirm-link").click();
-  await expect(page.getByTestId("link-created")).toBeVisible({
-    timeout: 120_000,
-  });
-  await page.getByTestId("share-link").click();
-  await expect.poll(() => shared).toHaveLength(1);
-
-  const [original = ""] = shared;
-  const { link, code, address: linkAddress } = sharedLink(original);
+  const {
+    link,
+    code,
+    address: linkAddress,
+  } = await sharedFundedLink(page, senderUsername);
 
   const recipient = await browser.newPage();
   const requests: Array<string> = [];
@@ -272,4 +284,31 @@ test("receives a link into a wallet created on the link page with two passkey pr
     { timeout: 30_000 },
   );
   await expect(claimEntry).toHaveAttribute("data-counterparty", senderUsername);
+});
+
+test("confirms the wallet session before receiving a link into an existing wallet", async ({
+  browser,
+  page,
+}) => {
+  test.setTimeout(600_000);
+
+  const { link } = await sharedFundedLink(page, freshUsername());
+
+  const recipient = await browser.newPage();
+
+  await enrollWallet(recipient, freshUsername());
+  await recipient.context().clearCookies({ name: sessionCookie });
+
+  await recipient.goto(`/r${link.hash}`);
+  await recipient.getByTestId("receive-link").click();
+  await expect(recipient.getByTestId("session-confirmation")).toBeVisible({
+    timeout: 30_000,
+  });
+  await recipient.getByTestId("confirm-session").click();
+  await recipient.getByTestId("confirm-receive").click();
+  await expect(recipient.getByTestId("link-outcome")).toHaveAttribute(
+    "data-outcome",
+    "AssetSettled",
+    { timeout: 180_000 },
+  );
 });
