@@ -1,13 +1,5 @@
 import { useEffect, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@workspace/ui/components/drawer";
 import { Field, FieldError, FieldLabel } from "@workspace/ui/components/field";
 import {
   InputGroup,
@@ -16,9 +8,18 @@ import {
 } from "@workspace/ui/components/input-group";
 import * as Option from "effect/Option";
 
+import {
+  Modal,
+  ModalContent,
+  ModalDescription,
+  ModalFooter,
+  ModalHeader,
+  ModalTitle,
+} from "@/components/modal";
+
 import { memoByteLimit, memoBytes } from "./intent";
 
-export function MemoDrawer({
+export function MemoModal({
   open,
   memo,
   problem,
@@ -43,8 +44,8 @@ export function MemoDrawer({
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} showSwipeHandle>
-      <DrawerContent>
+    <Modal open={open} onOpenChange={onOpenChange}>
+      <ModalContent>
         <form
           className="flex flex-col gap-4"
           noValidate
@@ -53,13 +54,13 @@ export function MemoDrawer({
             save(draft.trim());
           }}
         >
-          <DrawerHeader>
-            <DrawerTitle>Memo</DrawerTitle>
-            <DrawerDescription>
+          <ModalHeader>
+            <ModalTitle>Memo</ModalTitle>
+            <ModalDescription>
               Escríbelo solo si el exchange te lo pide al depositar. Cópialo tal
               cual aparece en su pantalla.
-            </DrawerDescription>
-          </DrawerHeader>
+            </ModalDescription>
+          </ModalHeader>
           <div className="px-4">
             <Field>
               <FieldLabel htmlFor="memo">Memo</FieldLabel>
@@ -89,7 +90,7 @@ export function MemoDrawer({
               ) : null}
             </Field>
           </div>
-          <DrawerFooter>
+          <ModalFooter>
             <Button className="w-full" type="submit" data-testid="save-memo">
               Guardar memo
             </Button>
@@ -103,9 +104,9 @@ export function MemoDrawer({
                 Quitar memo
               </Button>
             )}
-          </DrawerFooter>
+          </ModalFooter>
         </form>
-      </DrawerContent>
-    </Drawer>
+      </ModalContent>
+    </Modal>
   );
 }

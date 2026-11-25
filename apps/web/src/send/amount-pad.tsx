@@ -88,7 +88,7 @@ export function AmountPad({
           Usar todo
         </Button>
       </div>
-      <div className="grid grid-cols-3 gap-1">
+      <div className="grid grid-cols-3 gap-1 md:pointer-fine:hidden">
         {keys.map((key) => (
           <Button
             key={key}

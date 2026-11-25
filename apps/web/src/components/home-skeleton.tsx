@@ -11,7 +11,7 @@ export function HomeSkeleton() {
       <main
         aria-busy="true"
         aria-label="Cargando tu cuenta"
-        className="flex flex-1 flex-col gap-10 px-5 pt-2 pb-30"
+        className="flex flex-1 flex-col gap-10 px-5 pt-2 pb-30 md:pb-16"
       >
         <section className="flex flex-col gap-6">
           <div className="flex items-center gap-3">

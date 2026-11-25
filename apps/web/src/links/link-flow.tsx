@@ -57,7 +57,7 @@ import {
 import {
   DeliveryActions,
   DeliveryNote,
-  LinkShareDrawer,
+  LinkShareModal,
   useLinkReveal,
 } from "./link-reveal";
 import { type ShareResult, copyLink, shareLink } from "./share-link";
@@ -427,10 +427,7 @@ function SavedLink({ link }: { link: SavedLinkTarget }) {
           Recuperar {amountLabel(link.amount, link.asset)}
         </Button>
       </ScreenActions>
-      <LinkShareDrawer
-        sharing={sharing}
-        onRecover={(target) => begin(target)}
-      />
+      <LinkShareModal sharing={sharing} onRecover={(target) => begin(target)} />
     </>
   );
 }

@@ -1,20 +1,20 @@
 import { CheckIcon, CopyIcon, ShareIcon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@workspace/ui/components/button";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@workspace/ui/components/drawer";
 import type { PaymentLinkRevealed, SavedLinkTarget } from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
+import {
+  Modal,
+  ModalContent,
+  ModalDescription,
+  ModalFooter,
+  ModalHeader,
+  ModalTitle,
+} from "@/components/modal";
 import { amountLabel } from "@/send/money";
 import { useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
@@ -172,7 +172,7 @@ export function useLinkReveal() {
   };
 }
 
-export function LinkShareDrawer({
+export function LinkShareModal({
   sharing,
   onRecover,
 }: {
@@ -182,34 +182,33 @@ export function LinkShareDrawer({
   const { reveal, open, share, copy, close } = sharing;
 
   return (
-    <Drawer
+    <Modal
       open={!Predicate.isTagged(reveal, "Closed")}
       onOpenChange={(next) => {
         if (!next) close();
       }}
-      showSwipeHandle
     >
-      <DrawerContent data-testid="link-share-drawer">
+      <ModalContent testId="link-share-drawer">
         {Match.valueTags(reveal, {
           Closed: () => null,
           Opening: () => (
-            <DrawerHeader>
-              <DrawerTitle>Abriendo tu link…</DrawerTitle>
-              <DrawerDescription>
+            <ModalHeader>
+              <ModalTitle>Abriendo tu link…</ModalTitle>
+              <ModalDescription>
                 Confirma con tu passkey para compartirlo.
-              </DrawerDescription>
-            </DrawerHeader>
+              </ModalDescription>
+            </ModalHeader>
           ),
           Opened: ({ link, delivery, delivering }) => (
             <>
-              <DrawerHeader>
-                <DrawerTitle>Comparte tu link</DrawerTitle>
-                <DrawerDescription>
+              <ModalHeader>
+                <ModalTitle>Comparte tu link</ModalTitle>
+                <ModalDescription>
                   {`Quien abra el link podrá recibir ${amountLabel(link.amount, link.asset)}.`}
-                </DrawerDescription>
-              </DrawerHeader>
+                </ModalDescription>
+              </ModalHeader>
               <DeliveryNote delivery={delivery} />
-              <DrawerFooter>
+              <ModalFooter>
                 <DeliveryActions
                   delivering={delivering}
                   onShare={share}
@@ -218,7 +217,7 @@ export function LinkShareDrawer({
                 <Button className="w-full" variant="ghost" onClick={close}>
                   Cerrar
                 </Button>
-              </DrawerFooter>
+              </ModalFooter>
             </>
           ),
           Refused: ({ target, outcome }) => {
@@ -226,16 +225,16 @@ export function LinkShareDrawer({
 
             return (
               <>
-                <DrawerHeader>
-                  <DrawerTitle>{screen.title}</DrawerTitle>
-                  <DrawerDescription
-                    data-testid="reveal-outcome"
-                    data-outcome={outcome._tag}
+                <ModalHeader>
+                  <ModalTitle>{screen.title}</ModalTitle>
+                  <ModalDescription
+                    testId="reveal-outcome"
+                    outcome={outcome._tag}
                   >
                     {screen.message}
-                  </DrawerDescription>
-                </DrawerHeader>
-                <DrawerFooter>
+                  </ModalDescription>
+                </ModalHeader>
+                <ModalFooter>
                   {screen.action === "retry" ? (
                     <Button className="w-full" onClick={() => open(target)}>
                       Reintentar
@@ -254,12 +253,12 @@ export function LinkShareDrawer({
                   <Button className="w-full" variant="ghost" onClick={close}>
                     Cerrar
                   </Button>
-                </DrawerFooter>
+                </ModalFooter>
               </>
             );
           },
         })}
-      </DrawerContent>
-    </Drawer>
+      </ModalContent>
+    </Modal>
   );
 }

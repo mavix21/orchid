@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { Button } from "@workspace/ui/components/button";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@workspace/ui/components/drawer";
 import type { WalletClient } from "@workspace/wallet";
 import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
+
+import {
+  Modal,
+  ModalContent,
+  ModalDescription,
+  ModalFooter,
+  ModalHeader,
+  ModalTitle,
+} from "@/components/modal";
 
 import { useSessionChallenge } from "./session-challenge";
 import { sessionLapse } from "./session-lapse";
@@ -66,15 +67,15 @@ export function SessionConfirmation({
     : undefined;
 
   return (
-    <Drawer open>
-      <DrawerContent data-testid="session-confirmation">
-        <DrawerHeader>
-          <DrawerTitle>Confirma con tu passkey</DrawerTitle>
-          <DrawerDescription>
+    <Modal open dismissible={false}>
+      <ModalContent testId="session-confirmation">
+        <ModalHeader>
+          <ModalTitle>Confirma con tu passkey</ModalTitle>
+          <ModalDescription>
             Necesitamos confirmar que eres tú antes de seguir. Puedes usar tu
             huella, tu rostro o el PIN de tu dispositivo.
-          </DrawerDescription>
-        </DrawerHeader>
+          </ModalDescription>
+        </ModalHeader>
         {unreachable ? (
           <p role="alert" className="px-4 text-body text-destructive">
             {unavailableMessage(unreachable.failure)}
@@ -85,7 +86,7 @@ export function SessionConfirmation({
             {problem}
           </p>
         ) : null}
-        <DrawerFooter>
+        <ModalFooter>
           {unreachable ? (
             <Button
               className="w-full"
@@ -106,8 +107,8 @@ export function SessionConfirmation({
               {confirming ? "Verificando…" : "Confirmar con passkey"}
             </Button>
           )}
-        </DrawerFooter>
-      </DrawerContent>
-    </Drawer>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
   );
 }
