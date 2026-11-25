@@ -123,6 +123,7 @@ export function PendingStep({
             className="w-full"
             type="button"
             variant="secondary"
+            disabled={refreshing || discarding}
             onClick={onRecheckReceive}
           >
             Revisar el link de nuevo

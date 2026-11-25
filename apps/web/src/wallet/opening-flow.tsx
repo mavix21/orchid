@@ -188,12 +188,10 @@ function OpeningReviewScreen({
   review,
   problem,
   onConfirm,
-  humanCheck,
 }: {
   review: OpeningReview;
   problem: Option.Option<string>;
   onConfirm: () => void;
-  humanCheck?: React.ReactNode;
 }) {
   const reopening = Predicate.isTagged(review.draft, "OpeningDraft");
 
@@ -216,7 +214,6 @@ function OpeningReviewScreen({
         ) : null}
       </main>
       <ScreenActions>
-        {humanCheck}
         <Button
           className="w-full"
           onClick={onConfirm}
@@ -232,11 +229,9 @@ function OpeningReviewScreen({
 export function OpeningFlow({
   username,
   onOpened,
-  humanCheck,
 }: {
   username: string;
   onOpened: () => void;
-  humanCheck?: React.ReactNode;
 }) {
   const task = useWalletTask();
   const [step, setStep] = useState<OpeningStep>(OpeningStep.Preparing());
@@ -270,7 +265,6 @@ export function OpeningFlow({
         review={review}
         problem={problem}
         onConfirm={() => confirm(review)}
-        humanCheck={humanCheck}
       />
     ),
     Concluded: ({ title, message, retry }) => (

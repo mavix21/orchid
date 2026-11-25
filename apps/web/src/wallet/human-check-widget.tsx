@@ -76,7 +76,7 @@ const waitingOnServer = (): HumanCheckStatus => "waiting";
 export const useHumanCheckStatus = () =>
   useSyncExternalStore(watchHumanCheck, humanCheckStatus, waitingOnServer);
 
-export function HumanCheckWidget() {
+export function HumanCheckWidget({ quiet = false }: { quiet?: boolean }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [attempt, setAttempt] = useState(0);
   const status = useHumanCheckStatus();
@@ -128,6 +128,20 @@ export function HumanCheckWidget() {
       if (widgetId !== undefined) window.turnstile?.remove(widgetId);
     };
   }, [host]);
+
+  if (quiet)
+    return (
+      <div
+        key={attempt}
+        ref={setHost}
+        aria-hidden={status !== "interactive"}
+        className={
+          status === "interactive"
+            ? "flex justify-center px-5 pb-safe"
+            : "pointer-events-none h-0 overflow-hidden opacity-0"
+        }
+      />
+    );
 
   return (
     <div className="relative flex h-18 w-full shrink-0 items-center justify-center">

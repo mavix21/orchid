@@ -64,10 +64,6 @@ const issueMessage = (issue: UsernameIssue) =>
     UsernameTooShort: () => `Mínimo ${usernameMinLength} caracteres.`,
   });
 
-const lapsedProblem = notice(
-  "Tu solicitud venció. Vuelve a elegir tu @usuario.",
-);
-
 interface EnrollmentFlowProps {
   title: string;
   back: (disabled: boolean) => TopNavAction;
@@ -185,7 +181,7 @@ export function EnrollmentFlow({
   }, [awaitingReceive, receive]);
 
   useEffect(() => {
-    if (activeRecord === undefined) return;
+    if (activeRecord === undefined || discarding) return;
 
     const { stage: step, review } = activeRecord;
 
@@ -212,7 +208,7 @@ export function EnrollmentFlow({
         if (!current) return;
 
         if (Option.isNone(next)) {
-          send(EnrollmentEvent.Noted({ problem: lapsedProblem }));
+          send(EnrollmentEvent.Lapsed());
 
           return;
         }
@@ -234,7 +230,7 @@ export function EnrollmentFlow({
       current = false;
       clearTimeout(timer);
     };
-  }, [activeRecord, receive]);
+  }, [activeRecord, receive, discarding]);
 
   const finishOpening = async () => {
     const saved = await walletClient.saved();
@@ -384,12 +380,9 @@ export function EnrollmentFlow({
         Finishing: ({ username: name }) => (
           <>
             <div className="flex flex-1 flex-col">
-              <OpeningFlow
-                username={name}
-                onOpened={onOpened}
-                humanCheck={<HumanCheckWidget />}
-              />
+              <OpeningFlow username={name} onOpened={onOpened} />
             </div>
+            <HumanCheckWidget quiet />
           </>
         ),
         Confirming: ({ pending, committing }) => {

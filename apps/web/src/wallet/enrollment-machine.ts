@@ -54,6 +54,8 @@ const resignedMessage =
 const unsupportedDeviceMessage =
   "Este navegador no puede guardar tu llave de forma segura.";
 
+const lapsedMessage = "Tu solicitud venció. Vuelve a elegir tu @usuario.";
+
 export const resignedProblem = notice(resignedMessage);
 
 export const unsupportedDeviceProblem = stoppedBy(unsupportedDeviceMessage);
@@ -108,6 +110,7 @@ export type EnrollmentEvent = Data.TaggedEnum<{
   ReceiveRetried: {};
   Refreshing: {};
   Refreshed: { readonly pending: EnrollmentPending };
+  Lapsed: {};
   Finished: { readonly username: string };
   Discarded: {};
 }>;
@@ -142,7 +145,7 @@ const refusalMessage = (refusal: Refusal, moment: Moment) =>
       "No pudimos cifrar tu llave en este dispositivo. Vuelve a empezar.",
     CorruptDeviceWallet: () =>
       "Los datos guardados en este navegador están dañados.",
-    ChallengeRefused: () => "Tu solicitud venció. Vuelve a elegir tu @usuario.",
+    ChallengeRefused: () => lapsedMessage,
     RegistrationRefused: () =>
       "No pudimos registrar tu passkey. Vuelve a elegir tu @usuario.",
     UnsupportedDevice: () => unsupportedDeviceMessage,
@@ -250,6 +253,8 @@ export const advanceEnrollment = (
       ),
     Refreshed: ({ pending }) =>
       whenActivating(stage, () => activating(pending, Option.none())),
+    Lapsed: () =>
+      whenActivating(stage, () => choosing(Option.some(notice(lapsedMessage)))),
     Finished: ({ username }) => EnrollmentStep.Finishing({ username }),
     Discarded: () => choosing(Option.none()),
   });
