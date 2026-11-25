@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 import { expect, layer } from "@effect/vitest";
 import { Database } from "@workspace/db";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
@@ -11,8 +12,11 @@ import {
   AssertionRefused,
   BackupFound,
   ChallengeRefused,
+  CredentialId,
   NoBackup,
+  type PasskeyAssertion,
   PasskeyChallenge,
+  SessionBegun,
   Username,
   WalletClaim,
   type WalletPort,
@@ -40,6 +44,8 @@ import {
   sealLocalEnvelope,
 } from "../src/device/local-envelope";
 import { backupSalt } from "../src/device/phrase-seal";
+import { Backups } from "../src/server/Backups.server";
+import { Principal } from "../src/server/Principal.server";
 import { backups, passkeyChallenges } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { network } from "../src/stellar/network";
@@ -53,8 +59,10 @@ import { settlingOpenings } from "./settling-openings";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 import {
+  dbLayer,
   passkeyOrigin,
   useDisposableDatabase,
+  walletForDb,
   walletTestLayer,
 } from "./wallet-harness";
 
@@ -153,6 +161,27 @@ const assertion = (
 
     return Option.getOrThrow(passkey).assertion;
   });
+
+const sessionAssertion = (
+  auth: SoftwareAuthenticator,
+  credentialId: PasskeyAssertion["id"],
+  challenge: PasskeyChallenge,
+) =>
+  auth.assertions
+    .assert({ credentialId, challenge, prf: Option.none() })
+    .pipe(Effect.map((platform) => platform.assertion));
+
+const atRequest = <A, E>(program: Effect.Effect<A, E, Wallet | Principal>) =>
+  program.pipe(Effect.provide(Layer.fresh(walletForDb(dbLayer))), Effect.orDie);
+
+const beginningSession = (assertion: PasskeyAssertion) =>
+  atRequest(
+    Effect.gen(function* () {
+      const step = yield* (yield* Wallet).beginSession(assertion);
+
+      return { step, issued: yield* (yield* Principal).issued };
+    }),
+  );
 
 useDisposableDatabase();
 
@@ -358,6 +387,119 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             yield* wallet.restore(yield* assertion(wallet, stranger)),
           ).toEqual(new NoBackup());
         }),
+    );
+
+    it.effect(
+      "beginSession grants a session only for a fresh session challenge, the wallet's own credential and a verified user",
+      () =>
+        Effect.gen(function* () {
+          const wallet = yield* Wallet;
+          const auth = new SoftwareAuthenticator(passkeyOrigin);
+
+          yield* enrollBackedWallet(wallet, auth, "maria");
+
+          const credentialId = Option.getOrThrow(
+            Option.fromNullishOr(auth.registered[0]),
+          ).id;
+
+          const fresh = () =>
+            wallet
+              .sessionChallenge()
+              .pipe(
+                Effect.flatMap((challenge) =>
+                  sessionAssertion(auth, credentialId, challenge),
+                ),
+              );
+
+          const granted = yield* beginningSession(yield* fresh());
+
+          expect(granted.step).toEqual(new SessionBegun());
+          expect(Option.isSome(granted.issued)).toBe(true);
+
+          const reused = yield* fresh();
+
+          expect((yield* beginningSession(reused)).step).toEqual(
+            new SessionBegun(),
+          );
+
+          const replayed = yield* beginningSession(reused);
+
+          expect(replayed.step).toEqual(new ChallengeRefused());
+          expect(replayed.issued).toEqual(Option.none());
+
+          const restoring = yield* beginningSession(
+            yield* sessionAssertion(
+              auth,
+              credentialId,
+              yield* wallet.restoreChallenge(),
+            ),
+          );
+
+          expect(restoring.step).toEqual(new ChallengeRefused());
+          expect(restoring.issued).toEqual(Option.none());
+
+          auth.userVerified = false;
+
+          const unverified = yield* beginningSession(yield* fresh());
+
+          expect(unverified.step).toEqual(new AssertionRefused());
+          expect(unverified.issued).toEqual(Option.none());
+          auth.userVerified = true;
+
+          const impostor = new SoftwareAuthenticator(passkeyOrigin);
+
+          impostor.forge(credentialId);
+
+          const forged = yield* beginningSession(
+            yield* sessionAssertion(
+              impostor,
+              credentialId,
+              yield* wallet.sessionChallenge(),
+            ),
+          );
+
+          expect(forged.step).toEqual(new AssertionRefused());
+          expect(forged.issued).toEqual(Option.none());
+
+          const stranger = new SoftwareAuthenticator(passkeyOrigin);
+
+          stranger.forge("c3RyYW5nZXI");
+
+          const unknown = yield* beginningSession(
+            yield* sessionAssertion(
+              stranger,
+              Schema.decodeSync(CredentialId)("c3RyYW5nZXI"),
+              yield* wallet.sessionChallenge(),
+            ),
+          );
+
+          expect(unknown.step).toEqual(new NoBackup());
+          expect(unknown.issued).toEqual(Option.none());
+        }),
+    );
+
+    it.effect("a stored signature counter never moves backwards", () =>
+      Effect.gen(function* () {
+        const wallet = yield* Wallet;
+        const auth = new SoftwareAuthenticator(passkeyOrigin);
+
+        yield* enrollBackedWallet(wallet, auth, "maria");
+
+        const stored = Option.getOrThrow(
+          Option.fromNullishOr((yield* backupRows)[0]),
+        );
+
+        const store = yield* Backups;
+        const credential = Schema.decodeSync(CredentialId)(stored.credentialId);
+
+        yield* store.advance(credential, 7);
+        yield* store.advance(credential, 3);
+
+        expect(
+          Option.getOrThrow(Option.fromNullishOr((yield* backupRows)[0]))
+            .counter,
+        ).toBe(7);
+      }),
     );
   },
 );

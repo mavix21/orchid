@@ -56,6 +56,7 @@ import { AssetOrders, assetPending } from "./AssetOrders.server";
 import { assetFlow } from "./wallet-assets.server";
 import { openingFlow } from "./wallet-opening.server";
 import { Backups } from "./Backups.server";
+import { Principal } from "./Principal.server";
 import { HumanCheck } from "./HumanCheck.server";
 import { concealFailure } from "./failures.server";
 import { backupFlow } from "./wallet-backup.server";
@@ -382,13 +383,15 @@ export class Wallet extends Context.Service<
         enroll: (enrollment, approvals) =>
           wrap(backup.enroll(enrollment, approvals)),
         restore: (assertion) => wrap(backup.restore(assertion)),
+        sessionChallenge: () => wrap(backup.sessionChallenge()),
+        beginSession: (assertion) => wrap(backup.beginSession(assertion)),
         assess: (address, intent) =>
           wrap(check.assess({ from: address, ...intent })),
         sweep: wrap(sweep),
         attend: (work, attempt) => wrap(attend(work, attempt)),
       });
     }),
-  );
+  ).pipe(Layer.provideMerge(Principal.layer));
   static readonly layer = Wallet.serviceLayer.pipe(
     Layer.provide([
       Directory.layer,

@@ -2,7 +2,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
-import { LedgerUnreachable, ServiceFailed } from "../contract";
+import { LedgerUnreachable, ServiceFailed, SessionRequired } from "../contract";
 
 const unexpected = <E>(cause: Cause.Cause<E>) =>
   Effect.logError("Wallet request failed", Cause.pretty(cause)).pipe(
@@ -11,7 +11,10 @@ const unexpected = <E>(cause: Cause.Cause<E>) =>
 
 export const concealFailure = <E>(
   cause: Cause.Cause<E>,
-): Effect.Effect<never, LedgerUnreachable | ServiceFailed> => {
+): Effect.Effect<
+  never,
+  LedgerUnreachable | ServiceFailed | SessionRequired
+> => {
   if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt;
 
   const found = Cause.findError(cause);
@@ -22,6 +25,9 @@ export const concealFailure = <E>(
 
   if (Predicate.isTagged(failure, "LedgerUnreachable"))
     return Effect.fail(new LedgerUnreachable());
+
+  if (Predicate.isTagged(failure, "SessionRequired"))
+    return Effect.fail(new SessionRequired());
 
   if (Predicate.isTagged(failure, "ServiceFailed"))
     return Effect.fail(new ServiceFailed());

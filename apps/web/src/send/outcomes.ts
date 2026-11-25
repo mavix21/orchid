@@ -191,6 +191,12 @@ export const sendResult = (
         `Ya quedó registrado. ${maybeMoving}`,
         "home",
       ),
+    SessionRequired: () =>
+      new SendScreen(
+        "Confirma tu passkey",
+        `Necesitamos confirmar que eres tú. ${maybeMoving}`,
+        "retry",
+      ),
     InvalidResponse: () =>
       new SendScreen("No pudimos leer la respuesta", maybeMoving, "home"),
     NoWallet: () =>

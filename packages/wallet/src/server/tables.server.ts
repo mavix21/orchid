@@ -177,6 +177,6 @@ export const backups = pgTable("backups", {
 
 export const passkeyChallenges = pgTable("passkey_challenges", {
   challenge: text().primaryKey(),
-  purpose: text({ enum: ["enrollment", "restore"] }).notNull(),
+  purpose: text({ enum: ["enrollment", "restore", "session"] }).notNull(),
   expiresAt: timestamp({ withTimezone: true }).notNull(),
 });

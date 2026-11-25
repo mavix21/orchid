@@ -106,6 +106,7 @@ function SendAsset() {
         ServerUnreachable: unavailable,
         LedgerUnreachable: unavailable,
         ServiceFailed: unavailable,
+        SessionRequired: unavailable,
         InvalidResponse: unavailable,
       })}
     </Screen>

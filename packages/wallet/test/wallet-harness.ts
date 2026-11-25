@@ -148,6 +148,7 @@ export const settingsFor = (rpcUrl = "https://soroban-testnet.stellar.org") =>
     feePayerSecret: Redacted.make(feePayer.secret()),
     passkeyOrigins: [passkeyOrigin],
     humanCheckSecret: Redacted.make("human-check-secret"),
+    sessionSecret: Redacted.make("session-secret"),
   });
 
 const settings = settingsFor();

@@ -7,7 +7,11 @@ export const PasskeyChallenge = Schema.String.check(
 
 export type PasskeyChallenge = typeof PasskeyChallenge.Type;
 
-export const ChallengePurpose = Schema.Literals(["enrollment", "restore"]);
+export const ChallengePurpose = Schema.Literals([
+  "enrollment",
+  "restore",
+  "session",
+]);
 
 export type ChallengePurpose = typeof ChallengePurpose.Type;
 
@@ -112,3 +116,17 @@ export const RestoreStep = Schema.Union([
 ]);
 
 export type RestoreStep = typeof RestoreStep.Type;
+
+export class SessionBegun extends Schema.TaggedClass<SessionBegun>()(
+  "SessionBegun",
+  {},
+) {}
+
+export const SessionStep = Schema.Union([
+  SessionBegun,
+  NoBackup,
+  AssertionRefused,
+  ChallengeRefused,
+]);
+
+export type SessionStep = typeof SessionStep.Type;

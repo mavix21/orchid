@@ -1,14 +1,25 @@
 import { env } from "cloudflare:workers";
+import {
+  getCookie,
+  getRequestUrl,
+  setCookie,
+} from "@tanstack/react-start/server";
 import { databaseLayer } from "@workspace/db";
 import { ServerFailure } from "@workspace/wallet";
 import {
+  Principal,
+  SessionCookie,
+  type SessionGrant,
   Wallet,
   WalletSettings,
   concealFailure,
 } from "@workspace/wallet/server";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import { workQueueLayer } from "./work-queue.server";
@@ -22,6 +33,7 @@ const requestWalletLayer = Layer.suspend(() =>
         feePayerSecret: Redacted.make(env.FEE_PAYER_SECRET),
         passkeyOrigins: env.PASSKEY_ORIGINS.split(","),
         humanCheckSecret: Redacted.make(env.TURNSTILE_SECRET_KEY),
+        sessionSecret: Redacted.make(env.SESSION_SECRET),
       }),
     ),
     Layer.provide(databaseLayer(env.HYPERDRIVE)),
@@ -30,7 +42,7 @@ const requestWalletLayer = Layer.suspend(() =>
   ),
 );
 
-const concealed = <A, E>(program: Effect.Effect<A, E, Wallet>) =>
+const concealed = <A, E>(program: Effect.Effect<A, E, Wallet | Principal>) =>
   program.pipe(
     Effect.provide(requestWalletLayer),
     Effect.catchCause(concealFailure),
@@ -42,22 +54,60 @@ export function runWallet<A>(
   return Effect.runPromise(concealed(program));
 }
 
-export function answerWallet<C, D, A, I>(
+const sessionCookieFor = (url: URL) =>
+  url.protocol === "https:"
+    ? ({ name: "__Host-orchid-session", secure: true } as const)
+    : ({ name: "orchid-session", secure: false } as const);
+
+const grantCookie = (grant: SessionGrant, now: number) => {
+  const { name, secure } = sessionCookieFor(getRequestUrl());
+
+  setCookie(name, grant.token, {
+    httpOnly: true,
+    secure,
+    sameSite: "strict",
+    path: "/",
+    maxAge: Math.max(0, Math.floor((grant.expiresAt - now) / 1000)),
+  });
+};
+
+const answered = <A, I, E>(
+  step: Schema.Codec<A, I>,
+  program: Effect.Effect<A, E, Wallet | Principal>,
+) =>
+  concealed(
+    program.pipe(
+      Effect.flatMap((answer) =>
+        Effect.all({
+          encoded: Schema.encodeEffect(step)(answer),
+          grant: Principal.use((principal) => principal.issued),
+          now: Clock.currentTimeMillis,
+        }),
+      ),
+    ),
+  ).pipe(Effect.result);
+
+export async function answerWallet<C, D, A, I, E>(
   call: Schema.Codec<C, D>,
   data: D,
   step: Schema.Codec<A, I>,
-  program: (decoded: C) => Effect.Effect<A, ServerFailure, Wallet>,
+  program: (decoded: C) => Effect.Effect<A, E, Wallet | Principal>,
 ): Promise<I | typeof ServerFailure.Encoded> {
-  return Effect.runPromise(
-    concealed(
-      Schema.decodeEffect(call)(data).pipe(
-        Effect.flatMap(program),
-        Effect.flatMap(Schema.encodeEffect(step)),
-      ),
-    ).pipe(
-      Effect.catch((failure) =>
-        Effect.succeed(Schema.encodeSync(ServerFailure)(failure)),
-      ),
-    ),
+  const cookie = getCookie(sessionCookieFor(getRequestUrl()).name);
+
+  const outcome = await Effect.runPromise(
+    answered(
+      step,
+      Schema.decodeEffect(call)(data).pipe(Effect.flatMap(program)),
+    ).pipe(Effect.provideService(SessionCookie, Option.fromNullishOr(cookie))),
   );
+
+  return Result.match(outcome, {
+    onFailure: (failure) => Schema.encodeSync(ServerFailure)(failure),
+    onSuccess: ({ encoded, grant, now }) => {
+      if (Option.isSome(grant)) grantCookie(grant.value, now);
+
+      return encoded;
+    },
+  });
 }

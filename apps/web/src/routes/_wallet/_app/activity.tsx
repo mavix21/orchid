@@ -81,6 +81,7 @@ const activityProblem = (
     ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
     ServiceFailed: unavailableMessage,
+    SessionRequired: unavailableMessage,
     InvalidResponse: unavailableMessage,
   });
 

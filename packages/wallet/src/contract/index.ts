@@ -27,6 +27,7 @@ import {
   type PasskeyChallenge,
   RegistrationRefused,
   type RestoreStep,
+  type SessionStep,
 } from "./backup";
 import { HumanCheckRefused, type HumanCheckToken } from "./human-check";
 import {
@@ -681,7 +682,16 @@ export class InvalidResponse extends Schema.TaggedError<InvalidResponse>()(
   {},
 ) {}
 
-export const ServerFailure = Schema.Union([LedgerUnreachable, ServiceFailed]);
+export class SessionRequired extends Schema.TaggedError<SessionRequired>()(
+  "SessionRequired",
+  {},
+) {}
+
+export const ServerFailure = Schema.Union([
+  LedgerUnreachable,
+  ServiceFailed,
+  SessionRequired,
+]);
 
 export type ServerFailure = typeof ServerFailure.Type;
 
@@ -690,6 +700,7 @@ export const WalletUnavailable = Schema.Union([
   ServerUnreachable,
   LedgerUnreachable,
   ServiceFailed,
+  SessionRequired,
   InvalidResponse,
 ]);
 
@@ -734,4 +745,6 @@ export interface WalletPort<E = WalletUnavailable> {
     approvals: Approvals,
   ): Effect.Effect<EnrollStep, E>;
   restore(assertion: PasskeyAssertion): Effect.Effect<RestoreStep, E>;
+  sessionChallenge(): Effect.Effect<PasskeyChallenge, E>;
+  beginSession(assertion: PasskeyAssertion): Effect.Effect<SessionStep, E>;
 }

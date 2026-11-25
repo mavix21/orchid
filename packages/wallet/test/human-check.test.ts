@@ -24,6 +24,7 @@ const humanCheckAnswering = (
         feePayerSecret: Redacted.make("unused"),
         passkeyOrigins: [],
         humanCheckSecret: Redacted.make(secret),
+        sessionSecret: Redacted.make("unused"),
       }),
     ),
     Layer.provide(

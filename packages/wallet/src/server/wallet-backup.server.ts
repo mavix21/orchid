@@ -6,6 +6,8 @@ import {
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import {
   type Approvals,
@@ -23,11 +25,13 @@ import {
   PasskeyChallenge,
   RegistrationRefused,
   SealedPhrase,
+  SessionBegun,
   WalletClaim,
 } from "../contract";
 import { Backups, type StoredBackup } from "./Backups.server";
 import type { ChainUnreachable } from "./Chain.server";
 import { Directory, type StoreFailure } from "./Directory.server";
+import { Principal } from "./Principal.server";
 import { HumanCheck, type HumanCheckUnavailable } from "./HumanCheck.server";
 import { openingFlow } from "./wallet-opening.server";
 import { WalletSettings } from "./settings.server";
@@ -52,6 +56,7 @@ export const backupFlow = Effect.gen(function* () {
   const backups = yield* Backups;
   const directory = yield* Directory;
   const humanCheck = yield* HumanCheck;
+  const principal = yield* Principal;
   const settings = yield* WalletSettings;
 
   const allowedOrigin = (origin: string) =>
@@ -193,32 +198,41 @@ export const backupFlow = Effect.gen(function* () {
     if (Option.isNone(existing) && (yield* directory.bound(claim)))
       return new ChallengeRefused();
 
+    const consumedHere = yield* Ref.make(false);
+
     const step = yield* openWith(claim, Option.some(approvals), {
       check: Effect.succeed(Option.none()),
       alongside: (tx) =>
-        backups.commitEnrollment(tx, challenge, {
-          credentialId: registration.id,
-          address: enrollment.address,
-          username: enrollment.username,
-          publicKey,
-          algorithm,
-          counter,
-          iv: sealed.iv,
-          ciphertext: sealed.ciphertext,
-        }),
+        backups
+          .commitEnrollment(tx, challenge, {
+            credentialId: registration.id,
+            address: enrollment.address,
+            username: enrollment.username,
+            publicKey,
+            algorithm,
+            counter,
+            iv: sealed.iv,
+            ciphertext: sealed.ciphertext,
+          })
+          .pipe(Effect.tap(() => Ref.set(consumedHere, true))),
     });
 
-    const committed = (opened: EnrollStep) =>
-      Effect.map(
-        Effect.all([
-          directory.bound(claim),
-          backups.byCredential(registration.id),
-        ]),
-        ([bound, stored]) =>
-          bound && Option.exists(stored, matches)
-            ? opened
-            : new ChallengeRefused(),
-      );
+    const committed = Effect.fn("Wallet.enrollmentCommitted")(function* (
+      opened: EnrollStep,
+    ) {
+      const [bound, stored] = yield* Effect.all([
+        directory.bound(claim),
+        backups.byCredential(registration.id),
+      ]);
+
+      if (!bound || !Option.exists(stored, matches))
+        return new ChallengeRefused();
+
+      if (yield* Ref.get(consumedHere))
+        yield* principal.grant(enrollment.address, registration.id);
+
+      return opened;
+    });
 
     return yield* Match.valueTags(step, {
       OpeningPending: committed,
@@ -233,16 +247,20 @@ export const backupFlow = Effect.gen(function* () {
     });
   });
 
-  const restore = Effect.fn("Wallet.restore")(function* (
+  const assertedBackup = Effect.fn("Wallet.assertedBackup")(function* (
     assertion: PasskeyAssertion,
-  ) {
-    const challenge = yield* redeem(assertion.clientDataJSON, "restore");
+    purpose: ChallengePurpose,
+  ): Effect.fn.Return<
+    Result.Result<StoredBackup, ChallengeRefused | NoBackup | AssertionRefused>,
+    StoreFailure
+  > {
+    const challenge = yield* redeem(assertion.clientDataJSON, purpose);
 
-    if (Option.isNone(challenge)) return new ChallengeRefused();
+    if (Option.isNone(challenge)) return Result.fail(new ChallengeRefused());
 
     const found = yield* backups.byCredential(assertion.id);
 
-    if (Option.isNone(found)) return new NoBackup();
+    if (Option.isNone(found)) return Result.fail(new NoBackup());
 
     const backup = found.value;
 
@@ -276,22 +294,44 @@ export const backupFlow = Effect.gen(function* () {
       ),
     ).pipe(Effect.option);
 
-    if (Option.isNone(verified)) return new AssertionRefused();
+    if (Option.isNone(verified)) return Result.fail(new AssertionRefused());
 
     yield* backups.advance(backup.credentialId, verified.value.counter);
+    yield* principal.grant(backup.profile.address, backup.credentialId);
 
-    return new BackupFound({
-      profile: backup.profile,
-      sealed: backup.sealed,
-      publicKey: backup.publicKey,
-      algorithm: backup.algorithm,
+    return Result.succeed(backup);
+  });
+
+  const restore = Effect.fn("Wallet.restore")(function* (
+    assertion: PasskeyAssertion,
+  ) {
+    return Result.match(yield* assertedBackup(assertion, "restore"), {
+      onFailure: (refusal) => refusal,
+      onSuccess: (backup) =>
+        new BackupFound({
+          profile: backup.profile,
+          sealed: backup.sealed,
+          publicKey: backup.publicKey,
+          algorithm: backup.algorithm,
+        }),
+    });
+  });
+
+  const beginSession = Effect.fn("Wallet.beginSession")(function* (
+    assertion: PasskeyAssertion,
+  ) {
+    return Result.match(yield* assertedBackup(assertion, "session"), {
+      onFailure: (refusal) => refusal,
+      onSuccess: () => new SessionBegun(),
     });
   });
 
   return {
     restoreChallenge: () => backups.issue("restore"),
+    sessionChallenge: () => backups.issue("session"),
     enrollmentChallenge,
     enroll,
     restore,
+    beginSession,
   };
 });

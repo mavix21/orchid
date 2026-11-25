@@ -237,6 +237,7 @@ export const createLinkResult = (
     ServerUnreachable: (failure) => unavailable(failure, checkFirst),
     LedgerUnreachable: (failure) => unavailable(failure, checkFirst),
     ServiceFailed: (failure) => unavailable(failure, checkFirst),
+    SessionRequired: (failure) => unavailable(failure, checkFirst),
     InvalidResponse: (failure) => unavailable(failure, checkFirst),
   });
 
@@ -265,6 +266,7 @@ export const preparedLinkResult = (
       ServerUnreachable: interrupted,
       LedgerUnreachable: interrupted,
       ServiceFailed: interrupted,
+      SessionRequired: interrupted,
       InvalidResponse: interrupted,
     }),
     Match.orElse((refusal) => createLinkResult(refusal, asset)),
@@ -315,6 +317,7 @@ export const resolveLinkResult = (
     ServerUnreachable: (failure) => unavailable(failure, checkFirst),
     LedgerUnreachable: (failure) => unavailable(failure, checkFirst),
     ServiceFailed: (failure) => unavailable(failure, checkFirst),
+    SessionRequired: (failure) => unavailable(failure, checkFirst),
     InvalidResponse: (failure) => unavailable(failure, checkFirst),
   });
 
@@ -494,6 +497,7 @@ export const reclaimResult = (
     ServerUnreachable: (failure) => unavailable(failure, recheck),
     LedgerUnreachable: (failure) => unavailable(failure, recheck),
     ServiceFailed: (failure) => unavailable(failure, recheck),
+    SessionRequired: (failure) => unavailable(failure, recheck),
     InvalidResponse: (failure) => unavailable(failure, recheck),
   });
 };
@@ -551,5 +555,6 @@ export const revealResult = (
     ServerUnreachable: (failure) => retryOpen(unavailableMessage(failure)),
     LedgerUnreachable: (failure) => retryOpen(unavailableMessage(failure)),
     ServiceFailed: (failure) => retryOpen(unavailableMessage(failure)),
+    SessionRequired: (failure) => retryOpen(unavailableMessage(failure)),
     InvalidResponse: (failure) => retryOpen(unavailableMessage(failure)),
   });

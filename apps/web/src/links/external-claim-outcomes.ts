@@ -220,6 +220,7 @@ const mapResult = (
     ServerUnreachable: onUnavailable,
     LedgerUnreachable: onUnavailable,
     ServiceFailed: onUnavailable,
+    SessionRequired: onUnavailable,
     InvalidResponse: onUnavailable,
   });
 };

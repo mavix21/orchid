@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 import { expect, layer } from "@effect/vitest";
 import { Database } from "@workspace/db";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
@@ -27,6 +28,7 @@ import {
 } from "../src/device/enrollment";
 import { reopenLocalEnvelope } from "../src/device/local-envelope";
 import { signingKey } from "../src/device/signing";
+import { Principal, type SessionGrant } from "../src/server/Principal.server";
 import { wallets } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { network } from "../src/stellar/network";
@@ -35,9 +37,11 @@ import { settlingOpenings } from "./settling-openings";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 import {
+  dbLayer,
   passkeyOrigin,
   reserveSponsor,
   useDisposableDatabase,
+  walletForDb,
   walletTestLayer,
   world,
 } from "./wallet-harness";
@@ -223,6 +227,55 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(world.submitted).toHaveLength(1);
           expect((yield* tableRows).usernames).toHaveLength(1);
           expect((yield* tableRows).backups).toHaveLength(1);
+        }),
+    );
+
+    it.effect(
+      "an enrollment grants a wallet session only on the request that commits its backup",
+      () =>
+        Effect.gen(function* () {
+          yield* Effect.promise(clearDatabase);
+
+          const wallet = yield* Wallet;
+          const auth = new SoftwareAuthenticator(passkeyOrigin);
+          const grants = new Array<Option.Option<SessionGrant>>();
+
+          const enrollingAtRequest: WalletPort["enroll"] = (
+            enrollment,
+            approvals,
+          ) =>
+            Effect.gen(function* () {
+              const step = yield* (yield* Wallet).enroll(enrollment, approvals);
+
+              grants.push(yield* (yield* Principal).issued);
+              replayable = [enrollment, approvals];
+
+              return step;
+            }).pipe(
+              Effect.provide(Layer.fresh(walletForDb(dbLayer))),
+              Effect.orDie,
+            );
+
+          let replayable: Parameters<WalletPort["enroll"]> | undefined;
+
+          const tab = enrollmentFor(
+            settlingOpenings({ ...wallet, enroll: enrollingAtRequest }),
+            auth,
+          );
+
+          const started = yield* tab.start("maria");
+
+          assertTagged(started, "EnrollmentPending");
+          assertTagged(yield* tab.advance(started.review), "WalletEnrolled");
+
+          expect(grants.map(Option.isSome)).toEqual([true]);
+
+          const [enrollment, approvals] = Option.getOrThrow(
+            Option.fromNullishOr(replayable),
+          );
+
+          yield* enrollingAtRequest(enrollment, approvals);
+          expect(grants.map(Option.isSome)).toEqual([true, false]);
         }),
     );
 

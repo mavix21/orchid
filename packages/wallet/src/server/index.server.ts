@@ -4,6 +4,12 @@ export { WalletSettings } from "./settings.server";
 
 export { Wallet } from "./Wallet.server";
 
+export {
+  Principal,
+  SessionCookie,
+  type SessionGrant,
+} from "./Principal.server";
+
 export { type AgentWallet, AgentWallets } from "./AgentWallets.server";
 
 export {

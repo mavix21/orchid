@@ -1,0 +1,141 @@
+import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
+import * as Ref from "effect/Ref";
+import {
+  type AccountAddress,
+  type Approval,
+  type AssetOrder,
+  type CredentialId,
+  SessionRequired,
+} from "../contract";
+import { Directory, type StoreFailure } from "./Directory.server";
+import { WalletSettings } from "./settings.server";
+import {
+  type SessionClaims,
+  mintedClaims,
+  openToken,
+  sealToken,
+  slidClaims,
+} from "./session-token.server";
+
+export const SessionCookie = Context.Reference<Option.Option<string>>(
+  "@workspace/wallet/server/SessionCookie",
+  { defaultValue: () => Option.none() },
+);
+
+export interface SessionGrant {
+  readonly token: string;
+  readonly expiresAt: number;
+}
+
+export class Principal extends Context.Service<
+  Principal,
+  {
+    grant(
+      address: AccountAddress,
+      credentialId: CredentialId,
+    ): Effect.Effect<void>;
+    speaksFor(address: AccountAddress): Effect.Effect<void, SessionRequired>;
+    admitsDrafting(
+      order: AssetOrder,
+      approval: Option.Option<Approval>,
+    ): Effect.Effect<void, SessionRequired | StoreFailure>;
+    readonly issued: Effect.Effect<Option.Option<SessionGrant>>;
+  }
+>()("@workspace/wallet/server/Principal") {
+  static readonly layer = Layer.effect(
+    Principal,
+    Effect.gen(function* () {
+      const settings = yield* WalletSettings;
+      const directory = yield* Directory;
+      const pending = yield* Ref.make(Option.none<SessionClaims>());
+
+      const presented = Effect.gen(function* () {
+        const cookie = yield* SessionCookie;
+
+        if (Option.isNone(cookie)) return Option.none<SessionClaims>();
+
+        return yield* openToken(
+          settings.sessionSecret,
+          cookie.value,
+          yield* Clock.currentTimeMillis,
+        );
+      });
+
+      const grant = Effect.fn("Principal.grant")(function* (
+        address: AccountAddress,
+        credentialId: CredentialId,
+      ) {
+        yield* Ref.set(
+          pending,
+          Option.some(
+            mintedClaims(address, credentialId, yield* Clock.currentTimeMillis),
+          ),
+        );
+      });
+
+      const speaksFor = Effect.fn("Principal.speaksFor")(function* (
+        address: AccountAddress,
+      ) {
+        const claims = yield* presented;
+
+        if (Option.isNone(claims) || claims.value.address !== address)
+          return yield* new SessionRequired();
+
+        const slid = slidClaims(claims.value, yield* Clock.currentTimeMillis);
+
+        if (Option.isSome(slid))
+          yield* Ref.update(pending, (current) =>
+            Option.isSome(current) ? current : slid,
+          );
+      });
+
+      const isOpening = Effect.fn("Principal.isOpening")(function* (
+        address: AccountAddress,
+      ) {
+        const row = yield* directory.byAddress(address);
+
+        return Option.exists(row, (wallet) => wallet.status === "opening");
+      });
+
+      const admitsDrafting = Effect.fn("Principal.admitsDrafting")(function* (
+        order: AssetOrder,
+        approval: Option.Option<Approval>,
+      ) {
+        const refusal = yield* speaksFor(order.wallet).pipe(
+          Effect.flip,
+          Effect.option,
+        );
+
+        if (Option.isNone(refusal)) return;
+
+        const receivesBeforeOpened =
+          Predicate.isTagged(order.action, "ReceiveLink") &&
+          Option.isNone(approval) &&
+          (yield* isOpening(order.wallet));
+
+        if (!receivesBeforeOpened) return yield* refusal.value;
+      });
+
+      const issued = Effect.gen(function* () {
+        const claims = yield* Ref.get(pending);
+
+        return yield* Option.match(claims, {
+          onNone: () => Effect.succeed(Option.none<SessionGrant>()),
+          onSome: (granted) =>
+            sealToken(settings.sessionSecret, granted).pipe(
+              Effect.map((token) =>
+                Option.some({ token, expiresAt: granted.expiresAt }),
+              ),
+            ),
+        });
+      });
+
+      return Principal.of({ grant, speaksFor, admitsDrafting, issued });
+    }),
+  );
+}

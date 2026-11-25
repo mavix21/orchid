@@ -16,6 +16,7 @@ import {
   PasskeyAssertion,
   PasskeyChallenge,
   RestoreStep,
+  SessionStep,
   OpenStep,
   Overview,
   PaymentLinkReceipt,
@@ -32,7 +33,7 @@ import {
   type WalletPort,
   unreachedServer,
 } from "@workspace/wallet";
-import { Wallet } from "@workspace/wallet/server";
+import { Principal, Wallet } from "@workspace/wallet/server";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -91,16 +92,31 @@ const EnrollCall = Schema.Struct({
 
 const RestoreCall = Schema.Struct({ assertion: PasskeyAssertion });
 
+const SessionChallengeCall = Schema.Struct({});
+
+const BeginSessionCall = Schema.Struct({ assertion: PasskeyAssertion });
+
 const accepted =
   <D>() =>
   (data: D) =>
     data;
 
+const speakingFor = <A, E, R>(
+  address: AccountAddress,
+  program: Effect.Effect<A, E, R>,
+) =>
+  Principal.use((principal) => principal.speaksFor(address)).pipe(
+    Effect.andThen(program),
+  );
+
 const overviewFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof OverviewCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(OverviewCall, data, Overview, (decoded) =>
-      Wallet.use((wallet) => wallet.overview(decoded.address)),
+      speakingFor(
+        decoded.address,
+        Wallet.use((wallet) => wallet.overview(decoded.address)),
+      ),
     ),
   );
 
@@ -118,7 +134,12 @@ const transferFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof TransferCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(TransferCall, data, TransferStep, (decoded) =>
-      Wallet.use((wallet) => wallet.transfer(decoded.order, decoded.approval)),
+      speakingFor(
+        decoded.order.from,
+        Wallet.use((wallet) =>
+          wallet.transfer(decoded.order, decoded.approval),
+        ),
+      ),
     ),
   );
 
@@ -126,7 +147,15 @@ const manageFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof ManageCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(ManageCall, data, AssetStep, (decoded) =>
-      Wallet.use((wallet) => wallet.manage(decoded.order, decoded.approval)),
+      Principal.use((principal) =>
+        principal.admitsDrafting(decoded.order, decoded.approval),
+      ).pipe(
+        Effect.andThen(
+          Wallet.use((wallet) =>
+            wallet.manage(decoded.order, decoded.approval),
+          ),
+        ),
+      ),
     ),
   );
 
@@ -134,7 +163,10 @@ const paymentLinksFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof PaymentLinksCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(PaymentLinksCall, data, PaymentLinksStep, (decoded) =>
-      Wallet.use((wallet) => wallet.paymentLinks(decoded.address)),
+      speakingFor(
+        decoded.address,
+        Wallet.use((wallet) => wallet.paymentLinks(decoded.address)),
+      ),
     ),
   );
 
@@ -142,7 +174,12 @@ const activityFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof ActivityCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(ActivityCall, data, ActivityStep, (decoded) =>
-      Wallet.use((wallet) => wallet.activity(decoded.address, decoded.before)),
+      speakingFor(
+        decoded.address,
+        Wallet.use((wallet) =>
+          wallet.activity(decoded.address, decoded.before),
+        ),
+      ),
     ),
   );
 
@@ -168,8 +205,11 @@ const resolvePaymentLinkFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof ResolvePaymentLinkCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(ResolvePaymentLinkCall, data, ResolveReceiptStep, (decoded) =>
-      Wallet.use((wallet) =>
-        wallet.resolvePaymentLink(decoded.sender, decoded.receipt),
+      speakingFor(
+        decoded.sender,
+        Wallet.use((wallet) =>
+          wallet.resolvePaymentLink(decoded.sender, decoded.receipt),
+        ),
       ),
     ),
   );
@@ -211,6 +251,22 @@ const restoreFn = createServerFn({ method: "POST" })
   .handler(({ data }) =>
     answerWallet(RestoreCall, data, RestoreStep, (decoded) =>
       Wallet.use((wallet) => wallet.restore(decoded.assertion)),
+    ),
+  );
+
+const sessionChallengeFn = createServerFn({ method: "POST" })
+  .validator(accepted<typeof SessionChallengeCall.Encoded>())
+  .handler(({ data }) =>
+    answerWallet(SessionChallengeCall, data, PasskeyChallenge, () =>
+      Wallet.use((wallet) => wallet.sessionChallenge()),
+    ),
+  );
+
+const beginSessionFn = createServerFn({ method: "POST" })
+  .validator(accepted<typeof BeginSessionCall.Encoded>())
+  .handler(({ data }) =>
+    answerWallet(BeginSessionCall, data, SessionStep, (decoded) =>
+      Wallet.use((wallet) => wallet.beginSession(decoded.assertion)),
     ),
   );
 
@@ -270,6 +326,10 @@ export const port: WalletPort = {
     reach(EnrollStep, EnrollCall, { enrollment, approvals }, enrollFn),
   restore: (assertion) =>
     reach(RestoreStep, RestoreCall, { assertion }, restoreFn),
+  sessionChallenge: () =>
+    reach(PasskeyChallenge, SessionChallengeCall, {}, sessionChallengeFn),
+  beginSession: (assertion) =>
+    reach(SessionStep, BeginSessionCall, { assertion }, beginSessionFn),
   manage: (order, approval) =>
     reach(AssetStep, ManageCall, { order, approval }, manageFn),
   paymentLinks: (address) =>

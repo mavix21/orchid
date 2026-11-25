@@ -137,6 +137,8 @@ export const unusedPort = (overrides: Partial<WalletPort> = {}): WalletPort => {
     enrollmentChallenge: unused,
     enroll: unused,
     restore: unused,
+    sessionChallenge: unused,
+    beginSession: unused,
     ...overrides,
   };
 };
