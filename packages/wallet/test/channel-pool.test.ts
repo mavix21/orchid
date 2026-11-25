@@ -15,7 +15,7 @@ const leasedAddress = (leased: Option.Option<Account>) =>
 
 const inTwoMinutes = () => new Date(Date.now() + 120_000);
 
-layer(dbLayer, { excludeTestServices: true })((it) => {
+layer(dbLayer, { excludeTestServices: true, concurrent: false })((it) => {
   it.effect(
     "hands each channel to one draft at a time until the pool is exhausted",
     () =>

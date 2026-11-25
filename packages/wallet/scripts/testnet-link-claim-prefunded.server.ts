@@ -278,20 +278,6 @@ assert.ok(
   `Expected LinkReceiveReview, got ${reviewed._tag}`,
 );
 
-const received = await receiver.client.confirmLinkReceive(
-  reviewed,
-  walletLink.code,
-);
-
-assert.ok(
-  received instanceof AssetSettled,
-  `Expected AssetSettled, got ${received._tag}`,
-);
-
-const receiverAfter = await usdcOf(receiver.client);
-
-assert.equal(receiverAfter - receiverBefore, 5_000_000n);
-
 const externalReviewed = await sender.client.reviewExternalLinkClaim(
   externalLink.code,
   new ExternalLinkIntent({
@@ -304,15 +290,24 @@ assert.ok(
   `Expected ExternalLinkReview, got ${externalReviewed._tag}`,
 );
 
-const externalSettled = await sender.client.confirmExternalLinkClaim(
-  externalReviewed,
-  externalLink.code,
+const [received, externalSettled] = await Promise.all([
+  receiver.client.confirmLinkReceive(reviewed, walletLink.code),
+  sender.client.confirmExternalLinkClaim(externalReviewed, externalLink.code),
+]);
+
+assert.ok(
+  received instanceof AssetSettled,
+  `Expected AssetSettled, got ${received._tag}`,
 );
 
 assert.ok(
   externalSettled instanceof ExternalLinkSettled,
   `Expected ExternalLinkSettled, got ${externalSettled._tag}`,
 );
+
+const receiverAfter = await usdcOf(receiver.client);
+
+assert.equal(receiverAfter - receiverBefore, 5_000_000n);
 
 const externalAfter = await horizon.loadAccount(external.publicKey());
 
