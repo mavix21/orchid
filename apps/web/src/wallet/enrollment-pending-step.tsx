@@ -8,9 +8,6 @@ import { me } from "@/fixtures/account";
 import { amountLabel } from "@/send/money";
 import { type Activating, receiveFor } from "@/wallet/enrollment-machine";
 
-const closing =
-  "Si tu cuenta queda vacía y sin uso por un día, Orchid puede cerrarla para recuperar su reserva. Tu @usuario sigue siendo tuyo.";
-
 export function StepLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-label text-primary">{children}</p>;
 }
@@ -58,19 +55,19 @@ export function PendingStep({
   const copy = releasing
     ? {
         title: "Termina de abrir tu cuenta",
-        note: `Tu passkey ya confirmó la apertura de @${pending.username}. No tendrás que usarla otra vez.`,
+        note: "No necesitas tu passkey otra vez.",
         action: "Reintentar",
       }
     : preparing
       ? {
           title: "Prepara tu activación",
-          note: `Aún no tenemos la solicitud de @${pending.username}. Reintenta; no crearás otra passkey.`,
+          note: "Reintenta. No crearás otra passkey.",
           action: "Preparar de nuevo",
         }
       : Option.match(shownReceive, {
           onNone: () => ({
             title: "Confirma tu passkey",
-            note: `Usa la passkey que acabas de crear. Con ella ciframos tu respaldo y abrimos @${pending.username}.`,
+            note: "Usa la passkey que acabas de crear para abrir tu cuenta.",
             action:
               waitingForReceive && receiveBlocked
                 ? "Abrir mi cuenta sin recibir"
@@ -78,7 +75,7 @@ export function PendingStep({
           }),
           onSome: (shown) => ({
             title: "Confirma tu passkey",
-            note: `Usa la passkey que acabas de crear. Con ella ciframos tu respaldo, abrimos @${pending.username} y recibes ${amountLabel(shown.amount, shown.asset)} de @${shown.sender.username}.`,
+            note: `Usa la passkey que acabas de crear para abrir tu cuenta y recibir ${amountLabel(shown.amount, shown.asset)}.`,
             action: "Confirmar y recibir",
           }),
         });
@@ -98,11 +95,6 @@ export function PendingStep({
         data-receive={Option.isSome(shownReceive)}
       >
         <ScreenNote>{copy.note}</ScreenNote>
-        {releasing ? null : (
-          <p className="text-label text-pretty text-muted-foreground">
-            {closing}
-          </p>
-        )}
         {Option.match(problem, {
           onNone: () => null,
           onSome: (shown) => (
