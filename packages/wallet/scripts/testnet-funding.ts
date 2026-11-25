@@ -6,6 +6,7 @@ import {
   Operation,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
+import { channelKeypairs } from "../src/server/channel-pool.server";
 import { networkPassphrase, usdc } from "../src/stellar/network";
 
 export { usdc };
@@ -102,4 +103,50 @@ export const fundWithUsdc = async (address: string, amount: string) => {
   payment.sign(funder);
 
   return horizon.submitTransaction(payment);
+};
+
+export const openChannels = async (
+  sponsorSecret: string,
+  feePayerSecret: string,
+) => {
+  const sponsor = Keypair.fromSecret(sponsorSecret);
+  const channels = channelKeypairs(Keypair.fromSecret(feePayerSecret));
+
+  const opened = await Promise.all(
+    channels.map((channel) => isOpenOnTestnet(channel.publicKey())),
+  );
+
+  const missing = channels.filter((_, index) => !opened[index]);
+
+  if (missing.length === 0) return 0;
+
+  const opening = new TransactionBuilder(
+    await horizon.loadAccount(sponsor.publicKey()),
+    { fee: "10000", networkPassphrase },
+  );
+
+  for (const channel of missing)
+    opening
+      .addOperation(
+        Operation.beginSponsoringFutureReserves({
+          sponsoredId: channel.publicKey(),
+        }),
+      )
+      .addOperation(
+        Operation.createAccount({
+          destination: channel.publicKey(),
+          startingBalance: "0",
+        }),
+      )
+      .addOperation(
+        Operation.endSponsoringFutureReserves({ source: channel.publicKey() }),
+      );
+
+  const transaction = opening.setTimeout(60).build();
+
+  transaction.sign(sponsor, ...missing);
+
+  await horizon.submitTransaction(transaction);
+
+  return missing.length;
 };

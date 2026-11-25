@@ -5,7 +5,7 @@ import {
   Keypair,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
-import { Database, databaseLayer } from "@workspace/db";
+import { Database } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Clock from "effect/Clock";
@@ -87,6 +87,7 @@ import {
 import { ledgersHttp, resetLedgers } from "./rpc-events";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import {
+  channel,
   feePayer,
   passkeyOrigin,
   reserveSponsor,
@@ -94,15 +95,13 @@ import {
   sponsor,
 } from "./wallet-settings";
 import { assertTagged } from "./tagged";
+import { dbLayer } from "./test-database";
 
 export { addressOf };
 
 export { euro, euroLine } from "./euro-fixtures";
 
-export const dbLayer = databaseLayer({
-  connectionString:
-    "postgres://orchid:orchid-local@127.0.0.1:55433/wallet_test",
-});
+export { dbLayer };
 
 export const world = {
   humanCheckRefused: false,
@@ -142,13 +141,21 @@ const storesFor = <E>(db: Layer.Layer<Database, E>) =>
 
 export const stores = storesFor(dbLayer);
 
-export { feePayer, passkeyOrigin, reserveSponsor, settingsFor, sponsor };
+export {
+  channel,
+  feePayer,
+  passkeyOrigin,
+  reserveSponsor,
+  settingsFor,
+  sponsor,
+};
 
 const settings = settingsFor();
 
 const realChain = Chain.layer.pipe(
   Layer.provide(settings),
   Layer.provide(ledgersHttp),
+  Layer.provide(Layer.fresh(dbLayer)),
 );
 
 export const amount = (value: string) => Schema.decodeSync(Amount)(value);
@@ -307,7 +314,7 @@ export const fakeChain = Layer.effect(
       ) =>
         draftWith((w) =>
           draftLinkReceive({
-            channel: sourceOf(real.channel),
+            channel: sourceOf(channel),
             link,
             reserveSponsor,
             createsLinkAccount,
@@ -333,7 +340,8 @@ export const fakeChain = Layer.effect(
       draftOpening: (addr, claim) =>
         draftWith((w) =>
           draftOpening({
-            source: new Account(reserveSponsor, "100"),
+            channel: sourceOf(channel),
+            reserveSponsor,
             address: addr,
             createAccount: !world.accounts.has(addr),
             claim,
@@ -663,7 +671,7 @@ export function useDisposableDatabase() {
     await Effect.runPromise(
       Database.use((db) =>
         db.execute(
-          sql`truncate asset_orders, trustlines, transfers, usernames, wallets, backups, passkey_challenges, deposits, deposit_cursors`,
+          sql`truncate asset_orders, trustlines, transfers, usernames, wallets, backups, passkey_challenges, deposits, deposit_cursors, channel_leases`,
         ),
       ).pipe(Effect.provide(dbLayer)),
     );

@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { fundedTestnetKeypair } from "@workspace/wallet/testnet";
+import { fundedTestnetKeypair, openChannels } from "@workspace/wallet/testnet";
 
 const humanCheckTestKeys: Record<
   "TURNSTILE_SITE_KEY" | "TURNSTILE_SECRET_KEY",
@@ -20,6 +20,8 @@ const developerSecrets = fileURLToPath(
 const fundedTestnetSecrets = async () => {
   const reserveSponsor = await fundedTestnetKeypair();
   const feePayer = await fundedTestnetKeypair();
+
+  await openChannels(reserveSponsor.secret(), feePayer.secret());
 
   return {
     RESERVE_SPONSOR_SECRET: reserveSponsor.secret(),

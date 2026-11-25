@@ -32,6 +32,9 @@ _Avoid_: Fee payer when referring to reserves.
 
 **Fee payer**: The account paying transaction fees; this role is distinct from reserve sponsorship.
 
+**Channel**: An Orchid account that holds no funds and serves as the transaction source of an opening or a link receive, so drafts made at the same time never compete for one sequence number. Each draft leases its own channel until the draft settles or expires.
+_Avoid_: Fee payer or reserve sponsor when referring to the transaction source.
+
 **Asset**: XLM, or an issued asset identified by both its code and issuer.
 _Avoid_: Symbol alone when identifying an issued asset.
 

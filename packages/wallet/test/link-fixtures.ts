@@ -26,8 +26,8 @@ import {
   accountState,
   addressOf,
   approve,
+  channel,
   euroLine,
-  feePayer,
   holdingsFor,
   openSender,
   settleHash,
@@ -123,7 +123,7 @@ export const fundLinkFrom = (wallet: WalletPort, sender: DeviceWallet) =>
 
     const balance = Option.getOrThrow(Option.fromNullishOr(funded.claimable));
 
-    world.accounts.set(addressOf(feePayer), accountState());
+    world.accounts.set(channel, accountState());
     advanceSequence(sender.address);
 
     return { link, balance, transferId: funding.id };

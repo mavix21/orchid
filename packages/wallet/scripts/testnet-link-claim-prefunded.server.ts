@@ -33,7 +33,12 @@ import {
   freshDatabase,
   walletServices,
 } from "./live.server";
-import { fundWithFriendbot, fundWithUsdc, horizon } from "./testnet-funding";
+import {
+  fundWithFriendbot,
+  fundWithUsdc,
+  horizon,
+  openChannels,
+} from "./testnet-funding";
 
 const sponsor = Keypair.random();
 const feePayer = Keypair.random();
@@ -57,6 +62,8 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 await Promise.all(
   [sponsor, feePayer].map((key) => fundWithFriendbot(key.publicKey())),
 );
+
+await openChannels(sponsor.secret(), feePayer.secret());
 
 const walletService = await runtime.runPromise(Wallet);
 

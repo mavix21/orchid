@@ -25,9 +25,9 @@ import {
 } from "../stellar/network";
 import type { ChainUnreachable } from "./chain-errors.server";
 import type { AccountState } from "./ledger.server";
+import type { StoreFailure } from "./store-failure.server";
 
 export interface LinkChain {
-  readonly channel: AccountAddress;
   draftLinkReceive(
     link: AccountAddress,
     createsLinkAccount: boolean,
@@ -36,7 +36,7 @@ export interface LinkChain {
     asset: Asset,
     amount: PositiveAmount,
     memo?: PaymentMemo,
-  ): Effect.Effect<SigningRequest, ChainUnreachable>;
+  ): Effect.Effect<SigningRequest, ChainUnreachable | StoreFailure>;
   cleanUpLink(link: AccountAddress): Effect.Effect<boolean, ChainUnreachable>;
 }
 
@@ -46,11 +46,12 @@ export const linkChain = (
   account: (
     address: AccountAddress,
   ) => Effect.Effect<Option.Option<AccountState>, ChainUnreachable>,
-  source: (address: AccountAddress) => Effect.Effect<Account, ChainUnreachable>,
+  leaseChannel: (
+    maxTime: number,
+  ) => Effect.Effect<Account, ChainUnreachable | StoreFailure>,
   send: (envelope: string) => Effect.Effect<void>,
 ): LinkChain => {
   const reserveSponsor = Schema.decodeSync(AccountAddress)(sponsor.publicKey());
-  const channel = Schema.decodeSync(AccountAddress)(feePayer.publicKey());
 
   const lifetime = Effect.map(Clock.currentTimeMillis, (now) => {
     const minTime = Math.floor(now / 1000);
@@ -59,7 +60,6 @@ export const linkChain = (
   });
 
   return {
-    channel,
     draftLinkReceive: Effect.fn("Chain.draftLinkReceive")(function* (
       link: AccountAddress,
       createsLinkAccount: boolean,
@@ -73,7 +73,7 @@ export const linkChain = (
 
       return new SigningRequest({
         envelope: draftLinkReceive({
-          channel: yield* source(channel),
+          channel: yield* leaseChannel(maxTime),
           link,
           reserveSponsor,
           createsLinkAccount,

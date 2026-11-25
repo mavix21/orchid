@@ -28,6 +28,7 @@ import {
   addressOf,
   amount,
   approveOpening,
+  channel,
   bindingAllowed,
   claimFor,
   create,
@@ -116,7 +117,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const inner = TransactionBuilder.fromXDR(
             draftOpening({
-              source: new Account(reserveSponsor, "100"),
+              channel: new Account(channel, "100"),
+              reserveSponsor,
               address: claim.address,
               createAccount: true,
               minTime: now - 200,

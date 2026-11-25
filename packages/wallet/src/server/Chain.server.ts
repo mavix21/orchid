@@ -17,6 +17,7 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
+import { Database } from "@workspace/db";
 import {
   AccountAddress,
   DestinationAddress,
@@ -39,6 +40,7 @@ import {
   usdc,
 } from "../stellar/network";
 import { type AssetChain, assetChain } from "./chain-assets.server";
+import { channelPool } from "./channel-pool.server";
 import { type LinkChain, linkChain } from "./chain-links.server";
 import { type DepositChain, depositChain } from "./chain-deposits.server";
 import { ChainUnreachable } from "./chain-errors.server";
@@ -58,6 +60,7 @@ import {
 } from "./exchange-memos.server";
 import { validateRpcTimeout, validateRpcUrl } from "./rpc-settings.server";
 import { WalletSettings, rpcReadConcurrency } from "./settings.server";
+import type { StoreFailure } from "./store-failure.server";
 
 import {
   RawTransactionLookup,
@@ -127,7 +130,7 @@ export class Chain extends Context.Service<
       draftOpening(
         address: AccountAddress,
         claim?: BalanceId,
-      ): Effect.Effect<OpeningDraft, ChainUnreachable>;
+      ): Effect.Effect<OpeningDraft, ChainUnreachable | StoreFailure>;
       draftPayment(
         from: AccountAddress,
         to: DestinationAddress,
@@ -166,8 +169,6 @@ export class Chain extends Context.Service<
         sponsor.publicKey(),
       );
 
-      const channel = Schema.decodeSync(AccountAddress)(feePayer.publicKey());
-
       const account = Effect.fn("Chain.account")(function* (
         address: AccountAddress,
       ) {
@@ -194,6 +195,8 @@ export class Chain extends Context.Service<
         );
       });
 
+      const channels = channelPool(feePayer, yield* Database, account);
+
       const source = Effect.fn("Chain.source")(function* (
         address: AccountAddress,
       ) {
@@ -215,20 +218,18 @@ export class Chain extends Context.Service<
         address: AccountAddress,
         claim?: BalanceId,
       ) {
-        const [sponsorState, current] = yield* Effect.all(
-          [account(sponsorAddress), account(address)],
+        const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
+
+        const [channel, current] = yield* Effect.all(
+          [channels.lease(now + paymentLifetime), account(address)],
           { concurrency: rpcReadConcurrency },
         );
-
-        if (Option.isNone(sponsorState))
-          return yield* Effect.die(new Error("Account does not exist"));
-
-        const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
 
         return new OpeningDraft({
           request: request(
             draftOpening({
-              source: new Account(sponsorAddress, sponsorState.value.sequence),
+              channel,
+              reserveSponsor: sponsorAddress,
               address,
               minTime: now,
               maxTime: now + paymentLifetime,
@@ -279,7 +280,9 @@ export class Chain extends Context.Service<
 
                 const permitted = Match.valueTags(facts.value, {
                   OpeningFacts: (f) =>
-                    f.address === holder && f.reserveSponsor === sponsorAddress,
+                    f.address === holder &&
+                    f.reserveSponsor === sponsorAddress &&
+                    Option.isSome(channels.signer(f.channel)),
                   PaymentFacts: (f) => f.from === holder,
                   TrustlineFacts: (f) =>
                     f.address === holder && f.reserveSponsor === sponsorAddress,
@@ -297,7 +300,7 @@ export class Chain extends Context.Service<
                     f.link === holder &&
                     baseAccountOf(f.destination) !== holder &&
                     (!isMuxed(f.destination) || f.memo === undefined) &&
-                    f.channel === channel &&
+                    Option.isSome(channels.signer(f.channel)) &&
                     f.reserveSponsor === sponsorAddress,
                 });
 
@@ -336,11 +339,13 @@ export class Chain extends Context.Service<
 
                 if (sponsoring) inner.sign(sponsor);
 
-                if (
-                  Predicate.isTagged(facts.value, "LinkReceiveFacts") &&
-                  feePayer.publicKey() !== sponsor.publicKey()
-                )
-                  inner.sign(feePayer);
+                const channel =
+                  Predicate.isTagged(facts.value, "OpeningFacts") ||
+                  Predicate.isTagged(facts.value, "LinkReceiveFacts")
+                    ? channels.signer(facts.value.channel)
+                    : Option.none();
+
+                if (Option.isSome(channel)) inner.sign(channel.value);
 
                 const outer = TransactionBuilder.buildFeeBumpTransaction(
                   feePayer.publicKey(),
@@ -428,14 +433,19 @@ export class Chain extends Context.Service<
 
       const assets = assetChain(rpc, sponsorAddress, source);
 
-      const links = linkChain(sponsor, feePayer, account, source, (envelope) =>
-        rpc
-          .call(
-            "sendTransaction",
-            { transaction: envelope },
-            RawSendTransaction,
-          )
-          .pipe(Effect.ignore),
+      const links = linkChain(
+        sponsor,
+        feePayer,
+        account,
+        channels.lease,
+        (envelope) =>
+          rpc
+            .call(
+              "sendTransaction",
+              { transaction: envelope },
+              RawSendTransaction,
+            )
+            .pipe(Effect.ignore),
       );
 
       return Chain.of({

@@ -289,12 +289,17 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       createsLinkAccount: boolean,
     ) {
       const facts = readEnvelope(request.envelope);
-      const channel = yield* chain.account(chain.channel);
+
+      if (
+        Option.isNone(facts) ||
+        !Predicate.isTagged(facts.value, "LinkReceiveFacts")
+      )
+        return false;
+
+      const channel = yield* chain.account(facts.value.channel);
 
       return (
         Option.isSome(channel) &&
-        Option.isSome(facts) &&
-        Predicate.isTagged(facts.value, "LinkReceiveFacts") &&
         facts.value.link === action.link &&
         facts.value.balance === action.balance &&
         facts.value.destination === order.wallet &&
