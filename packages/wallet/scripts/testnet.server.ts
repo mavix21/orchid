@@ -8,7 +8,6 @@ import {
   TransactionBuilder,
   rpc,
 } from "@stellar/stellar-sdk";
-import * as Arr from "effect/Array";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -33,7 +32,7 @@ import {
   TransferOrder,
   Opened,
   OpeningDraft,
-  RecoveryDraft,
+  OpeningPending,
   SigningRequest,
   Username,
   WalletClaim,
@@ -45,8 +44,6 @@ import { Applied, Chain, Rejected, Sealed } from "../src/server/Chain.server";
 import { Directory, type WalletRow } from "../src/server/Directory.server";
 import { Authorized, Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
-import { requestsOf } from "../src/device/opening-drafts";
-import { pairedCreation } from "./testnet-paired-creation.server";
 import {
   OpeningFacts,
   readEnvelope,
@@ -65,7 +62,7 @@ const outsider = Keypair.random();
 const exchangeKey = Keypair.random();
 const exchange = Schema.decodeSync(AccountAddress)(exchangeKey.publicKey());
 const runId = crypto.randomUUID().replaceAll("-", "").slice(0, 8);
-const recoveryName = `vr_${runId}`;
+const firstName = `vr_${runId}`;
 
 const server = new rpc.Server(rpcUrl);
 
@@ -112,9 +109,8 @@ const opening = (
 
 const approvedBy = (
   key: Keypair,
-  draft: OpeningDraft | RecoveryDraft,
-): Option.Option<Approvals> =>
-  Option.some(Arr.map(requestsOf(draft), (request) => approval(request, key)));
+  draft: OpeningDraft,
+): Option.Option<Approvals> => Option.some([approval(draft.request, key)]);
 
 const untilOpened = async (claim: WalletClaim) => {
   let step = await opening(claim);
@@ -145,16 +141,57 @@ const waitApplied = async (sealed: Sealed) => {
   throw new Error("Verification transaction did not settle in 60 seconds");
 };
 
-const createWithShortRecovery = pairedCreation({
-  sponsor,
-  server,
-  run,
-  opening,
-  approvedBy,
-  walletRow,
-  waitApplied,
-  remember,
-});
+const create = async (key: Keypair, name: string) => {
+  const claim = new WalletClaim({
+    address: addressOf(key),
+    username: Schema.decodeSync(Username)(name),
+  });
+
+  const draft = await opening(claim);
+
+  assert.ok(draft instanceof OpeningDraft);
+
+  assert.ok(
+    (await opening(claim, approvedBy(key, draft))) instanceof OpeningPending,
+  );
+
+  const stored = await walletRow(claim.address);
+
+  assert.ok(
+    stored.attemptEnvelope && stored.attemptHash && stored.attemptExpiresAt,
+  );
+
+  const sealed = new Sealed({
+    envelope: stored.attemptEnvelope,
+    hash: stored.attemptHash,
+    expiresAt: DateTime.makeUnsafe(stored.attemptExpiresAt),
+  });
+
+  await waitApplied(sealed);
+  remember(`${name} opening`, sealed.hash);
+
+  const sponsorship = Option.getOrThrow(
+    await run(Chain.use((chain) => chain.account(claim.address))),
+  );
+
+  assert.ok(
+    sponsorship.accountSponsored && sponsorship.sponsored,
+    "Raw extXdr must identify Orchid as both sponsors",
+  );
+
+  const account = await horizon.loadAccount(claim.address);
+
+  const native = account.balances.find(
+    (balance) => balance.asset_type === "native",
+  );
+
+  assert.equal(native?.balance, "0.0000000");
+  assert.equal(account.num_sponsored, 3);
+  assert.ok((await untilOpened(claim)) instanceof Opened);
+  assert.equal((await walletRow(claim.address)).status, "active");
+
+  return claim;
+};
 
 assert.equal((await server.getNetwork()).passphrase, networkPassphrase);
 
@@ -203,14 +240,14 @@ const racer = Keypair.random();
 
 const racerClaim = new WalletClaim({
   address: addressOf(racer),
-  username: Schema.decodeSync(Username)(recoveryName),
+  username: Schema.decodeSync(Username)(firstName),
 });
 
 const racerDraft = await opening(racerClaim);
 
 assert.ok(racerDraft instanceof OpeningDraft);
 
-const first = await createWithShortRecovery(user, recoveryName);
+const first = await create(user, firstName);
 
 assert.ok(
   (await opening(racerClaim, approvedBy(racer, racerDraft))) instanceof
@@ -227,86 +264,22 @@ console.log(
   "PASS name race loser refused before submission; its account was never created.",
 );
 
-const early = await server.sendTransaction(
-  TransactionBuilder.fromXDR(first.sealed.envelope, networkPassphrase),
-);
+const firstRow = await walletRow(first.address);
 
-const outerResult = early.errorResult?.result;
-
-const earlyCode =
-  outerResult?.type === "txFeeBumpInnerFailed"
-    ? outerResult.innerResultPair.result.result.type
-    : outerResult?.type;
-
-assert.equal(earlyCode, "txTooEarly");
-
-console.log(
-  "Stored recovery was unsubmitted; early probe rejected txTooEarly.",
-);
-
-while (Number((await server.getLatestLedger()).closeTime) < first.minTime)
-  await Bun.sleep(1000);
-
-const atTimeBound = await server.getLatestLedger();
+await run(Directory.use((directory) => directory.recover(firstRow)));
 
 assert.ok(
-  atTimeBound.sequence + 1 < first.minLedger,
-  "The recovery time bound must pass before its ledger bound for this probe",
+  (await run(Wallet.use((wallet) => wallet.overview(first.address)))) instanceof
+    NeedsReopening,
 );
 
-const ledgerEarly = await server.sendTransaction(
-  TransactionBuilder.fromXDR(first.sealed.envelope, networkPassphrase),
-);
-
-const ledgerEarlyResult = ledgerEarly.errorResult?.result;
-
-assert.equal(
-  ledgerEarlyResult?.type === "txFeeBumpInnerFailed"
-    ? ledgerEarlyResult.innerResultPair.result.result.type
-    : ledgerEarlyResult?.type,
-  "txTooEarly",
-);
+assert.ok((await opening(first)) instanceof Opened);
 
 console.log(
-  "PASS recovery past its time bound is still txTooEarly below ledger N+1, so ACCOUNT_MERGE_SEQNUM_TOO_FAR cannot burn its signature.",
+  "PASS a recovered wallet whose sponsored account is still on the network reactivates with no signature.",
 );
 
-while ((await server.getLatestLedger()).sequence < first.minLedger)
-  await Bun.sleep(1000);
-
-await run(Wallet.use((wallet) => wallet.sweep));
-
-await waitApplied(first.sealed);
-
-await run(Wallet.use((wallet) => wallet.sweep));
-
-remember("bounded recovery", first.sealed.hash);
-
-assert.equal((await walletRow(first.claim.address)).status, "recovered");
-
-assert.ok(
-  (await run(
-    Wallet.use((wallet) => wallet.overview(first.claim.address)),
-  )) instanceof NeedsReopening,
-);
-
-const reopened = await opening(first.claim);
-
-assert.ok(reopened instanceof OpeningDraft);
-
-assert.ok(reopened.recovery !== undefined);
-
-await opening(first.claim, approvedBy(user, reopened));
-
-const reopenedHash = (await walletRow(first.claim.address)).attemptHash;
-
-assert.ok(reopenedHash);
-
-assert.ok((await untilOpened(first.claim)) instanceof Opened);
-
-remember("same-key same-username reopening", reopenedHash);
-
-const repairSource = await server.getAccount(first.claim.address);
+const repairSource = await server.getAccount(first.address);
 
 const removeTrust = new TransactionBuilder(repairSource, {
   fee: baseFee,
@@ -338,12 +311,11 @@ await waitApplied(removal);
 remember("external trustline removal", removal.hash);
 
 assert.ok(
-  (await run(
-    Wallet.use((wallet) => wallet.overview(first.claim.address)),
-  )) instanceof NeedsReopening,
+  (await run(Wallet.use((wallet) => wallet.overview(first.address)))) instanceof
+    NeedsReopening,
 );
 
-const repair = await opening(first.claim);
+const repair = await opening(first);
 
 assert.ok(repair instanceof OpeningDraft);
 
@@ -353,23 +325,44 @@ assert.ok(repairFacts instanceof OpeningFacts);
 
 assert.equal(repairFacts.createAccount, false);
 
-assert.ok(repairFacts.window !== undefined);
+await opening(first, approvedBy(user, repair));
 
-assert.ok(repair.recovery !== undefined);
-
-await opening(first.claim, approvedBy(user, repair));
-
-const repairHash = (await walletRow(first.claim.address)).attemptHash;
+const repairHash = (await walletRow(first.address)).attemptHash;
 
 assert.ok(repairHash);
 
-assert.ok((await untilOpened(first.claim)) instanceof Opened);
+assert.ok((await untilOpened(first)) instanceof Opened);
 
 remember("sponsored trustline-only repair", repairHash);
 
-const second = await createWithShortRecovery(activityUser, `va_${runId}`);
+const second = await create(activityUser, `va_${runId}`);
 
-const holder = await server.getAccount(second.claim.address);
+const holder = await server.getAccount(second.address);
+
+const absentTx = new TransactionBuilder(
+  new Account(holder.accountId(), holder.sequenceNumber()),
+  { fee: baseFee, networkPassphrase },
+)
+  .addOperation(Operation.manageData({ name: "absent", value: "1" }))
+  .setTimeout(120)
+  .build();
+
+absentTx.sign(activityUser);
+
+const absentOuter = TransactionBuilder.buildFeeBumpTransaction(
+  feePayer.publicKey(),
+  baseFee,
+  absentTx,
+  networkPassphrase,
+);
+
+absentOuter.sign(feePayer);
+
+const absent = new Sealed({
+  envelope: absentOuter.toXDR(),
+  hash: hexHash(absentOuter),
+  expiresAt: DateTime.makeUnsafe(Date.now() + 120000),
+});
 
 const bump = new TransactionBuilder(holder, { fee: baseFee, networkPassphrase })
   .addOperation(
@@ -430,7 +423,7 @@ console.log(
   "PASS settlement resolves the original intent through its included inner hash under an alternate fee payer.",
 );
 
-let consumed = await run(Chain.use((chain) => chain.settlement(second.sealed)));
+let consumed = await run(Chain.use((chain) => chain.settlement(absent)));
 
 for (
   let attempt = 0;
@@ -438,7 +431,7 @@ for (
   attempt++
 ) {
   await Bun.sleep(1000);
-  consumed = await run(Chain.use((chain) => chain.settlement(second.sealed)));
+  consumed = await run(Chain.use((chain) => chain.settlement(absent)));
 }
 
 assert.ok(consumed instanceof Rejected);
@@ -446,22 +439,8 @@ assert.ok(consumed instanceof Rejected);
 assert.equal(consumed.code, "sequence_consumed");
 
 console.log(
-  "PASS absent recovery reaches sequence_consumed after a different transaction consumes its sequence.",
+  "PASS an absent transaction reaches sequence_consumed after a different transaction consumes its sequence.",
 );
-
-while (Number((await server.getLatestLedger()).closeTime) < second.minTime)
-  await Bun.sleep(1000);
-
-await run(Wallet.use((wallet) => wallet.sweep));
-
-assert.equal(
-  (await server.getTransaction(second.sealed.hash)).status,
-  rpc.Api.GetTransactionStatus.NOT_FOUND,
-);
-
-assert.equal((await walletRow(second.claim.address)).status, "active");
-
-console.log("Sweep skipped recovery after the device advanced its sequence.");
 
 const toExchange = (
   memo?: PaymentMemo,
@@ -469,7 +448,7 @@ const toExchange = (
 ) =>
   new TransferOrder({
     id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
-    from: second.claim.address,
+    from: second.address,
     to: AddressRecipient.make({ value: destination }),
     asset: NativeAsset.make({}),
     amount: Schema.decodeSync(PositiveAmount)("10000000"),
@@ -515,7 +494,7 @@ const topUp = new TransactionBuilder(
 )
   .addOperation(
     Operation.payment({
-      destination: second.claim.address,
+      destination: second.address,
       asset: Asset.native(),
       amount: "5",
     }),
@@ -644,7 +623,7 @@ const depositPayment = new TransactionBuilder(
 )
   .addOperation(
     Operation.payment({
-      destination: second.claim.address,
+      destination: second.address,
       asset: usdc,
       amount: "5",
     }),
@@ -662,7 +641,7 @@ const listedDeposits = async () => {
   await run(Wallet.use((wallet) => wallet.ingestDeposits));
 
   const page = await run(
-    Wallet.use((wallet) => wallet.activity(second.claim.address)),
+    Wallet.use((wallet) => wallet.activity(second.address)),
   );
 
   return page instanceof ActivityPage
@@ -698,15 +677,8 @@ const result = {
     "unsponsored Friendbot account refused before username claim",
     "username bound with the signed opening; race loser refused before submission",
     "0 XLM sponsored opening + USDC trustline",
-    "paired opening signs its recovery with the opening and stores it unsubmitted",
-    "CAP-21 pinned opening settles with the created account at sequence N<<32",
-    "paired recovery stays txTooEarly below ledger N+1 even past its time bound",
-    "recovery txTooEarly before minTime",
-    "pre-signed paired recovery settles once the ledger passes N",
-    "recovered state",
-    "same-key same-username reopening",
+    "recovered wallet with a live sponsored account reactivates with no signature",
     "sponsored trustline-only repair",
-    "sweep skips changed sequence",
     "settlement discovers inner inclusion under alternate fee payer while original outer is NOT_FOUND",
     "consumed sequence plus complete inner absence evidence concludes sequence_consumed",
     "config.memo_required = 1 refuses a memoless payment with SEP-29 evidence",
@@ -715,7 +687,7 @@ const result = {
     "USDC payment from a plain account is read from getEvents and listed as one deposit",
   ],
   deferred: [
-    "Live USDC payment and nonzero-USDC recovery guard require Circle testnet USDC funding; covered by local behavioral tests.",
+    "Live USDC payment requires Circle testnet USDC funding; covered by local behavioral tests.",
   ],
 };
 

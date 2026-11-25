@@ -9,7 +9,6 @@ import {
   type Approvals,
   type OpeningDraft,
   OpeningPending,
-  type RecoveryDraft,
   Username,
   WalletClaim,
   type WalletPort,
@@ -32,7 +31,6 @@ import {
   UnsupportedDevice,
 } from "./outcomes";
 import {
-  requestsOf,
   reserveSponsorOf,
   reviewFromJson,
   reviewJson,
@@ -41,8 +39,6 @@ import {
 import { pollSchedule } from "./polling";
 import { Reserved, approveReviewed } from "./reviewed-approval";
 
-type Draft = OpeningDraft | RecoveryDraft;
-
 interface OpeningTurn {
   readonly done: Option.Option<ReviewOpeningOutcome>;
   readonly pause: boolean;
@@ -50,7 +46,7 @@ interface OpeningTurn {
 
 type OnDraft = (
   wallet: PublicDeviceWallet,
-  draft: Draft,
+  draft: OpeningDraft,
 ) => Effect.Effect<Option.Option<ReviewOpeningOutcome>>;
 
 interface SponsorReservation {
@@ -125,14 +121,11 @@ export function deviceOpening(
 
       approvals = Option.none();
 
-      const drafted = (draft: Draft) =>
-        onDraft(wallet, draft).pipe(
-          Effect.map((done): OpeningTurn => ({ done, pause: false })),
-        );
-
       return yield* Match.valueTags(response, {
-        OpeningDraft: drafted,
-        RecoveryDraft: drafted,
+        OpeningDraft: (draft) =>
+          onDraft(wallet, draft).pipe(
+            Effect.map((done): OpeningTurn => ({ done, pause: false })),
+          ),
         OpeningPending: () =>
           Effect.succeed({ done: Option.none(), pause: !submitted }),
         AddressBound: (bound) =>
@@ -177,10 +170,6 @@ export function deviceOpening(
         InvalidAddress: (outcome) =>
           Effect.succeed({ done: Option.some(outcome), pause: false }),
         NotSponsored: (outcome) =>
-          Effect.succeed({ done: Option.some(outcome), pause: false }),
-        DepositOpeningsFull: (outcome) =>
-          Effect.succeed({ done: Option.some(outcome), pause: false }),
-        DepositOpeningSpent: (outcome) =>
           Effect.succeed({ done: Option.some(outcome), pause: false }),
       });
     });
@@ -253,16 +242,12 @@ export function deviceOpening(
     );
 
   const afterRelease = (shown: OpeningReview): OnDraft => {
-    const next = presenting(false);
     const replacement = presenting(true);
-    const standalone = Predicate.isTagged(shown.draft, "RecoveryDraft");
 
     return (wallet, draft) =>
-      Predicate.isTagged(draft, "RecoveryDraft") && !standalone
-        ? next(wallet, draft)
-        : shown.redrafted
-          ? Effect.succeed(Option.some(new DraftRejected()))
-          : replacement(wallet, draft);
+      shown.redrafted
+        ? Effect.succeed(Option.some(new DraftRejected()))
+        : replacement(wallet, draft);
   };
 
   const confirm = Effect.fn("Device.confirmOpening")(function* (
@@ -302,7 +287,7 @@ export function deviceOpening(
 
     const approved = yield* approveReviewed(device, {
       record,
-      requests: requestsOf(presented.draft),
+      requests: [presented.draft.request],
       holds: (wallet) =>
         Effect.zipWith(
           standingNow(wallet, presented),

@@ -1,60 +1,41 @@
 import { expect, layer } from "@effect/vitest";
 import {
   Account,
-  Claimant,
   Keypair,
   Transaction,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
-import * as Latch from "effect/Latch";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   AddressBound,
   AddressRecipient,
-  baseAsset,
-  DepositOpeningSpent,
-  DepositOpeningsFull,
-  NeedsReopening,
-  PositiveAmount,
   Opened,
   Profile,
   Username,
   WalletClaim,
 } from "../src/contract";
-import { Database } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
 import { Sealed } from "../src/server/Chain.server";
-import { SignedWorkInFlight } from "../src/server/slot.server";
 import { Directory } from "../src/server/Directory.server";
 import { draftOpening, readEnvelope } from "../src/stellar/envelopes";
-import { epochAt, network, networkPassphrase } from "../src/stellar/network";
-import { deposits, wallets } from "../src/server/tables.server";
+import { networkPassphrase } from "../src/stellar/network";
 import { assertTagged } from "./tagged";
-import { enrollUnopened, walletWithDepositCap } from "./deposit-openings";
-import { payUsername } from "./activity-fixtures";
 import {
   accountState,
   addressOf,
   amount,
-  approve,
   approveOpening,
-  authorizeTransfer,
+  bindingAllowed,
   claimFor,
   create,
   feePayer,
   findWallet,
-  fundedWallet,
-  bindingAllowed,
   opening,
   orderFor,
   overviewOf,
-  selfOrder,
   reserveSponsor,
   send,
   settleAttempt,
@@ -70,7 +51,7 @@ useDisposableDatabase();
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect(
-      "opening resumes missing recovery and never activates without a valid signature",
+      "an opening activates only from its key's signature once its account is on the network",
       () =>
         Effect.gen(function* () {
           const key = Keypair.random();
@@ -78,152 +59,31 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const draft = yield* opening(claim);
 
           assertTagged(draft, "OpeningDraft");
-          expect(draft.recovery).toBeDefined();
-
-          const unrecoverable = Option.some([
-            Option.getOrThrow(approve(draft.request, key)),
-            Option.getOrThrow(
-              approve(
-                Option.getOrThrow(Option.fromNullishOr(draft.recovery)),
-                Keypair.random(),
-              ),
-            ),
-          ] as const);
-
-          expect(yield* opening(claim, unrecoverable)).toEqual(draft);
+          expect(
+            yield* opening(claim, approveOpening(Keypair.random(), draft)),
+          ).toEqual(draft);
           expect(world.submitted).toHaveLength(0);
           expect((yield* opening(claim, approveOpening(key, draft)))._tag).toBe(
             "OpeningPending",
           );
-
-          expect((yield* opening(claim))._tag).toBe("OpeningPending");
-          yield* Database.use((db) =>
-            db.execute(
-              sql`update wallets set "attemptExpiresAt" = now() - interval '1 minute' where address = ${claim.address}`,
-            ),
-          );
-
-          const recovery = yield* opening(claim);
-
-          assertTagged(recovery, "RecoveryDraft");
-          expect(yield* opening(claim)).toEqual(recovery);
-          expect(
-            (yield* findWallet(claim.address)).pipe(
-              Option.map((r) => r.status),
-            ),
-          ).toEqual(Option.some("opening"));
-          expect(
-            yield* opening(claim, approveOpening(Keypair.random(), recovery)),
-          ).toEqual(recovery);
-          expect(
-            (yield* opening(claim, approveOpening(key, recovery)))._tag,
-          ).toBe("Opened");
-          expect(world.submitted).toHaveLength(1);
-
-          const pairedKey = Keypair.random();
-          const paired = claimFor(pairedKey, "pedro");
-          const pairedDraft = yield* opening(paired);
-
-          assertTagged(pairedDraft, "OpeningDraft");
-          yield* opening(paired, approveOpening(pairedKey, pairedDraft));
-          yield* settleAttempt(paired.address, 120);
+          yield* settleAttempt(claim.address, 120);
 
           const visible = Option.getOrThrow(
-            Option.fromNullishOr(world.accounts.get(paired.address)),
-          );
-
-          world.accounts.delete(paired.address);
-          expect((yield* opening(paired))._tag).toBe("OpeningPending");
-          expect(
-            Option.getOrThrow(yield* findWallet(paired.address))
-              .pairedRecoveryEnvelope,
-          ).not.toBeNull();
-          world.accounts.set(paired.address, visible);
-          expect((yield* opening(paired))._tag).toBe("Opened");
-
-          const row = Option.getOrThrow(yield* findWallet(paired.address));
-
-          expect(row.status).toBe("active");
-          expect(row.recoverySequence).toBe(
-            Option.getOrThrow(
-              readEnvelope(
-                Option.getOrThrow(Option.fromNullishOr(pairedDraft.recovery))
-                  .envelope,
-              ),
-            ).sequence,
-          );
-
-          const advancedKey = Keypair.random();
-          const advanced = claimFor(advancedKey, "lucia");
-          const advancedDraft = yield* opening(advanced);
-
-          assertTagged(advancedDraft, "OpeningDraft");
-          yield* opening(advanced, approveOpening(advancedKey, advancedDraft));
-          yield* settleAttempt(advanced.address);
-          world.accounts.set(
-            advanced.address,
-            accountState({
-              sequence: "5000",
-              balance: Option.some(amount("0")),
-            }),
-          );
-          assertTagged(yield* opening(advanced), "RecoveryDraft");
-          expect(
-            Option.getOrThrow(yield* findWallet(advanced.address)).status,
-          ).toBe("opening");
-        }),
-    );
-
-    it.effect(
-      "a repair is drafted unbumped and unpaired while a signed transfer is in flight",
-      () =>
-        Effect.gen(function* () {
-          const key = yield* fundedWallet();
-          const claim = claimFor(key, "maria");
-
-          const funded = Option.getOrThrow(
             Option.fromNullishOr(world.accounts.get(claim.address)),
           );
 
-          yield* authorizeTransfer(key, selfOrder(key), { failSubmit: true });
-          world.accounts.set(
-            claim.address,
-            accountState({
-              sequence: funded.sequence,
-              balance: Option.none(),
-            }),
-          );
+          world.accounts.delete(claim.address);
           expect((yield* opening(claim))._tag).toBe("OpeningPending");
-
-          const repair = yield* opening(claim);
-
-          assertTagged(repair, "OpeningDraft");
-          expect(repair.recovery).toBeUndefined();
           expect(
-            Option.getOrThrow(readEnvelope(repair.request.envelope)),
-          ).toMatchObject({ createAccount: false, window: undefined });
-
-          const placeholder = new Sealed({
-            envelope: "AAAA",
-            hash: "00".repeat(32),
-            expiresAt: DateTime.makeUnsafe(Date.now() + 60_000),
-          });
-
-          const stored = Option.getOrThrow(yield* findWallet(claim.address));
-
+            Option.getOrThrow(yield* findWallet(claim.address)).status,
+          ).toBe("opening");
+          world.accounts.set(claim.address, visible);
+          expect(yield* opening(claim)).toEqual(
+            new Opened({ profile: new Profile(claim) }),
+          );
           expect(
-            yield* Directory.use((directory) =>
-              directory.seal(
-                stored,
-                placeholder,
-                claim,
-                Option.some(placeholder),
-                true,
-                bindingAllowed,
-                Option.none(),
-              ),
-            ),
-          ).toEqual(new SignedWorkInFlight());
+            Option.getOrThrow(yield* findWallet(claim.address)).status,
+          ).toBe("active");
         }),
     );
 
@@ -286,15 +146,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           });
 
           yield* Directory.use((d) =>
-            d.seal(
-              row,
-              historical,
-              claim,
-              Option.none(),
-              false,
-              bindingAllowed,
-              Option.none(),
-            ),
+            d.seal(row, historical, claim, bindingAllowed),
           );
           expect((yield* opening(claim))._tag).toBe("OpeningDraft");
           expect(world.submitted).toHaveLength(0);
@@ -330,7 +182,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "a partially sponsored account never receives a recovery draft",
+      "a partially sponsored account is refused before a username binds",
       () =>
         Effect.gen(function* () {
           const claim = claimFor(Keypair.random(), "maria");
@@ -376,7 +228,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "existing unnamed account binds once and returns AddressBound to a concurrent caller",
+      "an existing unnamed account binds a username only with its key's signature",
       () =>
         Effect.gen(function* () {
           const key = Keypair.random();
@@ -388,166 +240,32 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             accountState({ balance: Option.some(amount("0")) }),
           );
 
-          const draftStarted = yield* Latch.make();
-          const resumeDraft = yield* Latch.make();
-
-          const pausedWallet = walletWithChain((actual) => ({
-            draftRecovery: (addr) =>
-              draftStarted.open.pipe(
-                Effect.andThen(resumeDraft.await),
-                Effect.andThen(actual.draftRecovery(addr)),
-              ),
-          }));
-
-          const callerA = yield* opening(claimA).pipe(
-            Effect.provide(pausedWallet),
-            Effect.forkChild,
-          );
-
-          yield* draftStarted.await;
-          const bDraft = yield* opening(claimB);
-
-          assertTagged(bDraft, "RecoveryDraft");
-          expect(yield* opening(claimB, approveOpening(key, bDraft))).toEqual(
-            new Opened({ profile: new Profile(claimB) }),
-          );
-          expect(world.submitted).toHaveLength(0);
-          expect((yield* opening(claimFor(Keypair.random(), "bob")))._tag).toBe(
-            "UsernameTaken",
-          );
-
-          yield* resumeDraft.open;
-          expect(yield* Fiber.join(callerA)).toEqual(
-            new AddressBound({
-              profile: new Profile({
-                address: claimA.address,
-                username: claimB.username,
-              }),
-            }),
-          );
-        }),
-    );
-
-    it.effect(
-      "a deposit opening recovered empty is spent, while an attempt that never applied leaves it unspent",
-      () =>
-        Effect.gen(function* () {
-          const key = Keypair.random();
-          const claim = yield* enrollUnopened(key, "maria");
-
-          world.failSubmit = true;
-
-          const unapplied = yield* opening(claim);
-
-          assertTagged(unapplied, "OpeningDraft");
-          yield* opening(claim, approveOpening(key, unapplied));
-          expect(yield* overviewOf(claim.address)).toEqual(
-            new NeedsReopening({ profile: new Profile(claim) }),
-          );
-          world.failSubmit = false;
-          yield* Database.use((db) =>
-            db
-              .update(wallets)
-              .set({ attemptExpiresAt: new Date(Date.now() - 60_000) })
-              .where(eq(wallets.address, claim.address)),
-          );
-
-          const draft = yield* opening(claim);
+          const draft = yield* opening(claimA);
 
           assertTagged(draft, "OpeningDraft");
-          yield* opening(claim, approveOpening(key, draft));
-          yield* settleAttempt(claim.address);
-          expect((yield* opening(claim))._tag).toBe("Opened");
-
-          world.accounts.delete(claim.address);
-          expect((yield* overviewOf(claim.address))._tag).toBe(
-            "NeedsReopening",
+          expect(
+            Option.getOrThrow(readEnvelope(draft.request.envelope)),
+          ).toMatchObject({ createAccount: false });
+          expect(
+            yield* opening(claimA, approveOpening(Keypair.random(), draft)),
+          ).toEqual(draft);
+          expect(
+            (yield* opening(claimFor(Keypair.random(), "alice")))._tag,
+          ).toBe("OpeningDraft");
+          expect(
+            (yield* opening(claimA, approveOpening(key, draft)))._tag,
+          ).toBe("OpeningPending");
+          yield* settleAttempt(claimA.address);
+          expect(yield* opening(claimA)).toEqual(
+            new Opened({ profile: new Profile(claimA) }),
           );
-
-          const submitted = world.submitted.length;
-
-          expect(yield* opening(claim)).toEqual(new DepositOpeningSpent());
-          expect(world.submitted).toHaveLength(submitted);
+          expect(
+            (yield* opening(claimFor(Keypair.random(), "alice")))._tag,
+          ).toBe("UsernameTaken");
+          expect(yield* opening(claimB)).toEqual(
+            new AddressBound({ profile: new Profile(claimA) }),
+          );
         }),
-    );
-
-    it.effect(
-      "deposit openings above the cap open nothing until an empty one receives money",
-      () =>
-        Effect.gen(function* () {
-          const firstKey = Keypair.random();
-          const secondKey = Keypair.random();
-          const first = yield* enrollUnopened(firstKey, "maria");
-          const second = yield* enrollUnopened(secondKey, "pedro");
-          const firstDraft = yield* opening(first);
-          const secondDraft = yield* opening(second);
-
-          assertTagged(firstDraft, "OpeningDraft");
-          assertTagged(secondDraft, "OpeningDraft");
-          yield* opening(first, approveOpening(firstKey, firstDraft));
-          yield* settleAttempt(first.address);
-          expect((yield* opening(first))._tag).toBe("Opened");
-
-          const submitted = world.submitted.length;
-
-          expect(
-            yield* opening(second, approveOpening(secondKey, secondDraft)),
-          ).toEqual(new DepositOpeningsFull());
-          expect(yield* opening(second)).toEqual(new DepositOpeningsFull());
-          expect(world.submitted).toHaveLength(submitted);
-          expect(
-            (yield* findWallet(second.address)).pipe(
-              Option.map((row) => row.attemptHash),
-            ),
-          ).toEqual(Option.some(null));
-
-          const payer = yield* fundedWallet("payer");
-          const paid = yield* enrollUnopened(Keypair.random(), "luisa");
-          const payment = yield* payUsername(payer, "luisa");
-
-          const balance = Option.getOrThrow(
-            Option.fromNullishOr(payment.settled.claimable),
-          );
-
-          world.claimables.set(balance, {
-            balance,
-            asset: baseAsset,
-            amount: Schema.decodeSync(PositiveAmount)("10000000"),
-            sponsored: true,
-            claimants: [
-              new Claimant(paid.address, Claimant.predicateUnconditional()),
-            ],
-          });
-
-          const claiming = yield* opening(paid);
-
-          assertTagged(claiming, "OpeningDraft");
-          expect(
-            Option.map(readEnvelope(claiming.request.envelope), (facts) =>
-              Predicate.isTagged(facts, "OpeningFacts")
-                ? facts.claim
-                : undefined,
-            ),
-          ).toEqual(Option.some(balance));
-
-          yield* Database.use((db) =>
-            db.insert(deposits).values({
-              network,
-              testnetEpoch: epochAt(Date.now()),
-              eventId: "first-deposit",
-              wallet: first.address,
-              code: baseAsset.code,
-              issuer: baseAsset.issuer,
-              amount: 10_000_000n,
-              sender: reserveSponsor,
-              hash: "00".repeat(32),
-              ledger: 100,
-              closedAt: new Date(),
-            }),
-          );
-
-          expect((yield* opening(second))._tag).toBe("OpeningDraft");
-        }).pipe(Effect.provide(walletWithDepositCap(1))),
     );
   },
 );

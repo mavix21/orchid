@@ -31,8 +31,6 @@ export const enrollmentReviewRequest = (port: Pick<WalletPort, "open">) =>
 
     return yield* Match.valueTags(step, {
       OpeningDraft: (draft) => {
-        if (draft.recovery === undefined) return unexpected();
-
         const review = new OpeningReview({
           username: usernameOf(current),
           address: addressOf(current),
@@ -46,13 +44,10 @@ export const enrollmentReviewRequest = (port: Pick<WalletPort, "open">) =>
       },
       UsernameTaken: Effect.succeed,
       HumanCheckRefused: unexpected,
-      RecoveryDraft: unexpected,
       OpeningPending: unexpected,
       Opened: unexpected,
       AddressBound: unexpected,
       InvalidAddress: unexpected,
       NotSponsored: unexpected,
-      DepositOpeningsFull: unexpected,
-      DepositOpeningSpent: unexpected,
     });
   });

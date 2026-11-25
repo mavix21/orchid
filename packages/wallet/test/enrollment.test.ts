@@ -39,6 +39,7 @@ import {
   checkRecipient,
   dbLayer,
   passkeyOrigin,
+  reserveSponsor,
   useDisposableDatabase,
   walletForDb,
   walletTestLayer,
@@ -73,7 +74,7 @@ useDisposableDatabase();
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect(
-      "creates a wallet with two passkey prompts and submits nothing: the username is bound and the wallet stays unopened",
+      "creates a wallet with two passkey prompts and opens it with the second: the username is bound with the signed opening",
       () =>
         Effect.gen(function* () {
           yield* Effect.promise(clearDatabase);
@@ -91,7 +92,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(started, "EnrollmentPending");
           expect(started.stage).toBe("activate");
-          expect(started.review).toBeUndefined();
+          assertTagged(
+            Option.getOrThrow(Option.fromNullishOr(started.review)),
+            "OpeningReview",
+          );
           expect(auth.issued).toHaveLength(0);
           expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
 
@@ -102,39 +106,40 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(world.submitted).toHaveLength(0);
 
           auth.cancels = true;
-          expect((yield* tab.advance())._tag).toBe("PasskeyCancelled");
+          expect((yield* tab.advance(started.review))._tag).toBe(
+            "PasskeyCancelled",
+          );
           expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
           expect(world.submitted).toHaveLength(0);
           expect(yield* tab.pending()).toEqual(Option.some(started));
 
           auth.cancels = false;
 
-          const completed = yield* tab.advance();
+          const completed = yield* tab.advance(started.review);
 
           assertTagged(completed, "WalletEnrolled");
           expect(completed.profile.username).toBe("maria");
           expect(auth.registered).toHaveLength(1);
           expect(auth.issued).toHaveLength(1);
           expect(yield* tab.pending()).toEqual(Option.none());
-          expect(world.submitted).toHaveLength(0);
+          expect(world.submitted).toHaveLength(1);
 
           const persisted = Option.getOrThrow(
             yield* browserKeyStore.readSealed(),
           );
 
           expect(persisted.public.backup).toBe("stored");
-          expect(persisted.public.reserveSponsor).toBeUndefined();
+          expect(persisted.public.reserveSponsor).toBe(reserveSponsor);
 
           const rows = yield* tableRows;
 
           expect(rows.backups).toHaveLength(1);
           expect(rows.usernames).toHaveLength(1);
 
-          const unopened = yield* wallet.overview(completed.profile.address);
+          const opened = yield* wallet.overview(completed.profile.address);
 
-          assertTagged(unopened, "NotOpened");
-          expect(unopened.profile).toEqual(Option.some(completed.profile));
-          expect(unopened.claimable).toEqual([]);
+          assertTagged(opened, "Holding");
+          expect(opened.profile).toEqual(completed.profile);
           expect(
             yield* checkRecipient(
               UsernameRecipient.make({
@@ -213,7 +218,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           assertTagged(secondStarted, "EnrollmentPending");
 
           const outcomes = yield* Effect.all(
-            [firstTab.advance(), secondTab.advance()],
+            [
+              firstTab.advance(firstStarted.review),
+              secondTab.advance(secondStarted.review),
+            ],
             { concurrency: "unbounded" },
           );
 
@@ -237,7 +245,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           expect(persisted.public.address).toBe(winner.profile.address);
-          expect(world.submitted).toHaveLength(0);
+          expect(world.submitted).toHaveLength(1);
           expect((yield* tableRows).usernames).toHaveLength(1);
           expect((yield* tableRows).backups).toHaveLength(1);
         }),
@@ -279,7 +287,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const started = yield* tab.start("maria");
 
           assertTagged(started, "EnrollmentPending");
-          assertTagged(yield* tab.advance(), "WalletEnrolled");
+          assertTagged(yield* tab.advance(started.review), "WalletEnrolled");
 
           expect(grants.map(Option.isSome)).toEqual([true]);
 
@@ -289,7 +297,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const replayed = yield* enrollingAtRequest(enrollment, approvals);
 
-          expect(replayed._tag).toBe("Enrolled");
+          expect(replayed._tag).toBe("Opened");
           expect(grants.map(Option.isSome)).toEqual([true, false]);
         }),
     );
@@ -321,7 +329,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const started = yield* firstTab.start("maria");
 
           assertTagged(started, "EnrollmentPending");
-          expect((yield* firstTab.advance())._tag).toBe("Offline");
+          expect((yield* firstTab.advance(started.review))._tag).toBe(
+            "Offline",
+          );
           expect(auth.issued).toHaveLength(1);
 
           const committed = yield* tableRows;

@@ -39,21 +39,18 @@ const OpeningStep = Data.taggedEnum<OpeningStep>();
 export interface OpeningCopy {
   readonly preparing: string;
   readonly confirming: string;
-  readonly reopenTitle: string;
-  readonly reopenAction: string;
-  readonly depositOpeningsFull: string;
-  readonly depositOpeningSpent: string;
+  readonly title: string;
+  readonly explanation: string;
+  readonly action: string;
 }
 
 export const reopeningCopy: OpeningCopy = {
   preparing: "Preparando tu cuenta…",
   confirming: "Abriendo tu cuenta…",
-  reopenTitle: "Reabre tu cuenta",
-  reopenAction: "Reabrir con passkey",
-  depositOpeningsFull:
-    "No pudimos abrir tu cuenta ahora, intenta en unos minutos.",
-  depositOpeningSpent:
-    "Tu cuenta ya se abrió una vez sin recibir dinero, así que no podemos reabrirla ahora.",
+  title: "Abre tu cuenta",
+  explanation:
+    "Tu cuenta todavía no está abierta en la red Stellar. Confirma con tu passkey para abrirla.",
+  action: "Abrir con passkey",
 };
 
 const concluded = (title: string, message: string, retry?: string) =>
@@ -68,7 +65,6 @@ const readAnswer = (
   answer: Answer<ConfirmOpeningOutcome>,
   previous: Option.Option<OpeningReview>,
   onOpened: () => void,
-  copy: OpeningCopy,
 ): OpeningStep =>
   answer instanceof DeviceFailure
     ? concluded(
@@ -76,13 +72,12 @@ const readAnswer = (
         `Algo falló en este dispositivo. ${unopened}`,
         "Reintentar",
       )
-    : readOutcome(answer, previous, onOpened, copy);
+    : readOutcome(answer, previous, onOpened);
 
 const readOutcome = (
   answer: ConfirmOpeningOutcome,
   previous: Option.Option<OpeningReview>,
   onOpened: () => void,
-  copy: OpeningCopy,
 ): OpeningStep => {
   const refused = (problem: string) =>
     Option.match(previous, {
@@ -192,10 +187,6 @@ const readOutcome = (
         "Tu usuario no es válido",
         "Solo letras, números y guion bajo.",
       ),
-    DepositOpeningsFull: () =>
-      concluded("No pudimos continuar", copy.depositOpeningsFull, "Reintentar"),
-    DepositOpeningSpent: () =>
-      concluded("No pudimos continuar", copy.depositOpeningSpent),
     BackupUnsupported: () => unsupported,
     ChallengeRefused: () => unsupported,
     RegistrationRefused: () => unsupported,
@@ -208,9 +199,6 @@ const readOutcome = (
     InvalidResponse: unavailable,
   });
 };
-
-const closing =
-  "Si tu cuenta sigue vacía y sin uso, Orchid puede cerrarla después de un día para recuperar su reserva. Tu usuario sigue siendo tuyo.";
 
 function OpeningReviewScreen({
   review,
@@ -225,15 +213,11 @@ function OpeningReviewScreen({
   copy: OpeningCopy;
   onConfirm: () => void;
 }) {
-  const reopening = Predicate.isTagged(review.draft, "OpeningDraft");
-
   return (
     <>
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
         <h1 className="font-display text-h1">
-          {Option.getOrElse(arrival, () =>
-            reopening ? copy.reopenTitle : "Autoriza el cierre por inactividad",
-          )}
+          {Option.getOrElse(arrival, () => copy.title)}
         </h1>
         <p className="text-label-lg" data-testid="opening-username">
           @{review.username}
@@ -241,7 +225,7 @@ function OpeningReviewScreen({
         <p className="text-body text-muted-foreground">
           {Option.isSome(arrival)
             ? "Abrimos tu cuenta y recibimos tu pago con tu passkey."
-            : closing}
+            : copy.explanation}
         </p>
         {Option.isSome(problem) ? (
           <p role="alert" className="text-body text-destructive">
@@ -255,11 +239,7 @@ function OpeningReviewScreen({
           onClick={onConfirm}
           data-testid="confirm-opening"
         >
-          {Option.isSome(arrival)
-            ? "Recibir con passkey"
-            : reopening
-              ? copy.reopenAction
-              : "Autorizar con passkey"}
+          {Option.isSome(arrival) ? "Recibir con passkey" : copy.action}
         </Button>
       </ScreenActions>
     </>
@@ -283,14 +263,14 @@ export function OpeningFlow({
   const confirm = (shown: OpeningReview) => {
     setStep(OpeningStep.Confirming());
     task.run(walletEffects.confirmOpening(shown), (answer) =>
-      setStep(readAnswer(answer, Option.some(shown), onOpened, copy)),
+      setStep(readAnswer(answer, Option.some(shown), onOpened)),
     );
   };
 
   const look = () => {
     setStep(OpeningStep.Preparing());
     task.run(walletEffects.reviewOpening(username), (answer) => {
-      const next = readAnswer(answer, Option.none(), onOpened, copy);
+      const next = readAnswer(answer, Option.none(), onOpened);
 
       if (
         Option.isSome(arrival) &&

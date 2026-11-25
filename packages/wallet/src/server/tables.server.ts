@@ -12,37 +12,17 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const wallets = pgTable(
-  "wallets",
-  {
-    address: text().primaryKey(),
-    status: text({ enum: ["opening", "active", "recovered"] }).notNull(),
-    sweepCheckedAt: timestamp({ withTimezone: true }),
-    version: integer().notNull().default(0),
-    network: text().notNull(),
-    testnetEpoch: text().notNull(),
-    contractId: text(),
-    attemptEnvelope: text(),
-    attemptHash: text(),
-    attemptExpiresAt: timestamp({ withTimezone: true }),
-    recoveryDraft: text(),
-    recoveryEnvelope: text(),
-    recoveryHash: text(),
-    recoverySequence: text(),
-    recoveryMinTime: timestamp({ withTimezone: true }),
-    recoveryMaxTime: timestamp({ withTimezone: true }),
-    pairedRecoveryDraft: text(),
-    pairedRecoveryEnvelope: text(),
-    pairedRecoveryHash: text(),
-    depositOpening: text({ enum: ["attempted", "recovered"] }),
-  },
-  (table) => [
-    check(
-      "wallets_active_has_recovery",
-      sql`${table.status} <> 'active' or (${table.recoveryEnvelope} is not null and ${table.recoveryHash} is not null and ${table.recoverySequence} is not null and ${table.recoveryMinTime} is not null and ${table.recoveryMaxTime} is not null)`,
-    ),
-  ],
-);
+export const wallets = pgTable("wallets", {
+  address: text().primaryKey(),
+  status: text({ enum: ["opening", "active", "recovered"] }).notNull(),
+  version: integer().notNull().default(0),
+  network: text().notNull(),
+  testnetEpoch: text().notNull(),
+  contractId: text(),
+  attemptEnvelope: text(),
+  attemptHash: text(),
+  attemptExpiresAt: timestamp({ withTimezone: true }),
+});
 
 export const usernames = pgTable("usernames", {
   username: text().primaryKey(),

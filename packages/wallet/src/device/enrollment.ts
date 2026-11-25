@@ -62,7 +62,7 @@ import {
   sealLocalEnvelope,
 } from "./local-envelope";
 import { linkSecretFor, receiveReviewJson } from "./link-receive";
-import { requestsOf, reviewJson } from "./opening-drafts";
+import { reviewJson } from "./opening-drafts";
 import {
   BackupUnsupported,
   DraftRejected,
@@ -316,13 +316,13 @@ export function makeEnrollmentEffects(
 
   const sealAndSign = Effect.fn("Device.sealAndSignEnrollment")(function* (
     current: Awaiting,
-    review: Option.Option<OpeningReview>,
+    review: OpeningReview,
     devicePrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
     backupPrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
     receive: EnrollmentReceive | undefined,
   ): Effect.fn.Return<Held | EnrollWalletOutcome> {
     const sealed = isCreated(current)
-      ? yield* sealCandidate(current, review, devicePrf, backupPrf)
+      ? yield* sealCandidate(current, Option.some(review), devicePrf, backupPrf)
       : current;
 
     if (!Predicate.isTagged(sealed, "Sealed")) return sealed;
@@ -331,10 +331,7 @@ export function makeEnrollmentEffects(
 
     if (!(verified instanceof Verified)) return verified;
 
-    if (
-      Option.isSome(review) &&
-      (yield* standingOfReview(sealed, review.value)) !== "current"
-    )
+    if ((yield* standingOfReview(sealed, review)) !== "current")
       return yield* refreshReview(sealed, true);
 
     const secret =
@@ -349,9 +346,9 @@ export function makeEnrollmentEffects(
         return yield* refreshReceive(sealed, receive.review);
     }
 
-    const approvals = Option.map(review, (opening) =>
-      approveWithPhrase(verified.phrase, requestsOf(opening.draft)),
-    );
+    const approvals = approveWithPhrase(verified.phrase, [
+      review.draft.request,
+    ]);
 
     const heldReceive =
       receive !== undefined && Option.isSome(secret)
@@ -368,8 +365,8 @@ export function makeEnrollmentEffects(
         new PendingRelease({
           enrollment: verified.enrollment,
           candidate: verified.candidate,
-          review: Option.getOrUndefined(review),
-          approvals: Option.getOrUndefined(approvals),
+          review,
+          approvals,
           receive: heldReceive,
         }),
       )
@@ -381,8 +378,8 @@ export function makeEnrollmentEffects(
     const held = PendingState.Held({
       enrollment: verified.enrollment,
       candidate: verified.candidate,
-      review,
-      approvals: Option.getOrUndefined(approvals),
+      review: Option.some(review),
+      approvals,
       receive: heldReceive,
     });
 
@@ -394,7 +391,7 @@ export function makeEnrollmentEffects(
   const confirmWithPasskey = Effect.fn("Device.confirmEnrollmentWithPasskey")(
     function* (
       current: Awaiting,
-      review: Option.Option<OpeningReview>,
+      review: OpeningReview,
       receive: EnrollmentReceive | undefined,
       committing: Effect.Effect<void>,
     ): Effect.fn.Return<EnrollWalletOutcome> {
@@ -452,35 +449,30 @@ export function makeEnrollmentEffects(
     receive: EnrollmentReceive | undefined,
     committing: Effect.Effect<void>,
   ): Effect.fn.Return<EnrollWalletOutcome> {
-    if (receive === undefined)
-      return yield* confirmWithPasskey(
-        current,
-        Option.none(),
-        receive,
-        committing,
-      );
-
     if (Option.isNone(current.review) || !(yield* hasLiveReview(current)))
       return yield* refreshReview(current, false);
 
-    const { review } = current;
+    const review = current.review.value;
 
-    if (shown === undefined || reviewJson(shown) !== reviewJson(review.value))
+    if (shown === undefined || reviewJson(shown) !== reviewJson(review))
       return pendingNotice(current);
 
-    if (
-      !Option.exists(
-        receiving.review,
-        (held) => receiveReviewJson(held) === receiveReviewJson(receive.review),
+    if (receive !== undefined) {
+      if (
+        !Option.exists(
+          receiving.review,
+          (held) =>
+            receiveReviewJson(held) === receiveReviewJson(receive.review),
+        )
       )
-    )
-      return pendingNotice(current);
+        return pendingNotice(current);
 
-    if (Option.isNone(linkSecretFor(receive.review.link, receive.code)))
-      return new LinkSecretMismatch();
+      if (Option.isNone(linkSecretFor(receive.review.link, receive.code)))
+        return new LinkSecretMismatch();
 
-    if ((yield* receiveStanding(current, receive.review)) !== "current")
-      return yield* refreshReceive(current, receive.review);
+      if ((yield* receiveStanding(current, receive.review)) !== "current")
+        return yield* refreshReceive(current, receive.review);
+    }
 
     return yield* confirmWithPasskey(current, review, receive, committing);
   });
@@ -537,7 +529,7 @@ export function makeEnrollmentEffects(
 
     state = created;
 
-    return pendingNotice(created);
+    return yield* refreshReview(created, false);
   });
 
   const advance = Effect.fn("Device.advanceEnrollment")(function* (
@@ -579,7 +571,7 @@ export function makeEnrollmentEffects(
 
     if (isHeld(current)) return Option.some(pendingNotice(current));
 
-    if (Option.isNone(current.review) || (yield* hasLiveReview(current)))
+    if (Option.isSome(current.review) && (yield* hasLiveReview(current)))
       return Option.some(pendingNotice(current));
 
     const refreshed = yield* refreshReview(current, false);
@@ -605,9 +597,6 @@ export function makeEnrollmentEffects(
       return new NoWallet();
 
     if (isHeld(current)) return pendingNotice(current);
-
-    if (Option.isSome(current.review) && (yield* hasLiveReview(current)))
-      return yield* reviewOpenLink(current, code);
 
     const requested = yield* requestReview(current, false).pipe(Effect.result);
 

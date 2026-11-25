@@ -6,7 +6,7 @@ import * as Option from "effect/Option";
 import {
   addAuthenticator,
   countPasskeyPrompts,
-  enrollOpenedWallet,
+  enrollWallet,
   freshUsername,
   storedLinkCiphertexts,
   storedText,
@@ -44,7 +44,7 @@ const sharedFundedLink = async (page: Page, senderUsername: string) => {
     content: `Object.defineProperty(navigator, "share", { configurable: true, value: (data) => window.recordShare(data.text) });`,
   });
 
-  const { address } = await enrollOpenedWallet(page, senderUsername);
+  const { address } = await enrollWallet(page, senderUsername);
 
   await fundWithUsdc(address, "1");
   await reviewLink(page);
@@ -131,10 +131,7 @@ test("saves a funded link on the device, re-shares it from the links after leavi
 Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (text) => window.recordCopy(text) } });`,
   });
 
-  const { address, authenticator } = await enrollOpenedWallet(
-    page,
-    freshUsername(),
-  );
+  const { address, authenticator } = await enrollWallet(page, freshUsername());
 
   await fundWithUsdc(address, "1");
 
@@ -335,7 +332,7 @@ test("confirms the wallet session before receiving a link into an existing walle
 
   const recipient = await browser.newPage();
 
-  await enrollOpenedWallet(recipient, freshUsername());
+  await enrollWallet(recipient, freshUsername());
   await recipient.context().clearCookies({ name: sessionCookie });
 
   await recipient.goto(`/r${link.hash}`);
@@ -359,7 +356,7 @@ test("discards an unsaved link's code when the page is hidden before sharing, wh
 
   await holdShareOpen(page);
 
-  const { address } = await enrollOpenedWallet(page, freshUsername());
+  const { address } = await enrollWallet(page, freshUsername());
 
   await fundWithUsdc(address, "2");
 
@@ -392,7 +389,7 @@ test("closes a revealed saved link when the page is hidden, and when a share fro
 
   await holdShareOpen(page);
 
-  const { address } = await enrollOpenedWallet(page, freshUsername());
+  const { address } = await enrollWallet(page, freshUsername());
 
   await fundWithUsdc(address, "1");
   await reviewLink(page);

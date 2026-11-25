@@ -42,12 +42,9 @@ import {
 } from "../src/server/ledger.server";
 import {
   OpeningFacts,
-  pinnedSequence,
   PaymentFacts,
-  RecoveryFacts,
   draftOpening,
   draftPayment,
-  draftRecovery,
   readEnvelope,
   signingPayload,
 } from "../src/stellar/envelopes";
@@ -241,99 +238,6 @@ it.each([
   );
 });
 
-it("a pinned opening bumps the created account to N<<32 and its paired recovery opens at ledger N+1", () => {
-  const window = { minLedger: 100, maxLedger: 221 };
-
-  const opening = draftOpening({
-    source: new Account(reserveSponsor, "123"),
-    address,
-    createAccount: true,
-    minTime: 100,
-    maxTime: 220,
-    window,
-  });
-
-  const pinned = decodeTx(opening);
-
-  expect(pinned.ledgerBounds).toEqual(window);
-  expect(pinned.operations).toMatchObject([
-    { type: "beginSponsoringFutureReserves" },
-    { type: "createAccount" },
-    { type: "changeTrust" },
-    {
-      type: "bumpSequence",
-      source: address,
-      bumpTo: (220n << 32n).toString(),
-    },
-    { type: "endSponsoringFutureReserves" },
-  ]);
-  expect(Option.getOrThrow(readEnvelope(opening))).toEqual(
-    new OpeningFacts({
-      address,
-      reserveSponsor,
-      createAccount: true,
-      sequence: "124",
-      minTime: 100,
-      maxTime: 220,
-      window,
-    }),
-  );
-
-  const recovery = draftRecovery({
-    source: new Account(address, pinnedSequence(window).toString()),
-    reserveSponsor,
-    minTime: 300,
-    maxTime: 400,
-    minLedger: window.maxLedger,
-  });
-
-  expect(decodeTx(recovery).ledgerBounds).toEqual({
-    minLedger: 221,
-    maxLedger: 0,
-  });
-  expect(Option.getOrThrow(readEnvelope(recovery))).toEqual(
-    new RecoveryFacts({
-      address,
-      reserveSponsor,
-      sequence: ((220n << 32n) + 1n).toString(),
-      minTime: 300,
-      maxTime: 400,
-      minLedger: 221,
-    }),
-  );
-});
-
-it("recovery contains bounded next-sequence trustline removal and merge", () => {
-  const envelope = draftRecovery({
-    source: new Account(address, "123"),
-    reserveSponsor,
-    minTime: 100,
-    maxTime: 220,
-  });
-
-  expect(Option.getOrThrow(readEnvelope(envelope))).toEqual(
-    new RecoveryFacts({
-      address,
-      reserveSponsor,
-      sequence: "124",
-      minTime: 100,
-      maxTime: 220,
-    }),
-  );
-  expect(
-    Option.isNone(
-      readEnvelope(
-        draftRecovery({
-          source: new Account(address, "123"),
-          reserveSponsor,
-          minTime: 100,
-          maxTime: 0,
-        }),
-      ),
-    ),
-  ).toBe(true);
-});
-
 const samplePayment = Operation.payment({
   destination: to,
   asset: usdc,
@@ -522,7 +426,7 @@ it.live(
     }),
 );
 
-it("recovery sponsorship requires matching account and trustline sponsors, not sponsored counts", () => {
+it("sponsorship requires matching account and trustline sponsors, not sponsored counts", () => {
   const account = accountEntryXdr(holder, 123n, 1);
 
   const trust = xdr.LedgerEntryData.trustline(

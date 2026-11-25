@@ -152,25 +152,22 @@ export const markWalletRecovered = (address: AccountAddress) => {
     `
     UPDATE wallets SET
       status = 'recovered',
-      "attemptEnvelope" = NULL, "attemptHash" = NULL, "attemptExpiresAt" = NULL,
-      "recoveryDraft" = NULL, "recoveryEnvelope" = NULL, "recoveryHash" = NULL,
-      "recoverySequence" = NULL, "recoveryMinTime" = NULL, "recoveryMaxTime" = NULL,
-      "pairedRecoveryDraft" = NULL, "pairedRecoveryEnvelope" = NULL, "pairedRecoveryHash" = NULL
+      "attemptEnvelope" = NULL, "attemptHash" = NULL, "attemptExpiresAt" = NULL
     WHERE address = '${address}';
   `,
     "Failed to mark wallet recovered",
   );
 };
 
-export const walletWithoutSignedOpening = (address: AccountAddress) =>
+export const walletActive = (address: AccountAddress) =>
   runSql(
     `
     SELECT count(*) FROM wallets w
     JOIN usernames u ON u.address = w.address
     JOIN backups b ON b.address = w.address
-    WHERE w.address = '${address}' AND w.status = 'opening' AND w."attemptHash" IS NULL;
+    WHERE w.address = '${address}' AND w.status = 'active';
   `,
-    "Failed to read the unopened wallet",
+    "Failed to read the wallet",
   ) === "1";
 
 export const storedWalletAddress = (page: Page) =>
@@ -206,14 +203,8 @@ const seedActiveWalletRow = (
   const epoch = Date.now() < testnetReset ? "before-2026-12-16" : "2026-12-16";
 
   const sql = `
-    INSERT INTO wallets (
-      address, status, network, "testnetEpoch",
-      "recoveryEnvelope", "recoveryHash", "recoverySequence",
-      "recoveryMinTime", "recoveryMaxTime"
-    ) VALUES (
-      '${address}', 'active', 'testnet', '${epoch}',
-      'seeded', 'seeded', '1', NOW(), NOW() + INTERVAL '7 days'
-    );
+    INSERT INTO wallets (address, status, network, "testnetEpoch")
+    VALUES ('${address}', 'active', 'testnet', '${epoch}');
     INSERT INTO usernames (username, address) VALUES ('${username}', '${address}');
     INSERT INTO backups (
       "credentialId", address, username, "publicKey", algorithm, counter, iv, ciphertext
@@ -375,18 +366,15 @@ export const enrollWallet = async (page: Page, usernameText: string) => {
   await page.getByTestId("enrollment-continue").click();
   await expect(page.getByTestId("open-send")).toBeVisible({ timeout: 120_000 });
 
-  return { address: await storedWalletAddress(page), authenticator };
-};
+  const address = await storedWalletAddress(page);
 
-export const enrollOpenedWallet = async (page: Page, usernameText: string) => {
-  const enrolled = await enrollWallet(page, usernameText);
+  await expect
+    .poll(() => walletActive(Schema.decodeSync(AccountAddress)(address)), {
+      timeout: 120_000,
+    })
+    .toBe(true);
 
-  markWalletRecovered(Schema.decodeSync(AccountAddress)(enrolled.address));
-  await page.goto("/home");
-  await page.getByTestId("confirm-opening").click();
-  await expect(page.getByTestId("open-send")).toBeVisible({ timeout: 120_000 });
-
-  return enrolled;
+  return { address, authenticator };
 };
 
 export const withoutPrf = async (

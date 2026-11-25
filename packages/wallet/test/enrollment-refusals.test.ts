@@ -151,8 +151,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             new SoftwareAuthenticator(passkeyOrigin),
           );
 
-          assertTagged(yield* winner.start("maria"), "EnrollmentPending");
-          assertTagged(yield* winner.advance(), "WalletEnrolled");
+          const winnerStarted = yield* winner.start("maria");
+
+          assertTagged(winnerStarted, "EnrollmentPending");
+          assertTagged(
+            yield* winner.advance(winnerStarted.review),
+            "WalletEnrolled",
+          );
           yield* Effect.promise(clearDatabase);
 
           const code = Option.getOrThrow(

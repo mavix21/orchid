@@ -10,7 +10,7 @@ import {
   storedWalletRecord,
   submitButton,
   usernameInput,
-  walletWithoutSignedOpening,
+  walletActive,
 } from "./device";
 
 const forgetDevice = async (page: Page) => {
@@ -42,7 +42,7 @@ test("redirects on the server by whether the device holds a wallet", async ({
   expect(withWallet.headers().location).toBe("/home");
 });
 
-test("creates an unopened wallet with exactly two passkey prompts", async ({
+test("creates an open wallet that shows its deposit address after exactly two passkey prompts", async ({
   page,
 }) => {
   await addAuthenticator(page, true);
@@ -71,11 +71,22 @@ test("creates an unopened wallet with exactly two passkey prompts", async ({
   await expect(page.getByText(`@${username}`)).toBeVisible();
   expect(await storedWalletRecord(page)).toBe(true);
   expect(await prompts()).toEqual({ create: 1, get: 1 });
-  expect(
-    walletWithoutSignedOpening(
-      Schema.decodeSync(AccountAddress)(await storedWalletAddress(page)),
-    ),
-  ).toBe(true);
+
+  const address = await storedWalletAddress(page);
+
+  await expect
+    .poll(() => walletActive(Schema.decodeSync(AccountAddress)(address)), {
+      timeout: 120_000,
+    })
+    .toBe(true);
+
+  await page.getByTestId("open-receive").click();
+  await expect(page.getByTestId("deposit-address")).toHaveAttribute(
+    "data-address",
+    address,
+    { timeout: 60_000 },
+  );
+  expect(await prompts()).toEqual({ create: 1, get: 1 });
 
   await forgetDevice(page);
   await page.goto("/");

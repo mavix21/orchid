@@ -166,7 +166,6 @@ it.live(
       expect(byAddress.get(reopening)?.attemptEnvelope).toBe("draft");
       expect(byAddress.get(active)?.status).toBe("active");
       expect(byAddress.get(recovered)?.status).toBe("recovered");
-      expect(byAddress.get(recovered)?.recoveryEnvelope).toBeNull();
       expect(byAddress.get(recovered)?.attemptHash).toBeNull();
 
       const scratchWallet = walletForDb(scratchLayer);

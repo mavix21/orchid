@@ -66,7 +66,7 @@ export function PendingStep({
     : Option.match(shownReceive, {
         onNone: () => ({
           title: "Confirma tu passkey",
-          note: "Usa la passkey que acabas de crear para guardar tu cuenta.",
+          note: "Usa la passkey que acabas de crear para abrir tu cuenta.",
           action:
             waitingForReceive && receiveBlocked
               ? "Crear mi cuenta sin recibir"

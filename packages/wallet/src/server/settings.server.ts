@@ -16,6 +16,5 @@ export class WalletSettings extends Context.Service<
     readonly passkeyOrigins: ReadonlyArray<string>;
     readonly humanCheckSecret: Redacted.Redacted<string>;
     readonly sessionSecret: Redacted.Redacted<string>;
-    readonly maxEmptyDepositOpenings: number;
   }
 >()("@workspace/wallet/server/WalletSettings") {}

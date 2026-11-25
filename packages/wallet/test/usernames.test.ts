@@ -17,7 +17,6 @@ import {
 import { Sealed } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
 import { checkedBinding } from "../src/server/username-standing.server";
-import { readEnvelope } from "../src/stellar/envelopes";
 import { assertTagged } from "./tagged";
 import {
   accountState,
@@ -169,17 +168,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               stored,
               placeholderSealed(),
               claim,
-              Option.none(),
-              false,
               checkedBinding(
                 directory
-                  .recoveryDraft(stored, draft.request)
+                  .draft(stored, draft)
                   .pipe(
                     Effect.orDie,
                     Effect.as(Option.none<HumanCheckRefused>()),
                   ),
               ),
-              Option.none(),
             ),
           );
 
@@ -205,7 +201,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "a username becomes payable on activation, stays bound during recovery and resolves again when reopened",
+      "a username becomes payable on activation, stays bound while its account is gone and resolves again when reopened",
       () =>
         Effect.gen(function* () {
           const sender = yield* fundedWallet("rosa");
@@ -267,7 +263,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "activation refuses a name another key bound after the recovery draft",
+      "activation refuses a name another key bound after the opening draft",
       () =>
         Effect.gen(function* () {
           const claim = claimFor(Keypair.random(), "maria");
@@ -276,28 +272,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             claim.address,
             accountState({ balance: Option.some(amount("0")) }),
           );
-          const recovery = yield* opening(claim);
-
-          assertTagged(recovery, "RecoveryDraft");
+          assertTagged(yield* opening(claim), "OpeningDraft");
           const row = Option.getOrThrow(yield* findWallet(claim.address));
-
-          const facts = Option.getOrThrow(
-            readEnvelope(recovery.request.envelope),
-          );
-
-          assertTagged(facts, "RecoveryFacts");
 
           yield* create(Keypair.random(), "maria");
           expect(
-            yield* Directory.use((d) =>
-              d.activate(
-                row,
-                placeholderSealed(),
-                facts,
-                claim,
-                bindingAllowed,
-              ),
-            ),
+            yield* Directory.use((d) => d.activate(row, claim, bindingAllowed)),
           ).toEqual(new UsernameTaken({ username: claim.username }));
           expect(
             Option.getOrThrow(yield* findWallet(claim.address)).status,

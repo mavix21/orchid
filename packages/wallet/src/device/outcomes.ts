@@ -20,8 +20,6 @@ import {
   type BackupStored,
   type ChallengeIssued,
   type ChallengeRefused,
-  type DepositOpeningSpent,
-  type DepositOpeningsFull,
   PaymentMemo,
   type PaymentLinksStep,
   type PaymentLinkOpen,
@@ -39,7 +37,6 @@ import {
   type NoBackup,
   OpeningDraft,
   Profile,
-  RecoveryDraft,
   type RegistrationRefused,
   type Holding,
   type InvalidAddress,
@@ -209,16 +206,12 @@ export class OpeningReview extends Schema.TaggedClass<OpeningReview>()(
   {
     username: Username,
     address: AccountAddress,
-    draft: Schema.Union([OpeningDraft, RecoveryDraft]),
+    draft: OpeningDraft,
     redrafted: Schema.Boolean,
   },
 ) {}
 
-export type ReviewOpeningOutcome =
-  | OpeningReview
-  | CreateOutcome
-  | DepositOpeningsFull
-  | DepositOpeningSpent;
+export type ReviewOpeningOutcome = OpeningReview | CreateOutcome;
 
 export type ConfirmOpeningOutcome =
   | ReviewOpeningOutcome

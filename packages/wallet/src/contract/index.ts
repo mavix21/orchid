@@ -98,14 +98,6 @@ export class OpeningDraft extends Schema.TaggedClass<OpeningDraft>()(
   "OpeningDraft",
   {
     request: SigningRequest,
-    recovery: Schema.optional(SigningRequest),
-  },
-) {}
-
-export class RecoveryDraft extends Schema.TaggedClass<RecoveryDraft>()(
-  "RecoveryDraft",
-  {
-    request: SigningRequest,
   },
 ) {}
 
@@ -132,19 +124,8 @@ export class AddressBound extends Schema.TaggedClass<AddressBound>()(
   },
 ) {}
 
-export class DepositOpeningsFull extends Schema.TaggedClass<DepositOpeningsFull>()(
-  "DepositOpeningsFull",
-  {},
-) {}
-
-export class DepositOpeningSpent extends Schema.TaggedClass<DepositOpeningSpent>()(
-  "DepositOpeningSpent",
-  {},
-) {}
-
 export const OpenStep = Schema.Union([
   OpeningDraft,
-  RecoveryDraft,
   OpeningPending,
   Opened,
   UsernameTaken,
@@ -152,8 +133,6 @@ export const OpenStep = Schema.Union([
   HumanCheckRefused,
   InvalidAddress,
   NotSponsored,
-  DepositOpeningsFull,
-  DepositOpeningSpent,
 ]);
 
 export type OpenStep = typeof OpenStep.Type;
@@ -174,7 +153,6 @@ export class Enrolled extends Schema.TaggedClass<Enrolled>()("Enrolled", {
 export const EnrollStep = Schema.Union([
   Enrolled,
   OpeningDraft,
-  RecoveryDraft,
   OpeningPending,
   Opened,
   UsernameTaken,

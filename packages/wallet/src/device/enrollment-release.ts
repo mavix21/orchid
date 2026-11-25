@@ -66,7 +66,6 @@ export const enrollmentRelease = (
       UsernameTaken: refusedBeforeCommit,
       ChallengeRefused: refusedBeforeCommit,
       RegistrationRefused: refusedBeforeCommit,
-      RecoveryDraft: () => refusedBeforeCommit(new InvalidResponse()),
       AddressBound: () => refusedBeforeCommit(new InvalidResponse()),
       InvalidAddress: () => refusedBeforeCommit(new InvalidResponse()),
       NotSponsored: () => refusedBeforeCommit(new InvalidResponse()),
