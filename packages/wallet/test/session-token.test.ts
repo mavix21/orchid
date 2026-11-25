@@ -10,12 +10,12 @@ import {
   mintedClaims,
   openToken,
   sealToken,
-  sessionHardCap,
-  sessionIdleLifetime,
   slidClaims,
 } from "../src/server/session-token.server";
 
 const day = 24 * 60 * 60 * 1000;
+const idleLifetime = 30 * day;
+const hardCap = 90 * day;
 const secret = Redacted.make("session-secret");
 const address = Schema.decodeSync(AccountAddress)(Keypair.random().publicKey());
 const credentialId = Schema.decodeSync(CredentialId)("Y3JlZGVudGlhbA");
@@ -58,12 +58,12 @@ it.effect("refuses a token past its idle expiry", () =>
 
     expect(
       Option.isSome(
-        yield* openToken(secret, token, mintedAt + sessionIdleLifetime - 1),
+        yield* openToken(secret, token, mintedAt + idleLifetime - 1),
       ),
     ).toBe(true);
-    expect(
-      yield* openToken(secret, token, mintedAt + sessionIdleLifetime),
-    ).toEqual(Option.none());
+    expect(yield* openToken(secret, token, mintedAt + idleLifetime)).toEqual(
+      Option.none(),
+    );
   }),
 );
 
@@ -78,17 +78,17 @@ it.effect(
 
       expect(
         Option.isSome(
-          yield* openToken(secret, overextended, mintedAt + sessionHardCap - 1),
+          yield* openToken(secret, overextended, mintedAt + hardCap - 1),
         ),
       ).toBe(true);
       expect(
-        yield* openToken(secret, overextended, mintedAt + sessionHardCap),
+        yield* openToken(secret, overextended, mintedAt + hardCap),
       ).toEqual(Option.none());
 
       const nearTheCap = slidClaims(minted, mintedAt + 80 * day);
 
       expect(Option.map(nearTheCap, (claims) => claims.expiresAt)).toEqual(
-        Option.some(mintedAt + sessionHardCap),
+        Option.some(mintedAt + hardCap),
       );
       expect(Option.map(nearTheCap, (claims) => claims.mintedAt)).toEqual(
         Option.some(mintedAt),
@@ -103,5 +103,5 @@ it("renews a session only once its token is a day old", () => {
       slidClaims(minted, mintedAt + day),
       (claims) => claims.expiresAt,
     ),
-  ).toEqual(Option.some(mintedAt + day + sessionIdleLifetime));
+  ).toEqual(Option.some(mintedAt + day + idleLifetime));
 });

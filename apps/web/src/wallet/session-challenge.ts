@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PasskeyChallenge, WalletClient } from "@workspace/wallet";
+import type {
+  PasskeyChallenge,
+  WalletClient,
+  WalletUnavailable,
+} from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as Predicate from "effect/Predicate";
 
@@ -10,14 +14,13 @@ const staleCheckEveryMillis = 30_000;
 export type HeldChallenge = Data.TaggedEnum<{
   Fetching: {};
   Ready: { readonly challenge: PasskeyChallenge; readonly issuedAt: number };
-  Unreachable: {};
+  Unreachable: { readonly failure: WalletUnavailable };
 }>;
 
 export const HeldChallenge = Data.taggedEnum<HeldChallenge>();
 
-const staleAt = (held: HeldChallenge, now: number) =>
-  Predicate.isTagged(held, "Unreachable") ||
-  (Predicate.isTagged(held, "Ready") && now - held.issuedAt >= freshForMillis);
+const expired = (held: HeldChallenge, now: number) =>
+  Predicate.isTagged(held, "Ready") && now - held.issuedAt >= freshForMillis;
 
 export function useSessionChallenge(
   client: Pick<WalletClient, "sessionChallenge">,
@@ -46,22 +49,28 @@ export function useSessionChallenge(
             challenge: outcome.challenge,
             issuedAt: Date.now(),
           })
-        : HeldChallenge.Unreachable(),
+        : HeldChallenge.Unreachable({ failure: outcome }),
     );
   }, [client, hold]);
 
   useEffect(() => {
     void refresh();
 
-    const refreshWhenStale = () => {
-      if (
-        document.visibilityState === "visible" &&
-        staleAt(latest.current, Date.now())
-      )
-        void refresh();
-    };
+    const refreshWhenVisible =
+      (due: (held: HeldChallenge) => boolean) => () => {
+        if (document.visibilityState === "visible" && due(latest.current))
+          void refresh();
+      };
 
-    const timer = window.setInterval(refreshWhenStale, staleCheckEveryMillis);
+    const refreshWhenStale = refreshWhenVisible(
+      (held) =>
+        Predicate.isTagged(held, "Unreachable") || expired(held, Date.now()),
+    );
+
+    const timer = window.setInterval(
+      refreshWhenVisible((held) => expired(held, Date.now())),
+      staleCheckEveryMillis,
+    );
 
     document.addEventListener("visibilitychange", refreshWhenStale);
     window.addEventListener("pageshow", refreshWhenStale);

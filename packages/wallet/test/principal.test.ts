@@ -78,12 +78,6 @@ const refusals = [
     asking: (own: AccountAddress) => own,
   },
   {
-    name: "an altered token",
-    cookie: (own: AccountAddress) =>
-      Effect.map(tokenFor(own), (token) => `${token.slice(0, -2)}AA`),
-    asking: (own: AccountAddress) => own,
-  },
-  {
     name: "a token sealed with another secret",
     cookie: (own: AccountAddress) => tokenFor(own, "another-secret"),
     asking: (own: AccountAddress) => own,

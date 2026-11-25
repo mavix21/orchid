@@ -15,6 +15,7 @@ import * as Predicate from "effect/Predicate";
 import { useSessionChallenge } from "./session-challenge";
 import { sessionLapse } from "./session-lapse";
 import { sessionRefusal } from "./session-refusal";
+import { unavailableMessage } from "./unavailable";
 
 export function SessionConfirmation({
   client,
@@ -49,7 +50,9 @@ export function SessionConfirmation({
     );
   };
 
-  const offline = Predicate.isTagged(held, "Unreachable");
+  const unreachable = Predicate.isTagged(held, "Unreachable")
+    ? held
+    : undefined;
 
   return (
     <Drawer open>
@@ -61,19 +64,25 @@ export function SessionConfirmation({
             huella, tu rostro o el PIN de tu dispositivo.
           </DrawerDescription>
         </DrawerHeader>
-        {offline ? (
+        {unreachable ? (
           <p role="alert" className="px-4 text-body text-destructive">
-            Sin conexión. Revisa tu internet e inténtalo de nuevo.
+            {unavailableMessage(unreachable.failure)}
           </p>
         ) : null}
-        {problem ? (
+        {problem && !unreachable ? (
           <p role="alert" className="px-4 text-body text-destructive">
             {problem}
           </p>
         ) : null}
         <DrawerFooter>
-          {offline ? (
-            <Button className="w-full" onClick={() => void refresh()}>
+          {unreachable ? (
+            <Button
+              className="w-full"
+              onClick={() => {
+                setProblem(undefined);
+                void refresh();
+              }}
+            >
               Reintentar
             </Button>
           ) : (

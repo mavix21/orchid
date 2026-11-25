@@ -274,7 +274,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             Option.fromNullishOr(replayable),
           );
 
-          yield* enrollingAtRequest(enrollment, approvals);
+          const replayed = yield* enrollingAtRequest(enrollment, approvals);
+
+          expect(["Opened", "OpeningPending"]).toContain(replayed._tag);
           expect(grants.map(Option.isSome)).toEqual([true, false]);
         }),
     );

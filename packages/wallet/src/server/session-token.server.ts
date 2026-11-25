@@ -7,11 +7,11 @@ import { network } from "../stellar/network";
 
 const day = 24 * 60 * 60 * 1000;
 
-export const sessionIdleLifetime = 30 * day;
+const sessionIdleLifetime = 30 * day;
 
-export const sessionHardCap = 90 * day;
+const sessionHardCap = 90 * day;
 
-export const sessionRenewalStep = day;
+const sessionRenewalStep = day;
 
 export class SessionClaims extends Schema.Class<SessionClaims>(
   "@workspace/wallet/SessionClaims",

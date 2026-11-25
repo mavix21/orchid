@@ -86,12 +86,14 @@ function LockedWallet() {
         }),
       ),
       Match.orElse((refused) =>
-        refuse(() => setProblem(sessionRefusal(refused))),
+        refuse(() => {
+          setProblem(sessionRefusal(refused));
+          void refresh();
+        }),
       ),
     );
 
     setUnlocking(false);
-    void refresh();
   };
 
   return (
