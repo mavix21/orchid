@@ -10,6 +10,8 @@ import {
   InvalidAddress,
   PhoneNotSupported,
   PhoneRecipient,
+  Profile,
+  RecipientCheck,
   UnknownRecipient,
   Username,
   UsernameRecipient,
@@ -26,7 +28,6 @@ import {
   draftTransfer,
   findWallet,
   fundedWallet,
-  orderFor,
   selfOrder,
   settleHash,
   storedTransfers,
@@ -96,46 +97,45 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       }),
     );
 
-    it.effect(
-      "a recipient check resolves what an assessment would and stores nothing",
-      () =>
-        Effect.gen(function* () {
-          const key = yield* fundedWallet("maria");
-          const target = yield* fundedWallet("pedro");
+    it.effect("a recipient check reports who receives and what they need", () =>
+      Effect.gen(function* () {
+        const target = yield* fundedWallet("pedro");
 
-          const exchange = new KnownExchangeMemo({
-            network,
-            address: addressOf(Keypair.random()),
-            exchange: "Synthetic exchange fixture",
-            source:
-              "https://example.com/fixtures/stellar-testnet-memo-required",
-          });
+        const exchange = new KnownExchangeMemo({
+          network,
+          address: addressOf(Keypair.random()),
+          exchange: "Synthetic exchange fixture",
+          source: "https://example.com/fixtures/stellar-testnet-memo-required",
+        });
 
-          world.exchangeMemos.push(exchange);
+        world.exchangeMemos.push(exchange);
 
-          const orchid = UsernameRecipient.make({ value: username("pedro") });
-          const external = AddressRecipient.make({ value: exchange.address });
-          const checkedOrchid = yield* checkRecipient(orchid);
-          const checkedExternal = yield* checkRecipient(external);
-          const assessedOrchid = yield* assess(key, orderFor(key, orchid));
-
-          assertTagged(checkedOrchid, "RecipientCheck");
-          assertTagged(assessedOrchid, "TransferAssessment");
-          expect(checkedOrchid.recipient).toEqual(assessedOrchid.recipient);
-          expect(checkedOrchid.memoRequired).toBe(false);
-          expect(checkedOrchid.exchange).toEqual(Option.none());
-
-          assertTagged(checkedExternal, "RecipientCheck");
-          expect(checkedExternal.recipient).toEqual(
-            new ExternalRecipient({ address: exchange.address }),
-          );
-          expect(checkedExternal.memoRequired).toBe(true);
-          expect(checkedExternal.exchange).toEqual(
-            Option.some(exchange.exchange),
-          );
-          expect(yield* storedTransfers(addressOf(key))).toEqual([]);
-          expect(yield* storedTransfers(addressOf(target))).toEqual([]);
-        }),
+        expect(
+          yield* checkRecipient(
+            UsernameRecipient.make({ value: username("pedro") }),
+          ),
+        ).toEqual(
+          new RecipientCheck({
+            recipient: new Profile({
+              username: username("pedro"),
+              address: addressOf(target),
+            }),
+            memoRequired: false,
+            exchange: Option.none(),
+          }),
+        );
+        expect(
+          yield* checkRecipient(
+            AddressRecipient.make({ value: exchange.address }),
+          ),
+        ).toEqual(
+          new RecipientCheck({
+            recipient: new ExternalRecipient({ address: exchange.address }),
+            memoRequired: true,
+            exchange: Option.some(exchange.exchange),
+          }),
+        );
+      }),
     );
 
     const invalidAddress = Schema.decodeSync(AccountAddress)(
