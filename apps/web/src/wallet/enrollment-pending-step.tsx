@@ -20,13 +20,15 @@ function AccountMedia({
   step: Option.Option<string>;
 }) {
   return (
-    <div className="flex flex-col items-center gap-2">
-      <UserAvatar profile={me} size="xl" />
-      <p className="text-label-lg">@{username}</p>
+    <div className="flex flex-col items-center gap-5">
       {Option.match(step, {
         onNone: () => null,
         onSome: (label) => <StepLabel>{label}</StepLabel>,
       })}
+      <div className="flex flex-col items-center gap-2">
+        <UserAvatar profile={me} size="xl" />
+        <p className="text-label-lg">@{username}</p>
+      </div>
     </div>
   );
 }
