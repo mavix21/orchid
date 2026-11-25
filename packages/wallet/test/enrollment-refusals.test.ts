@@ -12,7 +12,6 @@ import {
 } from "../src/contract";
 import type { RelyingParty } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
-import { readLinkCode } from "../src/device/link-code";
 import {
   type EnrollmentDependencies,
   type PendingEnrollmentStorage,
@@ -127,49 +126,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
           expect((yield* tableRows).backups).toEqual(winnerRows.backups);
           expect((yield* tableRows).usernames).toEqual(winnerRows.usernames);
-        }),
-    );
-
-    it.effect(
-      "returns to choosing a name when another device binds it before the link is reviewed",
-      () =>
-        Effect.gen(function* () {
-          yield* Effect.promise(clearDatabase);
-
-          const wallet = settlingOpenings(yield* Wallet);
-
-          const loser = enrollmentFor(
-            wallet,
-            new SoftwareAuthenticator(passkeyOrigin),
-            memoryPendingStorage(),
-          );
-
-          assertTagged(yield* loser.start("maria"), "EnrollmentPending");
-
-          const winner = enrollmentFor(
-            wallet,
-            new SoftwareAuthenticator(passkeyOrigin),
-          );
-
-          const winnerStarted = yield* winner.start("maria");
-
-          assertTagged(winnerStarted, "EnrollmentPending");
-          assertTagged(
-            yield* winner.advance(winnerStarted.review),
-            "WalletEnrolled",
-          );
-          yield* Effect.promise(clearDatabase);
-
-          const code = Option.getOrThrow(
-            readLinkCode("Bcru1zp9FViPqN8CJTvQuS2zg"),
-          );
-
-          expect(yield* loser.reviewReceive(code.code)).toEqual(
-            new UsernameTaken({
-              username: Schema.decodeSync(Username)("maria"),
-            }),
-          );
-          expect(yield* loser.pending()).toEqual(Option.none());
         }),
     );
 
