@@ -97,7 +97,7 @@ export function deviceRestore(
   });
 
   const requestBackup = Effect.fn("Device.requestBackup")(function* () {
-    const challenge = yield* port.passkeyChallenge("restore");
+    const challenge = yield* port.restoreChallenge();
 
     const authenticated = yield* passkeys.authenticate(
       challenge,

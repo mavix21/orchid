@@ -159,13 +159,16 @@ export type ReviewEnrollmentReceiveOutcome =
 export interface EnrollmentDependencies {
   readonly port: Pick<
     WalletPort,
-    "passkeyChallenge" | "enroll" | "open" | "manage" | "paymentLink"
+    "enrollmentChallenge" | "enroll" | "open" | "manage" | "paymentLink"
   >;
   readonly store: SealedKeyStore;
   readonly registration: RegistrationCeremony;
   readonly assertions: AssertionCeremony;
   readonly relyingParty: RelyingParty;
   readonly pending?: PendingEnrollmentStorage;
+  readonly exclusive?: <A, E>(
+    effect: Effect.Effect<A, E>,
+  ) => Effect.Effect<A, E>;
 }
 
 export interface EnrollmentEffects {

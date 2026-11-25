@@ -35,8 +35,10 @@ import { pairedRecovery } from "./opening-attempt.server";
 import { walletHasSignedWork } from "./signed-work.server";
 import { SignedWorkInFlight, walletLock } from "./slot.server";
 import { usernames, wallets } from "./tables.server";
+import type { Transaction } from "./transaction.server";
 import {
-  type BindingCheck,
+  type Binding,
+  type BindingUnproven,
   type Unavailable,
   availability,
   decidedWithoutBinding,
@@ -71,6 +73,8 @@ export class Directory extends Context.Service<
       claim: WalletClaim,
     ): Effect.Effect<Available | Unavailable, StoreFailure>;
 
+    bound(claim: WalletClaim): Effect.Effect<boolean, StoreFailure>;
+
     start(
       address: AccountAddress,
       initial?: OpeningDraft,
@@ -86,7 +90,7 @@ export class Directory extends Context.Service<
       claim: WalletClaim,
       recovery: Option.Option<Sealed>,
       repairing: boolean,
-      check: BindingCheck,
+      binding: Binding,
     ): Effect.Effect<
       WalletRow | Unavailable | SignedWorkInFlight,
       StoreFailure
@@ -100,13 +104,13 @@ export class Directory extends Context.Service<
       sealed: Sealed,
       facts: RecoveryFacts,
       claim: WalletClaim,
-      check: BindingCheck,
+      binding: Binding,
     ): Effect.Effect<Option.Option<Profile> | Unavailable, StoreFailure>;
     activatePaired(
       row: WalletRow,
       facts: RecoveryFacts,
       claim: WalletClaim,
-      check: BindingCheck,
+      binding: Binding,
     ): Effect.Effect<Option.Option<Profile> | Unavailable, StoreFailure>;
     hasSignedWork(
       address: AccountAddress,
@@ -121,8 +125,6 @@ export class Directory extends Context.Service<
     Effect.gen(function* () {
       const db = yield* Database;
       const scope = eq(wallets.network, network);
-
-      type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
       const find = (address: AccountAddress) =>
         db
@@ -166,14 +168,14 @@ export class Directory extends Context.Service<
 
       const prepareBind = Effect.fn("Directory.prepareBind")(function* (
         claim: WalletClaim,
-        check: BindingCheck,
+        binding: Binding,
       ) {
         const holders = yield* boundNames(db, nameOrAddress(claim));
 
         if (Option.isSome(decidedWithoutBinding(claim, holders)))
           return "unchecked";
 
-        const refused = yield* check;
+        const refused = yield* binding.check;
 
         return Option.isSome(refused) ? refused.value : "verified";
       });
@@ -182,6 +184,7 @@ export class Directory extends Context.Service<
         tx: Transaction,
         claim: WalletClaim,
         prepared: "verified" | "unchecked",
+        binding: Binding,
       ) {
         const holders = yield* boundNames(tx, nameOrAddress(claim));
         const decided = decidedWithoutBinding(claim, holders);
@@ -196,7 +199,11 @@ export class Directory extends Context.Service<
           .onConflictDoNothing()
           .returning();
 
-        if (inserted[0]) return new Available();
+        if (inserted[0]) {
+          yield* binding.alongside(tx);
+
+          return new Available();
+        }
 
         const raced = yield* boundNames(tx, nameOrAddress(claim));
 
@@ -275,7 +282,7 @@ export class Directory extends Context.Service<
         claim: WalletClaim,
         recovery: Option.Option<Sealed>,
         repairing: boolean,
-        check: BindingCheck,
+        binding: Binding,
       ) {
         const unchanged = and(
           scope,
@@ -283,7 +290,7 @@ export class Directory extends Context.Service<
           eq(wallets.version, row.version),
         );
 
-        const prepared = yield* prepareBind(claim, check);
+        const prepared = yield* prepareBind(claim, binding);
 
         if (prepared instanceof HumanCheckRefused) return prepared;
 
@@ -304,7 +311,7 @@ export class Directory extends Context.Service<
             )
               return new SignedWorkInFlight();
 
-            const bound = yield* bind(tx, claim, prepared);
+            const bound = yield* bind(tx, claim, prepared, binding);
 
             const refused = unavailability(bound);
 
@@ -377,9 +384,9 @@ export class Directory extends Context.Service<
         sealed: Sealed,
         facts: RecoveryFacts,
         claim: WalletClaim,
-        check: BindingCheck,
+        binding: Binding,
       ) {
-        const prepared = yield* prepareBind(claim, check);
+        const prepared = yield* prepareBind(claim, binding);
 
         if (prepared instanceof HumanCheckRefused) return prepared;
 
@@ -389,7 +396,7 @@ export class Directory extends Context.Service<
 
             if (!locked[0]) return Option.none<Profile>();
 
-            const bound = yield* bind(tx, claim, prepared);
+            const bound = yield* bind(tx, claim, prepared, binding);
 
             const refused = unavailability(bound);
 
@@ -438,7 +445,7 @@ export class Directory extends Context.Service<
         sealed: Sealed,
         facts: RecoveryFacts,
         claim: WalletClaim,
-        check: BindingCheck,
+        binding: Binding,
       ) =>
         activateWhere(
           and(
@@ -449,14 +456,14 @@ export class Directory extends Context.Service<
           sealed,
           facts,
           claim,
-          check,
+          binding,
         );
 
       const activatePaired = (
         row: WalletRow,
         facts: RecoveryFacts,
         claim: WalletClaim,
-        check: BindingCheck,
+        binding: Binding,
       ) => {
         const signed = pairedRecovery(row);
 
@@ -474,7 +481,7 @@ export class Directory extends Context.Service<
               signed.value.sealed,
               facts,
               claim,
-              check,
+              binding,
             );
       };
 
@@ -537,6 +544,13 @@ export class Directory extends Context.Service<
         return profileOf(bound[0]);
       });
 
+      const proven = <A, E>(
+        program: Effect.Effect<A, E | BindingUnproven>,
+      ): Effect.Effect<A | HumanCheckRefused, E> =>
+        Effect.catchTag(program, "BindingUnproven", () =>
+          Effect.succeed(new HumanCheckRefused()),
+        );
+
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.mapError((cause) => new StoreFailure({ cause })));
 
@@ -550,15 +564,25 @@ export class Directory extends Context.Service<
               Effect.map((found) => availability(claim, found)),
             ),
           ),
+        bound: (claim) =>
+          wrap(
+            boundNames(
+              db,
+              and(
+                eq(usernames.username, claim.username),
+                eq(usernames.address, claim.address),
+              ),
+            ).pipe(Effect.map((found) => found.length > 0)),
+          ),
         start: (address, initial) => wrap(start(address, initial)),
         draft: (row, request) => wrap(draft(row, request)),
-        seal: (row, sealed, claim, recovery, repairing, check) =>
-          wrap(seal(row, sealed, claim, recovery, repairing, check)),
+        seal: (row, sealed, claim, recovery, repairing, binding) =>
+          wrap(proven(seal(row, sealed, claim, recovery, repairing, binding))),
         recoveryDraft: (row, request) => wrap(recoveryDraft(row, request)),
-        activate: (row, sealed, facts, claim, check) =>
-          wrap(activate(row, sealed, facts, claim, check)),
-        activatePaired: (row, facts, claim, check) =>
-          wrap(activatePaired(row, facts, claim, check)),
+        activate: (row, sealed, facts, claim, binding) =>
+          wrap(proven(activate(row, sealed, facts, claim, binding))),
+        activatePaired: (row, facts, claim, binding) =>
+          wrap(proven(activatePaired(row, facts, claim, binding))),
         hasSignedWork: (address) => wrap(walletHasSignedWork(db, address)),
         recover: (row) => wrap(recover(row)),
         recoverable: wrap(

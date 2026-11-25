@@ -100,7 +100,7 @@ export class Wallet extends Context.Service<
         program.pipe(Effect.catchCause(concealFailure));
 
       const { readBalance } = yield* confirmedReads;
-      const open = yield* openingFlow;
+      const { open } = yield* openingFlow;
       const backup = yield* backupFlow;
 
       const memoRequirement = Effect.fn("Wallet.memoRequirement")(function* (
@@ -487,8 +487,11 @@ export class Wallet extends Context.Service<
           wrap(assetActions.claimPaymentLink(order, approval)),
         resolvePaymentLink: (sender, receipt) =>
           wrap(links.resolvePaymentLink(sender, receipt)),
-        passkeyChallenge: (purpose) => wrap(backup.passkeyChallenge(purpose)),
-        enroll: (enrollment) => wrap(backup.enroll(enrollment)),
+        restoreChallenge: () => wrap(backup.restoreChallenge()),
+        enrollmentChallenge: (claim, humanCheck = Option.none()) =>
+          wrap(backup.enrollmentChallenge(claim, humanCheck)),
+        enroll: (enrollment, approvals) =>
+          wrap(backup.enroll(enrollment, approvals)),
         restore: (assertion) => wrap(backup.restore(assertion)),
         sweep: wrap(sweep),
         attend: (work, attempt) => wrap(attend(work, attempt)),

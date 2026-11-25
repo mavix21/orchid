@@ -1,3 +1,4 @@
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
@@ -17,6 +18,8 @@ import type {
   HumanCheckVerdict,
 } from "./HumanCheck.server";
 import type { usernames } from "./tables.server";
+import type { Transaction } from "./transaction.server";
+import type { StoreFailure } from "./Directory.server";
 import { reserved } from "./usernames.server";
 
 export type NameRow = Pick<
@@ -35,6 +38,20 @@ export type BindingCheck = Effect.Effect<
   HumanCheckVerdict,
   HumanCheckUnavailable
 >;
+
+export class BindingUnproven extends Data.TaggedError("BindingUnproven") {}
+
+export interface Binding {
+  readonly check: BindingCheck;
+  readonly alongside: (
+    tx: Transaction,
+  ) => Effect.Effect<void, BindingUnproven | StoreFailure>;
+}
+
+export const checkedBinding = (check: BindingCheck): Binding => ({
+  check,
+  alongside: () => Effect.void,
+});
 
 export const unavailability = (
   availability: Available | Unavailable,

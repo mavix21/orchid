@@ -84,6 +84,17 @@ const webSealedKeyStore: SealedKeyStore = {
       .pipe(Effect.tap(() => Effect.sync(() => markWalletOnDevice(true)))),
 };
 
+const walletInstallLock = "orchid-wallet-install";
+
+const acrossTabs = <A, E>(run: Effect.Effect<A, E>): Effect.Effect<A, E> =>
+  "locks" in navigator
+    ? Effect.promise(() =>
+        navigator.locks.request(walletInstallLock, () =>
+          Effect.runPromiseExit(run),
+        ),
+      ).pipe(Effect.flatMap((exit) => exit))
+    : run;
+
 export const enrollmentEffects = makeEnrollmentEffects({
   port,
   store: webSealedKeyStore,
@@ -91,4 +102,5 @@ export const enrollmentEffects = makeEnrollmentEffects({
   assertions: browserAssertions,
   relyingParty: browserRelyingParty(),
   pending: sessionPendingEnrollment,
+  exclusive: acrossTabs,
 });
