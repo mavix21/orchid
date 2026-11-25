@@ -35,7 +35,7 @@ export function ActivityList({
 
   return (
     <>
-      <div role="list" className="flex flex-col gap-1">
+      <div role="list" className="-mx-2 flex flex-col gap-1">
         {entries.map((entry) => (
           <ActivityRow
             key={entryKey(entry)}
