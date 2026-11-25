@@ -344,7 +344,10 @@ const absentTx = new TransactionBuilder(
   { fee: baseFee, networkPassphrase },
 )
   .addOperation(Operation.manageData({ name: "absent", value: "1" }))
-  .setTimeout(120)
+  .setTimebounds(
+    Math.floor(Date.now() / 1000),
+    Math.floor(Date.now() / 1000) + 120,
+  )
   .build();
 
 absentTx.sign(activityUser);
