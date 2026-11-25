@@ -171,7 +171,7 @@ export class Directory extends Context.Service<
         const holders = yield* boundNames(db, nameOrAddress(claim));
 
         if (Option.isSome(decidedWithoutBinding(claim, holders)))
-          return "undecided";
+          return "unchecked";
 
         const refused = yield* check;
 
@@ -181,7 +181,7 @@ export class Directory extends Context.Service<
       const bind = Effect.fn("Directory.bind")(function* (
         tx: Transaction,
         claim: WalletClaim,
-        prepared: "verified" | "undecided",
+        prepared: "verified" | "unchecked",
       ) {
         const holders = yield* boundNames(tx, nameOrAddress(claim));
         const decided = decidedWithoutBinding(claim, holders);
