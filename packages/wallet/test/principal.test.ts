@@ -44,20 +44,22 @@ const tokenFor = (address: AccountAddress, secret = "session-secret") =>
   );
 
 const budget = (allowed: number) => {
-  const spent = new Map<string, number>();
+  const spendFrom = () => {
+    const spent = new Map<string, number>();
 
-  const spend = (key: string) =>
-    Effect.sync(() => {
-      const total = (spent.get(key) ?? 0) + 1;
+    return (key: string) =>
+      Effect.sync(() => {
+        const total = (spent.get(key) ?? 0) + 1;
 
-      spent.set(key, total);
+        spent.set(key, total);
 
-      return total <= allowed;
-    });
+        return total <= allowed;
+      });
+  };
 
   return Layer.succeed(RateLimits, {
-    admitsPrincipal: spend,
-    admitsClient: spend,
+    admitsPrincipal: spendFrom(),
+    admitsClient: spendFrom(),
   });
 };
 
@@ -204,27 +206,41 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
     it.effect("meters each verified wallet against its own budget", () =>
       Effect.gen(function* () {
-        const limits = Layer.fresh(budget(2));
+        const limits = budget(2);
         const busy = addressOf(Keypair.random());
         const quiet = addressOf(Keypair.random());
         const busyCookie = Option.some(yield* tokenFor(busy));
         const quietCookie = Option.some(yield* tokenFor(quiet));
 
         yield* atRequest(busyCookie, speaksFor(busy), limits);
-        yield* atRequest(busyCookie, speaksFor(busy), limits);
+        yield* atRequest(
+          busyCookie,
+          Principal.use((principal) =>
+            principal.admitsDrafting(receiving(busy), Option.none()),
+          ),
+          limits,
+        );
 
         assertTagged(
           yield* Effect.flip(atRequest(busyCookie, speaksFor(busy), limits)),
           "RateLimited",
         );
 
+        assertTagged(
+          yield* Effect.flip(
+            atRequest(Option.none(), speaksFor(quiet), limits),
+          ),
+          "SessionRequired",
+        );
+
+        yield* atRequest(quietCookie, speaksFor(quiet), limits);
         yield* atRequest(quietCookie, speaksFor(quiet), limits);
       }),
     );
 
     it.effect("meters public calls per client and skips unknown clients", () =>
       Effect.gen(function* () {
-        const limits = Layer.fresh(budget(1));
+        const limits = budget(1);
 
         const admitted = Principal.use(
           (principal) => principal.admitsPublicCall,
@@ -258,10 +274,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "meters a sessionless receive into an opening wallet per client, not per wallet",
+      "meters a sessionless receive draft per client before reading the wallet",
       () =>
         Effect.gen(function* () {
-          const limits = Layer.fresh(budget(1));
+          const limits = budget(1);
           const key = Keypair.random();
           const wallet = addressOf(key);
 
@@ -292,6 +308,33 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             Option.none(),
             fromClient("198.51.100.2", drafting),
             limits,
+          );
+
+          const active = addressOf(yield* fundedWallet("rosa"));
+
+          const intoActive = Principal.use((principal) =>
+            principal.admitsDrafting(receiving(active), Option.none()),
+          );
+
+          assertTagged(
+            yield* Effect.flip(
+              atRequest(
+                Option.none(),
+                fromClient("198.51.100.3", intoActive),
+                limits,
+              ),
+            ),
+            "SessionRequired",
+          );
+          assertTagged(
+            yield* Effect.flip(
+              atRequest(
+                Option.none(),
+                fromClient("198.51.100.3", intoActive),
+                limits,
+              ),
+            ),
+            "RateLimited",
           );
         }),
     );

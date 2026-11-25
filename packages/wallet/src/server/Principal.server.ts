@@ -154,14 +154,15 @@ export class Principal extends Context.Service<
         if (Option.isNone(refusal))
           return yield* withinPrincipalLimit(order.wallet);
 
-        const receivesBeforeOpened =
+        const draftsWithoutSession =
           Predicate.isTagged(order.action, "ReceiveLink") &&
-          Option.isNone(approval) &&
-          (yield* isOpening(order.wallet));
+          Option.isNone(approval);
 
-        if (!receivesBeforeOpened) return yield* refusal.value;
+        if (!draftsWithoutSession) return yield* refusal.value;
 
         yield* admitsPublicCall;
+
+        if (!(yield* isOpening(order.wallet))) return yield* refusal.value;
       });
 
       const issued = Effect.gen(function* () {
