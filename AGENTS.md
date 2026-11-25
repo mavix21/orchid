@@ -14,6 +14,16 @@ Docs describe only code that exists. Write no docs for unbuilt designs. Keep doc
 
 Never write code comments, including JSDoc, inline explanations, TODOs, or commented-out code. Convey meaning and functionality through precise names, domain language from `GLOSSARY.md`, and clear code structure. Preserve executable shebangs and machine-required migration separators. Generated files (`apps/web/src/routeTree.gen.ts`, `apps/web/worker-configuration.d.ts`) are exempt from this rule and from linting and formatting; keep them exactly as their generators write them.
 
+## Safety
+
+Never open, read or print `spikes/testnet-sponsored-flow/.sponsor.local`, any `.dev.vars` or any other secret, and never commit one.
+
+Use only the Neon `dev` branch; never touch the production database.
+
+Never deploy or change Cloudflare resources; Marcelo deploys.
+
+Never bypass hooks with `--no-verify`, force-push, push to `main` or expose a service through Tailscale Funnel.
+
 ## Tests
 
 Extend an existing case at the lowest public boundary that exposes the regression. Add a case only for a distinct observable failure. For logic bugs, reproduce the failure before fixing it. For visual fixes, capture before and after screenshots. Keep copy, static markup, trivial wiring and type guarantees out of tests. Apply the testing table in `CODING_STANDARDS.md` when adding, changing or reviewing coverage.
@@ -24,7 +34,9 @@ Extend an existing case at the lowest public boundary that exposes the regressio
 
 Use GitHub Issues in `mavix21/orchid` for tickets and specs. Read `docs/agents/issue-tracker.md` before tracker operations.
 
-Work each issue on its own branch named `<type>/<name>` after its commit type, such as `feat/send-flow`, cut from `main` before the first change, and open its pull request from that branch.
+Work each change on its own branch named `<type>/<name>` after its commit type, such as `feat/send-flow`, cut from `main` before the first change, and end it in a pull request from that branch. Agents never merge.
+
+Keep design references (Figma, Mobbin) out of issue bodies; they are for implementers.
 
 ### Triage labels
 

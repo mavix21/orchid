@@ -16,7 +16,7 @@ Prefer a small public interface that owns complete behavior. Add abstractions fo
 
 ## Testing
 
-A test is worth keeping while it catches a behavior change that no other case catches. It costs more than it protects when it repeats a failure another layer already covers, observes how the code works rather than what it does, re-checks a dependency or configuration, or replays a one-off bug that no realistic change would bring back. Whether to add one is the author's judgment.
+A test is worth keeping while it catches a behavior change that no other case catches. It costs more than it protects when it repeats a failure another layer already covers, observes how the code works rather than what it does, re-checks a dependency or configuration, or replays a one-off bug that no realistic change would bring back. Whether to add one is the author's judgment. Keep suites small and avoid large test matrices.
 
 Start with the existing case nearest the public boundary. Describe a change to the behavior that must fail it and a change to the implementation that must still pass it. Derive expected results independently from the requirement. Cover each failure at one layer. Delete duplicate cases and production code used only by removed tests.
 
