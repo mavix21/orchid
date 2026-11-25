@@ -437,7 +437,7 @@ export function EnrollmentFlow({
                 noValidate
                 onSubmit={submit}
               >
-                <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
+                <main className="flex flex-1 flex-col justify-center gap-6 px-5 py-8">
                   <div className="flex flex-col gap-2">
                     <StepLabel>Paso 1 de 2</StepLabel>
                     <h1 className="font-display text-h1">Elige tu @usuario</h1>
