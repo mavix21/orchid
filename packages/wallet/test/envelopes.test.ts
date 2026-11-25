@@ -298,7 +298,7 @@ it.each([
 });
 
 it.live(
-  "seal verifies the holder and uses a distinct fee payer without modifying the draft",
+  "seal verifies the holder, signs with its pool channel and uses a distinct fee payer without modifying the draft",
   () =>
     Effect.gen(function* () {
       const now = Math.floor(Date.now() / 1000);
@@ -322,10 +322,33 @@ it.live(
       );
       expect(outer.innerTransaction.hash()).toEqual(draftTx.hash());
       expect(
+        outer.innerTransaction.signatures.map((signature) =>
+          signature.hint.toXDR("hex"),
+        ),
+      ).toEqual(
+        [holder, sponsor, channelKey].map((signer) =>
+          Buffer.from(signer.signatureHint()).toString("hex"),
+        ),
+      );
+      expect(
         Option.isNone(
           readEnvelope(Schema.decodeSync(UnsignedEnvelope)(sealed.envelope)),
         ),
       ).toBe(true);
+
+      const outsidePool = draftOpening({
+        channel: new Account(feePayer.publicKey(), "123"),
+        reserveSponsor,
+        address,
+        createAccount: true,
+        minTime: now,
+        maxTime: now + 120,
+      });
+
+      assertTagged(
+        yield* seal(outsidePool, now + 120).pipe(Effect.flip),
+        "ApprovalInvalid",
+      );
 
       const invalid = yield* Chain.use((c) =>
         c.seal(
