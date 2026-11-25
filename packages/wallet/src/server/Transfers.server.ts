@@ -5,6 +5,7 @@ import {
   openBalancesFor,
   openPaymentLinksFor,
   receivedPaymentLinksFor,
+  waitingBalancesFor,
 } from "./open-claimables.server";
 import { Database } from "@workspace/db";
 import {
@@ -143,6 +144,10 @@ export class Transfers extends Context.Service<
     openBalances(
       address: AccountAddress,
     ): Effect.Effect<ReadonlyArray<OpenBalance>, StoreFailure>;
+
+    waitingBalances(
+      address: AccountAddress,
+    ): Effect.Effect<ReadonlyArray<BalanceId>, StoreFailure>;
 
     openPaymentLinks(
       sender: AccountAddress,
@@ -594,6 +599,12 @@ export class Transfers extends Context.Service<
         openBalances: (address) =>
           wrap(
             openBalancesFor(address).pipe(Effect.provideService(Database, db)),
+          ),
+        waitingBalances: (address) =>
+          wrap(
+            waitingBalancesFor(address).pipe(
+              Effect.provideService(Database, db),
+            ),
           ),
         openPaymentLinks: (sender) =>
           wrap(

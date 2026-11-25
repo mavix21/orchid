@@ -115,7 +115,7 @@ export class Wallet extends Context.Service<
         program.pipe(Effect.catchCause(concealFailure));
 
       const { readBalance } = yield* confirmedReads;
-      const { open } = yield* openingFlow;
+      const { open, resume } = yield* openingFlow;
       const backup = yield* backupFlow;
 
       const proposedStep = (
@@ -320,24 +320,32 @@ export class Wallet extends Context.Service<
         if (!chain.validAddress(address))
           return new InvalidAddress({ address });
 
-        const row = yield* directory.byAddress(address);
+        const found = yield* directory.byAddress(address);
 
-        if (Option.isNone(row)) return new NotOpened();
+        if (Option.isNone(found)) return new NotOpened();
 
-        if (row.value.status === "recovered")
+        if (found.value.status === "recovered")
           return new NeedsReopening({
-            profile: yield* directory.profile(row.value),
+            profile: yield* directory.profile(found.value),
           });
 
-        const unopened = yield* directory.unopened(row.value);
+        const unopened = yield* directory.unopened(found.value);
 
-        if (Option.isSome(unopened))
+        const opened =
+          Option.isSome(unopened) && found.value.attemptHash !== null
+            ? Predicate.isTagged(yield* resume(unopened.value), "Opened")
+            : false;
+
+        if (Option.isSome(unopened) && !opened)
           return new NotOpened({
             profile: unopened,
             claimable: yield* claimablesFor(address),
           });
 
-        if (row.value.status !== "active") return new NotOpened();
+        const row = opened ? yield* directory.byAddress(address) : found;
+
+        if (Option.isNone(row) || row.value.status !== "active")
+          return new NotOpened();
 
         const owner = yield* directory.profile(row.value);
         const latest = yield* transfers.latestFrom(address);

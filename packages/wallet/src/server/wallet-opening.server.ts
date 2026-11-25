@@ -10,6 +10,7 @@ import {
   AddressBound,
   type Approval,
   type Approvals,
+  type BalanceId,
   HumanCheckRefused,
   type HumanCheckToken,
   InvalidAddress,
@@ -23,6 +24,8 @@ import {
   SigningRequest,
   UsernameTaken,
   WalletClaim,
+  assetKey,
+  baseAsset,
 } from "../contract";
 import { readEnvelope } from "../stellar/envelopes";
 import { recoveryDelay, recoveryDraftLifetime } from "../stellar/network";
@@ -33,6 +36,8 @@ import {
   Sealed,
 } from "./Chain.server";
 import { Directory, StoreFailure, type WalletRow } from "./Directory.server";
+import { claimableAt } from "./ledger-assets.server";
+import { Transfers } from "./Transfers.server";
 import {
   type Binding,
   checkedBinding,
@@ -47,7 +52,45 @@ export const openingFlow = Effect.gen(function* () {
   const chain = yield* Chain;
   const directory = yield* Directory;
   const humanCheck = yield* HumanCheck;
+  const transfers = yield* Transfers;
   const { readAccount } = yield* confirmedReads;
+
+  const waitingClaim = Effect.fn("Wallet.waitingClaim")(function* (
+    address: AccountAddress,
+  ): Effect.fn.Return<
+    Option.Option<BalanceId>,
+    StoreFailure | ChainUnreachable
+  > {
+    const waiting = yield* transfers.waitingBalances(address);
+
+    if (waiting.length === 0) return Option.none();
+
+    const entries = yield* chain.claimable(waiting);
+    const now = BigInt(Math.floor((yield* Clock.currentTimeMillis) / 1000));
+
+    return Option.fromNullishOr(
+      waiting.find((balance) =>
+        entries.some(
+          (entry) =>
+            entry.balance === balance &&
+            assetKey(entry.asset) === assetKey(baseAsset) &&
+            entry.claimants.some(
+              (claimant) =>
+                claimant.destination === address &&
+                claimableAt(claimant.predicate, now),
+            ),
+        ),
+      ),
+    );
+  });
+
+  const carriesClaim = (draft: OpeningDraft, claim: Option.Option<BalanceId>) =>
+    Option.exists(
+      readEnvelope(draft.request.envelope),
+      (facts) =>
+        Predicate.isTagged(facts, "OpeningFacts") &&
+        facts.claim === Option.getOrUndefined(claim),
+    );
 
   const openedOrBound = Effect.fn("Wallet.openedOrBound")(function* (
     row: WalletRow,
@@ -277,7 +320,13 @@ export const openingFlow = Effect.gen(function* () {
     const pinSequence =
       Option.isNone(state) || !(yield* directory.hasSignedWork(address));
 
-    return yield* chain.draftOpening(address, pinSequence);
+    const claim = yield* waitingClaim(address);
+
+    return yield* chain.draftOpening(
+      address,
+      pinSequence,
+      Option.getOrUndefined(claim),
+    );
   });
 
   const openWith = Effect.fn("Wallet.open")(function* (
@@ -405,7 +454,9 @@ export const openingFlow = Effect.gen(function* () {
     if (
       Option.isSome(attempt) &&
       attempt.value instanceof OpeningDraft &&
-      (yield* live(attempt.value.request))
+      (yield* live(attempt.value.request)) &&
+      (Option.isSome(approvals) ||
+        carriesClaim(attempt.value, yield* waitingClaim(claim.address)))
     ) {
       const pending = attempt.value;
 
@@ -464,5 +515,12 @@ export const openingFlow = Effect.gen(function* () {
     token: Option.Option<HumanCheckToken>,
   ) => openWith(claim, approvals, checkedBinding(humanCheck.verify(token)));
 
-  return { open, openWith };
+  const resume = (profile: Profile) =>
+    openWith(
+      new WalletClaim(profile),
+      Option.none(),
+      checkedBinding(Effect.succeed(Option.none())),
+    );
+
+  return { open, openWith, resume };
 });

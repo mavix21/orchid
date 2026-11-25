@@ -18,6 +18,7 @@ import { RecentActivity } from "@/activity/recent-activity";
 import { BalanceHeader } from "@/components/balance-header";
 import { HomeSkeleton } from "@/components/home-skeleton";
 import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
+import { type Arrival, arrivalOf, arrivalSentence } from "@/wallet/arrival";
 import { OpeningFlow } from "@/wallet/opening-flow";
 import { shownOverview } from "@/wallet/shown-overview";
 import {
@@ -25,6 +26,7 @@ import {
   unavailableMessage,
   unavailableNotice,
 } from "@/wallet/unavailable";
+import { WaitingPayment } from "@/wallet/waiting-payment";
 
 export const Route = createFileRoute("/_wallet/_app/home")({
   ssr: false,
@@ -39,6 +41,7 @@ export const Route = createFileRoute("/_wallet/_app/home")({
 
     return {
       overview: shownOverview(overview),
+      arrival: arrivalOf(overview),
       backup: savedBackup(saved),
       activity,
     };
@@ -84,11 +87,19 @@ const backUpRefusal = (
   });
 
 function HomeScreen() {
-  const { overview, backup, activity } = Route.useLoaderData();
+  const { overview, arrival, backup, activity } = Route.useLoaderData();
+
+  if (Option.isSome(arrival) && arrival.value.opening)
+    return <Arriving arrival={arrival.value} />;
 
   return Match.valueTags(overview, {
     Holding: (holding) => (
-      <Home holding={holding} backup={backup} activity={activity} />
+      <Home
+        holding={holding}
+        arrival={arrival}
+        backup={backup}
+        activity={activity}
+      />
     ),
     NeedsReopening: ({ profile }) => <Reopening username={profile.username} />,
     InvalidAddress: () => (
@@ -109,13 +120,17 @@ function HomeScreen() {
 
 function Home({
   holding,
+  arrival,
   backup,
   activity,
 }: {
   holding: Holding;
+  arrival: Option.Option<Arrival>;
   backup: Option.Option<SavedBackup>;
   activity: ActivityOutcome;
 }) {
+  const router = useRouter();
+
   const dollars =
     holding.balances.find(
       (balance) => assetKey(balance.asset) === assetKey(baseAsset),
@@ -125,6 +140,13 @@ function Home({
     <Screen>
       <main className="flex flex-1 flex-col gap-10 px-5 pt-2 pb-30">
         <BalanceHeader username={holding.profile.username} dollars={dollars} />
+        {Option.isSome(arrival) ? (
+          <WaitingPayment
+            key={arrival.value.payment.balance}
+            arrival={arrival.value}
+            onReceived={() => router.invalidate()}
+          />
+        ) : null}
         {Option.isSome(backup) && backup.value !== "stored" ? (
           <BackupNotice />
         ) : null}
@@ -183,6 +205,22 @@ function BackupNotice() {
         {backingUp ? "Respaldando…" : "Respaldar con passkey"}
       </Button>
     </section>
+  );
+}
+
+function Arriving({ arrival }: { arrival: Arrival }) {
+  const router = useRouter();
+
+  return (
+    <Screen>
+      <div className="flex flex-1 flex-col pb-30">
+        <OpeningFlow
+          username={arrival.username}
+          arrival={Option.some(arrivalSentence(arrival))}
+          onOpened={() => router.invalidate()}
+        />
+      </div>
+    </Screen>
   );
 }
 
