@@ -186,7 +186,7 @@ export class Directory extends Context.Service<
         tx: Transaction,
         claim: WalletClaim,
         prepared: "verified" | "unchecked",
-        binding: Binding,
+        alongside: Binding["alongside"],
       ) {
         const holders = yield* boundNames(tx, nameOrAddress(claim));
         const decided = decidedWithoutBinding(claim, holders);
@@ -202,7 +202,7 @@ export class Directory extends Context.Service<
           .returning();
 
         if (inserted[0]) {
-          yield* binding.alongside(tx);
+          yield* alongside(tx);
 
           return new Available();
         }
@@ -241,10 +241,7 @@ export class Directory extends Context.Service<
                 })
                 .onConflictDoNothing();
 
-              const bound = yield* bind(tx, claim, "verified", {
-                check: Effect.succeed(Option.none()),
-                alongside,
-              });
+              const bound = yield* bind(tx, claim, "verified", alongside);
 
               const refused = unavailability(bound);
 
@@ -370,7 +367,7 @@ export class Directory extends Context.Service<
             )
               return new SignedWorkInFlight();
 
-            const bound = yield* bind(tx, claim, prepared, binding);
+            const bound = yield* bind(tx, claim, prepared, binding.alongside);
 
             const refused = unavailability(bound);
 
@@ -455,7 +452,7 @@ export class Directory extends Context.Service<
 
             if (!locked[0]) return Option.none<Profile>();
 
-            const bound = yield* bind(tx, claim, prepared, binding);
+            const bound = yield* bind(tx, claim, prepared, binding.alongside);
 
             const refused = unavailability(bound);
 
