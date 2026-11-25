@@ -1,35 +1,29 @@
 import { beforeAll, beforeEach, expect } from "@effect/vitest";
 import {
   Account,
-  Claimant,
   FeeBumpTransaction,
   Keypair,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
 import { Database, databaseLayer } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Arr from "effect/Array";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
-import * as Latch from "effect/Latch";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
-import type * as HttpClientError from "effect/http/HttpClientError";
-import type * as HttpClientRequest from "effect/http/HttpClientRequest";
-import * as TestClock from "effect/testing/TestClock";
 import {
   AccountAddress,
   AddressRecipient,
+  Amount,
   Approval,
   type Approvals,
-  BalanceId,
+  HumanCheckRefused,
   type OpeningDraft,
   PositiveAmount,
   type Recipient,
@@ -39,7 +33,6 @@ import {
   TransferOrder,
   Username,
   WalletClaim,
-  type WalletPort,
   baseAsset,
 } from "../src/contract";
 import { requestsOf } from "../src/device/opening-drafts";
@@ -51,11 +44,27 @@ import {
   Applied,
   Chain,
   ChainUnreachable,
+  type Sealed,
+  type Settlement,
   Undecided,
 } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
-import { exchangeMemoFor } from "../src/server/exchange-memos.server";
+import { HumanCheck } from "../src/server/HumanCheck.server";
+import { transfers } from "../src/server/tables.server";
+import {
+  type KnownExchangeMemo,
+  exchangeMemoFor,
+} from "../src/server/exchange-memos.server";
+import type {
+  ClaimableEntry,
+  Holdings,
+} from "../src/server/ledger-assets.server";
 import { WalletSettings } from "../src/server/settings.server";
+import {
+  type PendingWork,
+  QueueUnavailable,
+  WorkQueue,
+} from "../src/server/work-queue.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import {
@@ -77,28 +86,43 @@ import {
   addressOf,
   enrolledDeviceWallet,
 } from "./device-fixtures";
-import {
-  httpClientAnswering,
-  jsonResponse,
-  rpcMethod,
-  testRpcUrl,
-} from "./rpc-answering";
 import { SoftwareAuthenticator } from "./software-authenticator";
-import { fakeHumanCheck } from "./human-check-fake";
-import { accountState, amount, holdingsFor, world } from "./wallet-world";
 import { assertTagged } from "./tagged";
 
 export { addressOf };
 
 export { euro, euroLine } from "./euro-fixtures";
 
-export { bindingAllowed } from "./human-check-fake";
-
-export { accountState, amount, holdingsFor, world } from "./wallet-world";
-
 export const dbLayer = databaseLayer({
   connectionString:
     "postgres://orchid:orchid-local@127.0.0.1:55433/wallet_test",
+});
+
+export const world = {
+  humanCheckRefused: false,
+  accounts: new Map<AccountAddress, AccountState>(),
+  evidence: new Map<string, Settlement>(),
+  submitted: new Array<Sealed>(),
+  queued: new Array<PendingWork>(),
+  queueDown: false,
+  unmergeable: new Set<AccountAddress>(),
+  exchangeMemos: new Array<KnownExchangeMemo>(),
+  failSubmit: false,
+  ledgerDown: false,
+  unreadable: new Set<string>(),
+  claimablesDown: false,
+  holdings: new Map<AccountAddress, Holdings>(),
+  claimables: new Map<string, ClaimableEntry>(),
+  issuers: new Map<AccountAddress, { readonly authRequired: boolean }>(),
+};
+
+const recordingQueue = Layer.succeed(WorkQueue, {
+  send: (work) =>
+    world.queueDown
+      ? Effect.fail(new QueueUnavailable({ cause: new Error("Queue down") }))
+      : Effect.sync(() => {
+          world.queued.push(work);
+        }),
 });
 
 const storesFor = <E>(db: Layer.Layer<Database, E>) =>
@@ -107,7 +131,7 @@ const storesFor = <E>(db: Layer.Layer<Database, E>) =>
     Transfers.layer,
     AssetOrders.layer,
     Backups.layer,
-  ).pipe(Layer.provide(db));
+  ).pipe(Layer.provide(db), Layer.provide(recordingQueue));
 
 const stores = storesFor(dbLayer);
 export const sponsor = Keypair.random();
@@ -115,7 +139,7 @@ export const feePayer = Keypair.random();
 export const reserveSponsor = addressOf(sponsor);
 export const passkeyOrigin = "http://localhost:3000";
 
-const settingsFor = (rpcUrl = "https://soroban-testnet.stellar.org") =>
+export const settingsFor = (rpcUrl = "https://soroban-testnet.stellar.org") =>
   Layer.succeed(WalletSettings, {
     rpcUrl,
     reserveSponsorSecret: Redacted.make(sponsor.secret()),
@@ -130,6 +154,33 @@ const realChain = Chain.layer.pipe(
   Layer.provide(settings),
   Layer.provide(FetchHttpClient.layer),
 );
+
+export const amount = (value: string) => Schema.decodeSync(Amount)(value);
+
+export const accountState = (
+  overrides: Partial<AccountState> = {},
+): AccountState => ({
+  sequence: "1000",
+  ledger: 100,
+  accountSponsored: true,
+  sponsored: true,
+  untouched: true,
+  nativeBalance: 0n,
+  balance: Option.some(amount("50000000")),
+  ...overrides,
+});
+
+export const holdingsFor = (
+  address: AccountAddress,
+  overrides: Partial<Holdings> = {},
+): Holdings => ({
+  account: world.accounts.get(address) ?? accountState(),
+  reserveSponsor: Option.none(),
+  native: amount("0"),
+  reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
+  lines: [],
+  ...overrides,
+});
 
 export const fakeChain = Layer.effect(
   Chain,
@@ -272,7 +323,10 @@ export const fakeChain = Layer.effect(
             ...w,
           }),
         ),
-      cleanUpLink: (link) => Effect.sync(() => !world.accounts.delete(link)),
+      cleanUpLink: (link) =>
+        Effect.sync(
+          () => !world.unmergeable.has(link) && !world.accounts.delete(link),
+        ),
       pastOpeningWindow: (s) =>
         Effect.map(
           Clock.currentTimeMillis,
@@ -354,6 +408,20 @@ export const fakeChain = Layer.effect(
   }),
 ).pipe(Layer.provide(realChain));
 
+export const bindingAllowed = Effect.succeed(Option.none<HumanCheckRefused>());
+
+export const fakeHumanCheck = Layer.succeed(
+  HumanCheck,
+  HumanCheck.of({
+    verify: () =>
+      Effect.succeed(
+        world.humanCheckRefused
+          ? Option.some(new HumanCheckRefused())
+          : Option.none(),
+      ),
+  }),
+);
+
 export const walletForDb = <E>(db: Layer.Layer<Database, E>) =>
   Wallet.serviceLayer.pipe(
     Layer.provide(storesFor(db)),
@@ -379,40 +447,6 @@ export const walletWithChain = (
       ),
       Layer.provide(fakeHumanCheck),
       Layer.provide(settings),
-    ),
-  );
-
-export const stellarWallet = (
-  reply: (
-    method: string,
-    req: HttpClientRequest.HttpClientRequest,
-  ) => Effect.Effect<Response, HttpClientError.HttpClientError>,
-) =>
-  Layer.fresh(Wallet.serviceLayer).pipe(
-    Layer.provide(fakeHumanCheck),
-    Layer.provide(Layer.fresh(Chain.layer)),
-    Layer.provide(settingsFor(testRpcUrl)),
-    Layer.provide(httpClientAnswering((req) => reply(rpcMethod(req), req))),
-  );
-
-export const stellarAnswering = (reply: (method: string) => string) =>
-  stellarWallet((method) => Effect.succeed(jsonResponse(reply(method))));
-
-export const timeOutRpc = <A, E, R>(
-  started: Latch.Latch,
-  run: Effect.Effect<A, E, R>,
-) =>
-  Clock.currentTimeMillis.pipe(
-    Effect.flatMap((now) =>
-      Effect.gen(function* () {
-        yield* TestClock.setTime(now);
-        const attempt = yield* Effect.forkChild(run);
-
-        yield* started.await;
-        yield* TestClock.adjust("10 seconds");
-
-        return yield* Fiber.join(attempt);
-      }).pipe(Effect.provide(TestClock.layer())),
     ),
   );
 
@@ -447,7 +481,33 @@ export const opening = (
 export const overviewOf = (addr: AccountAddress) =>
   Wallet.use((w) => w.overview(addr));
 
-export const sweep = Wallet.use((w) => w.sweep);
+export const sweepNow = Wallet.use((w) => w.sweep);
+
+export const attend = (work: PendingWork, attempt = 1) =>
+  Wallet.use((w) => w.attend(work, attempt));
+
+export const ageSignedWork = Database.use((db) =>
+  Effect.all([
+    db.execute(
+      sql`update transfers set "expiresAt" = "expiresAt" - interval '1 hour' where status = 'authorized'`,
+    ),
+    db.execute(
+      sql`update asset_orders set "expiresAt" = "expiresAt" - interval '1 hour' where status = 'authorized'`,
+    ),
+    db.execute(
+      sql`update asset_orders set "concludedAt" = "concludedAt" - interval '1 hour' where status = 'settled' and "linkCleanedAt" is null`,
+    ),
+  ]),
+);
+
+export const sweep = ageSignedWork.pipe(Effect.andThen(sweepNow));
+
+export const authorizedTransfers = Database.use((db) =>
+  db
+    .select({ id: transfers.id, envelope: transfers.envelope })
+    .from(transfers)
+    .where(eq(transfers.status, "authorized")),
+);
 
 export const findWallet = (addr: AccountAddress) =>
   Directory.use((d) => d.byAddress(addr));
@@ -565,51 +625,6 @@ export const openSender = Effect.fn(function* (
   return { wallet: yield* Wallet, sender };
 });
 
-export const settleOnSubmit =
-  (wallet: WalletPort, sender: AccountAddress): WalletPort["transfer"] =>
-  (order, approval) =>
-    wallet.transfer(order, approval).pipe(
-      Effect.tap(() =>
-        Effect.sync(() => {
-          const sealed = world.submitted.at(-1);
-
-          if (Option.isNone(approval) || !sealed) return;
-
-          settleHash(sealed.hash);
-
-          const outer = TransactionBuilder.fromXDR(
-            sealed.envelope,
-            networkPassphrase,
-          );
-
-          const inner =
-            outer instanceof FeeBumpTransaction
-              ? outer.innerTransaction
-              : outer;
-
-          if (
-            inner.operations[1]?.type === "createClaimableBalance" &&
-            Predicate.isTagged(order.to, "PaymentLink")
-          ) {
-            const balance = Schema.decodeSync(BalanceId)(
-              inner.getClaimableBalanceId(1),
-            );
-
-            world.claimables.set(balance, {
-              balance,
-              asset: order.asset,
-              amount: order.amount,
-              sponsored: true,
-              claimants: [
-                new Claimant(order.to.value, Claimant.predicateUnconditional()),
-                new Claimant(sender, Claimant.predicateUnconditional()),
-              ],
-            });
-          }
-        }),
-      ),
-    );
-
 export function useDisposableDatabase() {
   beforeAll(async () => {
     await Effect.runPromise(
@@ -626,6 +641,9 @@ export function useDisposableDatabase() {
     world.issuers.clear();
     world.evidence.clear();
     world.submitted.length = 0;
+    world.queued.length = 0;
+    world.queueDown = false;
+    world.unmergeable.clear();
     world.exchangeMemos.length = 0;
     world.failSubmit = false;
     world.humanCheckRefused = false;

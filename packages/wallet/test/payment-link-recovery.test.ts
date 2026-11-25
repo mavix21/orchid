@@ -35,6 +35,7 @@ import {
   installSealedWallet,
   sealedKeyStore,
 } from "./sealed-wallet-fixtures";
+import { settleOnSubmit } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {
   addressOf,
@@ -47,7 +48,6 @@ import {
   openSender,
   orderFor,
   settleHash,
-  settleOnSubmit,
   sweep,
   useDisposableDatabase,
   walletTestLayer,

@@ -11,6 +11,7 @@ import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import { workQueueLayer } from "./work-queue.server";
 
 const requestWalletLayer = Layer.suspend(() =>
   Wallet.layer.pipe(
@@ -24,6 +25,7 @@ const requestWalletLayer = Layer.suspend(() =>
       }),
     ),
     Layer.provide(databaseLayer(env.HYPERDRIVE)),
+    Layer.provide(workQueueLayer(env.WALLET_WORK)),
     Layer.provide(FetchHttpClient.layer),
   ),
 );

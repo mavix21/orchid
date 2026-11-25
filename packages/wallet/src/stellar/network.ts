@@ -28,6 +28,16 @@ export const recoveryDraftLifetime = 10 * 60;
 
 export const sweepBatchSize = 4;
 
+export const sweepStuckAge = 5 * 60;
+
+export const sweepTimeBudget = 10 * 60;
+
+export const workFirstDelay = 10;
+
+export const workRetryCeiling = 120;
+
+export const workSettlementGrace = 2 * 60;
+
 export const claimableReadLimit = 50;
 
 export const activityPageSize = 20;

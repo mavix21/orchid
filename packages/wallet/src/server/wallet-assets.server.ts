@@ -1,4 +1,4 @@
-import { Transfers, pending } from "./Transfers.server";
+import { Transfers } from "./Transfers.server";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
@@ -40,12 +40,14 @@ import {
 import {
   type Applied,
   Chain,
+  type ChainUnreachable,
   type Expired,
   type Rejected,
 } from "./Chain.server";
 import { Directory, StoreFailure } from "./Directory.server";
 import { claimableAt } from "./ledger-assets.server";
 import { linkReceiveFlow } from "./wallet-link-receive.server";
+import { transferReconcileFlow } from "./wallet-reconcile.server";
 import { live } from "./wallet-reads.server";
 
 export const assetFlow = Effect.gen(function* () {
@@ -53,6 +55,7 @@ export const assetFlow = Effect.gen(function* () {
   const orders = yield* AssetOrders;
   const directory = yield* Directory;
   const transfers = yield* Transfers;
+  const reconcileTransfer = yield* transferReconcileFlow;
 
   const reconcileOrder = Effect.fn("Wallet.reconcileAsset")(function* (
     stored: AssetAuthorized,
@@ -86,6 +89,10 @@ export const assetFlow = Effect.gen(function* () {
       ? links.settled(stored)
       : reconcileOrder(stored);
 
+  const stillPending = (step: Effect.Success<ReturnType<typeof reconcile>>) =>
+    Predicate.isTagged(step, "AssetPending") ||
+    Predicate.isTagged(step, "ExternalLinkPending");
+
   const walletReceipt = (receipt: ConcludedReceipt) =>
     Predicate.isTagged(receipt, "AssetSettled") ||
     Predicate.isTagged(receipt, "AssetFailed")
@@ -116,10 +123,7 @@ export const assetFlow = Effect.gen(function* () {
   const manage = Effect.fn("Wallet.manage")(function* (
     order: AssetOrder,
     approval: Option.Option<Approval>,
-  ): Effect.fn.Return<
-    AssetStep,
-    StoreFailure | import("./Chain.server").ChainUnreachable
-  > {
+  ): Effect.fn.Return<AssetStep, StoreFailure | ChainUnreachable> {
     if (!chain.validAddress(order.wallet))
       return new InvalidAddress({ address: order.wallet });
     const row = yield* directory.byAddress(order.wallet);
@@ -152,12 +156,19 @@ export const assetFlow = Effect.gen(function* () {
 
     const paying = yield* transfers.latestFrom(order.wallet);
 
-    if (Option.isSome(paying) && Predicate.isTagged(paying.value, "Authorized"))
-      return new SenderBusy({ inFlight: pending(paying.value) });
+    if (
+      Option.isSome(paying) &&
+      Predicate.isTagged(paying.value, "Authorized")
+    ) {
+      const receipt = yield* reconcileTransfer(paying.value);
+
+      if (Predicate.isTagged(receipt, "Pending"))
+        return new SenderBusy({ inFlight: receipt });
+    }
 
     const held = yield* orders.inFlightFor(order.wallet);
 
-    if (Option.isSome(held))
+    if (Option.isSome(held) && stillPending(yield* reconcile(held.value)))
       return new AssetBusy({ inFlight: assetPending(held.value) });
 
     let plan: AssetPlan;
@@ -240,7 +251,9 @@ export const assetFlow = Effect.gen(function* () {
 
         if (!line) {
           if (state.value.reserves.subentries >= maxSponsoredTrustlines)
-            return new TrustlineLimitReached({ limit: maxSponsoredTrustlines });
+            return new TrustlineLimitReached({
+              limit: maxSponsoredTrustlines,
+            });
           const issuer = yield* chain.issuer(asset);
 
           if (Option.isNone(issuer))
@@ -309,7 +322,9 @@ export const assetFlow = Effect.gen(function* () {
     manage,
     claimPaymentLink: links.claimExternal,
     reconcile,
+    reconcilePending: (stored: AssetAuthorized) =>
+      reconcile(stored).pipe(Effect.map(stillPending)),
     paymentLink: links.paymentLink,
-    cleanUpReceivedLinks: links.cleanUpReceived,
+    cleanUpReceivedLink: links.cleanUpReceived,
   };
 });

@@ -17,6 +17,7 @@ import { HumanCheck } from "../src/server/HumanCheck.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { WalletSettings } from "../src/server/settings.server";
+import { WorkQueue } from "../src/server/work-queue.server";
 
 export const rpcUrl = "https://soroban-testnet.stellar.org";
 
@@ -71,6 +72,7 @@ export const walletServices = (
     Wallet.serviceLayer.pipe(Layer.provide(dependencies)),
     dependencies,
   ).pipe(
+    Layer.provide(WorkQueue.discarding),
     Layer.provide(
       Layer.succeed(WalletSettings, {
         rpcUrl,

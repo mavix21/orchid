@@ -23,7 +23,18 @@
       "TURNSTILE_SECRET_KEY",
     ],
   },
-  "triggers": { "crons": [] },
+  "triggers": { "crons": ["0 * * * *"] },
+  "queues": {
+    "producers": [{ "binding": "WALLET_WORK", "queue": "orchid-testnet-work" }],
+    "consumers": [
+      {
+        "queue": "orchid-testnet-work",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 10,
+      },
+    ],
+  },
   "observability": {
     "enabled": true,
   },

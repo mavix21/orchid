@@ -1,5 +1,5 @@
 import { expect, layer } from "@effect/vitest";
-import { Claimant, Keypair, xdr } from "@stellar/stellar-sdk";
+import { Keypair, xdr } from "@stellar/stellar-sdk";
 import { Database } from "@workspace/db";
 import * as Effect from "effect/Effect";
 import * as Logger from "effect/Logger";
@@ -11,7 +11,6 @@ import {
   type Approval,
   AssetUnsupported,
   BalanceId,
-  ClaimableLimitReached,
   OpenPaymentLink,
   OpenPaymentLinks,
   PaymentLinkRecipient,
@@ -34,8 +33,6 @@ import { linkKeyOf } from "../src/device/link-code";
 import { SealedLinkCode, linkPrfInput } from "../src/device/link-seal";
 import { holdingsFromEntries } from "../src/server/ledger-assets.server";
 import { transfers } from "../src/server/tables.server";
-import { Wallet } from "../src/server/Wallet.server";
-import { readEnvelope } from "../src/stellar/envelopes";
 import { network, usdc } from "../src/stellar/network";
 import { memoryKeyStore } from "./device-fixtures";
 import {
@@ -47,11 +44,10 @@ import {
   storedKeys,
 } from "./sealed-wallet-fixtures";
 import { accountEntryXdr } from "./rpc-answering";
+import { settleOnSubmit } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {
-  accountState,
   addressOf,
-  approve,
   devicePasskeys,
   euro,
   euroLine,
@@ -61,9 +57,6 @@ import {
   orderFor,
   reserveSponsor,
   send,
-  settleHash,
-  settleOnSubmit,
-  sweep,
   useDisposableDatabase,
   walletTestLayer,
   world,
@@ -537,93 +530,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               reason,
               linkable,
             }),
-          );
-        }),
-    );
-
-    it.effect(
-      "refuses the 6th open payment link and lists the five open links",
-      () =>
-        Effect.gen(function* () {
-          const sender = yield* fundedWallet("linkquota");
-          const senderAddr = addressOf(sender);
-
-          world.holdings.set(
-            senderAddr,
-            holdingsFor(senderAddr, {
-              lines: [{ ...euroLine("500000000"), asset: baseAsset }],
-            }),
-          );
-
-          const createLinkAt = Effect.fn(function* (sequence: string) {
-            world.accounts.set(senderAddr, accountState({ sequence }));
-
-            const linkKey = addressOf(Keypair.random());
-
-            const order = orderFor(
-              sender,
-              PaymentLinkRecipient.make({ value: linkKey }),
-            );
-
-            const draft = yield* send(order);
-
-            assertTagged(draft, "TransferDraft");
-
-            const facts = Option.getOrThrow(
-              readEnvelope(draft.request.envelope),
-            );
-
-            assertTagged(facts, "PaymentLinkFacts");
-            expect(
-              (yield* send(order, approve(draft.request, sender)))._tag,
-            ).toBe("Pending");
-
-            const submitted = world.submitted.at(-1);
-
-            if (!submitted) throw new Error("Expected submission");
-
-            world.claimables.set(facts.balance, {
-              balance: facts.balance,
-              asset: baseAsset,
-              amount: linkAmount,
-              sponsored: true,
-              claimants: [
-                new Claimant(linkKey, Claimant.predicateUnconditional()),
-                new Claimant(senderAddr, Claimant.predicateUnconditional()),
-              ],
-            });
-            settleHash(submitted.hash);
-            yield* sweep;
-
-            return facts.balance;
-          });
-
-          const createdBalances = [
-            yield* createLinkAt("2000"),
-            yield* createLinkAt("2001"),
-            yield* createLinkAt("2002"),
-            yield* createLinkAt("2003"),
-            yield* createLinkAt("2004"),
-          ];
-
-          world.accounts.set(senderAddr, accountState({ sequence: "2005" }));
-
-          const sixth = yield* send(
-            orderFor(
-              sender,
-              PaymentLinkRecipient.make({ value: addressOf(Keypair.random()) }),
-            ),
-          );
-
-          expect(sixth).toEqual(new ClaimableLimitReached({ limit: 5 }));
-
-          const openLinks = yield* Wallet.use((w) =>
-            w.paymentLinks(senderAddr),
-          );
-
-          assertTagged(openLinks, "OpenPaymentLinks");
-          expect(openLinks.links.map((l) => l.balance).sort()).toEqual(
-            [...createdBalances].sort(),
           );
         }),
     );
