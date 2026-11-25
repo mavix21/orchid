@@ -30,7 +30,6 @@ import {
   type WalletRow,
 } from "./Directory.server";
 import type { KnownExchangeMemo } from "./exchange-memos.server";
-import type { Holdings } from "./ledger-assets.server";
 import { memoRefusal } from "./memo-refusal.server";
 import { type Authorized, Transfers, pending } from "./Transfers.server";
 import {
@@ -42,10 +41,8 @@ import {
 } from "./wallet-delivery.server";
 
 export class Examined extends Data.TaggedClass("Examined")<{
-  readonly sender: WalletRow;
   readonly recipient: ResolvedRecipient;
   readonly requirement: Option.Option<KnownExchangeMemo>;
-  readonly holdings: Holdings;
   readonly delivery: DeliveryRoute;
 }> {}
 
@@ -207,10 +204,8 @@ export const transferCheckFlow = Effect.gen(function* () {
     if (!isDeliveryRoute(delivery)) return delivery;
 
     return new Examined({
-      sender: sender.value,
       recipient,
       requirement,
-      holdings: state.value,
       delivery,
     });
   });

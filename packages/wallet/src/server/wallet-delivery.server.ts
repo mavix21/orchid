@@ -35,7 +35,14 @@ export type DeliveryRoute = Data.TaggedEnum<{
 
 export const DeliveryRoute = Data.taggedEnum<DeliveryRoute>();
 
-export const isDeliveryRoute = (value: unknown): value is DeliveryRoute =>
+export type DeliveryRefusal =
+  | AssetUnsupported
+  | ClaimableLimitReached
+  | RecipientCannotReceive;
+
+export const isDeliveryRoute = (
+  value: DeliveryRoute | DeliveryRefusal,
+): value is DeliveryRoute =>
   DeliveryRoute.$is("PaymentLink")(value) ||
   DeliveryRoute.$is("Claimable")(value) ||
   DeliveryRoute.$is("Payment")(value);

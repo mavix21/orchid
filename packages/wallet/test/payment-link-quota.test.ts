@@ -17,6 +17,7 @@ import {
   accountState,
   addressOf,
   approve,
+  assess,
   euroLine,
   fundedWallet,
   holdingsFor,
@@ -161,6 +162,37 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ),
             "TransferDraft",
           );
+        }),
+    );
+
+    it.effect(
+      "an assessment counts stored payment links and leaves gone ones for the next transfer to close",
+      () =>
+        Effect.gen(function* () {
+          const { sender, senderAddr, createLinkAt } = yield* linkSender;
+
+          yield* Effect.forEach(
+            ["2000", "2001", "2002", "2003", "2004"],
+            createLinkAt,
+          );
+
+          world.accounts.set(senderAddr, accountState({ sequence: "2005" }));
+          world.claimables.clear();
+
+          const sixth = orderFor(
+            sender,
+            PaymentLinkRecipient.make({ value: addressOf(Keypair.random()) }),
+          );
+
+          expect(yield* assess(sender, sixth)).toEqual(
+            new ClaimableLimitReached({ limit: 5 }),
+          );
+          expect(
+            yield* Transfers.use((transfers) =>
+              transfers.openClaimables(senderAddr, "paymentLink"),
+            ),
+          ).toBe(5);
+          assertTagged(yield* send(sixth), "TransferDraft");
         }),
     );
   },
