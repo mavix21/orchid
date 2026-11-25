@@ -73,17 +73,20 @@ const storedAmounts = (address: AccountAddress) =>
 
 const cursorRows = Database.use((db) => db.select().from(depositCursors));
 
-const placeCursor = (ledger: number, ageSeconds: number) =>
-  Database.use((db) =>
+const placeCursor = (ledger: number, ageSeconds: number) => {
+  const cursor = `${(BigInt(ledger) << 32n).toString().padStart(19, "0")}-0000000000`;
+  const closedAt = new Date(Date.now() - ageSeconds * 1000);
+
+  return Database.use((db) =>
     db
       .insert(depositCursors)
       .values({
         network,
         testnetEpoch: epochAt(Date.now()),
         contractId: depositContract,
-        cursor: `${(BigInt(ledger) << 32n).toString().padStart(19, "0")}-0000000000`,
+        cursor,
         ledger,
-        closedAt: new Date(Date.now() - ageSeconds * 1000),
+        closedAt,
       })
       .onConflictDoUpdate({
         target: [
@@ -91,12 +94,10 @@ const placeCursor = (ledger: number, ageSeconds: number) =>
           depositCursors.testnetEpoch,
           depositCursors.contractId,
         ],
-        set: {
-          ledger,
-          closedAt: new Date(Date.now() - ageSeconds * 1000),
-        },
+        set: { cursor, ledger, closedAt },
       }),
   );
+};
 
 const makeStale = Database.use((db) =>
   db.execute(
