@@ -1,5 +1,5 @@
 import { Database } from "@workspace/db";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -231,7 +231,12 @@ export class Deposits extends Context.Service<
                         set: {
                           cursor: advance.value.cursor,
                           ledger: advance.value.ledger,
-                          closedAt: sql`coalesce(excluded."closedAt", ${depositCursors.closedAt})`,
+                          closedAt: Option.getOrNull(
+                            Option.map(
+                              advance.value.closedAt,
+                              DateTime.toDateUtc,
+                            ),
+                          ),
                         },
                       });
                 }),
