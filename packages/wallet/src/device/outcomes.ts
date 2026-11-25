@@ -20,6 +20,8 @@ import {
   type BackupStored,
   type ChallengeIssued,
   type ChallengeRefused,
+  type DepositOpeningSpent,
+  type DepositOpeningsFull,
   PaymentMemo,
   type PaymentLinksStep,
   type PaymentLinkOpen,
@@ -212,7 +214,11 @@ export class OpeningReview extends Schema.TaggedClass<OpeningReview>()(
   },
 ) {}
 
-export type ReviewOpeningOutcome = OpeningReview | CreateOutcome;
+export type ReviewOpeningOutcome =
+  | OpeningReview
+  | CreateOutcome
+  | DepositOpeningsFull
+  | DepositOpeningSpent;
 
 export type ConfirmOpeningOutcome =
   | ReviewOpeningOutcome

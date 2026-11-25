@@ -144,7 +144,7 @@ const storesFor = <E>(db: Layer.Layer<Database, E>) =>
     Deposits.layer,
   ).pipe(Layer.provide(db), Layer.provide(recordingQueue));
 
-const stores = storesFor(dbLayer);
+export const stores = storesFor(dbLayer);
 
 export { feePayer, passkeyOrigin, reserveSponsor, settingsFor, sponsor };
 

@@ -241,7 +241,7 @@ export const backupFlow = Effect.gen(function* () {
     };
 
     const step = Option.isSome(approvals)
-      ? yield* openWith(claim, approvals, binding)
+      ? yield* openWith(claim, approvals, binding, false)
       : yield* enrolledUnopened(claim, binding.alongside);
 
     const committed = Effect.fn("Wallet.enrollmentCommitted")(function* (
@@ -273,6 +273,8 @@ export const backupFlow = Effect.gen(function* () {
       AddressBound: Effect.succeed,
       InvalidAddress: Effect.succeed,
       NotSponsored: Effect.succeed,
+      DepositOpeningsFull: () => Effect.succeed(new ChallengeRefused()),
+      DepositOpeningSpent: () => Effect.succeed(new ChallengeRefused()),
     });
   });
 

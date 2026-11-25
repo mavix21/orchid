@@ -1,5 +1,5 @@
 import { Database } from "@workspace/db";
-import { type SQL, and, eq, isNull, or } from "drizzle-orm";
+import { type SQL, and, eq, isNull, or, sql } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -10,6 +10,8 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  DepositOpeningSpent,
+  DepositOpeningsFull,
   HumanCheckRefused,
   OpeningDraft,
   Profile,
@@ -21,11 +23,23 @@ import type { RecoveryFacts } from "../stellar/envelopes";
 import { epochAt, network } from "../stellar/network";
 import type { Sealed } from "./Chain.server";
 import { pruneAbandonedOpenings } from "./abandoned-openings.server";
+import {
+  type DepositOpeningRefusal,
+  depositOpeningRefusal,
+  depositOpeningsLock,
+} from "./deposit-openings.server";
 import { markRecoverable, markRecovered } from "./recoverable-wallets.server";
 import { pairedRecovery } from "./opening-attempt.server";
 import { walletHasSignedWork } from "./signed-work.server";
 import { SignedWorkInFlight, walletLock } from "./slot.server";
+import { StoreFailure } from "./store-failure.server";
 import { usernames, wallets } from "./tables.server";
+import {
+  bind,
+  boundNames,
+  nameOrAddress,
+  prepareBind,
+} from "./username-binding.server";
 import type { Transaction } from "./transaction.server";
 import {
   type Binding,
@@ -33,18 +47,12 @@ import {
   EnrollmentRefused,
   type Unavailable,
   availability,
-  decidedWithoutBinding,
   profileOf,
   unavailability,
   Available,
 } from "./username-standing.server";
 
-export class StoreFailure extends Schema.TaggedError<StoreFailure>()(
-  "StoreFailure",
-  {
-    cause: Schema.Defect(),
-  },
-) {}
+export { StoreFailure };
 
 export type WalletRow = typeof wallets.$inferSelect;
 
@@ -76,6 +84,11 @@ export class Directory extends Context.Service<
       row: WalletRow,
     ): Effect.Effect<Option.Option<Profile>, StoreFailure>;
 
+    depositOpeningRefusal(
+      row: WalletRow,
+      cap: number,
+    ): Effect.Effect<Option.Option<DepositOpeningRefusal>, StoreFailure>;
+
     start(
       address: AccountAddress,
       initial?: OpeningDraft,
@@ -92,8 +105,9 @@ export class Directory extends Context.Service<
       recovery: Option.Option<Sealed>,
       repairing: boolean,
       binding: Binding,
+      depositCap: Option.Option<number>,
     ): Effect.Effect<
-      WalletRow | Unavailable | SignedWorkInFlight,
+      WalletRow | Unavailable | SignedWorkInFlight | DepositOpeningRefusal,
       StoreFailure
     >;
     recoveryDraft(
@@ -150,72 +164,8 @@ export class Directory extends Context.Service<
         return found.value;
       });
 
-      const nameOrAddress = (claim: WalletClaim) =>
-        or(
-          eq(usernames.username, claim.username),
-          eq(usernames.address, claim.address),
-        );
-
-      const boundNames = (
-        executor: typeof db | Transaction,
-        matching: SQL | undefined,
-      ) =>
-        executor
-          .select({ username: usernames.username, address: usernames.address })
-          .from(usernames)
-          .where(matching);
-
       const lockRow = (tx: Transaction, matching: SQL | undefined) =>
         tx.select().from(wallets).where(matching).for("update");
-
-      const prepareBind = Effect.fn("Directory.prepareBind")(function* (
-        claim: WalletClaim,
-        binding: Binding,
-      ) {
-        const holders = yield* boundNames(db, nameOrAddress(claim));
-
-        if (Option.isSome(decidedWithoutBinding(claim, holders)))
-          return "unchecked";
-
-        const refused = yield* binding.check;
-
-        return Option.isSome(refused) ? refused.value : "verified";
-      });
-
-      const bind = Effect.fn("Directory.bind")(function* (
-        tx: Transaction,
-        claim: WalletClaim,
-        prepared: "verified" | "unchecked",
-        binding: Binding,
-      ) {
-        const holders = yield* boundNames(tx, nameOrAddress(claim));
-        const decided = decidedWithoutBinding(claim, holders);
-
-        if (Option.isSome(decided)) return decided.value;
-
-        if (prepared !== "verified") return new HumanCheckRefused();
-
-        const inserted = yield* tx
-          .insert(usernames)
-          .values(claim)
-          .onConflictDoNothing()
-          .returning();
-
-        if (inserted[0]) {
-          yield* binding.alongside(tx);
-
-          return new Available();
-        }
-
-        const raced = yield* boundNames(tx, nameOrAddress(claim));
-
-        if (raced.length === 0)
-          return yield* new StoreFailure({
-            cause: new Error("Binding conflict without a holder"),
-          });
-
-        return availability(claim, raced);
-      });
 
       const unopenedRow = eq(wallets.status, "opening");
 
@@ -238,10 +188,7 @@ export class Directory extends Context.Service<
                 })
                 .onConflictDoNothing();
 
-              const bound = yield* bind(tx, claim, "verified", {
-                check: Effect.succeed(Option.none()),
-                alongside,
-              });
+              const bound = yield* bind(tx, claim, "verified", alongside);
 
               const refused = unavailability(bound);
 
@@ -318,6 +265,7 @@ export class Directory extends Context.Service<
             pairedRecoveryDraft: drafted.recovery?.envelope ?? null,
             pairedRecoveryEnvelope: null,
             pairedRecoveryHash: null,
+            depositOpening: sql`case when ${wallets.depositOpening} = 'recovered' then 'recovered' end`,
           })
           .where(
             and(
@@ -338,6 +286,7 @@ export class Directory extends Context.Service<
         recovery: Option.Option<Sealed>,
         repairing: boolean,
         binding: Binding,
+        depositCap: Option.Option<number>,
       ) {
         const unchanged = and(
           scope,
@@ -345,7 +294,7 @@ export class Directory extends Context.Service<
           eq(wallets.version, row.version),
         );
 
-        const prepared = yield* prepareBind(claim, binding);
+        const prepared = yield* prepareBind(db, claim, binding);
 
         if (prepared instanceof HumanCheckRefused) return prepared;
 
@@ -359,6 +308,18 @@ export class Directory extends Context.Service<
 
             if (!locked[0]) return undefined;
 
+            if (Option.isSome(depositCap)) {
+              yield* tx.execute(depositOpeningsLock);
+
+              const refused = yield* depositOpeningRefusal(
+                tx,
+                locked[0],
+                depositCap.value,
+              );
+
+              if (Option.isSome(refused)) return refused.value;
+            }
+
             if (
               repairing &&
               Option.isSome(recovery) &&
@@ -366,7 +327,7 @@ export class Directory extends Context.Service<
             )
               return new SignedWorkInFlight();
 
-            const bound = yield* bind(tx, claim, prepared, binding);
+            const bound = yield* bind(tx, claim, prepared, binding.alongside);
 
             const refused = unavailability(bound);
 
@@ -387,6 +348,9 @@ export class Directory extends Context.Service<
                   onNone: () => null,
                   onSome: (signed) => signed.hash,
                 }),
+                depositOpening: Option.isSome(depositCap)
+                  ? "attempted"
+                  : locked[0].depositOpening,
               })
               .where(unchanged)
               .returning();
@@ -399,7 +363,9 @@ export class Directory extends Context.Service<
           Predicate.isTagged(outcome, "UsernameTaken") ||
           Predicate.isTagged(outcome, "AddressBound") ||
           outcome instanceof HumanCheckRefused ||
-          Predicate.isTagged(outcome, "SignedWorkInFlight")
+          Predicate.isTagged(outcome, "SignedWorkInFlight") ||
+          outcome instanceof DepositOpeningsFull ||
+          outcome instanceof DepositOpeningSpent
         )
           return outcome;
 
@@ -441,7 +407,7 @@ export class Directory extends Context.Service<
         claim: WalletClaim,
         binding: Binding,
       ) {
-        const prepared = yield* prepareBind(claim, binding);
+        const prepared = yield* prepareBind(db, claim, binding);
 
         if (prepared instanceof HumanCheckRefused) return prepared;
 
@@ -451,7 +417,7 @@ export class Directory extends Context.Service<
 
             if (!locked[0]) return Option.none<Profile>();
 
-            const bound = yield* bind(tx, claim, prepared, binding);
+            const bound = yield* bind(tx, claim, prepared, binding.alongside);
 
             const refused = unavailability(bound);
 
@@ -604,10 +570,24 @@ export class Directory extends Context.Service<
         enrollUnopened: (claim, alongside) =>
           wrap(proven(enrollUnopened(claim, alongside))),
         unopened: (row) => wrap(unopened(row)),
+        depositOpeningRefusal: (row, cap) =>
+          wrap(depositOpeningRefusal(db, row, cap)),
         start: (address, initial) => wrap(start(address, initial)),
         draft: (row, request) => wrap(draft(row, request)),
-        seal: (row, sealed, claim, recovery, repairing, binding) =>
-          wrap(proven(seal(row, sealed, claim, recovery, repairing, binding))),
+        seal: (row, sealed, claim, recovery, repairing, binding, depositCap) =>
+          wrap(
+            proven(
+              seal(
+                row,
+                sealed,
+                claim,
+                recovery,
+                repairing,
+                binding,
+                depositCap,
+              ),
+            ),
+          ),
         recoveryDraft: (row, request) => wrap(recoveryDraft(row, request)),
         activate: (row, sealed, facts, claim, binding) =>
           wrap(proven(activate(row, sealed, facts, claim, binding))),

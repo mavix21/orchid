@@ -36,6 +36,26 @@ type OpeningStep = Data.TaggedEnum<{
 
 const OpeningStep = Data.taggedEnum<OpeningStep>();
 
+export interface OpeningCopy {
+  readonly preparing: string;
+  readonly confirming: string;
+  readonly reopenTitle: string;
+  readonly reopenAction: string;
+  readonly depositOpeningsFull: string;
+  readonly depositOpeningSpent: string;
+}
+
+export const reopeningCopy: OpeningCopy = {
+  preparing: "Preparando tu cuenta…",
+  confirming: "Abriendo tu cuenta…",
+  reopenTitle: "Reabre tu cuenta",
+  reopenAction: "Reabrir con passkey",
+  depositOpeningsFull:
+    "No pudimos abrir tu cuenta ahora, intenta en unos minutos.",
+  depositOpeningSpent:
+    "Tu cuenta ya se abrió una vez sin recibir dinero, así que no podemos reabrirla ahora.",
+};
+
 const concluded = (title: string, message: string, retry?: string) =>
   OpeningStep.Concluded({ title, message, retry: Option.fromNullishOr(retry) });
 
@@ -48,6 +68,7 @@ const readAnswer = (
   answer: Answer<ConfirmOpeningOutcome>,
   previous: Option.Option<OpeningReview>,
   onOpened: () => void,
+  copy: OpeningCopy,
 ): OpeningStep =>
   answer instanceof DeviceFailure
     ? concluded(
@@ -55,12 +76,13 @@ const readAnswer = (
         `Algo falló en este dispositivo. ${unopened}`,
         "Reintentar",
       )
-    : readOutcome(answer, previous, onOpened);
+    : readOutcome(answer, previous, onOpened, copy);
 
 const readOutcome = (
   answer: ConfirmOpeningOutcome,
   previous: Option.Option<OpeningReview>,
   onOpened: () => void,
+  copy: OpeningCopy,
 ): OpeningStep => {
   const refused = (problem: string) =>
     Option.match(previous, {
@@ -170,6 +192,10 @@ const readOutcome = (
         "Tu usuario no es válido",
         "Solo letras, números y guion bajo.",
       ),
+    DepositOpeningsFull: () =>
+      concluded("No pudimos continuar", copy.depositOpeningsFull, "Reintentar"),
+    DepositOpeningSpent: () =>
+      concluded("No pudimos continuar", copy.depositOpeningSpent),
     BackupUnsupported: () => unsupported,
     ChallengeRefused: () => unsupported,
     RegistrationRefused: () => unsupported,
@@ -190,11 +216,13 @@ function OpeningReviewScreen({
   review,
   arrival,
   problem,
+  copy,
   onConfirm,
 }: {
   review: OpeningReview;
   arrival: Option.Option<string>;
   problem: Option.Option<string>;
+  copy: OpeningCopy;
   onConfirm: () => void;
 }) {
   const reopening = Predicate.isTagged(review.draft, "OpeningDraft");
@@ -204,9 +232,7 @@ function OpeningReviewScreen({
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
         <h1 className="font-display text-h1">
           {Option.getOrElse(arrival, () =>
-            reopening
-              ? "Reabre tu cuenta"
-              : "Autoriza el cierre por inactividad",
+            reopening ? copy.reopenTitle : "Autoriza el cierre por inactividad",
           )}
         </h1>
         <p className="text-label-lg" data-testid="opening-username">
@@ -232,7 +258,7 @@ function OpeningReviewScreen({
           {Option.isSome(arrival)
             ? "Recibir con passkey"
             : reopening
-              ? "Reabrir con passkey"
+              ? copy.reopenAction
               : "Autorizar con passkey"}
         </Button>
       </ScreenActions>
@@ -244,10 +270,12 @@ export function OpeningFlow({
   username,
   arrival = Option.none(),
   onOpened,
+  copy = reopeningCopy,
 }: {
   username: string;
   arrival?: Option.Option<string>;
   onOpened: () => void;
+  copy?: OpeningCopy;
 }) {
   const task = useWalletTask();
   const [step, setStep] = useState<OpeningStep>(OpeningStep.Preparing());
@@ -255,14 +283,14 @@ export function OpeningFlow({
   const confirm = (shown: OpeningReview) => {
     setStep(OpeningStep.Confirming());
     task.run(walletEffects.confirmOpening(shown), (answer) =>
-      setStep(readAnswer(answer, Option.some(shown), onOpened)),
+      setStep(readAnswer(answer, Option.some(shown), onOpened, copy)),
     );
   };
 
   const look = () => {
     setStep(OpeningStep.Preparing());
     task.run(walletEffects.reviewOpening(username), (answer) => {
-      const next = readAnswer(answer, Option.none(), onOpened);
+      const next = readAnswer(answer, Option.none(), onOpened, copy);
 
       if (
         Option.isSome(arrival) &&
@@ -278,13 +306,11 @@ export function OpeningFlow({
 
   return Match.valueTags(step, {
     Preparing: () => (
-      <OrchidPending
-        title={Option.getOrElse(arrival, () => "Preparando tu cuenta…")}
-      />
+      <OrchidPending title={Option.getOrElse(arrival, () => copy.preparing)} />
     ),
     Confirming: () => (
       <OrchidPending
-        title={Option.getOrElse(arrival, () => "Abriendo tu cuenta…")}
+        title={Option.getOrElse(arrival, () => copy.confirming)}
         note={
           Option.isSome(arrival)
             ? "Abriendo tu cuenta. Esto toma unos segundos."
@@ -297,6 +323,7 @@ export function OpeningFlow({
         review={review}
         arrival={arrival}
         problem={problem}
+        copy={copy}
         onConfirm={() => confirm(review)}
       />
     ),

@@ -53,7 +53,11 @@ export function BalanceHeader({
           render={<Link to="/send" data-testid="open-send" />}
         />
         <ActionTile label="Cobrar" icon={<LinkIcon />} />
-        <ActionTile label="Recibir" icon={<ArrowDownLeftIcon />} />
+        <ActionTile
+          label="Recibir"
+          icon={<ArrowDownLeftIcon />}
+          render={<Link to="/receive" data-testid="open-receive" />}
+        />
         <ActionTile label="Agregar" icon={<PlusIcon />} />
       </div>
     </section>

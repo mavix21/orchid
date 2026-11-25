@@ -52,5 +52,7 @@ export const enrollmentReviewRequest = (port: Pick<WalletPort, "open">) =>
       AddressBound: unexpected,
       InvalidAddress: unexpected,
       NotSponsored: unexpected,
+      DepositOpeningsFull: unexpected,
+      DepositOpeningSpent: unexpected,
     });
   });

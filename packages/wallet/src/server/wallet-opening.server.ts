@@ -9,6 +9,8 @@ import {
   AccountAddress,
   AddressBound,
   type Approval,
+  DepositOpeningSpent,
+  DepositOpeningsFull,
   type Approvals,
   type BalanceId,
   HumanCheckRefused,
@@ -47,12 +49,14 @@ import { HumanCheck } from "./HumanCheck.server";
 import { openingAttempt, pairedRecovery } from "./opening-attempt.server";
 import { SignedWorkInFlight } from "./slot.server";
 import { confirmedReads, live } from "./wallet-reads.server";
+import { WalletSettings } from "./settings.server";
 
 export const openingFlow = Effect.gen(function* () {
   const chain = yield* Chain;
   const directory = yield* Directory;
   const humanCheck = yield* HumanCheck;
   const transfers = yield* Transfers;
+  const { maxEmptyDepositOpenings } = yield* WalletSettings;
   const { readAccount } = yield* confirmedReads;
 
   const waitingClaim = Effect.fn("Wallet.waitingClaim")(function* (
@@ -342,6 +346,7 @@ export const openingFlow = Effect.gen(function* () {
     claim: WalletClaim,
     approvals: Option.Option<Approvals>,
     binding: Binding,
+    depositBudgeted: boolean,
   ): Effect.fn.Return<OpenStep, StoreFailure | ChainUnreachable> {
     if (!chain.validAddress(claim.address))
       return new InvalidAddress({ address: claim.address });
@@ -460,12 +465,29 @@ export const openingFlow = Effect.gen(function* () {
       }
     }
 
+    const waiting = yield* waitingClaim(claim.address);
+
+    const depositCap =
+      depositBudgeted &&
+      Option.isNone(waiting) &&
+      (yield* directory.bound(claim))
+        ? Option.some(maxEmptyDepositOpenings)
+        : Option.none<number>();
+
+    if (Option.isSome(depositCap)) {
+      const refused = yield* directory.depositOpeningRefusal(
+        row,
+        depositCap.value,
+      );
+
+      if (Option.isSome(refused)) return refused.value;
+    }
+
     if (
       Option.isSome(attempt) &&
       attempt.value instanceof OpeningDraft &&
       (yield* live(attempt.value.request)) &&
-      (Option.isSome(approvals) ||
-        carriesClaim(attempt.value, yield* waitingClaim(claim.address)))
+      (Option.isSome(approvals) || carriesClaim(attempt.value, waiting))
     ) {
       const pending = attempt.value;
 
@@ -482,6 +504,7 @@ export const openingFlow = Effect.gen(function* () {
         sealed.value.recovery,
         Option.isSome(state),
         binding,
+        depositCap,
       );
 
       if (written instanceof SignedWorkInFlight) {
@@ -497,6 +520,8 @@ export const openingFlow = Effect.gen(function* () {
       if (
         Predicate.isTagged(written, "UsernameTaken") ||
         Predicate.isTagged(written, "AddressBound") ||
+        written instanceof DepositOpeningsFull ||
+        written instanceof DepositOpeningSpent ||
         written instanceof HumanCheckRefused
       )
         return written;
@@ -522,13 +547,15 @@ export const openingFlow = Effect.gen(function* () {
     claim: WalletClaim,
     approvals: Option.Option<Approvals>,
     token: Option.Option<HumanCheckToken>,
-  ) => openWith(claim, approvals, checkedBinding(humanCheck.verify(token)));
+  ) =>
+    openWith(claim, approvals, checkedBinding(humanCheck.verify(token)), true);
 
   const resume = (profile: Profile) =>
     openWith(
       new WalletClaim(profile),
       Option.none(),
       checkedBinding(Effect.succeed(Option.none())),
+      false,
     );
 
   return { open, openWith, resume };

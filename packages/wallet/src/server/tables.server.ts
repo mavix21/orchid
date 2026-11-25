@@ -34,6 +34,7 @@ export const wallets = pgTable(
     pairedRecoveryDraft: text(),
     pairedRecoveryEnvelope: text(),
     pairedRecoveryHash: text(),
+    depositOpening: text({ enum: ["attempted", "recovered"] }),
   },
   (table) => [
     check(
