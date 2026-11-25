@@ -145,7 +145,9 @@ export const portfolioFlow = Effect.gen(function* () {
       return claimable;
     });
 
-  return Effect.fn("Wallet.portfolio")(function* (address: AccountAddress) {
+  const portfolio = Effect.fn("Wallet.portfolio")(function* (
+    address: AccountAddress,
+  ) {
     const permits = yield* Semaphore.make(rpcReadConcurrency);
 
     const [holdings, claimable] = yield* Effect.all(
@@ -158,4 +160,14 @@ export const portfolioFlow = Effect.gen(function* () {
       claimable,
     };
   });
+
+  const claimablesFor = Effect.fn("Wallet.claimablesFor")(function* (
+    address: AccountAddress,
+  ) {
+    const permits = yield* Semaphore.make(rpcReadConcurrency);
+
+    return yield* loadClaimables(address, permits);
+  });
+
+  return { portfolio, claimablesFor };
 });

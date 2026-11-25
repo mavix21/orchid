@@ -8,7 +8,7 @@ import {
 import * as Schema from "effect/Schema";
 
 import {
-  enrollWallet,
+  enrollOpenedWallet,
   freshUsername,
   openWallet,
   serverFunction,
@@ -38,7 +38,7 @@ test("pays a username in USDC, resumes after a reload and refuses an unpayable a
   await openWallet(await recipientContext.newPage(), recipient);
   await recipientContext.close();
 
-  const { address: sender } = await enrollWallet(page, freshUsername());
+  const { address: sender } = await enrollOpenedWallet(page, freshUsername());
 
   await fundWithUsdc(sender, "1");
 

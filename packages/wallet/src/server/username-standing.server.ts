@@ -41,6 +41,10 @@ export type BindingCheck = Effect.Effect<
 
 export class BindingUnproven extends Data.TaggedError("BindingUnproven") {}
 
+export class EnrollmentRefused extends Data.TaggedError("EnrollmentRefused")<{
+  readonly standing: Unavailable;
+}> {}
+
 export interface Binding {
   readonly check: BindingCheck;
   readonly alongside: (

@@ -1,11 +1,13 @@
 import { expect, layer } from "@effect/vitest";
 import { Account, Keypair, MuxedAccount } from "@stellar/stellar-sdk";
 import { Database } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  ActivityPage,
   ExternalRecipient,
   InvalidAddress,
   MuxedAddress,
@@ -13,6 +15,7 @@ import {
   Profile,
 } from "../src/contract";
 import { signingKey } from "../src/device/signing";
+import { wallets } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
 import {
   activityOf,
@@ -297,6 +300,41 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               .map((entry) => entry.id),
           ).toEqual(expected);
           expect(second.entries).toHaveLength(2);
+        }),
+    );
+
+    it.effect(
+      "an unopened wallet has an empty history and an overview that lists the claimable balances naming its address",
+      () =>
+        Effect.gen(function* () {
+          const wallet = yield* Wallet;
+          const db = yield* Database;
+          const sender = yield* fundedWallet("unopensender");
+          const recipient = yield* fundedWallet("unopenrecipient");
+          const address = addressOf(recipient);
+
+          const paid = yield* payWithoutTrustline(sender, "unopenrecipient");
+
+          withClaimants(paid.balance, [address]);
+          yield* db
+            .update(wallets)
+            .set({ status: "opening", attemptHash: null })
+            .where(eq(wallets.address, address));
+
+          const overview = yield* wallet.overview(address);
+
+          assertTagged(overview, "NotOpened");
+          expect(overview.profile).toEqual(
+            Option.some(
+              new Profile({ username: username("unopenrecipient"), address }),
+            ),
+          );
+          expect(overview.claimable.map((entry) => entry.balance)).toEqual([
+            paid.balance,
+          ]);
+          expect(yield* wallet.activity(address)).toEqual(
+            new ActivityPage({ entries: [] }),
+          );
         }),
     );
 

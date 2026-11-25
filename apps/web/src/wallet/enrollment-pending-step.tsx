@@ -51,43 +51,33 @@ export function PendingStep({
   const { pending, problem, receiveBlocked, refreshing } = current;
   const shownReceive = receiveFor(pending, receive);
   const releasing = pending.stage === "release";
-  const preparing = !releasing && pending.review === undefined;
 
   const waitingForReceive =
-    receive !== undefined &&
-    !releasing &&
-    !preparing &&
-    Option.isNone(shownReceive);
+    receive !== undefined && !releasing && Option.isNone(shownReceive);
 
   const checkingReceive = waitingForReceive && !receiveBlocked;
 
   const copy = releasing
     ? {
-        title: "Termina de abrir tu cuenta",
+        title: "Termina de crear tu cuenta",
         note: "No necesitas tu passkey otra vez.",
         action: "Reintentar",
       }
-    : preparing
-      ? {
-          title: "Prepara tu activación",
-          note: "Reintenta. No crearás otra passkey.",
-          action: "Preparar de nuevo",
-        }
-      : Option.match(shownReceive, {
-          onNone: () => ({
-            title: "Confirma tu passkey",
-            note: "Usa la passkey que acabas de crear para abrir tu cuenta.",
-            action:
-              waitingForReceive && receiveBlocked
-                ? "Abrir mi cuenta sin recibir"
-                : "Confirmar con passkey",
-          }),
-          onSome: (shown) => ({
-            title: "Confirma tu passkey",
-            note: `Usa la passkey que acabas de crear para abrir tu cuenta y recibir ${amountLabel(shown.amount, shown.asset)}.`,
-            action: "Confirmar y recibir",
-          }),
-        });
+    : Option.match(shownReceive, {
+        onNone: () => ({
+          title: "Confirma tu passkey",
+          note: "Usa la passkey que acabas de crear para guardar tu cuenta.",
+          action:
+            waitingForReceive && receiveBlocked
+              ? "Crear mi cuenta sin recibir"
+              : "Confirmar con passkey",
+        }),
+        onSome: (shown) => ({
+          title: "Confirma tu passkey",
+          note: `Usa la passkey que acabas de crear para abrir tu cuenta y recibir ${amountLabel(shown.amount, shown.asset)}.`,
+          action: "Confirmar y recibir",
+        }),
+      });
 
   return (
     <>

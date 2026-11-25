@@ -40,12 +40,12 @@ export interface StoredBackup {
 
 const storedBackup = (
   backup: BackupRow,
-  boundUsername: string | null,
+  boundUsername: string,
 ): StoredBackup => ({
   credentialId: Schema.decodeSync(CredentialId)(backup.credentialId),
   profile: new Profile({
     address: Schema.decodeSync(AccountAddress)(backup.address),
-    username: Schema.decodeSync(Username)(boundUsername ?? backup.username),
+    username: Schema.decodeSync(Username)(boundUsername),
   }),
   publicKey: backup.publicKey,
   algorithm: backup.algorithm,
@@ -177,7 +177,7 @@ export class Backups extends Context.Service<
         const found = yield* db
           .select({ backup: backups, boundUsername: usernames.username })
           .from(backups)
-          .leftJoin(usernames, eq(usernames.address, backups.address))
+          .innerJoin(usernames, eq(usernames.address, backups.address))
           .where(eq(backups.credentialId, credentialId));
 
         return Option.fromNullishOr(found[0]).pipe(

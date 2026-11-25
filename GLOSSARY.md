@@ -19,10 +19,13 @@ _Avoid_: Recovery, reserve recovery, import.
 **Account address**: The public Stellar address identifying an account on the network.
 _Avoid_: Username, private key.
 
-**Username**: A permanent name bound to one account address. It resolves as a recipient while the wallet is active and stays bound after reserve recovery.
+**Username**: A permanent name bound to one account address when the wallet is created. It resolves as a recipient while the wallet is unopened or active and stays bound after reserve recovery.
 _Avoid_: Temporary alias, recyclable handle.
 
-**Opening**: Establishing or repairing the sponsored account and base trustline so a wallet can become active.
+**Unopened wallet**: A wallet whose username is bound and whose backup is stored, but whose sponsored account does not exist on the network yet. Creating a wallet leaves it unopened.
+_Avoid_: Inactive wallet, pending wallet.
+
+**Opening**: Establishing or repairing the sponsored account and base trustline so an unopened or recovered wallet can become active.
 
 **Reserve sponsor**: The account providing the Stellar reserves needed for sponsored accounts and trustlines.
 _Avoid_: Fee payer when referring to reserves.

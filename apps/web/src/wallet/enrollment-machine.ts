@@ -125,7 +125,7 @@ const refusalMessage = (refusal: Refusal, moment: Moment) =>
     UsernameTaken: ({ username }) =>
       moment === "start"
         ? `@${username} ya está en uso. Elige otro.`
-        : `@${username} se ocupó mientras abríamos tu cuenta. Elige otro @usuario.`,
+        : `@${username} se ocupó mientras creábamos tu cuenta. Elige otro @usuario.`,
     HumanCheckRefused: () =>
       "No pudimos verificar que eres una persona. Inténtalo de nuevo.",
     DraftRejected: () => resignedMessage,
@@ -135,7 +135,7 @@ const refusalMessage = (refusal: Refusal, moment: Moment) =>
     PasskeyCancelled: () =>
       moment === "start"
         ? "Cancelaste la creación de tu passkey."
-        : "Cancelaste la confirmación. Tu cuenta aún no está abierta.",
+        : "Cancelaste la confirmación. Tu cuenta aún no está creada.",
     PasskeyFailed: () => "No pudimos usar tu passkey. Inténtalo de nuevo.",
     WrongCredential: () =>
       "Usaste otra passkey. Confirma con la que acabas de crear.",

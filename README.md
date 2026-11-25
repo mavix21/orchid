@@ -67,7 +67,7 @@ bun run dev
 
 Open http://localhost:3000.
 
-Creating an account needs two funded testnet accounts: the reserve sponsor and the fee payer. Put their secret keys in the gitignored `apps/web/.dev.vars`:
+Creating an account opens nothing on the network. Opening one needs two funded testnet accounts: the reserve sponsor and the fee payer. Put their secret keys in the gitignored `apps/web/.dev.vars`:
 
 ```sh
 RESERVE_SPONSOR_SECRET=S...

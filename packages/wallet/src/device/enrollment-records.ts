@@ -98,7 +98,7 @@ export class PendingActivation extends Schema.TaggedClass<PendingActivation>()(
   {
     enrollment: BackupEnrollment,
     candidate: PendingCandidate,
-    review: OpeningReview,
+    review: Schema.optional(OpeningReview),
   },
 ) {}
 
@@ -107,8 +107,8 @@ export class PendingRelease extends Schema.TaggedClass<PendingRelease>()(
   {
     enrollment: BackupEnrollment,
     candidate: PendingCandidate,
-    review: OpeningReview,
-    approvals: Approvals,
+    review: Schema.optional(OpeningReview),
+    approvals: Schema.optional(Approvals),
     receive: Schema.optional(HeldReceive),
   },
 ) {}
