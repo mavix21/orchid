@@ -1,6 +1,6 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 
-import { DisplayGate } from "@/wallet/display-gate";
+import { SessionGate } from "@/wallet/session-gate";
 import { deviceHoldsWallet } from "@/wallet/wallet-cookie";
 
 export const Route = createFileRoute("/_wallet")({
@@ -12,8 +12,8 @@ export const Route = createFileRoute("/_wallet")({
 
 function WalletLayout() {
   return (
-    <DisplayGate>
+    <SessionGate>
       <Outlet />
-    </DisplayGate>
+    </SessionGate>
   );
 }

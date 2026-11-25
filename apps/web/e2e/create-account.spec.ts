@@ -6,7 +6,6 @@ import {
   freshUsername,
   storedWalletRecord,
   submitButton,
-  unlockButton,
   usernameInput,
 } from "./device";
 
@@ -64,7 +63,7 @@ test("creates and opens a wallet with exactly two passkey prompts", async ({
   await page.getByTestId("enrollment-continue").click();
 
   await expect(page.getByTestId("open-send")).toBeVisible({ timeout: 120_000 });
-  await expect(unlockButton(page)).toBeHidden();
+  await expect(page.getByTestId("session-confirmation")).toBeHidden();
   await expect(page.getByText(`@${username}`)).toBeVisible();
   expect(await storedWalletRecord(page)).toBe(true);
   expect(await prompts()).toEqual({ create: 1, get: 1 });

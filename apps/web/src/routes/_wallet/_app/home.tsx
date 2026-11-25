@@ -18,7 +18,6 @@ import { RecentActivity } from "@/activity/recent-activity";
 import { BalanceHeader } from "@/components/balance-header";
 import { HomeSkeleton } from "@/components/home-skeleton";
 import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
-import { whenUnlocked } from "@/wallet/display-lock";
 import { OpeningFlow } from "@/wallet/opening-flow";
 import { shownOverview } from "@/wallet/shown-overview";
 import {
@@ -31,9 +30,7 @@ export const Route = createFileRoute("/_wallet/_app/home")({
   ssr: false,
   pendingMs: 0,
   pendingComponent: HomeSkeleton,
-  loader: async ({ context, abortController }) => {
-    await whenUnlocked(abortController.signal);
-
+  loader: async ({ context }) => {
     const [overview, saved, activity] = await Promise.all([
       context.walletClient.overview(),
       context.walletClient.saved(),

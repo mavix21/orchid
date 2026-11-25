@@ -8,8 +8,6 @@ export { browserKeyStore } from "./device/browser-key-store";
 
 export * from "./device/assertion";
 
-export * from "./device/display-lock";
-
 export * from "./device/local-envelope";
 
 export { LinkSecretCorrupt, SealedLinkCode } from "./device/link-seal";

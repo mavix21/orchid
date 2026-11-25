@@ -1,5 +1,4 @@
 import * as Effect from "effect/Effect";
-import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -7,22 +6,16 @@ import * as Semaphore from "effect/Semaphore";
 import {
   type ActivityCursor,
   BackupStored,
-  type PasskeyChallenge,
   type WalletPort,
   type WalletUnavailable,
 } from "../contract";
-import {
-  AssertionIntent,
-  AssertionRejected,
-  verifyPinnedAssertion,
-} from "./assertion";
 import {
   type KeyStore,
   type KeyStoreUnavailable,
   PublicDeviceWallet,
   type SealedDevice,
 } from "./key-store";
-import { NoWallet, SavedWallet, Unlocked, UnsupportedDevice } from "./outcomes";
+import { NoWallet, SavedWallet, UnsupportedDevice } from "./outcomes";
 import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
 import type { HeldLink } from "./payment-links";
 import { loadFromServer } from "./reaching";
@@ -205,33 +198,6 @@ export function makeWalletEffects(
 
   const session = deviceSession(port, device);
 
-  const unlock = Effect.fn("Device.unlock")(function* (
-    challenge: PasskeyChallenge | undefined,
-  ) {
-    if (device === undefined) return new UnsupportedDevice();
-
-    if (challenge !== undefined) return yield* session.unlockWith(challenge);
-
-    const sealed = yield* device.store.readSealed();
-
-    if (Option.isNone(sealed)) return new NoWallet();
-
-    const verified = yield* verifyPinnedAssertion(
-      device.ceremony,
-      device.relyingParty(),
-      sealed.value.credential,
-      AssertionIntent.Entry(),
-    );
-
-    return Match.valueTags(verified, {
-      EntryVerified: () => new Unlocked(),
-      OperationVerified: () => new AssertionRejected(),
-      PrfOutputMissing: () => new AssertionRejected(),
-      WrongCredential: (wrong) => wrong,
-      AssertionRejected: (rejected) => rejected,
-    });
-  });
-
   const settle = <A>(
     program: Effect.Effect<
       A,
@@ -296,15 +262,6 @@ export function makeWalletEffects(
           ServiceFailed: (failure) => Effect.succeed(failure),
           SessionRequired: (failure) => Effect.succeed(failure),
           InvalidResponse: (failure) => Effect.succeed(failure),
-        }),
-      ),
-    unlock: (challenge) =>
-      unlock(challenge).pipe(
-        Effect.catchTags({
-          KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
-          CorruptDeviceWallet: (damaged) => Effect.succeed(damaged),
-          PasskeyCancelled: (cancelled) => Effect.succeed(cancelled),
-          PasskeyFailed: (failed) => Effect.succeed(failed),
         }),
       ),
     sessionChallenge: () => networkOnly(session.challenge()),
@@ -438,7 +395,6 @@ export function makeWalletClient(
   return {
     overview: () => Effect.runPromise(effects.overview()),
     saved: () => Effect.runPromise(effects.saved()),
-    unlock: (challenge) => Effect.runPromise(effects.unlock(challenge)),
     sessionChallenge: () => Effect.runPromise(effects.sessionChallenge()),
     confirmSession: (challenge) =>
       Effect.runPromise(effects.confirmSession(challenge)),

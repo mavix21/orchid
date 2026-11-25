@@ -13,6 +13,7 @@ import type { Answer } from "@/send/use-wallet-task";
 
 import {
   LinkStep,
+  concealedStep,
   delivered,
   entering,
   lost,
@@ -35,7 +36,8 @@ export type LinkEvent = Data.TaggedEnum<{
   CreateStarted: {};
   CreateAnswered: { readonly answer: Answer<ConfirmPaymentLinkOutcome> };
   ShareStarted: {};
-  ShareEnded: { readonly result: ShareResult };
+  ShareEnded: { readonly result: ShareResult; readonly pageHidden: boolean };
+  Concealed: { readonly unloading: boolean };
   Left: {};
   CheckStarted: {};
   CheckAnswered: { readonly answer: Answer<ResolvePaymentLinkOutcome> };
@@ -84,6 +86,9 @@ const afterCreate = (
     ),
   );
 };
+
+const withoutCode = (step: LinkStep) =>
+  Option.getOrElse(concealedStep(step), () => step);
 
 export const reduceLinkFlow = (
   state: LinkFlowState,
@@ -149,14 +154,19 @@ export const reduceLinkFlow = (
       Predicate.isTagged(step, "Created")
         ? to(LinkStep.Sharing({ link: step.link, delivery: step.delivery }))
         : state,
-    ShareEnded: ({ result }) =>
-      Predicate.isTagged(step, "Sharing")
-        ? to(
-            LinkStep.Created({
-              link: step.link,
-              delivery: nextDelivery(step.delivery, result),
-            }),
-          )
+    ShareEnded: ({ result, pageHidden }) => {
+      if (!Predicate.isTagged(step, "Sharing")) return state;
+
+      const settled = LinkStep.Created({
+        link: step.link,
+        delivery: nextDelivery(step.delivery, result),
+      });
+
+      return to(pageHidden ? withoutCode(settled) : settled);
+    },
+    Concealed: ({ unloading }) =>
+      unloading || !Predicate.isTagged(step, "Sharing")
+        ? to(withoutCode(step))
         : state,
     Left: () =>
       Predicate.isTagged(step, "Created") &&

@@ -1,5 +1,5 @@
 import { CheckIcon, CopyIcon, ShareIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import {
   Drawer,
@@ -18,10 +18,10 @@ import * as Predicate from "effect/Predicate";
 import { amountLabel } from "@/send/money";
 import { useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
-import { displayLock } from "@/wallet/display-lock";
 
 import { type Delivery, delivered, nextDelivery } from "./link-step";
 import { type RevealRefusal, revealResult } from "./outcomes";
+import { pageHidden, usePageDeparture } from "./page-departure";
 import {
   type ShareResult,
   type ShareableLink,
@@ -45,6 +45,11 @@ type Reveal = Data.TaggedEnum<{
 }>;
 
 const Reveal = Data.taggedEnum<Reveal>();
+
+const withoutCode = (reveal: Reveal, unloading: boolean): Reveal =>
+  Predicate.isTagged(reveal, "Opened") && (unloading || !reveal.delivering)
+    ? Reveal.Closed()
+    : reveal;
 
 const deliveryNote = (delivery: Delivery) =>
   Match.value(delivery).pipe(
@@ -113,19 +118,10 @@ export function DeliveryActions({
 export function useLinkReveal() {
   const task = useWalletTask();
   const [reveal, setReveal] = useState<Reveal>(Reveal.Closed());
-  const stopTask = useRef(task.stop);
 
-  stopTask.current = task.stop;
-
-  useEffect(
-    () =>
-      displayLock.subscribe(() => {
-        if (Predicate.isTagged(displayLock.state(), "Unlocked")) return;
-
-        stopTask.current();
-        setReveal(Reveal.Closed());
-      }),
-    [],
+  usePageDeparture(
+    () => setReveal((current) => withoutCode(current, false)),
+    () => setReveal((current) => withoutCode(current, true)),
   );
 
   const open = (target: SavedLinkTarget) => {
@@ -148,11 +144,13 @@ export function useLinkReveal() {
     void send(link).then((result) =>
       setReveal((current) =>
         Predicate.isTagged(current, "Opened") && current.link === link
-          ? Reveal.Opened({
-              link,
-              delivery: nextDelivery(current.delivery, result),
-              delivering: false,
-            })
+          ? pageHidden()
+            ? Reveal.Closed()
+            : Reveal.Opened({
+                link,
+                delivery: nextDelivery(current.delivery, result),
+                delivering: false,
+              })
           : current,
       ),
     );

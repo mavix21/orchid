@@ -20,9 +20,11 @@ import { unavailableMessage } from "./unavailable";
 export function SessionConfirmation({
   client,
   onConfirmed,
+  onNoWallet,
 }: {
   client: Pick<WalletClient, "sessionChallenge" | "confirmSession">;
   onConfirmed: () => void;
+  onNoWallet?: () => void;
 }) {
   const { held, refresh } = useSessionChallenge(client);
   const [confirming, setConfirming] = useState(false);
@@ -42,6 +44,15 @@ export function SessionConfirmation({
       Match.tag("SessionConfirmed", () => {
         sessionLapse.clear();
         onConfirmed();
+      }),
+      Match.tag("NoWallet", (refused) => {
+        if (onNoWallet) {
+          onNoWallet();
+
+          return;
+        }
+
+        setProblem(sessionRefusal(refused));
       }),
       Match.orElse((refused) => {
         setProblem(sessionRefusal(refused));

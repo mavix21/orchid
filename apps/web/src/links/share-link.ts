@@ -1,8 +1,6 @@
 import type { Asset, PositiveAmount } from "@workspace/wallet";
-import * as Predicate from "effect/Predicate";
 
 import { amountLabel } from "@/send/money";
-import { displayLock } from "@/wallet/display-lock";
 
 export type ShareResult = "shared" | "copied" | "dismissed" | "failed";
 
@@ -12,39 +10,32 @@ export interface ShareableLink {
   readonly amount: PositiveAmount;
 }
 
-const whileUnlocked = (
-  link: ShareableLink,
-  deliver: (url: string) => Promise<ShareResult>,
-): Promise<ShareResult> =>
-  Predicate.isTagged(displayLock.state(), "Unlocked")
-    ? deliver(new URL(link.path, window.location.origin).href)
-    : Promise.resolve("failed");
+const linkUrl = (link: ShareableLink) =>
+  new URL(link.path, window.location.origin).href;
 
 export const nativeShareAvailable = () => "share" in navigator;
 
-export const shareLink = (link: ShareableLink) =>
-  whileUnlocked(link, async (url) => {
-    try {
-      await navigator.share({
-        title: "Link de pago de Orchid",
-        text: `Te envié ${amountLabel(link.amount, link.asset)} con Orchid. Abre el link para recibirlo.\n\n${url}`,
-      });
+export const shareLink = async (link: ShareableLink): Promise<ShareResult> => {
+  try {
+    await navigator.share({
+      title: "Link de pago de Orchid",
+      text: `Te envié ${amountLabel(link.amount, link.asset)} con Orchid. Abre el link para recibirlo.\n\n${linkUrl(link)}`,
+    });
 
-      return "shared";
-    } catch (error) {
-      return error instanceof DOMException && error.name === "AbortError"
-        ? "dismissed"
-        : "failed";
-    }
-  });
+    return "shared";
+  } catch (error) {
+    return error instanceof DOMException && error.name === "AbortError"
+      ? "dismissed"
+      : "failed";
+  }
+};
 
-export const copyLink = (link: ShareableLink) =>
-  whileUnlocked(link, async (url) => {
-    try {
-      await navigator.clipboard.writeText(url);
+export const copyLink = async (link: ShareableLink): Promise<ShareResult> => {
+  try {
+    await navigator.clipboard.writeText(linkUrl(link));
 
-      return "copied";
-    } catch {
-      return "failed";
-    }
-  });
+    return "copied";
+  } catch {
+    return "failed";
+  }
+};

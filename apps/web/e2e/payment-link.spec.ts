@@ -60,6 +60,44 @@ const sharedFundedLink = async (page: Page, senderUsername: string) => {
   return sharedLink(original);
 };
 
+const setVisibility = (page: Page, state: "hidden" | "visible") =>
+  page.evaluate((next) => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => next,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, state);
+
+const hidePage = (page: Page) => setVisibility(page, "hidden");
+
+const leavePage = (page: Page) =>
+  page.evaluate(() =>
+    window.dispatchEvent(new PageTransitionEvent("pagehide")),
+  );
+
+const settleShare = (page: Page) =>
+  page.evaluate(() => window.dispatchEvent(new Event("settle-share")));
+
+const holdShareOpen = (page: Page) =>
+  page.addInitScript({
+    content: `Object.defineProperty(navigator, "share", { configurable: true, value: () => new Promise((resolve) => window.addEventListener("settle-share", resolve, { once: true })) });`,
+  });
+
+const createUnsavedLink = async (page: Page) => {
+  await reviewLink(page);
+  await page.getByTestId("save-link").click();
+  await expect(page.getByTestId("link-review")).toHaveAttribute(
+    "data-saved",
+    "false",
+    { timeout: 30_000 },
+  );
+  await page.getByTestId("confirm-link").click();
+  await expect(page.getByTestId("link-created")).toBeVisible({
+    timeout: 120_000,
+  });
+};
+
 const reviewLink = async (page: Page) => {
   await page.goto("/send");
   await page.getByTestId(`send-asset-USDC:${usdc.getIssuer()}`).click();
@@ -311,4 +349,71 @@ test("confirms the wallet session before receiving a link into an existing walle
     "AssetSettled",
     { timeout: 180_000 },
   );
+});
+
+test("discards an unsaved link's code when the page is hidden before sharing, while a share is open, or when the page is left", async ({
+  page,
+}) => {
+  test.setTimeout(600_000);
+
+  await holdShareOpen(page);
+
+  const { address } = await enrollWallet(page, freshUsername());
+
+  await fundWithUsdc(address, "2");
+
+  await createUnsavedLink(page);
+  await hidePage(page);
+  await expect(page.getByTestId("link-lost")).toBeVisible();
+  await expect(page.getByTestId("share-link")).toHaveCount(0);
+
+  await createUnsavedLink(page);
+  await page.getByTestId("share-link").click();
+  await hidePage(page);
+  await expect(page.getByTestId("copy-link")).toBeDisabled();
+  await settleShare(page);
+  await expect(page.getByTestId("finish-link")).toBeVisible();
+  await expect(page.getByTestId("share-link")).toHaveCount(0);
+  await expect(page.getByTestId("link-lost")).toHaveCount(0);
+
+  await createUnsavedLink(page);
+  await page.getByTestId("share-link").click();
+  await leavePage(page);
+  await expect(page.getByTestId("link-lost")).toBeVisible();
+  await settleShare(page);
+  await expect(page.getByTestId("link-lost")).toBeVisible();
+});
+
+test("closes a revealed saved link when the page is hidden, and when a share from it settles while hidden", async ({
+  page,
+}) => {
+  test.setTimeout(600_000);
+
+  await holdShareOpen(page);
+
+  const { address } = await enrollWallet(page, freshUsername());
+
+  await fundWithUsdc(address, "1");
+  await reviewLink(page);
+  await page.getByTestId("confirm-link").click();
+  await expect(page.getByTestId("link-created")).toBeVisible({
+    timeout: 120_000,
+  });
+  await page.getByTestId("finish-link").click();
+  await page.goto("/links");
+
+  const drawer = page.getByTestId("link-share-drawer");
+
+  await page.getByTestId("reshare-link").click();
+  await expect(page.getByTestId("share-link")).toBeVisible();
+  await hidePage(page);
+  await expect(drawer).toBeHidden();
+
+  await page.reload();
+  await page.getByTestId("reshare-link").click();
+  await page.getByTestId("share-link").click();
+  await hidePage(page);
+  await expect(drawer).toBeVisible();
+  await settleShare(page);
+  await expect(drawer).toBeHidden();
 });

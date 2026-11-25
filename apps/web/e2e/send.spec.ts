@@ -11,7 +11,6 @@ import {
   enrollWallet,
   freshUsername,
   openWallet,
-  reloadUnlocked,
   serverFunction,
 } from "./device";
 import { fundWithUsdc, usdc } from "@workspace/wallet/testnet";
@@ -69,7 +68,7 @@ test("pays a username in USDC, resumes after a reload and refuses an unpayable a
   await page.getByTestId("confirm-payment").click();
   await approved;
   await expect(page).toHaveURL(/transfer=/);
-  await reloadUnlocked(page);
+  await page.reload();
 
   await expect(page.getByTestId("send-outcome")).toHaveAttribute(
     "data-outcome",

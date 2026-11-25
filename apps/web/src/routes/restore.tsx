@@ -10,7 +10,6 @@ import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
 import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { useHomeForSavedWallet } from "@/wallet/use-home-for-saved-wallet";
-import { displayLock } from "@/wallet/display-lock";
 import { sessionLapse } from "@/wallet/session-lapse";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
 
@@ -89,13 +88,9 @@ function RestoreAccount() {
     setRestoring(true);
     setProblem(undefined);
 
-    const ticket = displayLock.begin();
     const outcome = await walletClient.restore();
 
-    if (Predicate.isTagged(outcome, "Restored")) {
-      displayLock.unlock(ticket);
-      sessionLapse.clear();
-    }
+    if (Predicate.isTagged(outcome, "Restored")) sessionLapse.clear();
 
     if (!mounted.current) return;
 
