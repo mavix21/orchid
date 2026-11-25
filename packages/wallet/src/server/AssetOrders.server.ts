@@ -46,6 +46,7 @@ import {
 } from "./asset-order-records.server";
 import { SlotOccupied, WalletInactive, walletLock } from "./slot.server";
 import {
+  pruneExpiredAssetOrderDrafts,
   stuckAssetOrders,
   receivedLinksToClean,
 } from "./asset-order-sweep.server";
@@ -114,6 +115,7 @@ export class AssetOrders extends Context.Service<
     inFlight(
       runStartedAt: DateTime.Utc,
     ): Effect.Effect<ReadonlyArray<AssetAuthorized>, StoreFailure>;
+    readonly pruneExpiredDrafts: Effect.Effect<void, StoreFailure>;
 
     tracked(
       wallet: AccountAddress,
@@ -610,6 +612,11 @@ export class AssetOrders extends Context.Service<
               Effect.provideService(Database, db),
             ),
           ),
+        pruneExpiredDrafts: wrap(
+          pruneExpiredAssetOrderDrafts().pipe(
+            Effect.provideService(Database, db),
+          ),
+        ),
         tracked: (wallet) => wrap(tracked(wallet)),
         onBalance: (balance) =>
           wrap(

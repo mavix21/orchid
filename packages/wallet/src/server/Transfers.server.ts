@@ -53,7 +53,10 @@ import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import { SlotOccupied, WalletInactive, walletLock } from "./slot.server";
 import { assetOrders, transfers, wallets } from "./tables.server";
-import { stuckTransfers } from "./transfer-sweep.server";
+import {
+  pruneExpiredTransferDrafts,
+  stuckTransfers,
+} from "./transfer-sweep.server";
 import { ReconcileTransfer, WorkQueue, announcer } from "./work-queue.server";
 import {
   AttemptsJson,
@@ -121,6 +124,7 @@ export class Transfers extends Context.Service<
     inFlight(
       runStartedAt: DateTime.Utc,
     ): Effect.Effect<ReadonlyArray<Authorized>, StoreFailure>;
+    readonly pruneExpiredDrafts: Effect.Effect<void, StoreFailure>;
 
     readonly balancesToCheck: Effect.Effect<
       ReadonlyArray<BalanceId>,
@@ -543,6 +547,11 @@ export class Transfers extends Context.Service<
               Effect.provideService(Database, db),
             ),
           ),
+        pruneExpiredDrafts: wrap(
+          pruneExpiredTransferDrafts().pipe(
+            Effect.provideService(Database, db),
+          ),
+        ),
         balancesToCheck: wrap(
           balancesToCheck.pipe(Effect.provideService(Database, db)),
         ),

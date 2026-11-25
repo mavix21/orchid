@@ -73,4 +73,4 @@ _Avoid_: Webview when talking to users.
 **Deposit**: USDC that reached a wallet from outside Orchid, such as an exchange or another wallet app, read from the network's asset events and listed in activity.
 _Avoid_: Payment or transfer when the money did not go through Orchid.
 
-**Sweep**: Hourly backstop that reconciles pending operations the queue left unfinished, cleans up received links and recovers eligible reserves.
+**Sweep**: Hourly backstop that reconciles pending operations the queue left unfinished, cleans up received links, prunes expired drafts and abandoned openings, and recovers eligible reserves.

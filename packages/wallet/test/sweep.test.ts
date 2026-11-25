@@ -4,16 +4,30 @@ import { Database } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import {
+  AssetOrder,
+  AssetOrderId,
+  OpenTrustline,
+  type AccountAddress,
+} from "../src/contract";
+import { AssetOrders } from "../src/server/AssetOrders.server";
+import { Wallet } from "../src/server/Wallet.server";
 import { sweepBatchSize } from "../src/stellar/network";
 import { assertTagged } from "./tagged";
 import {
   accountState,
   amount,
+  addressOf,
   authorizeTransfer,
+  claimFor,
   create,
+  draftTransfer,
+  euro,
   findTransfer,
   findWallet,
   fundedWallet,
+  opening,
   selfOrder,
   settleHash,
   sweep,
@@ -24,6 +38,40 @@ import {
 } from "./wallet-harness";
 
 useDisposableDatabase();
+
+const expire = (table: "transfers" | "asset_orders", id: string) =>
+  Database.use((db) =>
+    db.execute(
+      sql`update ${sql.identifier(table)} set "expiresAt" = now() - interval '1 hour' where id = ${id}`,
+    ),
+  );
+
+const expireAttempt = (address: AccountAddress) =>
+  Database.use((db) =>
+    db.execute(
+      sql`update wallets set "attemptExpiresAt" = now() - interval '1 hour' where address = ${address}`,
+    ),
+  );
+
+const assetDraft = Effect.fn(function* (wallet: AccountAddress) {
+  const order = new AssetOrder({
+    id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
+    wallet,
+    action: OpenTrustline.make({ asset: euro }),
+  });
+
+  assertTagged(
+    yield* Wallet.use((w) => w.manage(order, Option.none())),
+    "AssetDraft",
+  );
+
+  return order;
+});
+
+const assetOrderStored = (order: AssetOrder) =>
+  AssetOrders.use((orders) => orders.find(order.id)).pipe(
+    Effect.map(Option.isSome),
+  );
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
@@ -160,6 +208,88 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(submissionsOf(unresolved.authorized.sealed.hash)).toBe(
             before + 1,
           );
+        }),
+    );
+
+    it.effect(
+      "the sweep prunes expired drafts and keeps live drafts and signed work",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet();
+          const expiredTransfer = selfOrder(key);
+          const liveTransfer = selfOrder(key);
+          const signedTransfer = selfOrder(key);
+
+          const expiredAsset = yield* assetDraft(addressOf(key));
+          const liveAsset = yield* assetDraft(addressOf(key));
+
+          yield* draftTransfer(expiredTransfer);
+          yield* draftTransfer(liveTransfer);
+          yield* authorizeTransfer(key, signedTransfer, { failSubmit: true });
+
+          yield* expire("transfers", expiredTransfer.id);
+          yield* expire("transfers", signedTransfer.id);
+          yield* expire("asset_orders", expiredAsset.id);
+          yield* sweepNow;
+
+          expect(Option.isSome(yield* findTransfer(expiredTransfer.id))).toBe(
+            false,
+          );
+          expect(Option.isSome(yield* findTransfer(liveTransfer.id))).toBe(
+            true,
+          );
+          expect(Option.isSome(yield* findTransfer(signedTransfer.id))).toBe(
+            true,
+          );
+          expect(yield* assetOrderStored(expiredAsset)).toBe(false);
+          expect(yield* assetOrderStored(liveAsset)).toBe(true);
+        }),
+    );
+
+    it.effect(
+      "the sweep prunes expired unbound openings that nothing references",
+      () =>
+        Effect.gen(function* () {
+          const abandoned = claimFor(Keypair.random(), "abandoned");
+          const waiting = claimFor(Keypair.random(), "waiting");
+          const attempting = claimFor(Keypair.random(), "attempting");
+          const funded = yield* fundedWallet("bound");
+
+          for (const claim of [abandoned, waiting, attempting])
+            assertTagged(yield* opening(claim), "OpeningDraft");
+
+          const draftOnWaiting = crypto.randomUUID();
+
+          yield* Database.use((db) =>
+            db.execute(
+              sql`insert into asset_orders (id, wallet, "order", network, "testnetEpoch", status, envelope, "expiresAt") select ${draftOnWaiting}, address, '{}', network, "testnetEpoch", 'proposed', 'envelope', now() + interval '1 hour' from wallets where address = ${waiting.address}`,
+            ),
+          );
+
+          for (const address of [
+            abandoned.address,
+            waiting.address,
+            addressOf(funded),
+          ])
+            yield* expireAttempt(address);
+
+          yield* sweepNow;
+
+          expect(Option.isSome(yield* findWallet(abandoned.address))).toBe(
+            false,
+          );
+          expect(Option.isSome(yield* findWallet(waiting.address))).toBe(true);
+          expect(Option.isSome(yield* findWallet(attempting.address))).toBe(
+            true,
+          );
+          expect(Option.isSome(yield* findWallet(addressOf(funded)))).toBe(
+            true,
+          );
+
+          yield* expire("asset_orders", draftOnWaiting);
+          yield* sweepNow;
+
+          expect(Option.isSome(yield* findWallet(waiting.address))).toBe(false);
         }),
     );
   },
