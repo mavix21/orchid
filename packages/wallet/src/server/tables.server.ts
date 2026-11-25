@@ -163,6 +163,53 @@ export const trustlines = pgTable(
   ],
 );
 
+export const deposits = pgTable(
+  "deposits",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    network: text().notNull(),
+    testnetEpoch: text().notNull(),
+    eventId: text().notNull(),
+    wallet: text()
+      .notNull()
+      .references(() => wallets.address),
+    code: text().notNull(),
+    issuer: text().notNull(),
+    amount: bigint({ mode: "bigint" }).notNull(),
+    sender: text().notNull(),
+    hash: text().notNull(),
+    ledger: integer().notNull(),
+    closedAt: timestamp({ withTimezone: true }).notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("deposits_event").on(
+      table.network,
+      table.testnetEpoch,
+      table.eventId,
+    ),
+    index("deposits_wallet_closed").on(table.wallet, table.closedAt),
+    check("deposits_positive_amount", sql`${table.amount} > 0`),
+  ],
+);
+
+export const depositCursors = pgTable(
+  "deposit_cursors",
+  {
+    network: text().notNull(),
+    testnetEpoch: text().notNull(),
+    contractId: text().notNull(),
+    cursor: text().notNull(),
+    ledger: integer().notNull(),
+    closedAt: timestamp({ withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.network, table.testnetEpoch, table.contractId],
+    }),
+  ],
+);
+
 export const backups = pgTable("backups", {
   credentialId: text().primaryKey(),
   address: text().notNull(),

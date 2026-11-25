@@ -70,4 +70,7 @@ _Avoid_: Login.
 **Embedded browser**: The in-app browser of an app such as Instagram, Facebook, TikTok or WhatsApp. It cannot evaluate a passkey's PRF, so Orchid hands the user off to their own browser before any passkey ceremony.
 _Avoid_: Webview when talking to users.
 
+**Deposit**: USDC that reached a wallet from outside Orchid, such as an exchange or another wallet app, read from the network's asset events and listed in activity.
+_Avoid_: Payment or transfer when the money did not go through Orchid.
+
 **Sweep**: Hourly backstop that reconciles pending operations the queue left unfinished, cleans up received links and recovers eligible reserves.

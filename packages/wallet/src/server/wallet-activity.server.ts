@@ -10,11 +10,13 @@ import {
 import { Chain } from "./Chain.server";
 import { Directory, type StoreFailure } from "./Directory.server";
 import { Transfers } from "./Transfers.server";
+import { depositFlow } from "./wallet-deposits.server";
 
 export const activityFlow = Effect.gen(function* () {
   const chain = yield* Chain;
   const directory = yield* Directory;
   const transfers = yield* Transfers;
+  const { catchUp } = yield* depositFlow;
 
   return Effect.fn("Wallet.activity")(function* (
     address: AccountAddress,
@@ -26,6 +28,8 @@ export const activityFlow = Effect.gen(function* () {
 
     if (Option.isNone(row) || row.value.status !== "active")
       return new NotOpened();
+
+    if (before === undefined) yield* catchUp(address);
 
     return yield* transfers.activity(address, before);
   });

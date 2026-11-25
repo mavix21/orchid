@@ -31,12 +31,13 @@ import { StoreFailure } from "./Directory.server";
 import {
   type Closers,
   type Profiles,
+  depositEntry,
   linkClaimEntry,
   receivedEntry,
   sentEntry,
 } from "./activity-entries.server";
 import { StoredOrderJson } from "./asset-order-records.server";
-import { assetOrders, transfers, usernames } from "./tables.server";
+import { assetOrders, deposits, transfers, usernames } from "./tables.server";
 
 const timeKey = (column: AnyColumn) =>
   sql<string>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
@@ -82,6 +83,10 @@ type Candidate = Data.TaggedEnum<{
     readonly transferOrder: string;
     readonly sender: string;
     readonly username: string;
+  };
+  Deposited: {
+    readonly cursor: ActivityCursor;
+    readonly row: typeof deposits.$inferSelect;
   };
 }>;
 
@@ -192,6 +197,23 @@ export const activityFor = Effect.fn("Transfers.activity")(function* (
     .orderBy(desc(assetOrders.concludedAt), desc(assetOrders.id))
     .limit(fetched);
 
+  const deposited = yield* db
+    .select({
+      row: getTableColumns(deposits),
+      key: timeKey(deposits.closedAt),
+    })
+    .from(deposits)
+    .where(
+      and(
+        eq(deposits.network, network),
+        eq(deposits.testnetEpoch, epoch),
+        eq(deposits.wallet, address),
+        olderThan(deposits.closedAt, deposits.id, cursor),
+      ),
+    )
+    .orderBy(desc(deposits.closedAt), desc(deposits.id))
+    .limit(fetched);
+
   const candidates = yield* Effect.try({
     try: (): ReadonlyArray<Candidate> => [
       ...sent.map((entry) =>
@@ -221,6 +243,12 @@ export const activityFor = Effect.fn("Transfers.activity")(function* (
               }),
             ],
       ),
+      ...deposited.map((entry) =>
+        Candidate.Deposited({
+          cursor: cursorOf(entry.key, entry.row.id),
+          row: entry.row,
+        }),
+      ),
     ],
     catch: (cause) => new StoreFailure({ cause }),
   });
@@ -233,6 +261,7 @@ export const activityFor = Effect.fn("Transfers.activity")(function* (
       Sent: ({ row }) => (isClosed(row) ? [row.balanceId] : []),
       Received: ({ row }) => (isClosed(row) ? [row.balanceId] : []),
       LinkClaim: () => [],
+      Deposited: () => [],
     }),
   );
 
@@ -308,6 +337,7 @@ export const activityFor = Effect.fn("Transfers.activity")(function* (
         Received: (receivedCandidate) =>
           receivedEntry(receivedCandidate, closers),
         LinkClaim: linkClaimEntry,
+        Deposited: ({ row }) => depositEntry(row),
       }),
   );
 

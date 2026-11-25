@@ -1,6 +1,5 @@
 import {
   Account,
-  FeeBumpTransaction,
   Keypair,
   Transaction,
   TransactionBuilder,
@@ -47,6 +46,7 @@ import {
 } from "../stellar/network";
 import { type AssetChain, assetChain } from "./chain-assets.server";
 import { type LinkChain, linkChain } from "./chain-links.server";
+import { type DepositChain, depositChain } from "./chain-deposits.server";
 import { ChainUnreachable } from "./chain-errors.server";
 import {
   type AccountState,
@@ -65,28 +65,30 @@ import {
 import { validateRpcTimeout, validateRpcUrl } from "./rpc-settings.server";
 import { WalletSettings, rpcReadConcurrency } from "./settings.server";
 
-export class Sealed extends Schema.Class<Sealed>("Sealed")({
-  envelope: Schema.String,
-  hash: Schema.String,
-  expiresAt: Schema.DateTimeUtcFromString,
-}) {}
+import {
+  RawTransactionLookup,
+  Sealed,
+  type Settlement,
+  resolveSettlement,
+  resultCode,
+  transactionLookup,
+} from "./chain-settlement.server";
 
-export class Applied extends Schema.TaggedClass<Applied>()("Applied", {
-  at: Schema.DateTimeUtcFromString,
-}) {}
+export {
+  Applied,
+  Expired,
+  Rejected,
+  Sealed,
+  Undecided,
+  resolveSettlement,
+  settlementFromResponse,
+} from "./chain-settlement.server";
 
-export class Rejected extends Schema.TaggedClass<Rejected>()("Rejected", {
-  code: Schema.String,
-}) {}
-
-export class Expired extends Schema.TaggedClass<Expired>()("Expired", {}) {}
-
-export class Undecided extends Schema.TaggedClass<Undecided>()(
-  "Undecided",
-  {},
-) {}
-
-export type Settlement = Applied | Rejected | Expired | Undecided;
+export type {
+  Settlement,
+  SettlementReader,
+  TransactionLookup,
+} from "./chain-settlement.server";
 
 export class ApprovalInvalid extends Schema.TaggedError<ApprovalInvalid>()(
   "ApprovalInvalid",
@@ -110,110 +112,11 @@ const RawSendTransaction = Schema.Union([
   }),
 ]);
 
-const resultCode = (transactionResult: xdr.TransactionResult): string => {
-  const result = transactionResult.result;
-
-  return result.type === "txFeeBumpInnerFailed"
-    ? result.innerResultPair.result.result.type
-    : result.type;
-};
-
-const lookupWindow = {
-  latestLedger: Schema.Number,
-  latestLedgerCloseTime: Schema.NumberFromString,
-  oldestLedgerCloseTime: Schema.NumberFromString,
-};
-
-const RawTransactionLookup = Schema.Union([
-  Schema.Struct({
-    status: Schema.Literal("SUCCESS"),
-    createdAt: Schema.NumberFromString,
-    ...lookupWindow,
-  }),
-  Schema.Struct({
-    status: Schema.Literal("FAILED"),
-    resultXdr: Schema.String,
-    ...lookupWindow,
-  }),
-  Schema.Struct({ status: Schema.Literal("NOT_FOUND"), ...lookupWindow }),
-]);
-
-type LookupWindow = {
-  readonly latestLedger: number;
-  readonly latestLedgerCloseTime: number;
-  readonly oldestLedgerCloseTime: number;
-};
-
-export type TransactionLookup =
-  | (LookupWindow & { readonly status: "SUCCESS"; readonly createdAt: number })
-  | (LookupWindow & {
-      readonly status: "FAILED";
-      readonly resultXdr: xdr.TransactionResult;
-    })
-  | (LookupWindow & { readonly status: "NOT_FOUND" });
-
-const transactionLookup = (
-  raw: typeof RawTransactionLookup.Type,
-): TransactionLookup =>
-  raw.status === "FAILED"
-    ? {
-        ...raw,
-        resultXdr: xdr.TransactionResult.fromXDR(raw.resultXdr, "base64"),
-      }
-    : raw;
-
-export function settlementFromResponse(
-  response: TransactionLookup,
-  sealed: Sealed,
-  sender: Option.Option<AccountState>,
-): Settlement {
-  if (response.status === "SUCCESS")
-    return new Applied({ at: DateTime.makeUnsafe(response.createdAt * 1000) });
-
-  if (response.status === "FAILED") {
-    const code = resultCode(response.resultXdr);
-
-    if (code === "txFailed") return new Rejected({ code });
-  }
-
-  const envelope = TransactionBuilder.fromXDR(
-    sealed.envelope,
-    networkPassphrase,
-  );
-
-  const inner =
-    envelope instanceof FeeBumpTransaction
-      ? envelope.innerTransaction
-      : envelope;
-
-  const minTime = Number(inner.timeBounds?.minTime);
-
-  if (
-    Option.isSome(sender) &&
-    sender.value.ledger >= response.latestLedger &&
-    BigInt(sender.value.sequence) < BigInt(inner.sequence) &&
-    response.oldestLedgerCloseTime <= minTime &&
-    response.latestLedgerCloseTime * 1000 >
-      DateTime.toEpochMillis(sealed.expiresAt)
-  )
-    return new Expired();
-
-  if (
-    response.status === "NOT_FOUND" &&
-    Option.isSome(sender) &&
-    response.latestLedger >= sender.value.ledger &&
-    BigInt(sender.value.sequence) >= BigInt(inner.sequence) &&
-    response.oldestLedgerCloseTime <= minTime
-  )
-    return new Rejected({ code: "sequence_consumed" });
-
-  return new Undecided();
-}
-
 export class Chain extends Context.Service<
   Chain,
   AssetChain &
-    LinkChain & {
+    LinkChain &
+    DepositChain & {
       validAddress(address: DestinationAddress): boolean;
       memoRequiredFor(
         address: AccountAddress,
@@ -566,6 +469,7 @@ export class Chain extends Context.Service<
 
       return Chain.of({
         ...assets,
+        ...depositChain(rpc),
         validAddress: (address) =>
           StrKey.isValidEd25519PublicKey(address) ||
           StrKey.isValidMed25519PublicKey(address),
@@ -587,58 +491,3 @@ export class Chain extends Context.Service<
     }),
   );
 }
-
-export interface SettlementReader {
-  transaction(hash: string): Effect.Effect<TransactionLookup, ChainUnreachable>;
-  account(
-    address: AccountAddress,
-  ): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;
-}
-
-export const resolveSettlement = Effect.fn("Chain.resolveSettlement")(
-  function* (sealed: Sealed, reader: SettlementReader) {
-    const envelope = TransactionBuilder.fromXDR(
-      sealed.envelope,
-      networkPassphrase,
-    );
-
-    const inner =
-      envelope instanceof FeeBumpTransaction
-        ? envelope.innerTransaction
-        : envelope;
-
-    const innerHash = Array.from(inner.hash(), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
-
-    const outerResponse = yield* reader.transaction(sealed.hash);
-    const outer = settlementFromResponse(outerResponse, sealed, Option.none());
-
-    if (
-      Predicate.isTagged(outer, "Applied") ||
-      Predicate.isTagged(outer, "Rejected")
-    )
-      return outer;
-
-    const innerResponse =
-      innerHash === sealed.hash
-        ? outerResponse
-        : yield* reader.transaction(innerHash);
-
-    const found = settlementFromResponse(innerResponse, sealed, Option.none());
-
-    if (
-      Predicate.isTagged(found, "Applied") ||
-      Predicate.isTagged(found, "Rejected")
-    )
-      return found;
-
-    const sender = yield* reader.account(
-      Schema.decodeSync(AccountAddress)(inner.source),
-    );
-
-    const confirmed = yield* reader.transaction(innerHash);
-
-    return settlementFromResponse(confirmed, sealed, sender);
-  },
-);

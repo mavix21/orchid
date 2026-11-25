@@ -8,8 +8,10 @@ import {
   type TransferEffects,
   transferCheckFlow,
 } from "./wallet-transfer-check.server";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
@@ -57,6 +59,7 @@ import { assetFlow } from "./wallet-assets.server";
 import { openingFlow } from "./wallet-opening.server";
 import { Backups } from "./Backups.server";
 import { Principal } from "./Principal.server";
+import { Deposits } from "./Deposits.server";
 import { HumanCheck } from "./HumanCheck.server";
 import { concealFailure } from "./failures.server";
 import { backupFlow } from "./wallet-backup.server";
@@ -67,6 +70,7 @@ import { claimableQuotaFlow } from "./claimable-quota.server";
 import { transferReconcileFlow } from "./wallet-reconcile.server";
 import type { PendingWork, WorkAttended } from "./work-queue.server";
 import { sweepFlow } from "./wallet-sweep.server";
+import { depositFlow } from "./wallet-deposits.server";
 import { workFlow } from "./wallet-work.server";
 
 export class Wallet extends Context.Service<
@@ -77,6 +81,8 @@ export class Wallet extends Context.Service<
       intent: TransferIntent,
     ): Effect.Effect<AssessmentStep, ServerFailure>;
     readonly sweep: Effect.Effect<void, ServerFailure>;
+    readonly ingestDeposits: Effect.Effect<void, ServerFailure>;
+    readonly scheduled: Effect.Effect<void, ServerFailure>;
     attend(
       work: PendingWork,
       attempt: number,
@@ -362,6 +368,26 @@ export class Wallet extends Context.Service<
         closeGoneBalance: links.closeGoneBalance,
       });
 
+      const { ingest } = yield* depositFlow;
+
+      const scheduled = Effect.gen(function* () {
+        const ingested = yield* ingest().pipe(Effect.exit);
+        const swept = yield* sweep.pipe(Effect.exit);
+
+        const failed = [ingested, swept].flatMap((exit) =>
+          Exit.isFailure(exit) ? [exit.cause] : [],
+        );
+
+        yield* Effect.forEach(failed, (cause) =>
+          Effect.logError("Scheduled run failed", Cause.pretty(cause)),
+        );
+
+        if (failed.length > 0)
+          return yield* Effect.die(
+            new Error(`${failed.length} scheduled tasks failed`),
+          );
+      });
+
       const attend = yield* workFlow(records);
 
       return Wallet.of({
@@ -388,6 +414,8 @@ export class Wallet extends Context.Service<
         assess: (address, intent) =>
           wrap(check.assess({ from: address, ...intent })),
         sweep: wrap(sweep),
+        ingestDeposits: wrap(ingest()),
+        scheduled: wrap(scheduled),
         attend: (work, attempt) => wrap(attend(work, attempt)),
       });
     }),
@@ -398,6 +426,7 @@ export class Wallet extends Context.Service<
       Transfers.layer,
       AssetOrders.layer,
       Backups.layer,
+      Deposits.layer,
       Chain.layer,
       HumanCheck.layer,
     ]),
