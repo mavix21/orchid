@@ -1,18 +1,18 @@
 import { expect, layer } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { Wallet } from "../src/server/Wallet.server";
 import { Transfers } from "../src/server/Transfers.server";
-import { TransferIntent } from "../src/contract";
 import { assertTagged } from "./tagged";
 import {
   addressOf,
+  assess,
   authorizeTransfer,
   draftTransfer,
   findWallet,
   fundedWallet,
   selfOrder,
   settleHash,
+  storedTransfers,
   useDisposableDatabase,
   walletTestLayer,
   world,
@@ -20,35 +20,16 @@ import {
 
 useDisposableDatabase();
 
-const assessing = (
-  sender: Parameters<typeof addressOf>[0],
-  order: ReturnType<typeof selfOrder>,
-) =>
-  Wallet.use((wallet) =>
-    wallet.assess(
-      addressOf(sender),
-      new TransferIntent({
-        to: order.to,
-        asset: order.asset,
-        amount: order.amount,
-      }),
-    ),
-  );
-
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect("an assessed intent predicts the draft and stores nothing", () =>
       Effect.gen(function* () {
         const key = yield* fundedWallet();
         const order = selfOrder(key);
-        const assessment = yield* assessing(key, order);
+        const assessment = yield* assess(key, order);
 
         assertTagged(assessment, "TransferAssessment");
-        expect(
-          yield* Transfers.use((transfers) =>
-            transfers.latestFrom(addressOf(key)),
-          ),
-        ).toEqual(Option.none());
+        expect(yield* storedTransfers(addressOf(key))).toEqual([]);
 
         const draft = yield* draftTransfer(order);
 
@@ -62,9 +43,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           const key = yield* fundedWallet();
-          const order = selfOrder(key);
 
-          const { authorized } = yield* authorizeTransfer(key, order, {
+          const { authorized } = yield* authorizeTransfer(key, selfOrder(key), {
             failSubmit: true,
           });
 
@@ -72,7 +52,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const submissions = world.submitted.length;
 
-          assertTagged(yield* assessing(key, selfOrder(key)), "SenderBusy");
+          assertTagged(yield* assess(key, selfOrder(key)), "SenderBusy");
           expect(world.submitted).toHaveLength(submissions);
           assertTagged(
             Option.getOrThrow(
@@ -90,7 +70,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         const key = yield* fundedWallet();
 
         world.accounts.delete(addressOf(key));
-        assertTagged(yield* assessing(key, selfOrder(key)), "NotOpened");
+        assertTagged(yield* assess(key, selfOrder(key)), "NotOpened");
         expect(
           Option.getOrThrow(yield* findWallet(addressOf(key))).status,
         ).toBe("active");

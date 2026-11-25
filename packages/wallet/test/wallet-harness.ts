@@ -30,6 +30,7 @@ import {
   type RecoveryDraft,
   SigningRequest,
   TransferId,
+  TransferIntent,
   TransferOrder,
   Username,
   WalletClaim,
@@ -583,6 +584,27 @@ export const send = (
   order: TransferOrder,
   approval: Option.Option<Approval> = Option.none(),
 ) => Wallet.use((w) => w.transfer(order, approval));
+
+export const assess = (sender: Keypair, order: TransferOrder) =>
+  Wallet.use((w) =>
+    w.assess(
+      addressOf(sender),
+      new TransferIntent({
+        to: order.to,
+        asset: order.asset,
+        amount: order.amount,
+        memo: order.memo,
+      }),
+    ),
+  );
+
+export const storedTransfers = (address: AccountAddress) =>
+  Database.use((db) =>
+    db
+      .select({ id: transfers.id })
+      .from(transfers)
+      .where(eq(transfers.sender, address)),
+  );
 
 export const draftTransfer = Effect.fn(function* (order: TransferOrder) {
   const draft = yield* send(order);
