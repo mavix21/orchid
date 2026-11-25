@@ -31,13 +31,6 @@ export type EnvelopeFacts =
   | AssetFacts
   | LinkReceiveFacts;
 
-export const LedgerWindow = Schema.Struct({
-  minLedger: Schema.Number,
-  maxLedger: Schema.Number,
-});
-
-export type LedgerWindow = typeof LedgerWindow.Type;
-
 export class OpeningFacts extends Schema.TaggedClass<OpeningFacts>()(
   "OpeningFacts",
   {
