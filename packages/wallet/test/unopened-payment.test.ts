@@ -8,22 +8,34 @@ import {
   type BalanceId,
   ClaimableLimitReached,
   PositiveAmount,
+  Profile,
   RecipientCannotReceive,
+  TransferOrder,
   UsernameRecipient,
   baseAsset,
 } from "../src/contract";
 import { Directory } from "../src/server/Directory.server";
 import { readEnvelope } from "../src/stellar/envelopes";
-import { payUsername, username } from "./activity-fixtures";
+import {
+  activityOf,
+  entryFor,
+  payUsername,
+  username,
+} from "./activity-fixtures";
+import { advanceSequence } from "./link-fixtures";
 import { assertTagged } from "./tagged";
+import { Wallet } from "../src/server/Wallet.server";
 import {
   accountState,
   addressOf,
   amount,
   approveOpening,
   claimFor,
+  euro,
+  euroLine,
   findWallet,
   fundedWallet,
+  holdingsFor,
   opening,
   orderFor,
   overviewOf,
@@ -127,28 +139,60 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect(
-      "a payment to a wallet whose account is gone but is not unopened is still refused",
-      () =>
-        Effect.gen(function* () {
+    it.effect.each([
+      {
+        name: "a wallet whose account is gone but is not unopened",
+        arrange: Effect.gen(function* () {
           const sender = yield* fundedWallet("careful");
           const lost = yield* fundedWallet("vanished");
 
           world.accounts.delete(addressOf(lost));
 
-          const order = orderFor(
-            sender,
-            UsernameRecipient.make({ value: username("vanished") }),
+          return {
+            order: orderFor(
+              sender,
+              UsernameRecipient.make({ value: username("vanished") }),
+            ),
+            address: addressOf(lost),
+          };
+        }),
+      },
+      {
+        name: "an unopened wallet when the asset is not the base asset",
+        arrange: Effect.gen(function* () {
+          const sender = yield* fundedWallet("euroholder");
+          const { claim } = yield* unopenedWallet("euroless");
+          const holder = addressOf(sender);
+
+          world.holdings.set(
+            holder,
+            holdingsFor(holder, { lines: [euroLine("50000000")] }),
           );
 
-          expect(yield* send(order)).toEqual(
-            new RecipientCannotReceive({
-              address: addressOf(lost),
-              reason: "no_account",
-              linkable: true,
+          return {
+            order: new TransferOrder({
+              ...orderFor(
+                sender,
+                UsernameRecipient.make({ value: username("euroless") }),
+              ),
+              asset: euro,
             }),
-          );
+            address: claim.address,
+          };
         }),
+      },
+    ])("still refuses a payment to $name", ({ arrange }) =>
+      Effect.gen(function* () {
+        const { order, address } = yield* arrange;
+
+        expect(yield* send(order)).toEqual(
+          new RecipientCannotReceive({
+            address,
+            reason: "no_account",
+            linkable: true,
+          }),
+        );
+      }),
     );
 
     it.effect(
@@ -218,7 +262,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           yield* settleAttempt(claim.address);
-          world.claimables.delete(newest);
 
           assertTagged(yield* overviewOf(claim.address), "Holding");
           expect(
@@ -226,6 +269,46 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               Option.map((row) => row.status),
             ),
           ).toEqual(Option.some("active"));
+
+          const received = entryFor(
+            yield* activityOf(yield* Wallet, claim.address),
+            later.order.id,
+          );
+
+          assertTagged(received, "ReceivedActivity");
+          expect(received.closedAt).toBeDefined();
+        }),
+    );
+
+    it.effect(
+      "an applied opening that cannot activate from its paired recovery sends the wallet back to reopening",
+      () =>
+        Effect.gen(function* () {
+          const payer = yield* fundedWallet("sidepayer");
+          const { key, claim } = yield* unopenedWallet("sidestep");
+          const paid = yield* payUsername(payer, "sidestep");
+
+          waiting(
+            Option.getOrThrow(Option.fromNullishOr(paid.settled.claimable)),
+            claim.address,
+          );
+
+          const draft = yield* opening(claim);
+
+          assertTagged(draft, "OpeningDraft");
+          yield* opening(claim, approveOpening(key, draft));
+          advanceSequence(claim.address);
+          yield* settleAttempt(claim.address);
+
+          const overview = yield* overviewOf(claim.address);
+
+          assertTagged(overview, "NeedsReopening");
+          expect(overview.profile).toEqual(
+            new Profile({
+              username: username("sidestep"),
+              address: claim.address,
+            }),
+          );
         }),
     );
   },

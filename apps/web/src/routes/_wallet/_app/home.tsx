@@ -90,7 +90,12 @@ function HomeScreen() {
   const { overview, arrival, backup, activity } = Route.useLoaderData();
 
   if (Option.isSome(arrival) && arrival.value.opening)
-    return <Arriving arrival={arrival.value} />;
+    return (
+      <Reopening
+        username={arrival.value.username}
+        arrival={Option.some(arrivalSentence(arrival.value))}
+      />
+    );
 
   return Match.valueTags(overview, {
     Holding: (holding) => (
@@ -208,29 +213,23 @@ function BackupNotice() {
   );
 }
 
-function Arriving({ arrival }: { arrival: Arrival }) {
+function Reopening({
+  username,
+  arrival = Option.none(),
+}: {
+  username: string;
+  arrival?: Option.Option<string>;
+}) {
   const router = useRouter();
 
   return (
     <Screen>
       <div className="flex flex-1 flex-col pb-30">
         <OpeningFlow
-          username={arrival.username}
-          arrival={Option.some(arrivalSentence(arrival))}
+          username={username}
+          arrival={arrival}
           onOpened={() => router.invalidate()}
         />
-      </div>
-    </Screen>
-  );
-}
-
-function Reopening({ username }: { username: string }) {
-  const router = useRouter();
-
-  return (
-    <Screen>
-      <div className="flex flex-1 flex-col pb-30">
-        <OpeningFlow username={username} onOpened={() => router.invalidate()} />
       </div>
     </Screen>
   );

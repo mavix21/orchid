@@ -331,16 +331,28 @@ export class Wallet extends Context.Service<
 
         const unopened = yield* directory.unopened(found.value);
 
-        const opened =
+        const resumed =
           Option.isSome(unopened) && found.value.attemptHash !== null
-            ? Predicate.isTagged(yield* resume(unopened.value), "Opened")
-            : false;
+            ? Option.some(yield* resume(unopened.value))
+            : Option.none();
 
-        if (Option.isSome(unopened) && !opened)
-          return new NotOpened({
-            profile: unopened,
-            claimable: yield* claimablesFor(address),
-          });
+        const opened = Option.exists(resumed, (step) =>
+          Predicate.isTagged(step, "Opened"),
+        );
+
+        if (Option.isSome(unopened) && !opened) {
+          const claimable = yield* claimablesFor(address);
+
+          return Option.exists(
+            resumed,
+            (step) =>
+              Predicate.isTagged(step, "RecoveryDraft") ||
+              (Predicate.isTagged(step, "OpeningPending") &&
+                claimable.length === 0),
+          )
+            ? new NeedsReopening({ profile: unopened.value })
+            : new NotOpened({ profile: unopened, claimable });
+        }
 
         const row = opened ? yield* directory.byAddress(address) : found;
 

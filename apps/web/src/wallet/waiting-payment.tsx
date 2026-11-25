@@ -21,9 +21,11 @@ const WaitingStep = Data.taggedEnum<WaitingStep>();
 
 const stopped = (outcome: ConfirmReclaimOutcome | DeviceFailure) =>
   WaitingStep.Stopped({
-    problem: Predicate.isTagged(outcome, "PasskeyCancelled")
-      ? "No usaste tu passkey, así que el pago sigue esperando."
-      : "No pudimos recibir el pago. Inténtalo de nuevo.",
+    problem: Predicate.isTagged(outcome, "AssetPending")
+      ? "La red todavía está confirmando tu pago. Revisa en unos segundos."
+      : Predicate.isTagged(outcome, "PasskeyCancelled")
+        ? "No usaste tu passkey, así que el pago sigue esperando."
+        : "No pudimos recibir el pago. Inténtalo de nuevo.",
   });
 
 export function WaitingPayment({
