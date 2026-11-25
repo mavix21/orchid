@@ -43,7 +43,7 @@ const pay = async (page: Page, recipient: string, amount: string) => {
   );
 };
 
-test("a payment to an unopened wallet opens its account and arrives without a tap", async ({
+test("two payments to an unopened wallet open its account and both arrive without a tap", async ({
   page,
   browser,
 }) => {
@@ -63,12 +63,13 @@ test("a payment to an unopened wallet opens its account and arrives without a ta
 
   await fundWithUsdc(sender, "1");
   await pay(page, recipient, "0.5");
+  await pay(page, recipient, "0.25");
 
   await recipientPage.goto("/home");
 
   await expect
     .poll(() => usdcBalance(address), { timeout: 120_000 })
-    .toBe("0.5000000");
+    .toBe("0.7500000");
   await expect(recipientPage.getByTestId("open-send")).toBeVisible({
     timeout: 60_000,
   });
