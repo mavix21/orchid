@@ -32,7 +32,6 @@ import { amountLabel } from "@/send/money";
 import { ReviewRow } from "@/send/payment-review";
 import { useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
-import { displayLock } from "@/wallet/display-lock";
 
 import {
   LinkResultScreen,
@@ -47,12 +46,8 @@ import {
   preparedLinkResult,
   resolveLinkResult,
 } from "./outcomes";
-import {
-  concealedLinkFor,
-  forgetConcealed,
-  keepConcealed,
-} from "./concealed-link";
 import { type Delivery, LinkStep, delivered, entering } from "./link-step";
+import { pageHidden, usePageDeparture } from "./page-departure";
 import { RecoveryAnswer, useRecovery } from "./recovery";
 import {
   LinkEvent,
@@ -444,15 +439,13 @@ const startingStep = (
   asset: Asset,
   initialAmount: Option.Option<PositiveAmount>,
 ): LinkStep =>
-  Option.getOrElse(concealedLinkFor(asset), () =>
-    Option.match(initialAmount, {
-      onNone: entering,
-      onSome: (amount) =>
-        LinkStep.Reviewing({
-          intent: new PaymentLinkIntent({ asset, amount, saveOnDevice: true }),
-        }),
-    }),
-  );
+  Option.match(initialAmount, {
+    onNone: entering,
+    onSome: (amount) =>
+      LinkStep.Reviewing({
+        intent: new PaymentLinkIntent({ asset, amount, saveOnDevice: true }),
+      }),
+  });
 
 export function LinkFlow({
   asset,
@@ -477,20 +470,9 @@ export function LinkFlow({
     step: startingStep(asset, initialAmount),
   }));
 
-  useEffect(() => {
-    forgetConcealed();
-  }, []);
-
-  const stepRef = useRef(state.step);
-
-  stepRef.current = state.step;
-
-  useEffect(
-    () => () => {
-      if (!Predicate.isTagged(displayLock.state(), "Unlocked"))
-        keepConcealed(stepRef.current);
-    },
-    [],
+  usePageDeparture(
+    () => send(LinkEvent.Concealed({ unloading: false })),
+    () => send(LinkEvent.Concealed({ unloading: true })),
   );
 
   const locked = holdsUnsharedLink(state.step);
@@ -538,7 +520,9 @@ export function LinkFlow({
     handOff: (shared: PaymentLinkCreated) => Promise<ShareResult>,
   ) => {
     send(LinkEvent.ShareStarted());
-    void handOff(link).then((result) => send(LinkEvent.ShareEnded({ result })));
+    void handOff(link).then((result) =>
+      send(LinkEvent.ShareEnded({ result, pageHidden: pageHidden() })),
+    );
   };
 
   const reviewed = (

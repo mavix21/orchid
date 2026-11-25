@@ -64,9 +64,6 @@ _Avoid_: Key recovery, passkey recovery.
 **Wallet session**: Orchid's proof, given after the wallet's passkey is verified, that requests come from the wallet's holder. It lets the device read the wallet and request **Drafts**; it never authorizes an **Approval**.
 _Avoid_: Login when talking to users.
 
-**Display lock**: The per-tab mask that keeps wallet views hidden until the passkey verifies the user on this device. Unlocking shows the wallet and never authorizes an approval. Unlocking also renews the wallet session.
-_Avoid_: Login.
-
 **Embedded browser**: The in-app browser of an app such as Instagram, Facebook, TikTok or WhatsApp. It cannot evaluate a passkey's PRF, so Orchid hands the user off to their own browser before any passkey ceremony.
 _Avoid_: Webview when talking to users.
 

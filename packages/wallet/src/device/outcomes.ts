@@ -126,8 +126,6 @@ export class BackupLocated extends Schema.TaggedClass<BackupLocated>()(
   { profile: Profile },
 ) {}
 
-export class Unlocked extends Schema.TaggedClass<Unlocked>()("Unlocked", {}) {}
-
 export class SessionConfirmed extends Schema.TaggedClass<SessionConfirmed>()(
   "SessionConfirmed",
   {},
@@ -145,8 +143,6 @@ export type SessionRefusal =
   | UnsupportedDevice
   | CorruptDeviceWallet
   | WalletUnavailable;
-
-export type UnlockOutcome = Unlocked | SessionRefusal;
 
 export type SessionChallengeOutcome = ChallengeIssued | WalletUnavailable;
 

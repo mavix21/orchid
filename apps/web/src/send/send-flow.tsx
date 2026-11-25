@@ -15,7 +15,6 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
 import { ScreenActions, ScreenStatus } from "@/components/screen";
-import { concealedLinkFor } from "@/links/concealed-link";
 import { LinkFlow } from "@/links/link-flow";
 import { walletEffects } from "@/wallet";
 
@@ -381,10 +380,7 @@ export function SendFlow({
     reduceSendFlow,
     transfer,
     Option.match({
-      onNone: () =>
-        Option.isSome(concealedLinkFor(asset))
-          ? SendStep.Linking({ amount: Option.none() })
-          : SendStep.Choosing(),
+      onNone: () => SendStep.Choosing(),
       onSome: (id) => SendStep.Tracking({ id, draft: Option.none() }),
     }),
   );
@@ -426,7 +422,7 @@ export function SendFlow({
   const problem = (found: FieldProblem) =>
     send(SendEvent.Invalid({ problem: found }));
 
-  const unlocked = (screen: React.ReactNode) => (
+  const withNav = (screen: React.ReactNode) => (
     <>
       {nav(false)}
       {screen}
@@ -444,13 +440,13 @@ export function SendFlow({
       />
     ),
     Choosing: () =>
-      unlocked(
+      withNav(
         <DestinationChoice
           onChoose={(choice) => send(SendEvent.Chose({ choice }))}
         />,
       ),
     Offering: ({ draft, problem }) =>
-      unlocked(
+      withNav(
         <LinkOffer
           problem={problem}
           amount={amountLabel(draft.intent.amount, asset)}
@@ -459,7 +455,7 @@ export function SendFlow({
         />,
       ),
     Entering: ({ field, entry }) =>
-      unlocked(
+      withNav(
         field === "recipient" ? (
           <RecipientStep
             destination={entry.destination}
@@ -486,9 +482,9 @@ export function SendFlow({
           />
         ),
       ),
-    Reviewing: () => unlocked(<Working label="Preparando tu pago…" />),
+    Reviewing: () => withNav(<Working label="Preparando tu pago…" />),
     Reviewed: ({ review: shown, problem: refusal }) =>
-      unlocked(
+      withNav(
         <ReviewScreen
           review={shown}
           problem={refusal}
@@ -496,9 +492,9 @@ export function SendFlow({
           onEdit={startOver}
         />,
       ),
-    Confirming: () => unlocked(<Working label="Enviando…" />),
+    Confirming: () => withNav(<Working label="Enviando…" />),
     Concluded: ({ draft, outcome, screen, resume }) =>
-      unlocked(
+      withNav(
         <SendResultScreen
           outcome={outcome}
           screen={screen}
@@ -510,8 +506,6 @@ export function SendFlow({
         />,
       ),
     Tracking: ({ id }) =>
-      unlocked(
-        <TransferStatus id={id} asset={asset} onStartOver={startOver} />,
-      ),
+      withNav(<TransferStatus id={id} asset={asset} onStartOver={startOver} />),
   });
 }

@@ -175,7 +175,7 @@ it.live("reviews the envelope's facts without approving the draft", () =>
 );
 
 it.live(
-  "approves the reviewed order once under the same id after its own prompt, never on entry or a cancelled prompt",
+  "approves the reviewed order once under the same id after its own prompt, never on a cancelled prompt",
   () =>
     Effect.gen(function* () {
       const { approvals, orderIds, auth, client } = yield* confirmingDevice(
@@ -188,7 +188,6 @@ it.live(
       const review = yield* reviewed(client, toPedro);
 
       expect(review).toMatchObject({ to: actors.pedro, username: "pedro" });
-      expect((yield* client.unlock())._tag).toBe("Unlocked");
 
       auth.cancels = true;
       expect((yield* client.confirm(review))._tag).toBe("PasskeyCancelled");

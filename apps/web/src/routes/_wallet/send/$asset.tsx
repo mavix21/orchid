@@ -19,7 +19,6 @@ import {
   SendUnavailable,
   type UnavailableOverview,
 } from "@/send/send-unavailable";
-import { whenUnlocked } from "@/wallet/display-lock";
 import { shownOverview } from "@/wallet/shown-overview";
 
 const TransferSearch = Schema.Struct({ transfer: Schema.optional(TransferId) });
@@ -28,9 +27,7 @@ export const Route = createFileRoute("/_wallet/send/$asset")({
   ssr: false,
   validateSearch: Schema.toStandardSchemaV1(TransferSearch),
   shouldReload: false,
-  loader: async ({ context, params, abortController }) => {
-    await whenUnlocked(abortController.signal);
-
+  loader: async ({ context, params }) => {
     const overview = shownOverview(await context.walletClient.overview());
 
     if (!Predicate.isTagged(overview, "Holding"))

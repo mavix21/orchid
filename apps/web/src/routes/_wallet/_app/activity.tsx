@@ -17,16 +17,13 @@ import { NoEntries } from "@/activity/recent-activity";
 import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
 import { useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
-import { whenUnlocked } from "@/wallet/display-lock";
 import { unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/_wallet/_app/activity")({
   ssr: false,
   pendingMs: 0,
   pendingComponent: ActivitySkeleton,
-  loader: async ({ context, abortController }) => {
-    await whenUnlocked(abortController.signal);
-
+  loader: async ({ context }) => {
     return { activity: await context.walletClient.activity() };
   },
   component: AllActivity,

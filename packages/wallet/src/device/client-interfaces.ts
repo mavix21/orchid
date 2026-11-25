@@ -40,13 +40,11 @@ import type {
   SavedLinkTarget,
   SavedOutcome,
   SessionChallengeOutcome,
-  UnlockOutcome,
 } from "./outcomes";
 
 export interface WalletClient {
   overview(): Promise<DeviceOverview>;
   saved(): Promise<SavedOutcome>;
-  unlock(challenge?: PasskeyChallenge): Promise<UnlockOutcome>;
   sessionChallenge(): Promise<SessionChallengeOutcome>;
   confirmSession(challenge: PasskeyChallenge): Promise<ConfirmSessionOutcome>;
   reviewOpening(usernameText: string): Promise<ReviewOpeningOutcome>;
@@ -86,7 +84,6 @@ export interface WalletClient {
 export interface WalletEffects {
   overview(): Effect.Effect<DeviceOverview>;
   saved(): Effect.Effect<SavedOutcome>;
-  unlock(challenge?: PasskeyChallenge): Effect.Effect<UnlockOutcome>;
   sessionChallenge(): Effect.Effect<SessionChallengeOutcome>;
   confirmSession(
     challenge: PasskeyChallenge,

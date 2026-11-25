@@ -43,11 +43,6 @@ export const addAuthenticator = async (page: Page, hasPrf: boolean) => {
   return {
     session,
     authenticatorId,
-    verifyUser: (isUserVerified: boolean) =>
-      session.send("WebAuthn.setUserVerified", {
-        authenticatorId,
-        isUserVerified,
-      }),
   };
 };
 
@@ -344,24 +339,19 @@ export const seedWallet = async (page: Page, usernameText: string) => {
     record,
   );
 
-  return { address, verifyUser: credential.authenticator.verifyUser };
+  return { address };
 };
 
-export const unlockButton = (page: Page) => page.getByTestId("unlock-wallet");
-
-export const unlockWallet = async (page: Page) => {
-  await unlockButton(page).click();
-  await expect(unlockButton(page)).toBeHidden({ timeout: 30_000 });
+export const confirmSession = async (page: Page) => {
+  await page.getByTestId("confirm-session").click();
+  await expect(page.getByTestId("session-confirmation")).toBeHidden({
+    timeout: 30_000,
+  });
 };
 
 export const visit = async (page: Page, path: string) => {
   await page.goto(path);
-  await unlockWallet(page);
-};
-
-export const reloadUnlocked = async (page: Page) => {
-  await page.reload();
-  await expect(unlockButton(page)).toBeHidden({ timeout: 30_000 });
+  await confirmSession(page);
 };
 
 export const openWallet = async (page: Page, usernameText: string) => {

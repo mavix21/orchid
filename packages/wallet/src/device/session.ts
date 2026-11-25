@@ -12,13 +12,7 @@ import {
   verifyPinnedAssertion,
 } from "./assertion";
 import type { SealedDevice } from "./key-store";
-import {
-  type ConfirmSessionOutcome,
-  NoWallet,
-  SessionConfirmed,
-  Unlocked,
-  UnsupportedDevice,
-} from "./outcomes";
+import { NoWallet, SessionConfirmed, UnsupportedDevice } from "./outcomes";
 
 export function deviceSession(
   port: Pick<WalletPort, "sessionChallenge" | "beginSession">,
@@ -64,22 +58,5 @@ export function deviceSession(
     });
   });
 
-  const unlockWith = Effect.fn("Device.unlockWithSession")(function* (
-    issued: PasskeyChallenge,
-  ) {
-    const confirmed: ConfirmSessionOutcome = yield* confirm(issued).pipe(
-      Effect.catchTags({
-        Offline: () => Effect.succeed(new SessionConfirmed()),
-        ServerUnreachable: () => Effect.succeed(new SessionConfirmed()),
-        LedgerUnreachable: () => Effect.succeed(new SessionConfirmed()),
-        ServiceFailed: () => Effect.succeed(new SessionConfirmed()),
-        SessionRequired: () => Effect.succeed(new SessionConfirmed()),
-        InvalidResponse: () => Effect.succeed(new SessionConfirmed()),
-      }),
-    );
-
-    return confirmed instanceof SessionConfirmed ? new Unlocked() : confirmed;
-  });
-
-  return { challenge, confirm, unlockWith };
+  return { challenge, confirm };
 }

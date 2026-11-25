@@ -25,7 +25,6 @@ const withWallet = <A>(use: (wallet: WalletEffects) => Effect.Effect<A>) =>
 export const walletEffects: WalletEffects = {
   overview: () => withWallet((wallet) => wallet.overview()),
   saved: () => withWallet((wallet) => wallet.saved()),
-  unlock: (challenge) => withWallet((wallet) => wallet.unlock(challenge)),
   sessionChallenge: () => withWallet((wallet) => wallet.sessionChallenge()),
   confirmSession: (challenge) =>
     withWallet((wallet) => wallet.confirmSession(challenge)),
@@ -66,7 +65,6 @@ export const walletEffects: WalletEffects = {
 export const walletClient: WalletClient = {
   overview: () => Effect.runPromise(walletEffects.overview()),
   saved: () => Effect.runPromise(walletEffects.saved()),
-  unlock: (challenge) => Effect.runPromise(walletEffects.unlock(challenge)),
   sessionChallenge: () => Effect.runPromise(walletEffects.sessionChallenge()),
   confirmSession: (challenge) =>
     Effect.runPromise(walletEffects.confirmSession(challenge)),
