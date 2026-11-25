@@ -160,6 +160,16 @@ const ensureDevVars = async () => {
   for (const account of testnetAccounts)
     funded.push(...(await ensureTestnetAccount(testnet, existing, account)));
 
+  const secrets = new Map([...existing, ...funded]);
+
+  const channels = await testnet.openChannels(
+    secrets.get("RESERVE_SPONSOR_SECRET"),
+    secrets.get("FEE_PAYER_SECRET"),
+  );
+
+  if (channels > 0)
+    report(`the reserve sponsor opened ${channels} channel accounts.`);
+
   const generated = [
     ...funded,
     ["SESSION_SECRET", randomBytes(32).toString("base64url")],

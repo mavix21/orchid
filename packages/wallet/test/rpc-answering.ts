@@ -12,6 +12,7 @@ import type * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { Chain } from "../src/server/Chain.server";
 import { WalletSettings } from "../src/server/settings.server";
+import { dbLayer } from "./test-database";
 
 const MethodReq = Schema.fromJsonString(
   Schema.Struct({ method: Schema.String }),
@@ -138,7 +139,11 @@ export const chainWithHttp = (
       : base,
   );
 
-  return Chain.layer.pipe(Layer.provide(cfg), Layer.provide(http));
+  return Chain.layer.pipe(
+    Layer.provide(cfg),
+    Layer.provide(http),
+    Layer.provide(dbLayer),
+  );
 };
 
 export const testnetReply = (method: string) =>

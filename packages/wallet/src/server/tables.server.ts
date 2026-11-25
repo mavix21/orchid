@@ -208,3 +208,9 @@ export const passkeyChallenges = pgTable("passkey_challenges", {
   purpose: text({ enum: ["enrollment", "restore", "session"] }).notNull(),
   expiresAt: timestamp({ withTimezone: true }).notNull(),
 });
+
+export const channelLeases = pgTable("channel_leases", {
+  address: text().primaryKey(),
+  sequence: bigint({ mode: "bigint" }).notNull(),
+  leasedUntil: timestamp({ withTimezone: true }).notNull(),
+});

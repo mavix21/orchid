@@ -48,7 +48,8 @@ export const standingOf = (
 
   return Option.isSome(opening) &&
     Predicate.isTagged(opening.value, "OpeningFacts") &&
-    opening.value.address === wallet.address
+    opening.value.address === wallet.address &&
+    opening.value.channel !== wallet.address
     ? timing(opening.value.maxTime, shown.draft.request, nowMillis)
     : "stale";
 };

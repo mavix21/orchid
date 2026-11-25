@@ -61,6 +61,7 @@ import {
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 import {
+  channel,
   findWallet,
   passkeyOrigin,
   reserveSponsor,
@@ -90,6 +91,7 @@ const requestUntil = (envelope: SigningRequest["envelope"], maxTime: number) =>
 
 interface OpeningChange {
   readonly address?: AccountAddress;
+  readonly channel?: AccountAddress;
   readonly lifetime?: number;
 }
 
@@ -100,7 +102,8 @@ const openingAt = (millis: number, change: OpeningChange = {}) => {
   return new OpeningDraft({
     request: requestUntil(
       draftOpening({
-        source: new Account(reserveSponsor, "100"),
+        channel: new Account(change.channel ?? channel, "100"),
+        reserveSponsor,
         address: change.address ?? seeded.address,
         createAccount: true,
         minTime: now,
@@ -261,7 +264,8 @@ const rejectedDrafts: ReadonlyArray<readonly [string, OpenStep]> = [
     new OpeningDraft({
       request: new SigningRequest({
         envelope: draftOpening({
-          source: new Account(reserveSponsor, "100"),
+          channel: new Account(channel, "100"),
+          reserveSponsor,
           address: seeded.address,
           createAccount: false,
           minTime: 0,
@@ -276,17 +280,19 @@ const rejectedDrafts: ReadonlyArray<readonly [string, OpenStep]> = [
     new OpeningDraft({
       request: requestUntil(
         Schema.decodeSync(SigningRequest.fields.envelope)(
-          new TransactionBuilder(new Account(reserveSponsor, "100"), {
+          new TransactionBuilder(new Account(channel, "100"), {
             fee: baseFee,
             networkPassphrase,
           })
             .addOperation(
               Operation.beginSponsoringFutureReserves({
+                source: reserveSponsor,
                 sponsoredId: seeded.address,
               }),
             )
             .addOperation(
               Operation.createAccount({
+                source: reserveSponsor,
                 destination: seeded.address,
                 startingBalance: "0",
               }),
@@ -324,6 +330,10 @@ const rejectedDrafts: ReadonlyArray<readonly [string, OpenStep]> = [
   [
     "an opening drafted for another address",
     openingAt(Date.now(), { address: addressOf(Keypair.random()) }),
+  ],
+  [
+    "an opening sourced from the wallet itself",
+    openingAt(Date.now(), { channel: seeded.address }),
   ],
 ];
 

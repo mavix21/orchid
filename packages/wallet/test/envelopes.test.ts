@@ -36,6 +36,7 @@ import {
   resolveSettlement,
   settlementFromResponse,
 } from "../src/server/Chain.server";
+import { channelKeypair } from "../src/server/channel-pool.server";
 import {
   type AccountState,
   accountFromEntries,
@@ -58,6 +59,8 @@ const sponsor = Keypair.random();
 const feePayer = Keypair.random();
 const address = Schema.decodeSync(AccountAddress)(holder.publicKey());
 const reserveSponsor = Schema.decodeSync(AccountAddress)(sponsor.publicKey());
+const channelKey = channelKeypair(feePayer, 0);
+const channel = Schema.decodeSync(AccountAddress)(channelKey.publicKey());
 const to = Schema.decodeSync(AccountAddress)(Keypair.random().publicKey());
 
 const chainLayer = chainWithHttp(FetchHttpClient.layer, {
@@ -194,9 +197,14 @@ it.each([
     "creation",
     true,
     [
-      { type: "beginSponsoringFutureReserves", sponsoredId: address },
+      {
+        type: "beginSponsoringFutureReserves",
+        source: reserveSponsor,
+        sponsoredId: address,
+      },
       {
         type: "createAccount",
+        source: reserveSponsor,
         destination: address,
         startingBalance: "0.0000000",
       },
@@ -208,14 +216,19 @@ it.each([
     "trustline repair",
     false,
     [
-      { type: "beginSponsoringFutureReserves", sponsoredId: address },
+      {
+        type: "beginSponsoringFutureReserves",
+        source: reserveSponsor,
+        sponsoredId: address,
+      },
       { type: "changeTrust", source: address },
       { type: "endSponsoringFutureReserves", source: address },
     ],
   ],
 ] as const)("opening supports the %s sandwich", (_name, createAccount, ops) => {
   const envelope = draftOpening({
-    source: new Account(reserveSponsor, "123"),
+    channel: new Account(channel, "123"),
+    reserveSponsor,
     address,
     createAccount,
     minTime: 100,
@@ -224,10 +237,11 @@ it.each([
 
   const tx = decodeTx(envelope);
 
-  expect(tx.source).toBe(reserveSponsor);
+  expect(tx.source).toBe(channel);
   expect(tx.operations).toMatchObject(ops);
   expect(Option.getOrThrow(readEnvelope(envelope))).toEqual(
     new OpeningFacts({
+      channel,
       address,
       reserveSponsor,
       createAccount,
@@ -290,7 +304,8 @@ it.live(
       const now = Math.floor(Date.now() / 1000);
 
       const envelope = draftOpening({
-        source: new Account(reserveSponsor, "123"),
+        channel: new Account(channel, "123"),
+        reserveSponsor,
         address,
         createAccount: true,
         minTime: now,
@@ -515,67 +530,44 @@ it.each([
   );
 });
 
-const sharedKey = Keypair.random();
+it.live(
+  "a sealed link receive is signed by the holder, the reserve sponsor and its channel",
+  () =>
+    Effect.gen(function* () {
+      const now = Math.floor(Date.now() / 1000);
 
-it.live.each([
-  {
-    name: "one key as fee payer and reserve sponsor signs once",
-    sponsor: sharedKey,
-    feePayer: sharedKey,
-    signers: [holder, sharedKey],
-  },
-  {
-    name: "distinct fee payer and reserve sponsor each sign",
-    sponsor,
-    feePayer,
-    signers: [holder, sponsor, feePayer],
-  },
-])("a sealed link receive with $name", (scenario) =>
-  Effect.gen(function* () {
-    const now = Math.floor(Date.now() / 1000);
+      const envelope = draftLinkReceive({
+        channel: new Account(channel, "123"),
+        link: address,
+        reserveSponsor,
+        createsLinkAccount: true,
+        destination: Schema.decodeSync(DestinationAddress)(to),
+        balance: Schema.decodeSync(BalanceId)(`00000000${"ab".repeat(32)}`),
+        asset: baseAsset,
+        amount: Schema.decodeSync(PositiveAmount)("10000000"),
+        minTime: now,
+        maxTime: now + 120,
+      });
 
-    const envelope = draftLinkReceive({
-      channel: new Account(scenario.feePayer.publicKey(), "123"),
-      link: address,
-      reserveSponsor: Schema.decodeSync(AccountAddress)(
-        scenario.sponsor.publicKey(),
-      ),
-      createsLinkAccount: true,
-      destination: Schema.decodeSync(DestinationAddress)(to),
-      balance: Schema.decodeSync(BalanceId)(`00000000${"ab".repeat(32)}`),
-      asset: baseAsset,
-      amount: Schema.decodeSync(PositiveAmount)("10000000"),
-      minTime: now,
-      maxTime: now + 120,
-    });
+      const sealed = yield* Chain.use((c) =>
+        c.seal(
+          new SigningRequest({
+            envelope,
+            expiresAt: DateTime.makeUnsafe((now + 120) * 1000),
+          }),
+          new Approval({ signature: holder.sign(signingPayload(envelope)) }),
+          address,
+        ),
+      ).pipe(Effect.provide(chainLayer));
 
-    const sealed = yield* Chain.use((c) =>
-      c.seal(
-        new SigningRequest({
-          envelope,
-          expiresAt: DateTime.makeUnsafe((now + 120) * 1000),
-        }),
-        new Approval({ signature: holder.sign(signingPayload(envelope)) }),
-        address,
-      ),
-    ).pipe(
-      Effect.provide(
-        chainWithHttp(FetchHttpClient.layer, {
-          rpcUrl: "https://soroban-testnet.stellar.org",
-          sponsor: scenario.sponsor,
-          feePayer: scenario.feePayer,
-        }),
-      ),
-    );
-
-    expect(
-      decodeFeeBump(sealed.envelope).innerTransaction.signatures.map(
-        (signature) => signature.hint.toXDR("hex"),
-      ),
-    ).toEqual(
-      scenario.signers.map((signer) =>
-        Buffer.from(signer.signatureHint()).toString("hex"),
-      ),
-    );
-  }),
+      expect(
+        decodeFeeBump(sealed.envelope).innerTransaction.signatures.map(
+          (signature) => signature.hint.toXDR("hex"),
+        ),
+      ).toEqual(
+        [holder, sponsor, channelKey].map((signer) =>
+          Buffer.from(signer.signatureHint()).toString("hex"),
+        ),
+      );
+    }),
 );

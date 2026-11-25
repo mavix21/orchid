@@ -35,6 +35,7 @@ export class OpeningFacts extends Schema.TaggedClass<OpeningFacts>()(
   "OpeningFacts",
   {
     ...bounds,
+    channel: AccountAddress,
     address: AccountAddress,
     reserveSponsor: AccountAddress,
     createAccount: Schema.Boolean,
@@ -55,7 +56,8 @@ export class PaymentFacts extends Schema.TaggedClass<PaymentFacts>()(
 ) {}
 
 export interface OpeningInput {
-  readonly source: Account;
+  readonly channel: Account;
+  readonly reserveSponsor: AccountAddress;
   readonly address: AccountAddress;
   readonly minTime: number;
   readonly maxTime: number;
@@ -74,16 +76,20 @@ export interface PaymentInput {
 }
 
 export function draftOpening(input: OpeningInput): UnsignedEnvelope {
-  const builder = new TransactionBuilder(input.source, {
+  const builder = new TransactionBuilder(input.channel, {
     fee: baseFee,
     networkPassphrase,
   }).addOperation(
-    Operation.beginSponsoringFutureReserves({ sponsoredId: input.address }),
+    Operation.beginSponsoringFutureReserves({
+      source: input.reserveSponsor,
+      sponsoredId: input.address,
+    }),
   );
 
   if (input.createAccount)
     builder.addOperation(
       Operation.createAccount({
+        source: input.reserveSponsor,
         destination: input.address,
         startingBalance: "0",
       }),
@@ -161,9 +167,10 @@ export function readEnvelope(
     )
       return Option.none();
 
-    if (first?.type === "beginSponsoringFutureReserves") {
+    if (first?.type === "beginSponsoringFutureReserves" && first.source) {
       const address = Schema.decodeSync(AccountAddress)(first.sponsoredId);
-      const reserveSponsor = Schema.decodeSync(AccountAddress)(tx.source);
+      const reserveSponsor = Schema.decodeSync(AccountAddress)(first.source);
+      const channel = Schema.decodeSync(AccountAddress)(tx.source);
       const createAccount = second?.type === "createAccount";
       const last = tx.operations.at(-1);
 
@@ -174,7 +181,8 @@ export function readEnvelope(
 
       if (
         draftOpening({
-          source: source(),
+          channel: source(),
+          reserveSponsor,
           address,
           minTime,
           maxTime,
@@ -185,6 +193,7 @@ export function readEnvelope(
         return Option.some(
           new OpeningFacts({
             ...fields,
+            channel,
             address,
             reserveSponsor,
             createAccount,

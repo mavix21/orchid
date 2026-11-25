@@ -51,7 +51,12 @@ import {
 } from "../src/stellar/envelopes";
 import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 import { freshDatabase, rpcUrl, walletServices } from "./live.server";
-import { fundWithFriendbot, fundWithUsdc, horizon } from "./testnet-funding";
+import {
+  fundWithFriendbot,
+  fundWithUsdc,
+  horizon,
+  openChannels,
+} from "./testnet-funding";
 import { memoRequiredDataName } from "../src/server/exchange-memos.server";
 
 const sponsor = Keypair.random();
@@ -201,7 +206,11 @@ await Promise.all(
   ),
 );
 
-console.log("Friendbot funded fresh, separate reserve sponsor and fee payer.");
+await openChannels(sponsor.secret(), feePayer.secret());
+
+console.log(
+  "Friendbot funded fresh, separate reserve sponsor and fee payer, and the sponsor opened their channels.",
+);
 
 const requireMemo = new TransactionBuilder(
   await horizon.loadAccount(exchange),
@@ -262,6 +271,44 @@ assert.ok(
 
 console.log(
   "PASS name race loser refused before submission; its account was never created.",
+);
+
+const pair = [Keypair.random(), Keypair.random()].map((key, index) => ({
+  key,
+  claim: new WalletClaim({
+    address: addressOf(key),
+    username: Schema.decodeSync(Username)(`${firstName}_${index}`),
+  }),
+}));
+
+const pairDrafts = await Promise.all(pair.map(({ claim }) => opening(claim)));
+
+await Promise.all(
+  pair.map(async ({ key, claim }, index) => {
+    const draft = pairDrafts[index];
+
+    assert.ok(draft instanceof OpeningDraft);
+    assert.ok(
+      (await opening(claim, approvedBy(key, draft))) instanceof OpeningPending,
+    );
+
+    const stored = await walletRow(claim.address);
+
+    assert.ok(stored.attemptEnvelope && stored.attemptHash);
+
+    const sealed = new Sealed({
+      envelope: stored.attemptEnvelope,
+      hash: stored.attemptHash,
+      expiresAt: draft.request.expiresAt,
+    });
+
+    await waitApplied(sealed);
+    remember(`concurrent opening ${index}`, sealed.hash);
+  }),
+);
+
+console.log(
+  "PASS two openings drafted before either is approved both settle without a redraft.",
 );
 
 const firstRow = await walletRow(first.address);
@@ -679,6 +726,7 @@ const result = {
     "raw getLedgerEntries extXdr identifies configured sponsor on account and trustline",
     "unsponsored Friendbot account refused before username claim",
     "username bound with the signed opening; race loser refused before submission",
+    "two openings drafted before either is approved both settle on their own channels",
     "0 XLM sponsored opening + USDC trustline",
     "recovered wallet with a live sponsored account reactivates with no signature",
     "sponsored trustline-only repair",
