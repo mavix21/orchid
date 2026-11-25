@@ -16,6 +16,7 @@ import {
 } from "../src/contract";
 import { Sealed } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
+import { checkedBinding } from "../src/server/username-standing.server";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { assertTagged } from "./tagged";
 import {
@@ -170,12 +171,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               claim,
               Option.none(),
               false,
-              directory
-                .recoveryDraft(stored, draft.request)
-                .pipe(
-                  Effect.orDie,
-                  Effect.as(Option.none<HumanCheckRefused>()),
-                ),
+              checkedBinding(
+                directory
+                  .recoveryDraft(stored, draft.request)
+                  .pipe(
+                    Effect.orDie,
+                    Effect.as(Option.none<HumanCheckRefused>()),
+                  ),
+              ),
             ),
           );
 

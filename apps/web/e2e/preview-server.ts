@@ -5,7 +5,11 @@ import { fileURLToPath } from "node:url";
 
 import { fundWithFriendbot } from "@workspace/wallet/testnet";
 
-const humanCheckTestSecret = {
+const humanCheckTestKeys: Pick<
+  NodeJS.ProcessEnv,
+  "TURNSTILE_SITE_KEY" | "TURNSTILE_SECRET_KEY"
+> = {
+  TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
   TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
 };
 
@@ -47,6 +51,6 @@ process.exit(
   await runScript(["preview", "--port", "4173", "--strictPort"], {
     ...process.env,
     ...secrets,
-    ...humanCheckTestSecret,
+    ...humanCheckTestKeys,
   }),
 );

@@ -4,27 +4,34 @@ import {
   server,
 } from "@passwordless-id/webauthn";
 import * as Effect from "effect/Effect";
+import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
+  type Approvals,
   AssertionRefused,
   BackupEnrollment,
   BackupFound,
-  BackupStored,
-  ChallengeRefused,
+  ChallengeIssued,
   type ChallengePurpose,
+  ChallengeRefused,
+  type EnrollStep,
+  type EnrollmentChallengeStep,
+  type HumanCheckToken,
   NoBackup,
   PasskeyAssertion,
   PasskeyChallenge,
   RegistrationRefused,
   SealedPhrase,
+  WalletClaim,
 } from "../contract";
-import {
-  Backups,
-  CommitEnrollmentResult,
-  type StoredBackup,
-} from "./Backups.server";
+import { Backups, type StoredBackup } from "./Backups.server";
+import type { ChainUnreachable } from "./Chain.server";
+import { Directory, type StoreFailure } from "./Directory.server";
+import { HumanCheck, type HumanCheckUnavailable } from "./HumanCheck.server";
+import { openingFlow } from "./wallet-opening.server";
 import { WalletSettings } from "./settings.server";
+import { unavailability } from "./username-standing.server";
 
 const ClientData = Schema.fromJsonString(
   Schema.Struct({ challenge: Schema.String }),
@@ -41,7 +48,10 @@ const clientChallenge = (clientDataJSON: string) =>
 const verifiableAlgorithm = Schema.Literals(["ES256", "RS256"]);
 
 export const backupFlow = Effect.gen(function* () {
+  const { openWith } = yield* openingFlow;
   const backups = yield* Backups;
+  const directory = yield* Directory;
+  const humanCheck = yield* HumanCheck;
   const settings = yield* WalletSettings;
 
   const allowedOrigin = (origin: string) =>
@@ -125,48 +135,101 @@ export const backupFlow = Effect.gen(function* () {
     );
   };
 
+  const enrollmentChallenge = Effect.fn("Wallet.enrollmentChallenge")(
+    function* (
+      claim: WalletClaim,
+      token: Option.Option<HumanCheckToken>,
+    ): Effect.fn.Return<
+      EnrollmentChallengeStep,
+      StoreFailure | HumanCheckUnavailable
+    > {
+      const refused = unavailability(yield* directory.available(claim));
+
+      if (Option.isSome(refused)) return refused.value;
+
+      const verdict = yield* humanCheck.verify(token);
+
+      if (Option.isSome(verdict)) return verdict.value;
+
+      return new ChallengeIssued({
+        challenge: yield* backups.issue("enrollment"),
+      });
+    },
+  );
+
   const enroll = Effect.fn("Wallet.enroll")(function* (
     enrollment: BackupEnrollment,
-  ) {
+    approvals: Approvals,
+  ): Effect.fn.Return<EnrollStep, StoreFailure | ChainUnreachable> {
     const { registration } = enrollment;
     const parsedChallenge = clientChallenge(registration.clientDataJSON);
 
     if (Option.isNone(parsedChallenge)) return new ChallengeRefused();
 
-    const verified = yield* verifyEnrollment(enrollment, parsedChallenge.value);
+    const challenge = parsedChallenge.value;
+    const verified = yield* verifyEnrollment(enrollment, challenge);
 
     if (Option.isNone(verified))
-      return (yield* backups.consume(parsedChallenge.value, "enrollment"))
+      return (yield* backups.consume(challenge, "enrollment"))
         ? new RegistrationRefused()
         : new ChallengeRefused();
 
+    const { publicKey, algorithm, counter } = verified.value;
     const sealed = Schema.encodeSync(SealedPhrase)(enrollment.sealed);
 
-    const committed = yield* backups.commitEnrollment(parsedChallenge.value, {
-      credentialId: registration.id,
-      address: enrollment.address,
+    const claim = new WalletClaim({
       username: enrollment.username,
-      publicKey: verified.value.publicKey,
-      algorithm: verified.value.algorithm,
-      counter: verified.value.counter,
-      iv: sealed.iv,
-      ciphertext: sealed.ciphertext,
+      address: enrollment.address,
     });
 
-    return CommitEnrollmentResult.$match(committed, {
-      Committed: () => new BackupStored(),
-      Conflict: () => new RegistrationRefused(),
-      ChallengeRejected: () => new ChallengeRefused(),
-      Existing: ({ backup }) =>
-        matchesCommittedBackup(
-          backup,
-          enrollment,
-          verified.value.publicKey,
-          verified.value.algorithm,
-          sealed,
-        )
-          ? new BackupStored()
-          : new ChallengeRefused(),
+    const matches = (stored: StoredBackup) =>
+      matchesCommittedBackup(stored, enrollment, publicKey, algorithm, sealed);
+
+    const existing = yield* backups.byCredential(registration.id);
+
+    if (Option.isSome(existing) && !matches(existing.value))
+      return new ChallengeRefused();
+
+    if (Option.isNone(existing) && (yield* directory.bound(claim)))
+      return new ChallengeRefused();
+
+    const step = yield* openWith(claim, Option.some(approvals), {
+      check: Effect.succeed(Option.none()),
+      alongside: (tx) =>
+        backups.commitEnrollment(tx, challenge, {
+          credentialId: registration.id,
+          address: enrollment.address,
+          username: enrollment.username,
+          publicKey,
+          algorithm,
+          counter,
+          iv: sealed.iv,
+          ciphertext: sealed.ciphertext,
+        }),
+    });
+
+    const committed = (opened: EnrollStep) =>
+      Effect.map(
+        Effect.all([
+          directory.bound(claim),
+          backups.byCredential(registration.id),
+        ]),
+        ([bound, stored]) =>
+          bound && Option.exists(stored, matches)
+            ? opened
+            : new ChallengeRefused(),
+      );
+
+    return yield* Match.valueTags(step, {
+      OpeningPending: committed,
+      Opened: committed,
+      HumanCheckRefused: () => Effect.succeed(new ChallengeRefused()),
+      OpeningDraft: Effect.succeed,
+      RecoveryDraft: Effect.succeed,
+      UsernameTaken: Effect.succeed,
+      AddressBound: Effect.succeed,
+      InvalidAddress: Effect.succeed,
+      NotSponsored: Effect.succeed,
     });
   });
 
@@ -226,7 +289,8 @@ export const backupFlow = Effect.gen(function* () {
   });
 
   return {
-    passkeyChallenge: (purpose: ChallengePurpose) => backups.issue(purpose),
+    restoreChallenge: () => backups.issue("restore"),
+    enrollmentChallenge,
     enroll,
     restore,
   };

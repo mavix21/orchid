@@ -33,7 +33,11 @@ import {
   Sealed,
 } from "./Chain.server";
 import { Directory, StoreFailure, type WalletRow } from "./Directory.server";
-import { type BindingCheck, unavailability } from "./username-standing.server";
+import {
+  type Binding,
+  checkedBinding,
+  unavailability,
+} from "./username-standing.server";
 import { HumanCheck } from "./HumanCheck.server";
 import { openingAttempt, pairedRecovery } from "./opening-attempt.server";
 import { SignedWorkInFlight } from "./slot.server";
@@ -102,7 +106,7 @@ export const openingFlow = Effect.gen(function* () {
     row: WalletRow,
     state: AccountState,
     claim: WalletClaim,
-    check: BindingCheck,
+    binding: Binding,
   ): Effect.fn.Return<
     Option.Option<OpenStep>,
     StoreFailure | ChainUnreachable
@@ -151,7 +155,7 @@ export const openingFlow = Effect.gen(function* () {
 
     return Option.some(
       activated(
-        yield* directory.activatePaired(row, facts.value, claim, check),
+        yield* directory.activatePaired(row, facts.value, claim, binding),
       ),
     );
   });
@@ -166,7 +170,7 @@ export const openingFlow = Effect.gen(function* () {
     state: AccountState,
     approvals: Option.Option<Approvals>,
     claim: WalletClaim,
-    check: BindingCheck,
+    binding: Binding,
     pairedAllowed: boolean,
   ): Effect.fn.Return<OpenStep, StoreFailure | ChainUnreachable> {
     const address = Schema.decodeSync(AccountAddress)(row.address);
@@ -174,7 +178,7 @@ export const openingFlow = Effect.gen(function* () {
     if (!state.sponsored) return new NotSponsored();
 
     if (pairedAllowed) {
-      const paired = yield* pairedActivation(row, state, claim, check);
+      const paired = yield* pairedActivation(row, state, claim, binding);
 
       if (Option.isSome(paired)) return paired.value;
     }
@@ -227,7 +231,7 @@ export const openingFlow = Effect.gen(function* () {
       return new OpeningPending();
 
     return activated(
-      yield* directory.activate(row, sealed.value, facts.value, claim, check),
+      yield* directory.activate(row, sealed.value, facts.value, claim, binding),
     );
   });
 
@@ -276,13 +280,11 @@ export const openingFlow = Effect.gen(function* () {
     return yield* chain.draftOpening(address, pinSequence);
   });
 
-  const open = Effect.fn("Wallet.open")(function* (
+  const openWith = Effect.fn("Wallet.open")(function* (
     claim: WalletClaim,
     approvals: Option.Option<Approvals>,
-    token: Option.Option<HumanCheckToken>,
+    binding: Binding,
   ): Effect.fn.Return<OpenStep, StoreFailure | ChainUnreachable> {
-    const check = humanCheck.verify(token);
-
     if (!chain.validAddress(claim.address))
       return new InvalidAddress({ address: claim.address });
 
@@ -315,7 +317,7 @@ export const openingFlow = Effect.gen(function* () {
               state.value,
               approvals,
               claim,
-              check,
+              binding,
               false,
             )
           : yield* saveRecoveryDraft(row, request, claim);
@@ -357,7 +359,7 @@ export const openingFlow = Effect.gen(function* () {
         state.value,
         approvals,
         claim,
-        check,
+        binding,
         true,
       );
 
@@ -394,7 +396,7 @@ export const openingFlow = Effect.gen(function* () {
             confirmed.value,
             Option.none(),
             claim,
-            check,
+            binding,
             false,
           );
       }
@@ -419,7 +421,7 @@ export const openingFlow = Effect.gen(function* () {
         claim,
         sealed.value.recovery,
         Option.isSome(state),
-        check,
+        binding,
       );
 
       if (written instanceof SignedWorkInFlight) {
@@ -456,5 +458,11 @@ export const openingFlow = Effect.gen(function* () {
       : new OpeningPending();
   });
 
-  return open;
+  const open = (
+    claim: WalletClaim,
+    approvals: Option.Option<Approvals>,
+    token: Option.Option<HumanCheckToken>,
+  ) => openWith(claim, approvals, checkedBinding(humanCheck.verify(token)));
+
+  return { open, openWith };
 });

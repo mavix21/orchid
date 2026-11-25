@@ -50,6 +50,7 @@ import {
 } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
 import { HumanCheck } from "../src/server/HumanCheck.server";
+import { checkedBinding } from "../src/server/username-standing.server";
 import { transfers } from "../src/server/tables.server";
 import {
   type KnownExchangeMemo,
@@ -408,7 +409,9 @@ export const fakeChain = Layer.effect(
   }),
 ).pipe(Layer.provide(realChain));
 
-export const bindingAllowed = Effect.succeed(Option.none<HumanCheckRefused>());
+export const bindingAllowed = checkedBinding(
+  Effect.succeed(Option.none<HumanCheckRefused>()),
+);
 
 export const fakeHumanCheck = Layer.succeed(
   HumanCheck,

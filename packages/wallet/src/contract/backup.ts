@@ -70,6 +70,13 @@ export class BackupStored extends Schema.TaggedClass<BackupStored>()(
   {},
 ) {}
 
+export class ChallengeIssued extends Schema.TaggedClass<ChallengeIssued>()(
+  "ChallengeIssued",
+  {
+    challenge: PasskeyChallenge,
+  },
+) {}
+
 export class ChallengeRefused extends Schema.TaggedClass<ChallengeRefused>()(
   "ChallengeRefused",
   {},
@@ -79,14 +86,6 @@ export class RegistrationRefused extends Schema.TaggedClass<RegistrationRefused>
   "RegistrationRefused",
   {},
 ) {}
-
-export const EnrollStep = Schema.Union([
-  BackupStored,
-  ChallengeRefused,
-  RegistrationRefused,
-]);
-
-export type EnrollStep = typeof EnrollStep.Type;
 
 export class BackupFound extends Schema.TaggedClass<BackupFound>()(
   "BackupFound",

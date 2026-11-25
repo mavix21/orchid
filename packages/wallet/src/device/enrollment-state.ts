@@ -1,7 +1,6 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
@@ -11,7 +10,6 @@ import {
   type PasskeyRegistration,
   type Username,
   WalletClaim,
-  type WalletUnavailable,
 } from "../contract";
 import { PinnedCredential } from "./assertion";
 import {
@@ -110,11 +108,6 @@ export const pinCredential = (
         }),
     ),
   );
-
-export const isRetryableUnavailable = (failure: WalletUnavailable) =>
-  Predicate.isTagged(failure, "Offline") ||
-  Predicate.isTagged(failure, "ServerUnreachable") ||
-  Predicate.isTagged(failure, "LedgerUnreachable");
 
 export const envelopeJson = Schema.encodeSync(
   Schema.fromJsonString(LocalPhraseEnvelope),

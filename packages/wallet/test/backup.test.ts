@@ -5,12 +5,16 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import { Keypair } from "@stellar/stellar-sdk";
 import {
+  AccountAddress,
   AssertionRefused,
   BackupFound,
   ChallengeRefused,
   NoBackup,
   PasskeyChallenge,
+  Username,
+  WalletClaim,
   type WalletPort,
 } from "../src/contract";
 import { PinnedCredential } from "../src/device/assertion";
@@ -144,7 +148,7 @@ const assertion = (
   challenge?: PasskeyChallenge,
 ) =>
   Effect.gen(function* () {
-    const token = challenge ?? (yield* port.passkeyChallenge("restore"));
+    const token = challenge ?? (yield* port.restoreChallenge());
     const passkey = yield* auth.passkeys.authenticate(token, yield* backupSalt);
 
     return Option.getOrThrow(passkey).assertion;
@@ -319,7 +323,18 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             new ChallengeRefused(),
           );
 
-          const enrollment = yield* wallet.passkeyChallenge("enrollment");
+          const issued = yield* wallet.enrollmentChallenge(
+            new WalletClaim({
+              username: Schema.decodeSync(Username)("pedro"),
+              address: Schema.decodeSync(AccountAddress)(
+                Keypair.random().publicKey(),
+              ),
+            }),
+          );
+
+          assertTagged(issued, "ChallengeIssued");
+
+          const enrollment = issued.challenge;
           const invented = Schema.decodeSync(PasskeyChallenge)("A".repeat(43));
 
           expect(

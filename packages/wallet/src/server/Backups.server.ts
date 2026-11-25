@@ -2,7 +2,6 @@ import { Database } from "@workspace/db";
 import { and, eq, lte } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -19,8 +18,13 @@ import {
 } from "../contract";
 import { StoreFailure } from "./Directory.server";
 import { backups, passkeyChallenges, usernames } from "./tables.server";
+import type { Transaction } from "./transaction.server";
+import { BindingUnproven } from "./username-standing.server";
 
-const challengeLifetime = { minutes: 5 };
+const challengeLifetimes = {
+  enrollment: { minutes: 30 },
+  restore: { minutes: 5 },
+} satisfies Record<ChallengePurpose, { readonly minutes: number }>;
 
 type BackupRow = typeof backups.$inferSelect;
 
@@ -53,15 +57,6 @@ const storedBackup = (
 
 export type NewBackup = Omit<typeof backups.$inferInsert, "enrolledAt">;
 
-export type CommitEnrollmentResult = Data.TaggedEnum<{
-  Committed: {};
-  Existing: { readonly backup: StoredBackup };
-  Conflict: {};
-  ChallengeRejected: {};
-}>;
-
-export const CommitEnrollmentResult = Data.taggedEnum<CommitEnrollmentResult>();
-
 export class Backups extends Context.Service<
   Backups,
   {
@@ -75,9 +70,10 @@ export class Backups extends Context.Service<
     ): Effect.Effect<boolean, StoreFailure>;
 
     commitEnrollment(
+      tx: Transaction,
       challenge: PasskeyChallenge,
       backup: NewBackup,
-    ): Effect.Effect<CommitEnrollmentResult, StoreFailure>;
+    ): Effect.Effect<void, BindingUnproven | StoreFailure>;
 
     byCredential(
       credentialId: CredentialId,
@@ -117,7 +113,7 @@ export class Backups extends Context.Service<
           challenge,
           purpose,
           expiresAt: DateTime.toDateUtc(
-            DateTime.add(issuedAt, challengeLifetime),
+            DateTime.add(issuedAt, challengeLifetimes[purpose]),
           ),
         });
 
@@ -144,50 +140,34 @@ export class Backups extends Context.Service<
       });
 
       const commitEnrollment = Effect.fn("Backups.commitEnrollment")(function* (
+        tx: Transaction,
         challenge: PasskeyChallenge,
         backup: NewBackup,
       ) {
-        return yield* db.transaction((tx) =>
-          Effect.gen(function* () {
-            const removed = yield* tx
-              .delete(passkeyChallenges)
-              .where(
-                and(
-                  eq(passkeyChallenges.challenge, challenge),
-                  eq(passkeyChallenges.purpose, "enrollment"),
-                ),
-              )
-              .returning();
+        const removed = yield* tx
+          .delete(passkeyChallenges)
+          .where(
+            and(
+              eq(passkeyChallenges.challenge, challenge),
+              eq(passkeyChallenges.purpose, "enrollment"),
+            ),
+          )
+          .returning()
+          .pipe(Effect.mapError((cause) => new StoreFailure({ cause })));
 
-            const now = yield* Clock.currentTimeMillis;
+        const now = yield* Clock.currentTimeMillis;
 
-            if (removed.some((row) => row.expiresAt.getTime() > now)) {
-              const inserted = yield* tx
-                .insert(backups)
-                .values(backup)
-                .onConflictDoNothing()
-                .returning();
+        if (!removed.some((row) => row.expiresAt.getTime() > now))
+          return yield* new BindingUnproven();
 
-              return inserted.length > 0
-                ? CommitEnrollmentResult.Committed()
-                : CommitEnrollmentResult.Conflict();
-            }
+        const inserted = yield* tx
+          .insert(backups)
+          .values(backup)
+          .onConflictDoNothing()
+          .returning()
+          .pipe(Effect.mapError((cause) => new StoreFailure({ cause })));
 
-            const found = yield* tx
-              .select({ backup: backups, boundUsername: usernames.username })
-              .from(backups)
-              .leftJoin(usernames, eq(usernames.address, backups.address))
-              .where(eq(backups.credentialId, backup.credentialId));
-
-            return Option.match(Option.fromNullishOr(found[0]), {
-              onNone: () => CommitEnrollmentResult.ChallengeRejected(),
-              onSome: (row) =>
-                CommitEnrollmentResult.Existing({
-                  backup: storedBackup(row.backup, row.boundUsername),
-                }),
-            });
-          }),
-        );
+        if (inserted.length === 0) return yield* new BindingUnproven();
       });
 
       const byCredential = Effect.fn("Backups.byCredential")(function* (
@@ -217,8 +197,7 @@ export class Backups extends Context.Service<
       return Backups.of({
         issue: (purpose) => wrap(issue(purpose)),
         consume: (challenge, purpose) => wrap(consume(challenge, purpose)),
-        commitEnrollment: (challenge, backup) =>
-          wrap(commitEnrollment(challenge, backup)),
+        commitEnrollment,
         byCredential: (credentialId) => wrap(byCredential(credentialId)),
         advance: (credentialId, counter) =>
           wrap(advance(credentialId, counter)),

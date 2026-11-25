@@ -9,11 +9,13 @@ import * as Semaphore from "effect/Semaphore";
 import {
   AccountAddress,
   BackupEnrollment,
+  ChallengeIssued,
   InvalidResponse,
   type OpenStep,
   RegistrationRefused,
   Username,
   type UsernameTaken,
+  WalletClaim,
   type WalletUnavailable,
 } from "../contract";
 import { type LinkCode } from "./link-code";
@@ -70,6 +72,7 @@ import { linkSecretFor, receiveReviewJson } from "./link-receive";
 import { requestsOf, reviewJson } from "./opening-drafts";
 import {
   BackupUnsupported,
+  DraftRejected,
   InvalidUsername,
   LinkSecretMismatch,
   NoWallet,
@@ -106,8 +109,6 @@ export function makeEnrollmentEffects(
 
   const pendingNotice = (current: Awaiting | Held) =>
     notice(current, receiving.review);
-
-  const release = enrollmentRelease(deps, clearPending);
 
   const loadPending = Effect.gen(function* () {
     if (!PendingState.$is("Idle")(state)) return state;
@@ -233,6 +234,46 @@ export function makeEnrollmentEffects(
 
     return requested.success;
   });
+
+  const resign = Effect.fn("Device.resignEnrollment")(function* (held: Held) {
+    const refreshed = yield* refreshReview(
+      PendingState.Sealed({
+        enrollment: held.enrollment,
+        candidate: held.candidate,
+        review: Option.none(),
+      }),
+      true,
+    );
+
+    const current = state;
+
+    if (
+      !Predicate.isTagged(refreshed, "EnrollmentPending") ||
+      !PendingState.$is("Sealed")(current) ||
+      Option.isNone(current.review)
+    )
+      return refreshed;
+
+    const written = yield* storage
+      .write(
+        new PendingActivation({
+          enrollment: held.enrollment,
+          candidate: held.candidate,
+          review: current.review.value,
+        }),
+      )
+      .pipe(Effect.result);
+
+    if (Result.isFailure(written)) {
+      state = held;
+
+      return new UnsupportedDevice();
+    }
+
+    return new DraftRejected();
+  });
+
+  const release = enrollmentRelease(deps, clearPending, resign);
 
   const hasLiveReview = Effect.fn("Device.enrollmentHasLiveReview")(function* (
     current: Awaiting,
@@ -530,14 +571,25 @@ export function makeEnrollmentEffects(
       signingKey(phrase).publicKey(),
     );
 
-    const challenge = yield* deps.port
-      .passkeyChallenge("enrollment")
+    const issued = yield* deps.port
+      .enrollmentChallenge(
+        new WalletClaim({ username: username.value, address }),
+      )
       .pipe(Effect.result);
 
-    if (Result.isFailure(challenge)) return challenge.failure;
+    if (Result.isFailure(issued)) return issued.failure;
+
+    const step = issued.success;
+
+    if (!(step instanceof ChallengeIssued))
+      return Match.valueTags(step, {
+        UsernameTaken: (taken): EnrollWalletOutcome => taken,
+        HumanCheckRefused: (refused): EnrollWalletOutcome => refused,
+        AddressBound: (): EnrollWalletOutcome => new InvalidResponse(),
+      });
 
     const registered = yield* deps.registration
-      .register({ challenge: challenge.success, username: username.value })
+      .register({ challenge: step.challenge, username: username.value })
       .pipe(Effect.result);
 
     if (Result.isFailure(registered)) return registered.failure;

@@ -19,13 +19,14 @@ import {
   Unchanged,
 } from "./asset-orders";
 import { Amount, Asset, BalanceId, PositiveAmount } from "./assets";
-import type {
-  BackupEnrollment,
-  ChallengePurpose,
-  EnrollStep,
-  PasskeyAssertion,
-  PasskeyChallenge,
-  RestoreStep,
+import {
+  type BackupEnrollment,
+  ChallengeIssued,
+  ChallengeRefused,
+  type PasskeyAssertion,
+  type PasskeyChallenge,
+  RegistrationRefused,
+  type RestoreStep,
 } from "./backup";
 import { HumanCheckRefused, type HumanCheckToken } from "./human-check";
 import {
@@ -143,6 +144,30 @@ export const OpenStep = Schema.Union([
 ]);
 
 export type OpenStep = typeof OpenStep.Type;
+
+export const EnrollmentChallengeStep = Schema.Union([
+  ChallengeIssued,
+  UsernameTaken,
+  AddressBound,
+  HumanCheckRefused,
+]);
+
+export type EnrollmentChallengeStep = typeof EnrollmentChallengeStep.Type;
+
+export const EnrollStep = Schema.Union([
+  OpeningDraft,
+  RecoveryDraft,
+  OpeningPending,
+  Opened,
+  UsernameTaken,
+  AddressBound,
+  InvalidAddress,
+  NotSponsored,
+  ChallengeRefused,
+  RegistrationRefused,
+]);
+
+export type EnrollStep = typeof EnrollStep.Type;
 
 export const PaymentMemo = Schema.Union([
   Schema.Struct({
@@ -665,9 +690,14 @@ export interface WalletPort<E = WalletUnavailable> {
     sender: AccountAddress,
     receipt: PaymentLinkReceipt,
   ): Effect.Effect<ResolveReceiptStep, E>;
-  passkeyChallenge(
-    purpose: ChallengePurpose,
-  ): Effect.Effect<PasskeyChallenge, E>;
-  enroll(enrollment: BackupEnrollment): Effect.Effect<EnrollStep, E>;
+  restoreChallenge(): Effect.Effect<PasskeyChallenge, E>;
+  enrollmentChallenge(
+    claim: WalletClaim,
+    humanCheck?: Option.Option<HumanCheckToken>,
+  ): Effect.Effect<EnrollmentChallengeStep, E>;
+  enroll(
+    enrollment: BackupEnrollment,
+    approvals: Approvals,
+  ): Effect.Effect<EnrollStep, E>;
   restore(assertion: PasskeyAssertion): Effect.Effect<RestoreStep, E>;
 }

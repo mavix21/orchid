@@ -8,8 +8,8 @@ import {
   Approval,
   Approvals,
   BackupEnrollment,
-  ChallengePurpose,
   EnrollStep,
+  EnrollmentChallengeStep,
   ExternalLinkOrder,
   ExternalLinkStep,
   HumanCheckToken,
@@ -77,9 +77,17 @@ const ResolvePaymentLinkCall = Schema.Struct({
   receipt: PaymentLinkReceipt,
 });
 
-const ChallengeCall = Schema.Struct({ purpose: ChallengePurpose });
+const RestoreChallengeCall = Schema.Struct({});
 
-const EnrollCall = Schema.Struct({ enrollment: BackupEnrollment });
+const EnrollmentChallengeCall = Schema.Struct({
+  claim: WalletClaim,
+  humanCheck: Schema.OptionFromNullOr(HumanCheckToken),
+});
+
+const EnrollCall = Schema.Struct({
+  enrollment: BackupEnrollment,
+  approvals: Approvals,
+});
 
 const RestoreCall = Schema.Struct({ assertion: PasskeyAssertion });
 
@@ -166,11 +174,25 @@ const resolvePaymentLinkFn = createServerFn({ method: "POST" })
     ),
   );
 
-const passkeyChallengeFn = createServerFn({ method: "POST" })
-  .validator(accepted<typeof ChallengeCall.Encoded>())
+const restoreChallengeFn = createServerFn({ method: "POST" })
+  .validator(accepted<typeof RestoreChallengeCall.Encoded>())
   .handler(({ data }) =>
-    answerWallet(ChallengeCall, data, PasskeyChallenge, (decoded) =>
-      Wallet.use((wallet) => wallet.passkeyChallenge(decoded.purpose)),
+    answerWallet(RestoreChallengeCall, data, PasskeyChallenge, () =>
+      Wallet.use((wallet) => wallet.restoreChallenge()),
+    ),
+  );
+
+const enrollmentChallengeFn = createServerFn({ method: "POST" })
+  .validator(accepted<typeof EnrollmentChallengeCall.Encoded>())
+  .handler(({ data }) =>
+    answerWallet(
+      EnrollmentChallengeCall,
+      data,
+      EnrollmentChallengeStep,
+      (decoded) =>
+        Wallet.use((wallet) =>
+          wallet.enrollmentChallenge(decoded.claim, decoded.humanCheck),
+        ),
     ),
   );
 
@@ -178,7 +200,9 @@ const enrollFn = createServerFn({ method: "POST" })
   .validator(accepted<typeof EnrollCall.Encoded>())
   .handler(({ data }) =>
     answerWallet(EnrollCall, data, EnrollStep, (decoded) =>
-      Wallet.use((wallet) => wallet.enroll(decoded.enrollment)),
+      Wallet.use((wallet) =>
+        wallet.enroll(decoded.enrollment, decoded.approvals),
+      ),
     ),
   );
 
@@ -229,10 +253,21 @@ const reach = <A, I, C, D, R>(
   );
 
 export const port: WalletPort = {
-  passkeyChallenge: (purpose) =>
-    reach(PasskeyChallenge, ChallengeCall, { purpose }, passkeyChallengeFn),
-  enroll: (enrollment) =>
-    reach(EnrollStep, EnrollCall, { enrollment }, enrollFn),
+  restoreChallenge: () =>
+    reach(PasskeyChallenge, RestoreChallengeCall, {}, restoreChallengeFn),
+  enrollmentChallenge: (claim) =>
+    Effect.promise(takeHumanCheck).pipe(
+      Effect.flatMap((humanCheck) =>
+        reach(
+          EnrollmentChallengeStep,
+          EnrollmentChallengeCall,
+          { claim, humanCheck },
+          enrollmentChallengeFn,
+        ),
+      ),
+    ),
+  enroll: (enrollment, approvals) =>
+    reach(EnrollStep, EnrollCall, { enrollment, approvals }, enrollFn),
   restore: (assertion) =>
     reach(RestoreStep, RestoreCall, { assertion }, restoreFn),
   manage: (order, approval) =>
