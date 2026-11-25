@@ -132,6 +132,16 @@ export class AddressBound extends Schema.TaggedClass<AddressBound>()(
   },
 ) {}
 
+export class DepositOpeningsFull extends Schema.TaggedClass<DepositOpeningsFull>()(
+  "DepositOpeningsFull",
+  {},
+) {}
+
+export class DepositOpeningSpent extends Schema.TaggedClass<DepositOpeningSpent>()(
+  "DepositOpeningSpent",
+  {},
+) {}
+
 export const OpenStep = Schema.Union([
   OpeningDraft,
   RecoveryDraft,
@@ -142,6 +152,8 @@ export const OpenStep = Schema.Union([
   HumanCheckRefused,
   InvalidAddress,
   NotSponsored,
+  DepositOpeningsFull,
+  DepositOpeningSpent,
 ]);
 
 export type OpenStep = typeof OpenStep.Type;

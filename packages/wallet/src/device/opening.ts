@@ -178,6 +178,10 @@ export function deviceOpening(
           Effect.succeed({ done: Option.some(outcome), pause: false }),
         NotSponsored: (outcome) =>
           Effect.succeed({ done: Option.some(outcome), pause: false }),
+        DepositOpeningsFull: (outcome) =>
+          Effect.succeed({ done: Option.some(outcome), pause: false }),
+        DepositOpeningSpent: (outcome) =>
+          Effect.succeed({ done: Option.some(outcome), pause: false }),
       });
     });
 

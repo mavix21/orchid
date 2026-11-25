@@ -9,6 +9,8 @@ import {
   AccountAddress,
   AddressBound,
   type Approval,
+  DepositOpeningSpent,
+  DepositOpeningsFull,
   type Approvals,
   HumanCheckRefused,
   type HumanCheckToken,
@@ -42,11 +44,13 @@ import { HumanCheck } from "./HumanCheck.server";
 import { openingAttempt, pairedRecovery } from "./opening-attempt.server";
 import { SignedWorkInFlight } from "./slot.server";
 import { confirmedReads, live } from "./wallet-reads.server";
+import { WalletSettings } from "./settings.server";
 
 export const openingFlow = Effect.gen(function* () {
   const chain = yield* Chain;
   const directory = yield* Directory;
   const humanCheck = yield* HumanCheck;
+  const { maxEmptyDepositOpenings } = yield* WalletSettings;
   const { readAccount } = yield* confirmedReads;
 
   const openedOrBound = Effect.fn("Wallet.openedOrBound")(function* (
@@ -284,6 +288,7 @@ export const openingFlow = Effect.gen(function* () {
     claim: WalletClaim,
     approvals: Option.Option<Approvals>,
     binding: Binding,
+    depositBudgeted: boolean,
   ): Effect.fn.Return<OpenStep, StoreFailure | ChainUnreachable> {
     if (!chain.validAddress(claim.address))
       return new InvalidAddress({ address: claim.address });
@@ -402,6 +407,20 @@ export const openingFlow = Effect.gen(function* () {
       }
     }
 
+    const depositCap =
+      depositBudgeted && (yield* directory.bound(claim))
+        ? Option.some(maxEmptyDepositOpenings)
+        : Option.none<number>();
+
+    if (Option.isSome(depositCap)) {
+      const refused = yield* directory.depositOpeningRefusal(
+        row,
+        depositCap.value,
+      );
+
+      if (Option.isSome(refused)) return refused.value;
+    }
+
     if (
       Option.isSome(attempt) &&
       attempt.value instanceof OpeningDraft &&
@@ -422,6 +441,7 @@ export const openingFlow = Effect.gen(function* () {
         sealed.value.recovery,
         Option.isSome(state),
         binding,
+        depositCap,
       );
 
       if (written instanceof SignedWorkInFlight) {
@@ -437,6 +457,8 @@ export const openingFlow = Effect.gen(function* () {
       if (
         Predicate.isTagged(written, "UsernameTaken") ||
         Predicate.isTagged(written, "AddressBound") ||
+        written instanceof DepositOpeningsFull ||
+        written instanceof DepositOpeningSpent ||
         written instanceof HumanCheckRefused
       )
         return written;
@@ -462,7 +484,8 @@ export const openingFlow = Effect.gen(function* () {
     claim: WalletClaim,
     approvals: Option.Option<Approvals>,
     token: Option.Option<HumanCheckToken>,
-  ) => openWith(claim, approvals, checkedBinding(humanCheck.verify(token)));
+  ) =>
+    openWith(claim, approvals, checkedBinding(humanCheck.verify(token)), true);
 
   return { open, openWith };
 });

@@ -69,6 +69,7 @@ export const markRecovered = Effect.fn("Directory.recover")(function* (
       pairedRecoveryDraft: null,
       pairedRecoveryEnvelope: null,
       pairedRecoveryHash: null,
+      depositOpening: sql`case when ${wallets.depositOpening} = 'attempted' then 'recovered' else ${wallets.depositOpening} end`,
     })
     .where(
       and(

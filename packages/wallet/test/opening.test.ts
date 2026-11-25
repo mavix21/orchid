@@ -15,19 +15,24 @@ import {
   AccountAddress,
   AddressBound,
   AddressRecipient,
+  baseAsset,
+  DepositOpeningSpent,
+  DepositOpeningsFull,
   Opened,
   Profile,
   Username,
   WalletClaim,
 } from "../src/contract";
 import { Database } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Sealed } from "../src/server/Chain.server";
 import { SignedWorkInFlight } from "../src/server/slot.server";
 import { Directory } from "../src/server/Directory.server";
 import { draftOpening, readEnvelope } from "../src/stellar/envelopes";
-import { networkPassphrase } from "../src/stellar/network";
+import { epochAt, network, networkPassphrase } from "../src/stellar/network";
+import { deposits, wallets } from "../src/server/tables.server";
 import { assertTagged } from "./tagged";
+import { enrollUnopened, walletWithDepositCap } from "./deposit-openings";
 import {
   accountState,
   addressOf,
@@ -210,6 +215,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 Option.some(placeholder),
                 true,
                 bindingAllowed,
+                Option.none(),
               ),
             ),
           ).toEqual(new SignedWorkInFlight());
@@ -282,6 +288,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               Option.none(),
               false,
               bindingAllowed,
+              Option.none(),
             ),
           );
           expect((yield* opening(claim))._tag).toBe("OpeningDraft");
@@ -414,6 +421,96 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             }),
           );
         }),
+    );
+
+    it.effect(
+      "a deposit opening recovered empty is spent, while an attempt that never applied leaves it unspent",
+      () =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+          const claim = yield* enrollUnopened(key, "maria");
+
+          world.failSubmit = true;
+
+          const unapplied = yield* opening(claim);
+
+          assertTagged(unapplied, "OpeningDraft");
+          yield* opening(claim, approveOpening(key, unapplied));
+          world.failSubmit = false;
+          yield* Database.use((db) =>
+            db
+              .update(wallets)
+              .set({ attemptExpiresAt: new Date(Date.now() - 60_000) })
+              .where(eq(wallets.address, claim.address)),
+          );
+
+          const draft = yield* opening(claim);
+
+          assertTagged(draft, "OpeningDraft");
+          yield* opening(claim, approveOpening(key, draft));
+          yield* settleAttempt(claim.address);
+          expect((yield* opening(claim))._tag).toBe("Opened");
+
+          world.accounts.delete(claim.address);
+          expect((yield* overviewOf(claim.address))._tag).toBe(
+            "NeedsReopening",
+          );
+
+          const submitted = world.submitted.length;
+
+          expect(yield* opening(claim)).toEqual(new DepositOpeningSpent());
+          expect(world.submitted).toHaveLength(submitted);
+        }),
+    );
+
+    it.effect(
+      "deposit openings above the cap open nothing until an empty one receives money",
+      () =>
+        Effect.gen(function* () {
+          const firstKey = Keypair.random();
+          const secondKey = Keypair.random();
+          const first = yield* enrollUnopened(firstKey, "maria");
+          const second = yield* enrollUnopened(secondKey, "pedro");
+          const firstDraft = yield* opening(first);
+          const secondDraft = yield* opening(second);
+
+          assertTagged(firstDraft, "OpeningDraft");
+          assertTagged(secondDraft, "OpeningDraft");
+          yield* opening(first, approveOpening(firstKey, firstDraft));
+          yield* settleAttempt(first.address);
+          expect((yield* opening(first))._tag).toBe("Opened");
+
+          const submitted = world.submitted.length;
+
+          expect(
+            yield* opening(second, approveOpening(secondKey, secondDraft)),
+          ).toEqual(new DepositOpeningsFull());
+          expect(yield* opening(second)).toEqual(new DepositOpeningsFull());
+          expect(world.submitted).toHaveLength(submitted);
+          expect(
+            (yield* findWallet(second.address)).pipe(
+              Option.map((row) => row.attemptHash),
+            ),
+          ).toEqual(Option.some(null));
+
+          yield* Database.use((db) =>
+            db.insert(deposits).values({
+              network,
+              testnetEpoch: epochAt(Date.now()),
+              eventId: "first-deposit",
+              wallet: first.address,
+              code: baseAsset.code,
+              issuer: baseAsset.issuer,
+              amount: 10_000_000n,
+              sender: reserveSponsor,
+              hash: "00".repeat(32),
+              ledger: 100,
+              closedAt: new Date(),
+            }),
+          );
+
+          expect((yield* opening(second))._tag).toBe("OpeningDraft");
+        }).pipe(Effect.provide(walletWithDepositCap(1))),
     );
   },
 );

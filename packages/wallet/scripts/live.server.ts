@@ -85,6 +85,7 @@ export const walletServices = (
         passkeyOrigins: settings.passkeyOrigins,
         humanCheckSecret: Redacted.make("1x0000000000000000000000000000000AA"),
         sessionSecret: Redacted.make("live-session-secret"),
+        maxEmptyDepositOpenings: 1000,
       }),
     ),
     Layer.provide(database),
