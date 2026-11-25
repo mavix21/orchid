@@ -14,7 +14,7 @@
   "vars": {
     "STELLAR_RPC_URL": "https://soroban-testnet.stellar.org",
     "PASSKEY_ORIGINS": "http://localhost:3000,http://localhost:4173,https://orchid-testnet.getorchid.workers.dev",
-    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAGRtRm_DCTacI7v8",
   },
   "secrets": {
     "required": [
