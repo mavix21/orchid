@@ -27,7 +27,7 @@ import {
   assetKey,
   baseAsset,
 } from "../contract";
-import { readEnvelope } from "../stellar/envelopes";
+import { claimedByOpening, readEnvelope } from "../stellar/envelopes";
 import { recoveryDelay, recoveryDraftLifetime } from "../stellar/network";
 import {
   type AccountState,
@@ -196,11 +196,20 @@ export const openingFlow = Effect.gen(function* () {
     )
       return Option.some(new OpeningPending());
 
-    return Option.some(
-      activated(
-        yield* directory.activatePaired(row, facts.value, claim, binding),
-      ),
+    const step = activated(
+      yield* directory.activatePaired(row, facts.value, claim, binding),
     );
+
+    if (Predicate.isTagged(step, "Opened"))
+      yield* Option.match(
+        claimedByOpening(attempt.value.envelope, claim.address),
+        {
+          onNone: () => Effect.void,
+          onSome: transfers.closeBalance,
+        },
+      );
+
+    return Option.some(step);
   });
 
   const lone = (approvals: Option.Option<Approvals>): Option.Option<Approval> =>
