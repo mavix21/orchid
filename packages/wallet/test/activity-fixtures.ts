@@ -1,7 +1,4 @@
-import {} from "@effect/vitest";
 import { Claimant, Keypair } from "@stellar/stellar-sdk";
-import {} from "@workspace/db";
-import {} from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -21,9 +18,6 @@ import {
   UsernameRecipient,
   type WalletPort,
 } from "../src/contract";
-import {} from "../src/device/signing";
-import {} from "../src/server/Wallet.server";
-import {} from "./device-fixtures";
 import { advanceSequence } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {

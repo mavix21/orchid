@@ -81,7 +81,7 @@ const placeCursor = (ledger: number, ageSeconds: number) =>
         network,
         testnetEpoch: epochAt(Date.now()),
         contractId: depositContract,
-        cursor: `${ledger.toString().padStart(19, "0")}-0000000000`,
+        cursor: `${(BigInt(ledger) << 32n).toString().padStart(19, "0")}-0000000000`,
         ledger,
         closedAt: new Date(Date.now() - ageSeconds * 1000),
       })
@@ -206,34 +206,31 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect("starts at the oldest ledger when no cursor was stored", () =>
+    it.effect.each([
+      { name: "no cursor was stored", cursorLedger: undefined, oldest: 100 },
+      {
+        name: "the cursor lies below RPC's ledgers",
+        cursorLedger: 120,
+        oldest: 150,
+      },
+      {
+        name: "the cursor lies above RPC's ledgers",
+        cursorLedger: 9_000,
+        oldest: 100,
+      },
+    ])("starts at the oldest ledger when $name", ({ cursorLedger, oldest }) =>
       Effect.gen(function* () {
         const alice = addressOf(yield* fundedWallet("alice"));
 
-        paymentEvent(outsider(), alice, 1_000_000n, {
-          ledger: ledgers.oldestLedger,
-        });
+        ledgers.oldestLedger = oldest;
+
+        if (cursorLedger !== undefined) yield* placeCursor(cursorLedger, 3600);
+
+        paymentEvent(outsider(), alice, 1_000_000n, { ledger: oldest });
         yield* ingest;
 
         expect(yield* storedAmounts(alice)).toEqual([1_000_000n]);
       }),
-    );
-
-    it.effect(
-      "starts at the oldest ledger when the stored cursor lies outside RPC's ledgers",
-      () =>
-        Effect.gen(function* () {
-          const alice = addressOf(yield* fundedWallet("alice"));
-
-          yield* placeCursor(9_000, 3600);
-          paymentEvent(outsider(), alice, 1_000_000n, {
-            ledger: ledgers.oldestLedger,
-          });
-          yield* ingest;
-
-          expect(yield* storedAmounts(alice)).toEqual([1_000_000n]);
-          expect(yield* cursorLedgers).toEqual([200]);
-        }),
     );
 
     it.effect(
@@ -422,6 +419,45 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(Exit.isFailure(scheduled)).toBe(true);
           expect(yield* storedAmounts(alice)).toEqual([6_000_000n]);
+        }),
+    );
+
+    it.effect(
+      "still sweeps in a scheduled run whose deposit ingest fails",
+      () =>
+        Effect.gen(function* () {
+          const { wallet, sender, balance, transferId } =
+            yield* fundLink("sweepowner");
+
+          world.claimables.delete(balance);
+          ledgers.down = true;
+
+          const scheduled = yield* Effect.exit(
+            Wallet.use((service) => service.scheduled),
+          );
+
+          const entry = entryFor(
+            yield* activityOf(wallet, sender.address),
+            transferId,
+          );
+
+          expect(Exit.isFailure(scheduled)).toBe(true);
+          assertTagged(entry, "SentActivity");
+          assertTagged(entry.receipt, "Claimed");
+        }),
+    );
+
+    it.effect(
+      "catches up from near the latest ledger when the cursor is too old to resume from",
+      () =>
+        Effect.gen(function* () {
+          const alice = addressOf(yield* fundedWallet("alice"));
+
+          ledgers.latestLedger = 20_500;
+          yield* placeCursor(100, 14 * 3600);
+          paymentEvent(outsider(), alice, 4_000_000n, { ledger: 20_450 });
+
+          expect(yield* listedDeposits(alice)).toHaveLength(1);
         }),
     );
   },
