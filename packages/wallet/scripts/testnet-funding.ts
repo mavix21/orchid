@@ -63,6 +63,20 @@ const fundWithin = async (
 export const fundWithFriendbot = (address: string) =>
   fundWithin(address, friendbotAttempts);
 
+export const fundedTestnetKeypair = async () => {
+  const keypair = Keypair.random();
+
+  await fundWithFriendbot(keypair.publicKey());
+
+  return keypair;
+};
+
+export const testnetAddress = (secret: string) =>
+  Keypair.fromSecret(secret).publicKey();
+
+export const isOpenOnTestnet = async (address: string) =>
+  (await visibleAccount(address)) !== undefined;
+
 export const fundWithUsdc = async (address: string, amount: string) => {
   const funder = Keypair.random();
 

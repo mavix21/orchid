@@ -53,31 +53,22 @@ Stellar (classic accounts, sponsored reserves, fee bumps, claimable balances, So
 
 ## Run it locally
 
-Install Bun and Docker Desktop. Port 55432 must be free.
+Install Bun, Node 22.12 or newer and Docker Desktop, then run:
 
 ```sh
-bun install
-docker run -d --name orchid-postgres \
-  -e POSTGRES_USER=orchid -e POSTGRES_PASSWORD=orchid-local -e POSTGRES_DB=orchid \
-  -p 127.0.0.1:55432:5432 \
-  -v orchid-postgres-data:/var/lib/postgresql/data postgres:17
-bun run db:migrate:local
+bun run setup
 bun run dev
 ```
 
 Open http://localhost:3000.
 
-Creating an account opens it on the network, which needs two funded testnet accounts: the reserve sponsor and the fee payer. Put their secret keys in the gitignored `apps/web/.dev.vars`:
+`bun run setup` is safe to repeat. It installs dependencies, creates or starts the `orchid-postgres` container on port 55432, applies the migrations and fills the gitignored `apps/web/.dev.vars`. Add `--e2e` (`bun run setup --e2e`) to also install Playwright's Chromium.
 
-```sh
-RESERVE_SPONSOR_SECRET=S...
-FEE_PAYER_SECRET=S...
-TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
-```
+Creating an account opens it on the network, which needs two funded testnet accounts: the reserve sponsor and the fee payer. Setup creates both, funds them with Friendbot and writes their secret keys to `.dev.vars` as `RESERVE_SPONSOR_SECRET` and `FEE_PAYER_SECRET`, printing only the public keys. Testnet resets wipe both accounts; running setup again funds them anew. It also writes a random `SESSION_SECRET` and Cloudflare's documented Turnstile test pair, `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`, which override the real site key in `apps/web/wrangler.jsonc` locally. Keys already in `.dev.vars` are kept. In a worktree, setup links the main checkout's `.dev.vars` instead of creating new accounts.
 
-Fund each public key with Friendbot (`https://friendbot.stellar.org/?addr=G...`). `TURNSTILE_SECRET_KEY` above is Cloudflare's documented test secret, which accepts the test widget's token; `TURNSTILE_SITE_KEY` in `apps/web/wrangler.jsonc` is the matching test site key. Deploys replace both with the real pair: the site key in `wrangler.jsonc` and the secret with `wrangler secret put TURNSTILE_SECRET_KEY`. `STELLAR_RPC_URL` and `PASSKEY_ORIGINS` (the comma-separated origins whose passkeys the server accepts) are also set in `apps/web/wrangler.jsonc`. Testnet resets wipe both accounts; fund them again afterwards.
+Deploys use the real Turnstile pair: the site key in `wrangler.jsonc` and the secret with `wrangler secret put TURNSTILE_SECRET_KEY`. `STELLAR_RPC_URL` and `PASSKEY_ORIGINS` (the comma-separated origins whose passkeys the server accepts) are also set in `apps/web/wrangler.jsonc`.
 
-`bun run --cwd apps/web test:e2e` builds the app, serves it with `vite preview`, and creates and restores real testnet wallets in Chromium with a virtual passkey (`bunx playwright install chromium` once). It needs Docker. If `apps/web/.dev.vars` exists, the run uses its reserve sponsor and fee payer: the build copies them into the gitignored `apps/web/dist/server/.dev.vars`, which `vite preview` reads. Otherwise it creates a fresh pair, funds both with Friendbot and passes them only to the `vite preview` process as environment variables, so no key is written to disk. It never touches the database above: it starts a throwaway `orchid-e2e-database` container on port 55434, applies the migrations, points the preview server at it, and removes it when the run ends. Restart the development database with `docker start orchid-postgres`.
+`bun run --cwd apps/web test:e2e` builds the app, serves it with `vite preview`, and creates and restores real testnet wallets in Chromium with a virtual passkey (`bun run setup --e2e` once). It needs Docker. If `apps/web/.dev.vars` exists, the run uses its reserve sponsor and fee payer: the build copies them into the gitignored `apps/web/dist/server/.dev.vars`, which `vite preview` reads. Otherwise it creates a fresh pair, funds both with Friendbot and passes them only to the `vite preview` process as environment variables, so no key is written to disk. It never touches the database above: it starts a throwaway `orchid-e2e-database` container on port 55434, applies the migrations, points the preview server at it, and removes it when the run ends. Restart the development database with `docker start orchid-postgres`.
 
 Wrangler config supplies `nodejs_compat` and the local Docker connection string. `bun run dev` uses Docker even when Neon credentials exist in the root `.env.local`. Override the local connection string if needed:
 
