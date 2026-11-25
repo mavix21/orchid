@@ -490,14 +490,38 @@ export const TransferStep = Schema.Union([
 
 export type TransferStep = typeof TransferStep.Type;
 
+const recipientMemoFields = {
+  recipient: ResolvedRecipient,
+  memoRequired: Schema.Boolean,
+  exchange: Schema.OptionFromNullOr(Schema.String),
+};
+
 export class TransferAssessment extends Schema.TaggedClass<TransferAssessment>()(
   "TransferAssessment",
-  {
-    recipient: ResolvedRecipient,
-    memoRequired: Schema.Boolean,
-    exchange: Schema.OptionFromNullOr(Schema.String),
-  },
+  recipientMemoFields,
 ) {}
+
+export class RecipientCheck extends Schema.TaggedClass<RecipientCheck>()(
+  "RecipientCheck",
+  recipientMemoFields,
+) {}
+
+export const CheckedRecipient = Schema.Union([
+  UsernameRecipient,
+  PhoneRecipient,
+  AddressRecipient,
+]);
+
+export type CheckedRecipient = typeof CheckedRecipient.Type;
+
+export const RecipientStep = Schema.Union([
+  RecipientCheck,
+  UnknownRecipient,
+  PhoneNotSupported,
+  InvalidAddress,
+]);
+
+export type RecipientStep = typeof RecipientStep.Type;
 
 export const AssessmentStep = Schema.Union([
   TransferAssessment,

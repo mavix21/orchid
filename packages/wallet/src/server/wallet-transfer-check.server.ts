@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 import {
   Amount,
   type AssessmentStep,
+  type CheckedRecipient,
   type DestinationAddress,
   ExternalRecipient,
   InsufficientBalance,
@@ -15,6 +16,9 @@ import {
   NotOpened,
   PhoneNotSupported,
   type Receipt,
+  RecipientCheck,
+  type Recipient,
+  type RecipientStep,
   type ResolvedRecipient,
   SenderBusy,
   TransferAssessment,
@@ -108,25 +112,8 @@ export const transferCheckFlow = Effect.gen(function* () {
       : Option.none<KnownExchangeMemo>();
   });
 
-  const examine = Effect.fn("Wallet.examineTransfer")(function* (
-    terms: TransferTerms,
-    effects: TransferEffects,
-  ) {
-    const sender = yield* directory.byAddress(terms.from);
-
-    if (Option.isNone(sender) || sender.value.status !== "active")
-      return new NotOpened();
-
-    const held = yield* transfers.latestFrom(terms.from);
-
-    if (Option.isSome(held) && Predicate.isTagged(held.value, "Authorized")) {
-      const receipt = yield* effects.settle(held.value);
-
-      if (Predicate.isTagged(receipt, "Pending"))
-        return new SenderBusy({ inFlight: receipt });
-    }
-
-    const recipient = yield* Match.valueTags(terms.to, {
+  const resolveRecipient = (to: Recipient) =>
+    Match.valueTags(to, {
       Username: ({ value }) =>
         directory
           .byUsername(value)
@@ -160,6 +147,26 @@ export const transferCheckFlow = Effect.gen(function* () {
         ),
       Phone: () => Effect.die("Phone was rejected before recipient resolution"),
     });
+
+  const examine = Effect.fn("Wallet.examineTransfer")(function* (
+    terms: TransferTerms,
+    effects: TransferEffects,
+  ) {
+    const sender = yield* directory.byAddress(terms.from);
+
+    if (Option.isNone(sender) || sender.value.status !== "active")
+      return new NotOpened();
+
+    const held = yield* transfers.latestFrom(terms.from);
+
+    if (Option.isSome(held) && Predicate.isTagged(held.value, "Authorized")) {
+      const receipt = yield* effects.settle(held.value);
+
+      if (Predicate.isTagged(receipt, "Pending"))
+        return new SenderBusy({ inFlight: receipt });
+    }
+
+    const recipient = yield* resolveRecipient(terms.to);
 
     if (Predicate.isTagged(recipient, "UnknownRecipient")) return recipient;
 
@@ -231,5 +238,32 @@ export const transferCheckFlow = Effect.gen(function* () {
       : examined;
   });
 
-  return { malformed, memoRequirement, examine, assess };
+  const checkRecipient = Effect.fn("Wallet.checkRecipient")(function* (
+    to: CheckedRecipient,
+  ): Effect.fn.Return<RecipientStep, StoreFailure | ChainUnreachable> {
+    const refusal = Match.valueTags(to, {
+      Username: () => Option.none<InvalidAddress | PhoneNotSupported>(),
+      Phone: () => Option.some(new PhoneNotSupported()),
+      Address: ({ value }) =>
+        chain.validAddress(value)
+          ? Option.none()
+          : Option.some(new InvalidAddress({ address: value })),
+    });
+
+    if (Option.isSome(refusal)) return refusal.value;
+
+    const recipient = yield* resolveRecipient(to);
+
+    if (Predicate.isTagged(recipient, "UnknownRecipient")) return recipient;
+
+    const requirement = yield* memoRequirement(recipient);
+
+    return new RecipientCheck({
+      recipient,
+      memoRequired: Option.isSome(requirement),
+      exchange: Option.map(requirement, (known) => known.exchange),
+    });
+  });
+
+  return { malformed, memoRequirement, examine, assess, checkRecipient };
 });

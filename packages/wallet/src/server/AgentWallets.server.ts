@@ -6,8 +6,10 @@ import type {
   ActivityCursor,
   ActivityStep,
   AssessmentStep,
+  CheckedRecipient,
   Overview,
   PaymentLinksStep,
+  RecipientStep,
   ServerFailure,
   TransferIntent,
 } from "../contract";
@@ -18,6 +20,9 @@ export interface AgentWallet {
   readonly paymentLinks: Effect.Effect<PaymentLinksStep, ServerFailure>;
   activity(before?: ActivityCursor): Effect.Effect<ActivityStep, ServerFailure>;
   assess(intent: TransferIntent): Effect.Effect<AssessmentStep, ServerFailure>;
+  checkRecipient(
+    to: CheckedRecipient,
+  ): Effect.Effect<RecipientStep, ServerFailure>;
 }
 
 export class AgentWallets extends Context.Service<
@@ -35,6 +40,7 @@ export class AgentWallets extends Context.Service<
           paymentLinks: wallet.paymentLinks(address),
           activity: (before) => wallet.activity(address, before),
           assess: (intent) => wallet.assess(address, intent),
+          checkRecipient: wallet.checkRecipient,
         }),
       });
     }),

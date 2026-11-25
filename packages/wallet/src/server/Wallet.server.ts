@@ -21,6 +21,8 @@ import {
   AccountAddress,
   SigningRequest,
   AssessmentStep,
+  CheckedRecipient,
+  RecipientStep,
   AssetBusy,
   ClaimableLimitReached,
   Approval,
@@ -80,6 +82,9 @@ export class Wallet extends Context.Service<
       address: AccountAddress,
       intent: TransferIntent,
     ): Effect.Effect<AssessmentStep, ServerFailure>;
+    checkRecipient(
+      to: CheckedRecipient,
+    ): Effect.Effect<RecipientStep, ServerFailure>;
     readonly sweep: Effect.Effect<void, ServerFailure>;
     readonly ingestDeposits: Effect.Effect<void, ServerFailure>;
     readonly scheduled: Effect.Effect<void, ServerFailure>;
@@ -413,6 +418,7 @@ export class Wallet extends Context.Service<
         beginSession: (assertion) => wrap(backup.beginSession(assertion)),
         assess: (address, intent) =>
           wrap(check.assess({ from: address, ...intent })),
+        checkRecipient: (to) => wrap(check.checkRecipient(to)),
         sweep: wrap(sweep),
         ingestDeposits: wrap(ingest()),
         scheduled: wrap(scheduled),

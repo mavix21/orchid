@@ -6,10 +6,13 @@ export const usernameMaxLength = 20;
 
 const usernameCharacter = /^[a-z0-9_]$/;
 
+const usernamePattern = new RegExp(
+  `^[a-z0-9_]{${usernameMinLength},${usernameMaxLength}}$`,
+  "u",
+);
+
 export const Username = Schema.String.check(
-  Schema.isPattern(/^[a-z0-9_]*$/u),
-  Schema.isMinLength(usernameMinLength),
-  Schema.isMaxLength(usernameMaxLength),
+  Schema.isPattern(usernamePattern),
 ).pipe(Schema.brand("Username"));
 
 export type Username = typeof Username.Type;

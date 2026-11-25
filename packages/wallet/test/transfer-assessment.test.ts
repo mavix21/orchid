@@ -1,15 +1,32 @@
 import { expect, layer } from "@effect/vitest";
+import { Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import {
+  AccountAddress,
+  AddressRecipient,
+  ExternalRecipient,
+  InvalidAddress,
+  PhoneNotSupported,
+  PhoneRecipient,
+  UnknownRecipient,
+  Username,
+  UsernameRecipient,
+} from "../src/contract";
+import { KnownExchangeMemo } from "../src/server/exchange-memos.server";
 import { Transfers } from "../src/server/Transfers.server";
+import { network } from "../src/stellar/network";
 import { assertTagged } from "./tagged";
 import {
   addressOf,
   assess,
   authorizeTransfer,
+  checkRecipient,
   draftTransfer,
   findWallet,
   fundedWallet,
+  orderFor,
   selfOrder,
   settleHash,
   storedTransfers,
@@ -19,6 +36,8 @@ import {
 } from "./wallet-harness";
 
 useDisposableDatabase();
+
+const username = Schema.decodeSync(Username);
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
@@ -74,6 +93,74 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         expect(
           Option.getOrThrow(yield* findWallet(addressOf(key))).status,
         ).toBe("active");
+      }),
+    );
+
+    it.effect(
+      "a recipient check resolves what an assessment would and stores nothing",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet("maria");
+          const target = yield* fundedWallet("pedro");
+
+          const exchange = new KnownExchangeMemo({
+            network,
+            address: addressOf(Keypair.random()),
+            exchange: "Synthetic exchange fixture",
+            source:
+              "https://example.com/fixtures/stellar-testnet-memo-required",
+          });
+
+          world.exchangeMemos.push(exchange);
+
+          const orchid = UsernameRecipient.make({ value: username("pedro") });
+          const external = AddressRecipient.make({ value: exchange.address });
+          const checkedOrchid = yield* checkRecipient(orchid);
+          const checkedExternal = yield* checkRecipient(external);
+          const assessedOrchid = yield* assess(key, orderFor(key, orchid));
+
+          assertTagged(checkedOrchid, "RecipientCheck");
+          assertTagged(assessedOrchid, "TransferAssessment");
+          expect(checkedOrchid.recipient).toEqual(assessedOrchid.recipient);
+          expect(checkedOrchid.memoRequired).toBe(false);
+          expect(checkedOrchid.exchange).toEqual(Option.none());
+
+          assertTagged(checkedExternal, "RecipientCheck");
+          expect(checkedExternal.recipient).toEqual(
+            new ExternalRecipient({ address: exchange.address }),
+          );
+          expect(checkedExternal.memoRequired).toBe(true);
+          expect(checkedExternal.exchange).toEqual(
+            Option.some(exchange.exchange),
+          );
+          expect(yield* storedTransfers(addressOf(key))).toEqual([]);
+          expect(yield* storedTransfers(addressOf(target))).toEqual([]);
+        }),
+    );
+
+    const invalidAddress = Schema.decodeSync(AccountAddress)(
+      `G${"A".repeat(55)}`,
+    );
+
+    it.effect.each([
+      {
+        name: "an unregistered username",
+        to: UsernameRecipient.make({ value: username("nobody") }),
+        expected: new UnknownRecipient({ username: username("nobody") }),
+      },
+      {
+        name: "a phone number",
+        to: PhoneRecipient.make({ value: "+15550100" }),
+        expected: new PhoneNotSupported(),
+      },
+      {
+        name: "an address with a bad checksum",
+        to: AddressRecipient.make({ value: invalidAddress }),
+        expected: new InvalidAddress({ address: invalidAddress }),
+      },
+    ])("a recipient check refuses $name", ({ to, expected }) =>
+      Effect.gen(function* () {
+        expect(yield* checkRecipient(to)).toEqual(expected);
       }),
     );
   },
