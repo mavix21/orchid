@@ -5,7 +5,7 @@ import {
 } from "@tanstack/react-router";
 
 import { SessionConfirmation } from "./session-confirmation";
-import { useSessionLapsed } from "./session-lapse";
+import { sessionLapse, useSessionLapsed } from "./session-lapse";
 import { markWalletOnDevice } from "./wallet-cookie";
 
 export function SessionGate({ children }: { children: React.ReactNode }) {
@@ -23,6 +23,7 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
           onConfirmed={() => void router.invalidate()}
           onNoWallet={() => {
             markWalletOnDevice(false);
+            sessionLapse.clear();
             void navigate({ to: "/", replace: true });
           }}
         />

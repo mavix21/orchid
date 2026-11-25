@@ -60,16 +60,14 @@ const sharedFundedLink = async (page: Page, senderUsername: string) => {
   return sharedLink(original);
 };
 
-const setVisibility = (page: Page, state: "hidden" | "visible") =>
-  page.evaluate((next) => {
+const hidePage = (page: Page) =>
+  page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
-      get: () => next,
+      get: () => "hidden",
     });
     document.dispatchEvent(new Event("visibilitychange"));
-  }, state);
-
-const hidePage = (page: Page) => setVisibility(page, "hidden");
+  });
 
 const leavePage = (page: Page) =>
   page.evaluate(() =>
@@ -413,7 +411,7 @@ test("closes a revealed saved link when the page is hidden, and when a share fro
   await page.getByTestId("reshare-link").click();
   await page.getByTestId("share-link").click();
   await hidePage(page);
-  await expect(drawer).toBeVisible();
+  await expect(page.getByTestId("copy-link")).toBeDisabled();
   await settleShare(page);
   await expect(drawer).toBeHidden();
 });

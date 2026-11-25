@@ -141,10 +141,12 @@ export function useLinkReveal() {
     const { link } = reveal;
 
     setReveal(Reveal.Opened({ ...reveal, delivering: true }));
-    void send(link).then((result) =>
+    void send(link).then((result) => {
+      const hidden = pageHidden();
+
       setReveal((current) =>
         Predicate.isTagged(current, "Opened") && current.link === link
-          ? pageHidden()
+          ? hidden
             ? Reveal.Closed()
             : Reveal.Opened({
                 link,
@@ -152,8 +154,8 @@ export function useLinkReveal() {
                 delivering: false,
               })
           : current,
-      ),
-    );
+      );
+    });
   };
 
   const close = () => {

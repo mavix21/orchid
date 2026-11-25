@@ -43,11 +43,6 @@ export const addAuthenticator = async (page: Page, hasPrf: boolean) => {
   return {
     session,
     authenticatorId,
-    verifyUser: (isUserVerified: boolean) =>
-      session.send("WebAuthn.setUserVerified", {
-        authenticatorId,
-        isUserVerified,
-      }),
   };
 };
 
@@ -344,7 +339,7 @@ export const seedWallet = async (page: Page, usernameText: string) => {
     record,
   );
 
-  return { address, verifyUser: credential.authenticator.verifyUser };
+  return { address };
 };
 
 export const confirmSession = async (page: Page) => {
