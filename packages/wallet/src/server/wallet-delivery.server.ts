@@ -10,15 +10,18 @@ import {
   ClaimableLimitReached,
   ExternalRecipient,
   LinkRecipient,
+  Profile,
   RecipientCannotReceive,
   type ResolvedRecipient,
   type TransferOrder,
   assetKey,
+  baseAsset,
 } from "../contract";
 import { baseAccountOf } from "../stellar/destination";
 import { claimableQuota } from "../stellar/network";
 import { Chain } from "./Chain.server";
 import { type QuotaCheck, claimableQuotaFlow } from "./claimable-quota.server";
+import { Directory } from "./Directory.server";
 import type { Holdings } from "./ledger-assets.server";
 import { rpcReadConcurrency } from "./settings.server";
 
@@ -92,8 +95,26 @@ export const paymentLinkAssetRefusal = Effect.gen(function* () {
 
 export const deliveryFlow = Effect.gen(function* () {
   const chain = yield* Chain;
+  const directory = yield* Directory;
   const { quotaFull } = yield* claimableQuotaFlow;
   const checkLinkAsset = yield* paymentLinkAssetRefusal;
+
+  const awaitsOpening = Effect.fn("Wallet.awaitsOpening")(function* (
+    terms: TransferTerms,
+    recipient: ResolvedRecipient,
+  ) {
+    if (
+      !(recipient instanceof Profile) ||
+      assetKey(terms.asset) !== assetKey(baseAsset)
+    )
+      return false;
+
+    const row = yield* directory.byAddress(recipient.address);
+
+    return (
+      Option.isSome(row) && Option.isSome(yield* directory.unopened(row.value))
+    );
+  });
 
   const route = Effect.fn("Wallet.deliveryRoute")(function* (
     terms: TransferTerms,
@@ -139,7 +160,11 @@ export const deliveryFlow = Effect.gen(function* () {
               : undefined;
 
     if (reason) {
-      if (reason !== "no_trustline" || recipient instanceof ExternalRecipient) {
+      const claimable =
+        reason === "no_trustline" ||
+        (reason === "no_account" && (yield* awaitsOpening(terms, recipient)));
+
+      if (!claimable || recipient instanceof ExternalRecipient) {
         const missing = reason === "no_account" || reason === "no_trustline";
 
         return new RecipientCannotReceive({

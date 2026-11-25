@@ -299,8 +299,7 @@ export const shownEntry = (entry: ActivityEntry): ShownEntry =>
         subtitle: `Te envió ${assetCode(awaiting.asset)}`,
         badge: Option.some(awaitingAcceptance),
         direction: "unchanged",
-        detail:
-          "Para recibirlo hay que aceptarlo, y Orchid aún no puede hacerlo por ti.",
+        detail: "Llega a tu saldo cuando lo recibas con tu passkey.",
       }),
     TakenBackActivity: (takenBack) =>
       receivedEntry(takenBack, {

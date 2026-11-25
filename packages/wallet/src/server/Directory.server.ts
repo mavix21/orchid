@@ -217,10 +217,7 @@ export class Directory extends Context.Service<
         return availability(claim, raced);
       });
 
-      const unopenedRow = and(
-        eq(wallets.status, "opening"),
-        isNull(wallets.attemptHash),
-      );
+      const unopenedRow = eq(wallets.status, "opening");
 
       const enrollUnopened = Effect.fn("Directory.enrollUnopened")(function* (
         claim: WalletClaim,
@@ -266,8 +263,7 @@ export class Directory extends Context.Service<
       const unopened = Effect.fn("Directory.unopened")(function* (
         row: WalletRow,
       ) {
-        if (row.status !== "opening" || row.attemptHash !== null)
-          return Option.none<Profile>();
+        if (row.status !== "opening") return Option.none<Profile>();
 
         const names = yield* boundNames(db, eq(usernames.address, row.address));
 
