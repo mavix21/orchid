@@ -14,7 +14,6 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
@@ -61,7 +60,6 @@ import type {
   ClaimableEntry,
   Holdings,
 } from "../src/server/ledger-assets.server";
-import { WalletSettings } from "../src/server/settings.server";
 import {
   type PendingWork,
   QueueUnavailable,
@@ -90,6 +88,13 @@ import {
 } from "./device-fixtures";
 import { ledgersHttp, resetLedgers } from "./rpc-events";
 import { SoftwareAuthenticator } from "./software-authenticator";
+import {
+  feePayer,
+  passkeyOrigin,
+  reserveSponsor,
+  settingsFor,
+  sponsor,
+} from "./wallet-settings";
 import { assertTagged } from "./tagged";
 
 export { addressOf };
@@ -138,19 +143,8 @@ const storesFor = <E>(db: Layer.Layer<Database, E>) =>
   ).pipe(Layer.provide(db), Layer.provide(recordingQueue));
 
 const stores = storesFor(dbLayer);
-export const sponsor = Keypair.random();
-export const feePayer = Keypair.random();
-export const reserveSponsor = addressOf(sponsor);
-export const passkeyOrigin = "http://localhost:3000";
 
-export const settingsFor = (rpcUrl = "https://soroban-testnet.stellar.org") =>
-  Layer.succeed(WalletSettings, {
-    rpcUrl,
-    reserveSponsorSecret: Redacted.make(sponsor.secret()),
-    feePayerSecret: Redacted.make(feePayer.secret()),
-    passkeyOrigins: [passkeyOrigin],
-    humanCheckSecret: Redacted.make("human-check-secret"),
-  });
+export { feePayer, passkeyOrigin, reserveSponsor, settingsFor, sponsor };
 
 const settings = settingsFor();
 

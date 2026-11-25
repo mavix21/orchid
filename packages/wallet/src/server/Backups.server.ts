@@ -1,5 +1,5 @@
 import { Database } from "@workspace/db";
-import { and, eq, lte } from "drizzle-orm";
+import { and, eq, lt, lte } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -24,6 +24,7 @@ import { BindingUnproven } from "./username-standing.server";
 const challengeLifetimes = {
   enrollment: { minutes: 30 },
   restore: { minutes: 5 },
+  session: { minutes: 5 },
 } satisfies Record<ChallengePurpose, { readonly minutes: number }>;
 
 type BackupRow = typeof backups.$inferSelect;
@@ -188,7 +189,12 @@ export class Backups extends Context.Service<
         db
           .update(backups)
           .set({ counter })
-          .where(eq(backups.credentialId, credentialId))
+          .where(
+            and(
+              eq(backups.credentialId, credentialId),
+              lt(backups.counter, counter),
+            ),
+          )
           .pipe(Effect.asVoid);
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>

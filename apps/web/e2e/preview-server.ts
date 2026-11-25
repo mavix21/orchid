@@ -1,5 +1,6 @@
 import { Keypair } from "@stellar/stellar-sdk";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -52,5 +53,6 @@ process.exit(
     ...process.env,
     ...secrets,
     ...humanCheckTestKeys,
+    SESSION_SECRET: randomBytes(32).toString("base64url"),
   }),
 );

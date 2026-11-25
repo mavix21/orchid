@@ -137,6 +137,7 @@ export function sendTransfer(
     order: TransferOrder,
     onDraft: DraftHandler<D>,
     released: Option.Option<Approval> = Option.none(),
+    refusedBeforeRelease: Effect.Effect<void> = Effect.void,
   ): Effect.Effect<D | SendOutcome, WalletUnavailable | KeyStoreUnavailable> =>
     Effect.gen(function* () {
       let wallet = initial;
@@ -152,7 +153,13 @@ export function sendTransfer(
 
         attempts++;
 
-        const response = yield* port.transfer(order, approval);
+        const attempt = port.transfer(order, approval);
+
+        const response = yield* submitted
+          ? attempt.pipe(
+              Effect.tapErrorTag("SessionRequired", () => refusedBeforeRelease),
+            )
+          : attempt;
 
         approval = Option.none();
 
@@ -583,6 +590,9 @@ export function sendTransfer(
           order,
           observeDraft(observing),
           Option.some(approval),
+          Effect.ignore(
+            withdrawReservation(device.store, reservation, observed),
+          ),
         ),
     });
 

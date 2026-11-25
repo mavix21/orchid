@@ -82,6 +82,7 @@ export const walletServices = (
         feePayerSecret: Redacted.make(settings.feePayer.secret()),
         passkeyOrigins: settings.passkeyOrigins,
         humanCheckSecret: Redacted.make("1x0000000000000000000000000000000AA"),
+        sessionSecret: Redacted.make("live-session-secret"),
       }),
     ),
     Layer.provide(database),

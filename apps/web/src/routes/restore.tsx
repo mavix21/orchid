@@ -11,6 +11,7 @@ import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
 import { useHomeForSavedWallet } from "@/wallet/use-home-for-saved-wallet";
 import { displayLock } from "@/wallet/display-lock";
+import { sessionLapse } from "@/wallet/session-lapse";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/restore")({
@@ -45,6 +46,7 @@ const refusal = (outcome: Refusal) =>
     ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
     ServiceFailed: unavailableMessage,
+    SessionRequired: unavailableMessage,
     InvalidResponse: unavailableMessage,
   });
 
@@ -90,7 +92,10 @@ function RestoreAccount() {
     const ticket = displayLock.begin();
     const outcome = await walletClient.restore();
 
-    if (Predicate.isTagged(outcome, "Restored")) displayLock.unlock(ticket);
+    if (Predicate.isTagged(outcome, "Restored")) {
+      displayLock.unlock(ticket);
+      sessionLapse.clear();
+    }
 
     if (!mounted.current) return;
 

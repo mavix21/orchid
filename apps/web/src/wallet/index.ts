@@ -4,6 +4,8 @@ import {
   loadFromServer,
 } from "@workspace/wallet";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
+import { sessionLapse } from "./session-lapse";
 
 const loaded = loadFromServer(() => import("./client")).pipe(
   Effect.map((client) => client.walletEffects),
@@ -13,12 +15,20 @@ const withWallet = <A>(use: (wallet: WalletEffects) => Effect.Effect<A>) =>
   loaded.pipe(
     Effect.flatMap(use),
     Effect.catch((failure) => Effect.succeed(failure)),
+    Effect.tap((outcome) =>
+      Effect.sync(() => {
+        if (Predicate.isTagged(outcome, "SessionRequired")) sessionLapse.note();
+      }),
+    ),
   );
 
 export const walletEffects: WalletEffects = {
   overview: () => withWallet((wallet) => wallet.overview()),
   saved: () => withWallet((wallet) => wallet.saved()),
-  unlock: () => withWallet((wallet) => wallet.unlock()),
+  unlock: (challenge) => withWallet((wallet) => wallet.unlock(challenge)),
+  sessionChallenge: () => withWallet((wallet) => wallet.sessionChallenge()),
+  confirmSession: (challenge) =>
+    withWallet((wallet) => wallet.confirmSession(challenge)),
   reviewOpening: (usernameText) =>
     withWallet((wallet) => wallet.reviewOpening(usernameText)),
   confirmOpening: (shown) =>
@@ -56,7 +66,10 @@ export const walletEffects: WalletEffects = {
 export const walletClient: WalletClient = {
   overview: () => Effect.runPromise(walletEffects.overview()),
   saved: () => Effect.runPromise(walletEffects.saved()),
-  unlock: () => Effect.runPromise(walletEffects.unlock()),
+  unlock: (challenge) => Effect.runPromise(walletEffects.unlock(challenge)),
+  sessionChallenge: () => Effect.runPromise(walletEffects.sessionChallenge()),
+  confirmSession: (challenge) =>
+    Effect.runPromise(walletEffects.confirmSession(challenge)),
   reviewOpening: (usernameText) =>
     Effect.runPromise(walletEffects.reviewOpening(usernameText)),
   confirmOpening: (shown) =>

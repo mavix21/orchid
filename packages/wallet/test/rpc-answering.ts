@@ -128,6 +128,7 @@ export const chainWithHttp = (
     feePayerSecret: Redacted.make(feePayer.secret()),
     passkeyOrigins,
     humanCheckSecret: Redacted.make("human-check-secret"),
+    sessionSecret: Redacted.make("session-secret"),
   };
 
   const cfg = Layer.succeed(

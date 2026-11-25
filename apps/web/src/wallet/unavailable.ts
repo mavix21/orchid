@@ -31,6 +31,11 @@ export const unavailableNotice = (failure: WalletUnavailable) =>
         "Algo falló de nuestro lado. Ya quedó registrado para revisarlo.",
         false,
       ),
+    SessionRequired: () =>
+      new UnavailableNotice(
+        "Confirma con tu passkey para seguir usando tu cuenta.",
+        true,
+      ),
     InvalidResponse: () =>
       new UnavailableNotice("No pudimos leer la respuesta de Orchid.", false),
   });

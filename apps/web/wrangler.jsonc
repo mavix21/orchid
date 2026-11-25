@@ -21,6 +21,7 @@
       "RESERVE_SPONSOR_SECRET",
       "FEE_PAYER_SECRET",
       "TURNSTILE_SECRET_KEY",
+      "SESSION_SECRET",
     ],
   },
   "triggers": { "crons": ["0 * * * *"] },

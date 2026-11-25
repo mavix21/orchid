@@ -7,12 +7,10 @@ import * as Semaphore from "effect/Semaphore";
 import {
   type ActivityCursor,
   BackupStored,
-  type TransferId,
+  type PasskeyChallenge,
   type WalletPort,
   type WalletUnavailable,
-  type TransferIntent,
 } from "../contract";
-import { type LinkCode } from "./link-code";
 import {
   AssertionIntent,
   AssertionRejected,
@@ -24,135 +22,22 @@ import {
   PublicDeviceWallet,
   type SealedDevice,
 } from "./key-store";
-import {
-  type ActivityOutcome,
-  type BackUpOutcome,
-  type ConfirmExternalLinkOutcome,
-  type ConfirmOpeningOutcome,
-  type ConfirmOutcome,
-  type ConfirmReclaimOutcome,
-  type ConfirmLinkReceiveOutcome,
-  type ConfirmPaymentLinkOutcome,
-  type DeviceOverview,
-  type ExternalLinkIntent,
-  type ExternalLinkReview,
-  type LinkReceiveReview,
-  NoWallet,
-  type PaymentLinkIntent,
-  type PaymentLinkTarget,
-  type PaymentLinksOutcome,
-  type PaymentLinkOutcome,
-  type OpeningReview,
-  type PaymentReview,
-  type ReclaimReview,
-  type ResolvePaymentLinkOutcome,
-  type RevealPaymentLinkOutcome,
-  type ReviewExternalLinkOutcome,
-  type ReviewPaymentLinkOutcome,
-  type SavedLinkTarget,
-  type RestoreOutcome,
-  type ResumeOutcome,
-  type ReviewOpeningOutcome,
-  type ReviewReclaimOutcome,
-  type ReviewLinkReceiveOutcome,
-  type ReviewOutcome,
-  type SavedOutcome,
-  SavedWallet,
-  type UnlockOutcome,
-  Unlocked,
-  UnsupportedDevice,
-} from "./outcomes";
+import { NoWallet, SavedWallet, Unlocked, UnsupportedDevice } from "./outcomes";
 import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
 import type { HeldLink } from "./payment-links";
 import { loadFromServer } from "./reaching";
 import type { ClaimIssue } from "./claim-reviews";
 import type { RestoreProgress } from "./restore";
+import { deviceSession } from "./session";
+import type { WalletClient, WalletEffects } from "./client-interfaces";
 
 export * from "./outcomes";
+
+export type { WalletClient, WalletEffects } from "./client-interfaces";
 
 export * from "./passkeys";
 
 export { loadFromServer, unreachedServer } from "./reaching";
-
-export interface WalletClient {
-  overview(): Promise<DeviceOverview>;
-  saved(): Promise<SavedOutcome>;
-  unlock(): Promise<UnlockOutcome>;
-  reviewOpening(usernameText: string): Promise<ReviewOpeningOutcome>;
-  confirmOpening(review: OpeningReview): Promise<ConfirmOpeningOutcome>;
-  backUp(): Promise<BackUpOutcome>;
-  restore(): Promise<RestoreOutcome>;
-  cancelRestore(): Promise<void>;
-  review(intent: TransferIntent): Promise<ReviewOutcome>;
-  confirm(review: PaymentReview): Promise<ConfirmOutcome>;
-  resume(id: TransferId): Promise<ResumeOutcome>;
-  reviewPaymentLink(
-    intent: PaymentLinkIntent,
-  ): Promise<ReviewPaymentLinkOutcome>;
-  confirmPaymentLink(review: PaymentReview): Promise<ConfirmPaymentLinkOutcome>;
-  paymentLinks(): Promise<PaymentLinksOutcome>;
-  activity(cursor?: ActivityCursor): Promise<ActivityOutcome>;
-  resolvePaymentLink(): Promise<ResolvePaymentLinkOutcome>;
-  revealPaymentLink(target: SavedLinkTarget): Promise<RevealPaymentLinkOutcome>;
-  reviewReclaim(target: PaymentLinkTarget): Promise<ReviewReclaimOutcome>;
-  confirmReclaim(review: ReclaimReview): Promise<ConfirmReclaimOutcome>;
-  paymentLink(code: LinkCode): Promise<PaymentLinkOutcome>;
-  reviewLinkReceive(code: LinkCode): Promise<ReviewLinkReceiveOutcome>;
-  confirmLinkReceive(
-    review: LinkReceiveReview,
-    code: LinkCode,
-  ): Promise<ConfirmLinkReceiveOutcome>;
-  reviewExternalLinkClaim(
-    code: LinkCode,
-    intent: ExternalLinkIntent,
-  ): Promise<ReviewExternalLinkOutcome>;
-  confirmExternalLinkClaim(
-    review: ExternalLinkReview,
-    code: LinkCode,
-  ): Promise<ConfirmExternalLinkOutcome>;
-}
-
-export interface WalletEffects {
-  overview(): Effect.Effect<DeviceOverview>;
-  saved(): Effect.Effect<SavedOutcome>;
-  unlock(): Effect.Effect<UnlockOutcome>;
-  reviewOpening(usernameText: string): Effect.Effect<ReviewOpeningOutcome>;
-  confirmOpening(review: OpeningReview): Effect.Effect<ConfirmOpeningOutcome>;
-  backUp(): Effect.Effect<BackUpOutcome>;
-  restore(): Effect.Effect<RestoreOutcome>;
-  cancelRestore(): Effect.Effect<void>;
-  review(intent: TransferIntent): Effect.Effect<ReviewOutcome>;
-  confirm(review: PaymentReview): Effect.Effect<ConfirmOutcome>;
-  resume(id: TransferId): Effect.Effect<ResumeOutcome>;
-  reviewPaymentLink(
-    intent: PaymentLinkIntent,
-  ): Effect.Effect<ReviewPaymentLinkOutcome>;
-  confirmPaymentLink(
-    review: PaymentReview,
-  ): Effect.Effect<ConfirmPaymentLinkOutcome>;
-  paymentLinks(): Effect.Effect<PaymentLinksOutcome>;
-  activity(cursor?: ActivityCursor): Effect.Effect<ActivityOutcome>;
-  resolvePaymentLink(): Effect.Effect<ResolvePaymentLinkOutcome>;
-  revealPaymentLink(
-    target: SavedLinkTarget,
-  ): Effect.Effect<RevealPaymentLinkOutcome>;
-  reviewReclaim(target: PaymentLinkTarget): Effect.Effect<ReviewReclaimOutcome>;
-  confirmReclaim(review: ReclaimReview): Effect.Effect<ConfirmReclaimOutcome>;
-  paymentLink(code: LinkCode): Effect.Effect<PaymentLinkOutcome>;
-  reviewLinkReceive(code: LinkCode): Effect.Effect<ReviewLinkReceiveOutcome>;
-  confirmLinkReceive(
-    review: LinkReceiveReview,
-    code: LinkCode,
-  ): Effect.Effect<ConfirmLinkReceiveOutcome>;
-  reviewExternalLinkClaim(
-    code: LinkCode,
-    intent: ExternalLinkIntent,
-  ): Effect.Effect<ReviewExternalLinkOutcome>;
-  confirmExternalLinkClaim(
-    review: ExternalLinkReview,
-    code: LinkCode,
-  ): Effect.Effect<ConfirmExternalLinkOutcome>;
-}
 
 export function makeWalletEffects(
   port: WalletPort,
@@ -318,8 +203,14 @@ export function makeWalletEffects(
     });
   });
 
-  const unlock = Effect.fn("Device.unlock")(function* () {
+  const session = deviceSession(port, device);
+
+  const unlock = Effect.fn("Device.unlock")(function* (
+    challenge: PasskeyChallenge | undefined,
+  ) {
     if (device === undefined) return new UnsupportedDevice();
+
+    if (challenge !== undefined) return yield* session.unlockWith(challenge);
 
     const sealed = yield* device.store.readSealed();
 
@@ -354,6 +245,7 @@ export function makeWalletEffects(
         ServerUnreachable: (failure) => Effect.succeed(failure),
         LedgerUnreachable: (failure) => Effect.succeed(failure),
         ServiceFailed: (failure) => Effect.succeed(failure),
+        SessionRequired: (failure) => Effect.succeed(failure),
         InvalidResponse: (failure) => Effect.succeed(failure),
         PasskeyCancelled: (cancelled) => Effect.succeed(cancelled),
         PasskeyFailed: (failed) => Effect.succeed(failed),
@@ -370,6 +262,7 @@ export function makeWalletEffects(
         ServerUnreachable: (failure) => Effect.succeed(failure),
         LedgerUnreachable: (failure) => Effect.succeed(failure),
         ServiceFailed: (failure) => Effect.succeed(failure),
+        SessionRequired: (failure) => Effect.succeed(failure),
         InvalidResponse: (failure) => Effect.succeed(failure),
       }),
     );
@@ -381,6 +274,7 @@ export function makeWalletEffects(
         ServerUnreachable: (failure) => Effect.succeed(failure),
         LedgerUnreachable: (failure) => Effect.succeed(failure),
         ServiceFailed: (failure) => Effect.succeed(failure),
+        SessionRequired: (failure) => Effect.succeed(failure),
         InvalidResponse: (failure) => Effect.succeed(failure),
       }),
     );
@@ -400,17 +294,29 @@ export function makeWalletEffects(
           ServerUnreachable: (failure) => Effect.succeed(failure),
           LedgerUnreachable: (failure) => Effect.succeed(failure),
           ServiceFailed: (failure) => Effect.succeed(failure),
+          SessionRequired: (failure) => Effect.succeed(failure),
           InvalidResponse: (failure) => Effect.succeed(failure),
         }),
       ),
-    unlock: () =>
-      unlock().pipe(
+    unlock: (challenge) =>
+      unlock(challenge).pipe(
         Effect.catchTags({
           KeyStoreUnavailable: () => Effect.succeed(new UnsupportedDevice()),
           CorruptDeviceWallet: (damaged) => Effect.succeed(damaged),
           PasskeyCancelled: (cancelled) => Effect.succeed(cancelled),
           PasskeyFailed: (failed) => Effect.succeed(failed),
         }),
+      ),
+    sessionChallenge: () => networkOnly(session.challenge()),
+    confirmSession: (challenge) =>
+      settle(
+        session
+          .confirm(challenge)
+          .pipe(
+            Effect.catchTag("CorruptDeviceWallet", (damaged) =>
+              Effect.succeed(damaged),
+            ),
+          ),
       ),
     reviewOpening: (usernameText) =>
       settle(
@@ -532,7 +438,10 @@ export function makeWalletClient(
   return {
     overview: () => Effect.runPromise(effects.overview()),
     saved: () => Effect.runPromise(effects.saved()),
-    unlock: () => Effect.runPromise(effects.unlock()),
+    unlock: (challenge) => Effect.runPromise(effects.unlock(challenge)),
+    sessionChallenge: () => Effect.runPromise(effects.sessionChallenge()),
+    confirmSession: (challenge) =>
+      Effect.runPromise(effects.confirmSession(challenge)),
     reviewOpening: (usernameText) =>
       Effect.runPromise(effects.reviewOpening(usernameText)),
     confirmOpening: (shown) => Effect.runPromise(effects.confirmOpening(shown)),

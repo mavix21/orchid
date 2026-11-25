@@ -75,7 +75,9 @@ export interface PrfOutputs {
   readonly second: Option.Option<Redacted.Redacted<Uint8Array<ArrayBuffer>>>;
 }
 
-export class EntryVerified extends Data.TaggedClass("EntryVerified")<{}> {}
+export class EntryVerified extends Data.TaggedClass("EntryVerified")<{
+  readonly assertion: PasskeyAssertion;
+}> {}
 
 export class OperationVerified extends Data.TaggedClass("OperationVerified")<{
   readonly purpose: OperationPurpose;
@@ -162,9 +164,8 @@ export const verifyPinnedAssertion = Effect.fn("Device.verifyPinnedAssertion")(
     relyingParty: RelyingParty,
     credential: PinnedCredential,
     intent: AssertionIntent,
+    challenge: PasskeyChallenge = freshChallenge(),
   ) {
-    const challenge = freshChallenge();
-
     const platform = yield* ceremony.assert({
       credentialId: credential.id,
       challenge,
@@ -187,7 +188,7 @@ export const verifyPinnedAssertion = Effect.fn("Device.verifyPinnedAssertion")(
       if (Option.isNone(verified)) return new AssertionRejected();
 
       return AssertionIntent.$match(intent, {
-        Entry: () => new EntryVerified(),
+        Entry: () => new EntryVerified({ assertion: platform.assertion }),
         Operation: ({ purpose, prf }) =>
           Option.match(releasedOutputs(prf, platform.prf), {
             onNone: () => new PrfOutputMissing(),

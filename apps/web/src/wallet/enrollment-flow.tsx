@@ -33,6 +33,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { me } from "@/fixtures/account";
 import { receiveRefusal } from "@/links/receive-outcomes";
 import { displayLock } from "@/wallet/display-lock";
+import { sessionLapse } from "@/wallet/session-lapse";
 import { enrollmentClient } from "@/wallet/enrollment";
 import {
   EnrollmentEvent,
@@ -315,8 +316,10 @@ export function EnrollmentFlow({
           moment === "activation" &&
           (Predicate.isTagged(outcome, "WalletEnrolled") ||
             Predicate.isTagged(outcome, "OpeningPending"))
-        )
+        ) {
           displayLock.unlock(ticket);
+          sessionLapse.clear();
+        }
 
         if (
           current.review !== undefined &&

@@ -181,7 +181,16 @@ export const storedWalletAddress = (page: Page) =>
       }),
   );
 
-const seedActiveWalletRow = (address: AccountAddress, username: Username) => {
+interface SeededCredential {
+  readonly id: string;
+  readonly publicKey: string;
+}
+
+const seedActiveWalletRow = (
+  address: AccountAddress,
+  username: Username,
+  seeded: SeededCredential,
+) => {
   const epoch = Date.now() < testnetReset ? "before-2026-12-16" : "2026-12-16";
 
   const sql = `
@@ -194,6 +203,11 @@ const seedActiveWalletRow = (address: AccountAddress, username: Username) => {
       'seeded', 'seeded', '1', NOW(), NOW() + INTERVAL '7 days'
     );
     INSERT INTO usernames (username, address) VALUES ('${username}', '${address}');
+    INSERT INTO backups (
+      "credentialId", address, username, "publicKey", algorithm, counter, iv, ciphertext
+    ) VALUES (
+      '${seeded.id}', '${address}', '${username}', '${seeded.publicKey}', 'ES256', 0, 'AAAA', 'AAAA'
+    );
   `;
 
   const result = spawnSync(
@@ -218,11 +232,6 @@ const seedActiveWalletRow = (address: AccountAddress, username: Username) => {
       `Failed to seed open wallet row: ${result.stderr || result.stdout}`,
     );
 };
-
-interface SeededCredential {
-  readonly id: string;
-  readonly publicKey: string;
-}
 
 const seededRecord = (
   address: AccountAddress,
@@ -302,9 +311,11 @@ export const seedWallet = async (page: Page, usernameText: string) => {
   const username = Schema.decodeSync(Username)(usernameText);
 
   await fundAccountWithUsdcTrustline(keypair);
-  seedActiveWalletRow(address, username);
 
   const credential = await addSeededCredential(page);
+
+  seedActiveWalletRow(address, username, credential);
+
   const record = seededRecord(address, username, credential);
 
   await page.goto("/");

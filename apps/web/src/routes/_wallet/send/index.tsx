@@ -83,6 +83,9 @@ function ChooseAsset() {
         ServiceFailed: (unavailable) => (
           <SendUnavailable overview={unavailable} />
         ),
+        SessionRequired: (unavailable) => (
+          <SendUnavailable overview={unavailable} />
+        ),
         InvalidResponse: (unavailable) => (
           <SendUnavailable overview={unavailable} />
         ),
