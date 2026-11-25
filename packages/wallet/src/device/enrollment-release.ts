@@ -5,6 +5,7 @@ import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import {
   type EnrollStep,
+  type Enrolled,
   InvalidResponse,
   type OpenStep,
   OpeningPending,
@@ -24,7 +25,7 @@ import { reserveSponsorOf } from "./opening-drafts";
 import { DraftRejected, UnsupportedDevice, WalletOnDevice } from "./outcomes";
 import { pollSchedule } from "./polling";
 
-type Committed = Opened | OpeningPending;
+type Committed = Enrolled | Opened | OpeningPending;
 
 export const enrollmentRelease = (
   deps: EnrollmentDependencies,
@@ -58,6 +59,7 @@ export const enrollmentRelease = (
     step: EnrollStep,
   ): Effect.Effect<Committed | EnrollWalletOutcome> =>
     Match.valueTags(step, {
+      Enrolled: (enrolled) => Effect.succeed<Committed>(enrolled),
       Opened: (opened) => Effect.succeed<Committed>(opened),
       OpeningPending: (pending) => Effect.succeed<Committed>(pending),
       OpeningDraft: () => resign(held),
@@ -87,13 +89,15 @@ export const enrollmentRelease = (
     )
       return yield* refusedBeforeCommit(new WalletOnDevice());
 
-    const reserveSponsor = reserveSponsorOf(held.review.draft);
+    const reserveSponsor = Option.map(held.review, (review) =>
+      reserveSponsorOf(review.draft),
+    );
 
-    if (Option.isNone(reserveSponsor))
+    if (Option.exists(reserveSponsor, Option.isNone))
       return yield* refusedBeforeCommit(new DraftRejected());
 
     const committed = yield* deps.port
-      .enroll(held.enrollment, held.approvals)
+      .enroll(held.enrollment, Option.fromNullishOr(held.approvals))
       .pipe(Effect.result);
 
     if (Result.isFailure(committed)) return committed.failure;
@@ -101,6 +105,7 @@ export const enrollmentRelease = (
     const answered = yield* answerCommit(held, committed.success);
 
     if (
+      !Predicate.isTagged(answered, "Enrolled") &&
       !Predicate.isTagged(answered, "Opened") &&
       !Predicate.isTagged(answered, "OpeningPending")
     )
@@ -116,7 +121,9 @@ export const enrollmentRelease = (
             address: held.candidate.address,
             username: held.candidate.username,
             backup: "stored",
-            reserveSponsor: reserveSponsor.value,
+            reserveSponsor: Option.flatten(reserveSponsor).pipe(
+              Option.getOrUndefined,
+            ),
           }),
           credential: held.candidate.credential,
           envelope: held.candidate.envelope,
@@ -146,6 +153,7 @@ export const enrollmentRelease = (
     const committed = yield* exclusive(commitAndInstall(held));
 
     if (
+      !Predicate.isTagged(committed, "Enrolled") &&
       !Predicate.isTagged(committed, "Opened") &&
       !Predicate.isTagged(committed, "OpeningPending")
     )
@@ -156,9 +164,9 @@ export const enrollmentRelease = (
 
     if (receive === undefined) yield* clearPending;
 
-    const opened = Predicate.isTagged(committed, "Opened")
-      ? new WalletEnrolled({ profile: committed.profile })
-      : yield* awaitOpening(claim);
+    const opened = Predicate.isTagged(committed, "OpeningPending")
+      ? yield* awaitOpening(claim)
+      : new WalletEnrolled({ profile: committed.profile });
 
     if (receive === undefined) return opened;
 

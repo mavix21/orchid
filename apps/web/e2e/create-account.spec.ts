@@ -1,12 +1,16 @@
 import { type Page, expect, test } from "@playwright/test";
+import { AccountAddress } from "@workspace/wallet";
+import * as Schema from "effect/Schema";
 
 import {
   addAuthenticator,
   countPasskeyPrompts,
   freshUsername,
+  storedWalletAddress,
   storedWalletRecord,
   submitButton,
   usernameInput,
+  walletWithoutSignedOpening,
 } from "./device";
 
 const forgetDevice = async (page: Page) => {
@@ -38,7 +42,7 @@ test("redirects on the server by whether the device holds a wallet", async ({
   expect(withWallet.headers().location).toBe("/home");
 });
 
-test("creates and opens a wallet with exactly two passkey prompts", async ({
+test("creates an unopened wallet with exactly two passkey prompts", async ({
   page,
 }) => {
   await addAuthenticator(page, true);
@@ -67,6 +71,11 @@ test("creates and opens a wallet with exactly two passkey prompts", async ({
   await expect(page.getByText(`@${username}`)).toBeVisible();
   expect(await storedWalletRecord(page)).toBe(true);
   expect(await prompts()).toEqual({ create: 1, get: 1 });
+  expect(
+    walletWithoutSignedOpening(
+      Schema.decodeSync(AccountAddress)(await storedWalletAddress(page)),
+    ),
+  ).toBe(true);
 
   await forgetDevice(page);
   await page.goto("/");

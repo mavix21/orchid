@@ -109,7 +109,7 @@ export class Wallet extends Context.Service<
       const { quotaFull } = yield* claimableQuotaFlow;
       const links = yield* paymentLinksFlow;
       const history = yield* activityFlow;
-      const portfolio = yield* portfolioFlow;
+      const { portfolio, claimablesFor } = yield* portfolioFlow;
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.catchCause(concealFailure));
@@ -327,6 +327,14 @@ export class Wallet extends Context.Service<
         if (row.value.status === "recovered")
           return new NeedsReopening({
             profile: yield* directory.profile(row.value),
+          });
+
+        const unopened = yield* directory.unopened(row.value);
+
+        if (Option.isSome(unopened))
+          return new NotOpened({
+            profile: unopened,
+            claimable: yield* claimablesFor(address),
           });
 
         if (row.value.status !== "active") return new NotOpened();

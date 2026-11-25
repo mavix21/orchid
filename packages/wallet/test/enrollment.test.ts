@@ -1,6 +1,5 @@
 import "fake-indexeddb/auto";
 import { expect, layer } from "@effect/vitest";
-import { Database } from "@workspace/db";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -13,12 +12,13 @@ import {
   ChallengeRefused,
   HumanCheckRefused,
   Offline,
+  RecipientCheck,
   Username,
+  UsernameRecipient,
   WalletClaim,
   type WalletPort,
 } from "../src/contract";
 import type { RelyingParty } from "../src/device/assertion";
-import { DraftRejected } from "../src/device/outcomes";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
   type EnrollmentDependencies,
@@ -29,7 +29,6 @@ import {
 import { reopenLocalEnvelope } from "../src/device/local-envelope";
 import { signingKey } from "../src/device/signing";
 import { Principal, type SessionGrant } from "../src/server/Principal.server";
-import { wallets } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { network } from "../src/stellar/network";
 import { clearDatabase, relyingParty } from "./sealed-wallet-fixtures";
@@ -37,9 +36,9 @@ import { settlingOpenings } from "./settling-openings";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 import {
+  checkRecipient,
   dbLayer,
   passkeyOrigin,
-  reserveSponsor,
   useDisposableDatabase,
   walletForDb,
   walletTestLayer,
@@ -74,7 +73,7 @@ useDisposableDatabase();
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect(
-      "creates a wallet with two passkey prompts: one create and one activation get that seals, signs and releases the opening",
+      "creates a wallet with two passkey prompts and submits nothing: the username is bound and the wallet stays unopened",
       () =>
         Effect.gen(function* () {
           yield* Effect.promise(clearDatabase);
@@ -92,7 +91,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(started, "EnrollmentPending");
           expect(started.stage).toBe("activate");
-          expect((yield* tab.advance())._tag).toBe("EnrollmentPending");
+          expect(started.review).toBeUndefined();
           expect(auth.issued).toHaveLength(0);
           expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
 
@@ -103,35 +102,52 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(world.submitted).toHaveLength(0);
 
           auth.cancels = true;
-          expect((yield* tab.advance(started.review))._tag).toBe(
-            "PasskeyCancelled",
-          );
+          expect((yield* tab.advance())._tag).toBe("PasskeyCancelled");
           expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
           expect(world.submitted).toHaveLength(0);
           expect(yield* tab.pending()).toEqual(Option.some(started));
 
           auth.cancels = false;
 
-          const completed = yield* tab.advance(started.review);
+          const completed = yield* tab.advance();
 
           assertTagged(completed, "WalletEnrolled");
           expect(completed.profile.username).toBe("maria");
           expect(auth.registered).toHaveLength(1);
           expect(auth.issued).toHaveLength(1);
           expect(yield* tab.pending()).toEqual(Option.none());
-          expect(world.submitted).toHaveLength(1);
+          expect(world.submitted).toHaveLength(0);
 
           const persisted = Option.getOrThrow(
             yield* browserKeyStore.readSealed(),
           );
 
           expect(persisted.public.backup).toBe("stored");
-          expect(persisted.public.reserveSponsor).toBe(reserveSponsor);
+          expect(persisted.public.reserveSponsor).toBeUndefined();
 
           const rows = yield* tableRows;
 
           expect(rows.backups).toHaveLength(1);
           expect(rows.usernames).toHaveLength(1);
+
+          const unopened = yield* wallet.overview(completed.profile.address);
+
+          assertTagged(unopened, "NotOpened");
+          expect(unopened.profile).toEqual(Option.some(completed.profile));
+          expect(unopened.claimable).toEqual([]);
+          expect(
+            yield* checkRecipient(
+              UsernameRecipient.make({
+                value: Schema.decodeSync(Username)("maria"),
+              }),
+            ),
+          ).toEqual(
+            new RecipientCheck({
+              recipient: completed.profile,
+              memoRequired: false,
+              exchange: Option.none(),
+            }),
+          );
 
           const reopened = yield* reopenLocalEnvelope(
             auth.assertions,
@@ -197,10 +213,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           assertTagged(secondStarted, "EnrollmentPending");
 
           const outcomes = yield* Effect.all(
-            [
-              firstTab.advance(firstStarted.review),
-              secondTab.advance(secondStarted.review),
-            ],
+            [firstTab.advance(), secondTab.advance()],
             { concurrency: "unbounded" },
           );
 
@@ -224,7 +237,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           expect(persisted.public.address).toBe(winner.profile.address);
-          expect(world.submitted).toHaveLength(1);
+          expect(world.submitted).toHaveLength(0);
           expect((yield* tableRows).usernames).toHaveLength(1);
           expect((yield* tableRows).backups).toHaveLength(1);
         }),
@@ -266,7 +279,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const started = yield* tab.start("maria");
 
           assertTagged(started, "EnrollmentPending");
-          assertTagged(yield* tab.advance(started.review), "WalletEnrolled");
+          assertTagged(yield* tab.advance(), "WalletEnrolled");
 
           expect(grants.map(Option.isSome)).toEqual([true]);
 
@@ -276,7 +289,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const replayed = yield* enrollingAtRequest(enrollment, approvals);
 
-          expect(["Opened", "OpeningPending"]).toContain(replayed._tag);
+          expect(replayed._tag).toBe("Enrolled");
           expect(grants.map(Option.isSome)).toEqual([true, false]);
         }),
     );
@@ -308,9 +321,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const started = yield* firstTab.start("maria");
 
           assertTagged(started, "EnrollmentPending");
-          expect((yield* firstTab.advance(started.review))._tag).toBe(
-            "Offline",
-          );
+          expect((yield* firstTab.advance())._tag).toBe("Offline");
           expect(auth.issued).toHaveLength(1);
 
           const committed = yield* tableRows;
@@ -332,7 +343,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               ...savedRelease.enrollment,
               username: Schema.decodeSync(Username)("pedro"),
             }),
-            savedRelease.approvals,
+            Option.fromNullishOr(savedRelease.approvals),
           );
 
           expect(mismatchedRetry._tag).toBe("ChallengeRefused");
@@ -361,7 +372,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 ...savedRelease.enrollment,
                 registration: impostorRegistration,
               }),
-              savedRelease.approvals,
+              Option.fromNullishOr(savedRelease.approvals),
             ),
           ).toEqual(new ChallengeRefused());
           expect(
@@ -393,55 +404,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           expect(persisted.credential.id).toBe(auth.registered[0]?.id);
-        }),
-    );
-
-    it.effect(
-      "asks for one more confirmation when the opening lapses before the commit, then opens",
-      () =>
-        Effect.gen(function* () {
-          yield* Effect.promise(clearDatabase);
-
-          const wallet = settlingOpenings(yield* Wallet);
-          const auth = new SoftwareAuthenticator(passkeyOrigin);
-
-          const db = yield* Database;
-
-          let lapse = true;
-
-          const lapsingPort: WalletPort = {
-            ...wallet,
-            enroll: (enrollment, approvals) =>
-              Effect.gen(function* () {
-                if (lapse) {
-                  lapse = false;
-
-                  yield* db
-                    .update(wallets)
-                    .set({ attemptExpiresAt: new Date(Date.now() - 1000) })
-                    .pipe(Effect.orDie);
-                }
-
-                return yield* wallet.enroll(enrollment, approvals);
-              }),
-          };
-
-          const tab = enrollmentFor(lapsingPort, auth, memoryPendingStorage());
-          const started = yield* tab.start("maria");
-
-          assertTagged(started, "EnrollmentPending");
-          expect(yield* tab.advance(started.review)).toEqual(
-            new DraftRejected(),
-          );
-          expect((yield* tableRows).backups).toEqual([]);
-          expect((yield* tableRows).usernames).toEqual([]);
-          expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
-
-          const redrafted = Option.getOrThrow(yield* tab.pending());
-
-          expect(redrafted.stage).toBe("activate");
-          assertTagged(yield* tab.advance(redrafted.review), "WalletEnrolled");
-          expect(auth.issued).toHaveLength(2);
         }),
     );
   },

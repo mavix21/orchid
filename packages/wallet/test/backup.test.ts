@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { Keypair } from "@stellar/stellar-sdk";
+import { eq } from "drizzle-orm";
 import {
   AccountAddress,
   AssertionRefused,
@@ -46,9 +47,14 @@ import {
 import { backupSalt } from "../src/device/phrase-seal";
 import { Backups } from "../src/server/Backups.server";
 import { Principal } from "../src/server/Principal.server";
-import { backups, passkeyChallenges } from "../src/server/tables.server";
+import {
+  backups,
+  passkeyChallenges,
+  usernames,
+  wallets,
+} from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
-import { network } from "../src/stellar/network";
+import { epochAt, network } from "../src/stellar/network";
 import { memoryKeyStore } from "./device-fixtures";
 import {
   clearDatabase,
@@ -59,6 +65,7 @@ import { settlingOpenings } from "./settling-openings";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 import {
+  addressOf,
   dbLayer,
   passkeyOrigin,
   useDisposableDatabase,
@@ -248,6 +255,15 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           yield* Effect.promise(clearDatabase);
           const db = yield* Database;
 
+          yield* db.insert(wallets).values({
+            address: stranger.address,
+            status: "opening",
+            network,
+            testnetEpoch: epochAt(Date.now()),
+          });
+          yield* db
+            .insert(usernames)
+            .values({ username: "otro", address: stranger.address });
           yield* db.update(backups).set({ address: stranger.address });
 
           const tampered = restoringDevice(wallet, auth);
@@ -255,6 +271,35 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(yield* tampered.restore()).toBeInstanceOf(BackupLocated);
           expect(yield* tampered.restore()).toEqual(new BackupMismatch());
           expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
+        }),
+    );
+
+    it.effect(
+      "restore finds no backup when the name requested at enrollment is bound to another address",
+      () =>
+        Effect.gen(function* () {
+          const wallet = yield* Wallet;
+          const auth = new SoftwareAuthenticator(passkeyOrigin);
+          const enrolled = yield* enrollBackedWallet(wallet, auth, "maria");
+          const db = yield* Database;
+          const rival = addressOf(Keypair.random());
+
+          yield* db
+            .delete(usernames)
+            .where(eq(usernames.address, enrolled.profile.address));
+          yield* db.insert(wallets).values({
+            address: rival,
+            status: "opening",
+            network,
+            testnetEpoch: epochAt(Date.now()),
+          });
+          yield* db
+            .insert(usernames)
+            .values({ username: "maria", address: rival });
+
+          expect(yield* wallet.restore(yield* assertion(wallet, auth))).toEqual(
+            new NoBackup(),
+          );
         }),
     );
 

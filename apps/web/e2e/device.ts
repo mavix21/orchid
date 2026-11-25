@@ -122,17 +122,7 @@ export const serverFunction = "/_serverFn/";
 const e2eContainer = "orchid-e2e-database";
 const testnetReset = Date.UTC(2026, 11, 16);
 
-export const markWalletRecovered = (address: AccountAddress) => {
-  const sql = `
-    UPDATE wallets SET
-      status = 'recovered',
-      "attemptEnvelope" = NULL, "attemptHash" = NULL, "attemptExpiresAt" = NULL,
-      "recoveryDraft" = NULL, "recoveryEnvelope" = NULL, "recoveryHash" = NULL,
-      "recoverySequence" = NULL, "recoveryMinTime" = NULL, "recoveryMaxTime" = NULL,
-      "pairedRecoveryDraft" = NULL, "pairedRecoveryEnvelope" = NULL, "pairedRecoveryHash" = NULL
-    WHERE address = '${address}';
-  `;
-
+const runSql = (sql: string, failure: string) => {
   const result = spawnSync(
     "docker",
     [
@@ -140,6 +130,7 @@ export const markWalletRecovered = (address: AccountAddress) => {
       "-i",
       e2eContainer,
       "psql",
+      "-At",
       "-v",
       "ON_ERROR_STOP=1",
       "-U",
@@ -151,10 +142,36 @@ export const markWalletRecovered = (address: AccountAddress) => {
   );
 
   if (result.status !== 0)
-    throw new Error(
-      `Failed to mark wallet recovered: ${result.stderr || result.stdout}`,
-    );
+    throw new Error(`${failure}: ${result.stderr || result.stdout}`);
+
+  return result.stdout.trim();
 };
+
+export const markWalletRecovered = (address: AccountAddress) => {
+  runSql(
+    `
+    UPDATE wallets SET
+      status = 'recovered',
+      "attemptEnvelope" = NULL, "attemptHash" = NULL, "attemptExpiresAt" = NULL,
+      "recoveryDraft" = NULL, "recoveryEnvelope" = NULL, "recoveryHash" = NULL,
+      "recoverySequence" = NULL, "recoveryMinTime" = NULL, "recoveryMaxTime" = NULL,
+      "pairedRecoveryDraft" = NULL, "pairedRecoveryEnvelope" = NULL, "pairedRecoveryHash" = NULL
+    WHERE address = '${address}';
+  `,
+    "Failed to mark wallet recovered",
+  );
+};
+
+export const walletWithoutSignedOpening = (address: AccountAddress) =>
+  runSql(
+    `
+    SELECT count(*) FROM wallets w
+    JOIN usernames u ON u.address = w.address
+    JOIN backups b ON b.address = w.address
+    WHERE w.address = '${address}' AND w.status = 'opening' AND w."attemptHash" IS NULL;
+  `,
+    "Failed to read the unopened wallet",
+  ) === "1";
 
 export const storedWalletAddress = (page: Page) =>
   page.evaluate(
@@ -205,27 +222,7 @@ const seedActiveWalletRow = (
     );
   `;
 
-  const result = spawnSync(
-    "docker",
-    [
-      "exec",
-      "-i",
-      e2eContainer,
-      "psql",
-      "-v",
-      "ON_ERROR_STOP=1",
-      "-U",
-      "orchid",
-      "-d",
-      "orchid",
-    ],
-    { input: sql, encoding: "utf8" },
-  );
-
-  if (result.status !== 0)
-    throw new Error(
-      `Failed to seed open wallet row: ${result.stderr || result.stdout}`,
-    );
+  runSql(sql, "Failed to seed open wallet row");
 };
 
 const seededRecord = (
@@ -379,6 +376,17 @@ export const enrollWallet = async (page: Page, usernameText: string) => {
   await expect(page.getByTestId("open-send")).toBeVisible({ timeout: 120_000 });
 
   return { address: await storedWalletAddress(page), authenticator };
+};
+
+export const enrollOpenedWallet = async (page: Page, usernameText: string) => {
+  const enrolled = await enrollWallet(page, usernameText);
+
+  markWalletRecovered(Schema.decodeSync(AccountAddress)(enrolled.address));
+  await page.goto("/home");
+  await page.getByTestId("confirm-opening").click();
+  await expect(page.getByTestId("open-send")).toBeVisible({ timeout: 120_000 });
+
+  return enrolled;
 };
 
 export const withoutPrf = async (

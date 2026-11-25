@@ -10,13 +10,9 @@ import {
   AccountAddress,
   BackupEnrollment,
   ChallengeIssued,
-  InvalidResponse,
-  type OpenStep,
   RegistrationRefused,
   Username,
-  type UsernameTaken,
   WalletClaim,
-  type WalletUnavailable,
 } from "../contract";
 import { type LinkCode } from "./link-code";
 import { network } from "../stellar/network";
@@ -47,7 +43,6 @@ import {
   type Sealed,
   Verified,
   addressOf,
-  claimOf,
   credentialOf,
   isCreated,
   isHeld,
@@ -57,7 +52,6 @@ import {
   saltOf,
   sameCandidate,
   standingOfReview,
-  usernameOf,
   withReview,
   zeroed,
 } from "./enrollment-state";
@@ -90,6 +84,7 @@ import {
 import { enrollmentChallenge } from "./enrollment-challenge";
 import { candidateVerifier } from "./enrollment-verify";
 import { enrollmentRelease } from "./enrollment-release";
+import { enrollmentReviewRequest } from "./enrollment-review";
 
 export * from "./enrollment-records";
 
@@ -124,7 +119,7 @@ export function makeEnrollmentEffects(
       state = PendingState.Sealed({
         enrollment,
         candidate,
-        review: Option.some(review),
+        review: Option.fromNullishOr(review),
       });
 
       return state;
@@ -136,7 +131,7 @@ export function makeEnrollmentEffects(
     state = PendingState.Held({
       enrollment,
       candidate,
-      review,
+      review: Option.fromNullishOr(review),
       approvals,
       receive,
     });
@@ -172,45 +167,7 @@ export function makeEnrollmentEffects(
     },
   );
 
-  const requestReview = Effect.fn("Device.requestEnrollmentReview")(function* (
-    current: Awaiting,
-    redrafted: boolean,
-  ): Effect.fn.Return<
-    OpeningReview | UsernameTaken | InvalidResponse,
-    WalletUnavailable
-  > {
-    const step: OpenStep = yield* deps.port.open(
-      claimOf(current),
-      Option.none(),
-    );
-
-    const unexpected = () => Effect.succeed(new InvalidResponse());
-
-    return yield* Match.valueTags(step, {
-      OpeningDraft: (draft) => {
-        if (draft.recovery === undefined) return unexpected();
-
-        const review = new OpeningReview({
-          username: usernameOf(current),
-          address: addressOf(current),
-          draft,
-          redrafted,
-        });
-
-        return Effect.map(standingOfReview(current, review), (standing) =>
-          standing === "current" ? review : new InvalidResponse(),
-        );
-      },
-      UsernameTaken: Effect.succeed,
-      HumanCheckRefused: unexpected,
-      RecoveryDraft: unexpected,
-      OpeningPending: unexpected,
-      Opened: unexpected,
-      AddressBound: unexpected,
-      InvalidAddress: unexpected,
-      NotSponsored: unexpected,
-    });
-  });
+  const requestReview = enrollmentReviewRequest(deps.port);
 
   const refreshReview = Effect.fn("Device.refreshEnrollmentReview")(function* (
     current: Awaiting,
@@ -294,7 +251,7 @@ export function makeEnrollmentEffects(
 
   const sealCandidate = Effect.fn("Device.sealEnrollmentCandidate")(function* (
     current: Created,
-    review: OpeningReview,
+    review: Option.Option<OpeningReview>,
     devicePrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
     backupPrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
   ): Effect.fn.Return<Sealed | EnrollWalletOutcome> {
@@ -332,7 +289,13 @@ export function makeEnrollmentEffects(
     });
 
     const written = yield* storage
-      .write(new PendingActivation({ enrollment, candidate, review }))
+      .write(
+        new PendingActivation({
+          enrollment,
+          candidate,
+          review: Option.getOrUndefined(review),
+        }),
+      )
       .pipe(Effect.result);
 
     if (Result.isFailure(written))
@@ -341,7 +304,7 @@ export function makeEnrollmentEffects(
     const next = PendingState.Sealed({
       enrollment,
       candidate,
-      review: Option.some(review),
+      review,
     });
 
     state = next;
@@ -353,7 +316,7 @@ export function makeEnrollmentEffects(
 
   const sealAndSign = Effect.fn("Device.sealAndSignEnrollment")(function* (
     current: Awaiting,
-    review: OpeningReview,
+    review: Option.Option<OpeningReview>,
     devicePrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
     backupPrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
     receive: EnrollmentReceive | undefined,
@@ -368,7 +331,10 @@ export function makeEnrollmentEffects(
 
     if (!(verified instanceof Verified)) return verified;
 
-    if ((yield* standingOfReview(sealed, review)) !== "current")
+    if (
+      Option.isSome(review) &&
+      (yield* standingOfReview(sealed, review.value)) !== "current"
+    )
       return yield* refreshReview(sealed, true);
 
     const secret =
@@ -383,9 +349,8 @@ export function makeEnrollmentEffects(
         return yield* refreshReceive(sealed, receive.review);
     }
 
-    const approvals = approveWithPhrase(
-      verified.phrase,
-      requestsOf(review.draft),
+    const approvals = Option.map(review, (opening) =>
+      approveWithPhrase(verified.phrase, requestsOf(opening.draft)),
     );
 
     const heldReceive =
@@ -403,8 +368,8 @@ export function makeEnrollmentEffects(
         new PendingRelease({
           enrollment: verified.enrollment,
           candidate: verified.candidate,
-          review,
-          approvals,
+          review: Option.getOrUndefined(review),
+          approvals: Option.getOrUndefined(approvals),
           receive: heldReceive,
         }),
       )
@@ -417,7 +382,7 @@ export function makeEnrollmentEffects(
       enrollment: verified.enrollment,
       candidate: verified.candidate,
       review,
-      approvals,
+      approvals: Option.getOrUndefined(approvals),
       receive: heldReceive,
     });
 
@@ -426,12 +391,75 @@ export function makeEnrollmentEffects(
     return held;
   });
 
+  const confirmWithPasskey = Effect.fn("Device.confirmEnrollmentWithPasskey")(
+    function* (
+      current: Awaiting,
+      review: Option.Option<OpeningReview>,
+      receive: EnrollmentReceive | undefined,
+      committing: Effect.Effect<void>,
+    ): Effect.fn.Return<EnrollWalletOutcome> {
+      const verified = yield* verifyPinnedAssertion(
+        deps.assertions,
+        deps.relyingParty,
+        credentialOf(current),
+        AssertionIntent.Operation({
+          purpose: "approval",
+          prf: {
+            first: yield* localPhrasePrfInput({
+              network,
+              address: addressOf(current),
+              salt: saltOf(current),
+            }),
+            second: Option.some(yield* backupSalt),
+          },
+        }),
+      ).pipe(Effect.result);
+
+      if (Result.isFailure(verified)) return verified.failure;
+
+      return yield* Match.valueTags(verified.success, {
+        OperationVerified: ({ prf }) =>
+          Option.match(prf.second, {
+            onNone: () =>
+              clearPending.pipe(
+                Effect.as<EnrollWalletOutcome>(new BackupUnsupported()),
+                Effect.ensuring(zeroed(prf.first)),
+              ),
+            onSome: (backupPrf) =>
+              sealAndSign(current, review, prf.first, backupPrf, receive).pipe(
+                Effect.ensuring(
+                  Effect.all([zeroed(prf.first), zeroed(backupPrf)]),
+                ),
+                Effect.flatMap((signed) =>
+                  isHeld(signed)
+                    ? release(signed, committing)
+                    : Effect.succeed(signed),
+                ),
+              ),
+          }),
+        EntryVerified: () => Effect.succeed(new AssertionRejected()),
+        WrongCredential: Effect.succeed,
+        AssertionRejected: Effect.succeed,
+        PrfOutputMissing: () =>
+          clearPending.pipe(Effect.as(new BackupUnsupported())),
+      });
+    },
+  );
+
   const activate = Effect.fn("Device.activateEnrollment")(function* (
     current: Awaiting,
     shown: OpeningReview | undefined,
     receive: EnrollmentReceive | undefined,
     committing: Effect.Effect<void>,
   ): Effect.fn.Return<EnrollWalletOutcome> {
+    if (receive === undefined)
+      return yield* confirmWithPasskey(
+        current,
+        Option.none(),
+        receive,
+        committing,
+      );
+
     if (Option.isNone(current.review) || !(yield* hasLiveReview(current)))
       return yield* refreshReview(current, false);
 
@@ -440,74 +468,21 @@ export function makeEnrollmentEffects(
     if (shown === undefined || reviewJson(shown) !== reviewJson(review.value))
       return pendingNotice(current);
 
-    if (receive !== undefined) {
-      if (
-        !Option.exists(
-          receiving.review,
-          (held) =>
-            receiveReviewJson(held) === receiveReviewJson(receive.review),
-        )
+    if (
+      !Option.exists(
+        receiving.review,
+        (held) => receiveReviewJson(held) === receiveReviewJson(receive.review),
       )
-        return pendingNotice(current);
+    )
+      return pendingNotice(current);
 
-      if (Option.isNone(linkSecretFor(receive.review.link, receive.code)))
-        return new LinkSecretMismatch();
+    if (Option.isNone(linkSecretFor(receive.review.link, receive.code)))
+      return new LinkSecretMismatch();
 
-      if ((yield* receiveStanding(current, receive.review)) !== "current")
-        return yield* refreshReceive(current, receive.review);
-    }
+    if ((yield* receiveStanding(current, receive.review)) !== "current")
+      return yield* refreshReceive(current, receive.review);
 
-    const verified = yield* verifyPinnedAssertion(
-      deps.assertions,
-      deps.relyingParty,
-      credentialOf(current),
-      AssertionIntent.Operation({
-        purpose: "approval",
-        prf: {
-          first: yield* localPhrasePrfInput({
-            network,
-            address: addressOf(current),
-            salt: saltOf(current),
-          }),
-          second: Option.some(yield* backupSalt),
-        },
-      }),
-    ).pipe(Effect.result);
-
-    if (Result.isFailure(verified)) return verified.failure;
-
-    return yield* Match.valueTags(verified.success, {
-      OperationVerified: ({ prf }) =>
-        Option.match(prf.second, {
-          onNone: () =>
-            clearPending.pipe(
-              Effect.as<EnrollWalletOutcome>(new BackupUnsupported()),
-              Effect.ensuring(zeroed(prf.first)),
-            ),
-          onSome: (backupPrf) =>
-            sealAndSign(
-              current,
-              review.value,
-              prf.first,
-              backupPrf,
-              receive,
-            ).pipe(
-              Effect.ensuring(
-                Effect.all([zeroed(prf.first), zeroed(backupPrf)]),
-              ),
-              Effect.flatMap((signed) =>
-                isHeld(signed)
-                  ? release(signed, committing)
-                  : Effect.succeed(signed),
-              ),
-            ),
-        }),
-      EntryVerified: () => Effect.succeed(new AssertionRejected()),
-      WrongCredential: Effect.succeed,
-      AssertionRejected: Effect.succeed,
-      PrfOutputMissing: () =>
-        clearPending.pipe(Effect.as(new BackupUnsupported())),
-    });
+    return yield* confirmWithPasskey(current, review, receive, committing);
   });
 
   const start = Effect.fn("Device.startEnrollment")(function* (
@@ -562,7 +537,7 @@ export function makeEnrollmentEffects(
 
     state = created;
 
-    return yield* refreshReview(created, false);
+    return pendingNotice(created);
   });
 
   const advance = Effect.fn("Device.advanceEnrollment")(function* (
@@ -604,7 +579,7 @@ export function makeEnrollmentEffects(
 
     if (isHeld(current)) return Option.some(pendingNotice(current));
 
-    if (yield* hasLiveReview(current))
+    if (Option.isNone(current.review) || (yield* hasLiveReview(current)))
       return Option.some(pendingNotice(current));
 
     const refreshed = yield* refreshReview(current, false);
@@ -631,7 +606,26 @@ export function makeEnrollmentEffects(
 
     if (isHeld(current)) return pendingNotice(current);
 
-    return yield* reviewOpenLink(current, code);
+    if (Option.isSome(current.review) && (yield* hasLiveReview(current)))
+      return yield* reviewOpenLink(current, code);
+
+    const requested = yield* requestReview(current, false).pipe(Effect.result);
+
+    if (Result.isFailure(requested)) return requested.failure;
+
+    if (Predicate.isTagged(requested.success, "UsernameTaken")) {
+      yield* clearPending;
+
+      return requested.success;
+    }
+
+    if (!(requested.success instanceof OpeningReview)) return requested.success;
+
+    const reviewed = withReview(current, Option.some(requested.success));
+
+    state = reviewed;
+
+    return yield* reviewOpenLink(reviewed, code);
   });
 
   return {

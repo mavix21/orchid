@@ -147,6 +147,18 @@ export function EnrollmentFlow({
       return;
     }
 
+    if (Predicate.isTagged(answer, "UsernameTaken")) {
+      send(
+        EnrollmentEvent.Refused({
+          refusal: answer,
+          moment: "activation",
+          pending: Option.none(),
+        }),
+      );
+
+      return;
+    }
+
     send(
       EnrollmentEvent.ReceiveBlocked({
         problem: notice(receiveRefusal(answer)),
@@ -163,7 +175,6 @@ export function EnrollmentFlow({
     !stage.receiveBlocked &&
     receive !== undefined &&
     stage.pending.stage === "activate" &&
-    stage.pending.review !== undefined &&
     Option.isNone(receiveFor(stage.pending, receive));
 
   useEffect(() => {
@@ -387,16 +398,13 @@ export function EnrollmentFlow({
         Confirming: ({ pending, committing }) => {
           const opening = committing || pending.stage === "release";
 
-          if (!opening && pending.review === undefined)
-            return <OrchidPending title="Preparando tu cuenta…" />;
-
           return (
             <OrchidPending
               title={
                 opening
                   ? Option.isSome(receiveFor(pending, receive))
                     ? "Abriendo tu cuenta y recibiendo tu dinero…"
-                    : "Abriendo tu cuenta…"
+                    : "Creando tu cuenta…"
                   : "Confirma con tu passkey"
               }
               note={

@@ -14,18 +14,24 @@ import {
   AssertionRefused,
   BackupEnrollment,
   BackupFound,
+  AddressBound,
   ChallengeIssued,
   type ChallengePurpose,
   ChallengeRefused,
+  Enrolled,
   type EnrollStep,
   type EnrollmentChallengeStep,
   type HumanCheckToken,
   NoBackup,
+  type Opened,
+  type OpeningPending,
   PasskeyAssertion,
   PasskeyChallenge,
+  Profile,
   RegistrationRefused,
   SealedPhrase,
   SessionBegun,
+  UsernameTaken,
   WalletClaim,
 } from "../contract";
 import { Backups, type StoredBackup } from "./Backups.server";
@@ -35,7 +41,7 @@ import { Principal } from "./Principal.server";
 import { HumanCheck, type HumanCheckUnavailable } from "./HumanCheck.server";
 import { openingFlow } from "./wallet-opening.server";
 import { WalletSettings } from "./settings.server";
-import { unavailability } from "./username-standing.server";
+import { type Binding, unavailability } from "./username-standing.server";
 
 const ClientData = Schema.fromJsonString(
   Schema.Struct({ challenge: Schema.String }),
@@ -162,9 +168,26 @@ export const backupFlow = Effect.gen(function* () {
     },
   );
 
+  const enrolledUnopened = Effect.fn("Wallet.enrolledUnopened")(function* (
+    claim: WalletClaim,
+    alongside: Binding["alongside"],
+  ): Effect.fn.Return<
+    Enrolled | UsernameTaken | AddressBound | ChallengeRefused,
+    StoreFailure
+  > {
+    const standing = yield* directory.enrollUnopened(claim, alongside);
+
+    return Match.valueTags(standing, {
+      Available: () => new Enrolled({ profile: new Profile(claim) }),
+      UsernameTaken: (taken) => taken,
+      AddressBound: (bound) => bound,
+      HumanCheckRefused: () => new ChallengeRefused(),
+    });
+  });
+
   const enroll = Effect.fn("Wallet.enroll")(function* (
     enrollment: BackupEnrollment,
-    approvals: Approvals,
+    approvals: Option.Option<Approvals>,
   ): Effect.fn.Return<EnrollStep, StoreFailure | ChainUnreachable> {
     const { registration } = enrollment;
     const parsedChallenge = clientChallenge(registration.clientDataJSON);
@@ -200,7 +223,7 @@ export const backupFlow = Effect.gen(function* () {
 
     const consumedHere = yield* Ref.make(false);
 
-    const step = yield* openWith(claim, Option.some(approvals), {
+    const binding: Binding = {
       check: Effect.succeed(Option.none()),
       alongside: (tx) =>
         backups
@@ -215,10 +238,14 @@ export const backupFlow = Effect.gen(function* () {
             ciphertext: sealed.ciphertext,
           })
           .pipe(Effect.tap(() => Ref.set(consumedHere, true))),
-    });
+    };
+
+    const step = Option.isSome(approvals)
+      ? yield* openWith(claim, approvals, binding)
+      : yield* enrolledUnopened(claim, binding.alongside);
 
     const committed = Effect.fn("Wallet.enrollmentCommitted")(function* (
-      opened: EnrollStep,
+      opened: Enrolled | OpeningPending | Opened,
     ) {
       const [bound, stored] = yield* Effect.all([
         directory.bound(claim),
@@ -235,9 +262,11 @@ export const backupFlow = Effect.gen(function* () {
     });
 
     return yield* Match.valueTags(step, {
+      Enrolled: committed,
       OpeningPending: committed,
       Opened: committed,
       HumanCheckRefused: () => Effect.succeed(new ChallengeRefused()),
+      ChallengeRefused: Effect.succeed,
       OpeningDraft: Effect.succeed,
       RecoveryDraft: Effect.succeed,
       UsernameTaken: Effect.succeed,

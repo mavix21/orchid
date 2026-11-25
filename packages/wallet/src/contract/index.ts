@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import type * as Option from "effect/Option";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { Approval, type Approvals, SigningRequest } from "./approval";
 import {
@@ -155,7 +155,12 @@ export const EnrollmentChallengeStep = Schema.Union([
 
 export type EnrollmentChallengeStep = typeof EnrollmentChallengeStep.Type;
 
+export class Enrolled extends Schema.TaggedClass<Enrolled>()("Enrolled", {
+  profile: Profile,
+}) {}
+
 export const EnrollStep = Schema.Union([
+  Enrolled,
   OpeningDraft,
   RecoveryDraft,
   OpeningPending,
@@ -331,10 +336,27 @@ export class TransferDraft extends Schema.TaggedClass<TransferDraft>()(
   },
 ) {}
 
-export class NotOpened extends Schema.TaggedClass<NotOpened>()(
-  "NotOpened",
-  {},
-) {}
+export class ClaimableBalance extends Schema.Class<ClaimableBalance>(
+  "@workspace/wallet/ClaimableBalance",
+)({
+  balance: BalanceId,
+  asset: Asset,
+  amount: PositiveAmount,
+  from: Profile,
+  to: Profile,
+  claimableAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString),
+}) {}
+
+export class NotOpened extends Schema.TaggedClass<NotOpened>()("NotOpened", {
+  profile: Schema.OptionFromNullOr(Profile).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+    Schema.withConstructorDefault(Effect.succeed(Option.none())),
+  ),
+  claimable: Schema.Array(ClaimableBalance).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+    Schema.withConstructorDefault(Effect.succeed([])),
+  ),
+}) {}
 
 export const ActivityCursor = Schema.String.check(
   Schema.isPattern(
@@ -666,17 +688,6 @@ export class Balance extends Schema.Class<Balance>("@workspace/wallet/Balance")(
   },
 ) {}
 
-export class ClaimableBalance extends Schema.Class<ClaimableBalance>(
-  "@workspace/wallet/ClaimableBalance",
-)({
-  balance: BalanceId,
-  asset: Asset,
-  amount: PositiveAmount,
-  from: Profile,
-  to: Profile,
-  claimableAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString),
-}) {}
-
 export class Holding extends Schema.TaggedClass<Holding>()("Holding", {
   profile: Profile,
   reserveSponsor: Schema.OptionFromNullOr(AccountAddress).pipe(
@@ -786,7 +797,7 @@ export interface WalletPort<E = WalletUnavailable> {
   ): Effect.Effect<EnrollmentChallengeStep, E>;
   enroll(
     enrollment: BackupEnrollment,
-    approvals: Approvals,
+    approvals: Option.Option<Approvals>,
   ): Effect.Effect<EnrollStep, E>;
   restore(assertion: PasskeyAssertion): Effect.Effect<RestoreStep, E>;
   sessionChallenge(): Effect.Effect<PasskeyChallenge, E>;

@@ -1,16 +1,5 @@
 import { Database } from "@workspace/db";
-import {
-  type SQL,
-  and,
-  eq,
-  gt,
-  inArray,
-  isNotNull,
-  isNull,
-  lte,
-  or,
-  sql,
-} from "drizzle-orm";
+import { type SQL, and, eq, isNull, or } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -29,9 +18,10 @@ import {
   WalletClaim,
 } from "../contract";
 import type { RecoveryFacts } from "../stellar/envelopes";
-import { epochAt, network, sweepBatchSize } from "../stellar/network";
+import { epochAt, network } from "../stellar/network";
 import type { Sealed } from "./Chain.server";
 import { pruneAbandonedOpenings } from "./abandoned-openings.server";
+import { markRecoverable, markRecovered } from "./recoverable-wallets.server";
 import { pairedRecovery } from "./opening-attempt.server";
 import { walletHasSignedWork } from "./signed-work.server";
 import { SignedWorkInFlight, walletLock } from "./slot.server";
@@ -40,6 +30,7 @@ import type { Transaction } from "./transaction.server";
 import {
   type Binding,
   type BindingUnproven,
+  EnrollmentRefused,
   type Unavailable,
   availability,
   decidedWithoutBinding,
@@ -75,6 +66,15 @@ export class Directory extends Context.Service<
     ): Effect.Effect<Available | Unavailable, StoreFailure>;
 
     bound(claim: WalletClaim): Effect.Effect<boolean, StoreFailure>;
+
+    enrollUnopened(
+      claim: WalletClaim,
+      alongside: Binding["alongside"],
+    ): Effect.Effect<Available | Unavailable, StoreFailure>;
+
+    unopened(
+      row: WalletRow,
+    ): Effect.Effect<Option.Option<Profile>, StoreFailure>;
 
     start(
       address: AccountAddress,
@@ -215,6 +215,63 @@ export class Directory extends Context.Service<
           });
 
         return availability(claim, raced);
+      });
+
+      const unopenedRow = and(
+        eq(wallets.status, "opening"),
+        isNull(wallets.attemptHash),
+      );
+
+      const enrollUnopened = Effect.fn("Directory.enrollUnopened")(function* (
+        claim: WalletClaim,
+        alongside: Binding["alongside"],
+      ) {
+        const now = yield* Clock.currentTimeMillis;
+
+        return yield* db
+          .transaction((tx) =>
+            Effect.gen(function* () {
+              yield* tx
+                .insert(wallets)
+                .values({
+                  address: claim.address,
+                  status: "opening",
+                  network,
+                  testnetEpoch: epochAt(now),
+                })
+                .onConflictDoNothing();
+
+              const bound = yield* bind(tx, claim, "verified", {
+                check: Effect.succeed(Option.none()),
+                alongside,
+              });
+
+              const refused = unavailability(bound);
+
+              if (Option.isSome(refused))
+                return yield* new EnrollmentRefused({
+                  standing: refused.value,
+                });
+
+              return new Available();
+            }),
+          )
+          .pipe(
+            Effect.catchTag("EnrollmentRefused", ({ standing }) =>
+              Effect.succeed(standing),
+            ),
+          );
+      });
+
+      const unopened = Effect.fn("Directory.unopened")(function* (
+        row: WalletRow,
+      ) {
+        if (row.status !== "opening" || row.attemptHash !== null)
+          return Option.none<Profile>();
+
+        const names = yield* boundNames(db, eq(usernames.address, row.address));
+
+        return Option.fromNullishOr(names[0]).pipe(Option.map(profileOf));
       });
 
       const start = Effect.fn("Directory.start")(function* (
@@ -487,34 +544,6 @@ export class Directory extends Context.Service<
             );
       };
 
-      const recover = (row: WalletRow) =>
-        db
-          .update(wallets)
-          .set({
-            status: "recovered",
-            version: row.version + 1,
-            attemptEnvelope: null,
-            attemptHash: null,
-            attemptExpiresAt: null,
-            recoveryDraft: null,
-            recoveryEnvelope: null,
-            recoveryHash: null,
-            recoverySequence: null,
-            recoveryMinTime: null,
-            recoveryMaxTime: null,
-            pairedRecoveryDraft: null,
-            pairedRecoveryEnvelope: null,
-            pairedRecoveryHash: null,
-          })
-          .where(
-            and(
-              scope,
-              eq(wallets.address, row.address),
-              eq(wallets.version, row.version),
-            ),
-          )
-          .pipe(Effect.asVoid);
-
       const byUsername = (username: Username) =>
         db
           .select({ username: usernames.username, address: usernames.address })
@@ -524,7 +553,7 @@ export class Directory extends Context.Service<
             and(
               scope,
               eq(usernames.username, username),
-              eq(wallets.status, "active"),
+              or(eq(wallets.status, "active"), unopenedRow),
             ),
           )
           .pipe(
@@ -576,6 +605,9 @@ export class Directory extends Context.Service<
               ),
             ).pipe(Effect.map((found) => found.length > 0)),
           ),
+        enrollUnopened: (claim, alongside) =>
+          wrap(proven(enrollUnopened(claim, alongside))),
+        unopened: (row) => wrap(unopened(row)),
         start: (address, initial) => wrap(start(address, initial)),
         draft: (row, request) => wrap(draft(row, request)),
         seal: (row, sealed, claim, recovery, repairing, binding) =>
@@ -586,52 +618,13 @@ export class Directory extends Context.Service<
         activatePaired: (row, facts, claim, binding) =>
           wrap(proven(activatePaired(row, facts, claim, binding))),
         hasSignedWork: (address) => wrap(walletHasSignedWork(db, address)),
-        recover: (row) => wrap(recover(row)),
+        recover: (row) =>
+          wrap(markRecovered(row).pipe(Effect.provideService(Database, db))),
         pruneAbandonedOpenings: wrap(
           pruneAbandonedOpenings().pipe(Effect.provideService(Database, db)),
         ),
         recoverable: wrap(
-          Effect.gen(function* () {
-            const now = yield* DateTime.now;
-            const nowDate = DateTime.toDateUtc(now);
-
-            return yield* db
-              .update(wallets)
-              .set({ sweepCheckedAt: nowDate })
-              .where(
-                and(
-                  scope,
-                  eq(wallets.status, "active"),
-                  lte(wallets.recoveryMinTime, nowDate),
-                  gt(wallets.recoveryMaxTime, nowDate),
-                  inArray(
-                    wallets.address,
-                    db
-                      .select({ address: wallets.address })
-                      .from(wallets)
-                      .where(
-                        and(
-                          scope,
-                          eq(
-                            wallets.testnetEpoch,
-                            epochAt(DateTime.toEpochMillis(now)),
-                          ),
-                          eq(wallets.status, "active"),
-                          isNotNull(wallets.recoveryEnvelope),
-                          lte(wallets.recoveryMinTime, nowDate),
-                          gt(wallets.recoveryMaxTime, nowDate),
-                        ),
-                      )
-                      .orderBy(
-                        sql`${wallets.sweepCheckedAt} asc nulls first`,
-                        wallets.address,
-                      )
-                      .limit(sweepBatchSize),
-                  ),
-                ),
-              )
-              .returning();
-          }),
+          markRecoverable().pipe(Effect.provideService(Database, db)),
         ),
       });
     }),
