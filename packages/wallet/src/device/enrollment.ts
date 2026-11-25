@@ -598,6 +598,9 @@ export function makeEnrollmentEffects(
 
     if (isHeld(current)) return pendingNotice(current);
 
+    if (Option.isSome(current.review) && (yield* hasLiveReview(current)))
+      return yield* reviewOpenLink(current, code);
+
     const requested = yield* requestReview(current, false).pipe(Effect.result);
 
     if (Result.isFailure(requested)) return requested.failure;
