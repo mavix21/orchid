@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronLeftIcon } from "lucide-react";
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { Field, FieldError, FieldLabel } from "@workspace/ui/components/field";
 import {
@@ -36,12 +36,14 @@ import { displayLock } from "@/wallet/display-lock";
 import { enrollmentClient } from "@/wallet/enrollment";
 import {
   EnrollmentEvent,
-  EnrollmentStage,
+  EnrollmentStep,
   type Moment,
   advanceEnrollment,
   notice,
   receiveFor,
+  resignedProblem,
   stoppedBy,
+  unsupportedDeviceProblem,
 } from "@/wallet/enrollment-machine";
 import { PendingStep, StepLabel } from "@/wallet/enrollment-pending-step";
 import {
@@ -62,8 +64,8 @@ const issueMessage = (issue: UsernameIssue) =>
     UsernameTooShort: () => `Mínimo ${usernameMinLength} caracteres.`,
   });
 
-const resignedNotice = notice(
-  "La solicitud se actualizó. Confirma otra vez con tu passkey.",
+const lapsedProblem = notice(
+  "Tu solicitud venció. Vuelve a elegir tu @usuario.",
 );
 
 interface EnrollmentFlowProps {
@@ -85,11 +87,26 @@ export function EnrollmentFlow({
 }: EnrollmentFlowProps) {
   const [stage, dispatch] = useReducer(
     advanceEnrollment,
-    EnrollmentStage.Checking(),
+    EnrollmentStep.Checking(),
   );
 
   const [username, setUsername] = useState("");
   const [touched, setTouched] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const send = (event: EnrollmentEvent) => {
+    if (mounted.current) dispatch(event);
+  };
+
   const humanCheck = useHumanCheckStatus();
 
   useEffect(() => {
@@ -110,16 +127,12 @@ export function EnrollmentFlow({
           }),
         );
 
-        dispatch(
+        send(
           EnrollmentEvent.Checked({
             pending,
             saved: Option.isNone(pending) ? savedName : Option.none(),
             problem: Predicate.isTagged(saved, "UnsupportedDevice")
-              ? Option.some(
-                  stoppedBy(
-                    "Este navegador no puede guardar tu llave de forma segura.",
-                  ),
-                )
+              ? Option.some(unsupportedDeviceProblem)
               : Option.none(),
           }),
         );
@@ -133,26 +146,24 @@ export function EnrollmentFlow({
 
   const readReceive = (answer: ReviewEnrollmentReceiveOutcome) => {
     if (Predicate.isTagged(answer, "EnrollmentPending")) {
-      dispatch(
-        EnrollmentEvent.Pending({ pending: answer, problem: Option.none() }),
-      );
+      send(EnrollmentEvent.Refreshed({ pending: answer }));
 
       return;
     }
 
-    dispatch(
+    send(
       EnrollmentEvent.ReceiveBlocked({
         problem: notice(receiveRefusal(answer)),
       }),
     );
   };
 
-  const activeRecord = EnrollmentStage.$is("Activating")(stage)
+  const activeRecord = EnrollmentStep.$is("Activating")(stage)
     ? stage.pending
     : undefined;
 
   const awaitingReceive =
-    EnrollmentStage.$is("Activating")(stage) &&
+    EnrollmentStep.$is("Activating")(stage) &&
     !stage.receiveBlocked &&
     receive !== undefined &&
     stage.pending.stage === "activate" &&
@@ -196,25 +207,26 @@ export function EnrollmentFlow({
     let current = true;
 
     const timer = setTimeout(() => {
-      dispatch(EnrollmentEvent.Refreshing());
+      send(EnrollmentEvent.Refreshing());
       void enrollmentClient.pending().then(async (next) => {
         if (!current) return;
 
         if (Option.isNone(next)) {
-          dispatch(EnrollmentEvent.Discarded());
+          send(EnrollmentEvent.Noted({ problem: lapsedProblem }));
 
           return;
         }
 
-        dispatch(
-          EnrollmentEvent.Pending({
-            pending: next.value,
-            problem: Option.none(),
-          }),
-        );
+        const reviewed =
+          Option.isSome(shownReceive) && receive !== undefined
+            ? Option.some(await enrollmentClient.reviewReceive(receive.code))
+            : Option.none<ReviewEnrollmentReceiveOutcome>();
 
-        if (Option.isSome(shownReceive) && receive !== undefined)
-          readReceive(await enrollmentClient.reviewReceive(receive.code));
+        if (!current) return;
+
+        send(EnrollmentEvent.Refreshed({ pending: next.value }));
+
+        if (Option.isSome(reviewed)) readReceive(reviewed.value);
       });
     }, remaining);
 
@@ -229,12 +241,12 @@ export function EnrollmentFlow({
 
     if (Predicate.isTagged(saved, "SavedWallet")) {
       setUsername(saved.username);
-      dispatch(EnrollmentEvent.Finished({ username: saved.username }));
+      send(EnrollmentEvent.Finished({ username: saved.username }));
 
       return;
     }
 
-    dispatch(
+    send(
       EnrollmentEvent.Noted({
         problem: stoppedBy(
           "Ya existe una cuenta guardada en este dispositivo.",
@@ -247,15 +259,17 @@ export function EnrollmentFlow({
     await Match.value(outcome).pipe(
       Match.tag("EnrollmentPending", (next) => {
         setUsername(next.username);
-        dispatch(
+        send(
           EnrollmentEvent.Pending({ pending: next, problem: Option.none() }),
         );
       }),
-      Match.tag("WalletEnrolled", onEnrolled),
+      Match.tag("WalletEnrolled", (enrolled) => {
+        if (mounted.current) onEnrolled(enrolled);
+      }),
       Match.tag("OpeningPending", finishOpening),
       Match.tag("WalletOnDevice", finishOpening),
       Match.orElse(async (refusal) => {
-        dispatch(
+        send(
           EnrollmentEvent.Refused({
             refusal,
             moment,
@@ -278,7 +292,7 @@ export function EnrollmentFlow({
 
     if (Option.isSome(typedIssue)) return;
 
-    dispatch(EnrollmentEvent.Submitted());
+    send(EnrollmentEvent.Submitted());
     void enrollmentClient
       .start(username)
       .then((outcome) => answer(outcome, "start"));
@@ -291,14 +305,14 @@ export function EnrollmentFlow({
     const shownReceive = Option.getOrUndefined(receiveFor(current, receive));
     const ticket = displayLock.begin();
 
-    dispatch(EnrollmentEvent.Confirmed());
+    send(EnrollmentEvent.Confirmed());
     void enrollmentClient
       .advance(
         current.review,
         receive !== undefined && shownReceive !== undefined
           ? { review: shownReceive, code: receive.code }
           : undefined,
-        () => dispatch(EnrollmentEvent.Committing()),
+        () => send(EnrollmentEvent.Committing()),
       )
       .then(async (outcome) => {
         if (
@@ -313,10 +327,10 @@ export function EnrollmentFlow({
           Predicate.isTagged(outcome, "EnrollmentPending") &&
           outcome.stage === "activate"
         ) {
-          dispatch(
+          send(
             EnrollmentEvent.Pending({
               pending: outcome,
-              problem: Option.some(resignedNotice),
+              problem: Option.some(resignedProblem),
             }),
           );
 
@@ -328,28 +342,33 @@ export function EnrollmentFlow({
   };
 
   const chooseAnother = () => {
+    if (discarding) return;
+
+    setDiscarding(true);
     void enrollmentClient.discard().then(async (discarded) => {
-      if (discarded) {
-        dispatch(EnrollmentEvent.Discarded());
+      const next = discarded
+        ? Option.none<EnrollmentPending>()
+        : await enrollmentClient.pending();
 
-        return;
-      }
+      if (!mounted.current) return;
 
-      const next = await enrollmentClient.pending();
-
-      if (Option.isSome(next))
-        dispatch(
-          EnrollmentEvent.Pending({
-            pending: next.value,
-            problem: Option.none(),
-          }),
-        );
+      setDiscarding(false);
+      send(
+        Option.match(next, {
+          onNone: () => EnrollmentEvent.Discarded(),
+          onSome: (current) =>
+            EnrollmentEvent.Pending({
+              pending: current,
+              problem: Option.none(),
+            }),
+        }),
+      );
     });
   };
 
   const busy =
-    EnrollmentStage.$is("Confirming")(stage) ||
-    (EnrollmentStage.$is("Choosing")(stage) && stage.busy);
+    EnrollmentStep.$is("Confirming")(stage) ||
+    (EnrollmentStep.$is("Choosing")(stage) && stage.busy);
 
   return (
     <Screen>
@@ -360,18 +379,24 @@ export function EnrollmentFlow({
         disabled={busy}
         {...back(busy)}
       />
-      {EnrollmentStage.$match(stage, {
+      {EnrollmentStep.$match(stage, {
         Checking: () => <OrchidPending title="Preparando tu cuenta…" />,
         Finishing: ({ username: name }) => (
           <>
             <div className="flex flex-1 flex-col">
-              <OpeningFlow username={name} onOpened={onOpened} />
+              <OpeningFlow
+                username={name}
+                onOpened={onOpened}
+                humanCheck={<HumanCheckWidget />}
+              />
             </div>
-            <HumanCheckWidget />
           </>
         ),
         Confirming: ({ pending, committing }) => {
           const opening = committing || pending.stage === "release";
+
+          if (!opening && pending.review === undefined)
+            return <OrchidPending title="Preparando tu cuenta…" />;
 
           return (
             <OrchidPending
@@ -396,7 +421,8 @@ export function EnrollmentFlow({
             receive={receive}
             onConfirm={() => confirm(current.pending)}
             onChooseAnother={chooseAnother}
-            onRecheckReceive={() => dispatch(EnrollmentEvent.ReceiveRetried())}
+            discarding={discarding}
+            onRecheckReceive={() => send(EnrollmentEvent.ReceiveRetried())}
           />
         ),
         Choosing: ({ problem: found, busy: starting }) => {
@@ -440,10 +466,13 @@ export function EnrollmentFlow({
                         value={username}
                         onChange={(event) => {
                           setUsername(event.target.value.toLowerCase());
-                          dispatch(EnrollmentEvent.Edited());
+                          send(EnrollmentEvent.Edited());
                         }}
                         onBlur={() => setTouched(username.length > 0)}
-                        disabled={starting}
+                        disabled={
+                          starting ||
+                          Option.exists(found, (shown) => shown.stopped)
+                        }
                         aria-invalid={fieldMessage ? true : undefined}
                         aria-describedby={
                           fieldMessage ? "username-error" : undefined

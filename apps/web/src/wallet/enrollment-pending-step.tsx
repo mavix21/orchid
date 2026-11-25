@@ -39,12 +39,14 @@ export function PendingStep({
   onConfirm,
   onChooseAnother,
   onRecheckReceive,
+  discarding,
 }: {
   current: Activating;
   receive: ReadLinkCode | undefined;
   onConfirm: () => void;
   onChooseAnother: () => void;
   onRecheckReceive: () => void;
+  discarding: boolean;
 }) {
   const { pending, problem, receiveBlocked, refreshing } = current;
   const shownReceive = receiveFor(pending, receive);
@@ -52,7 +54,12 @@ export function PendingStep({
   const preparing = !releasing && pending.review === undefined;
 
   const waitingForReceive =
-    receive !== undefined && !releasing && Option.isNone(shownReceive);
+    receive !== undefined &&
+    !releasing &&
+    !preparing &&
+    Option.isNone(shownReceive);
+
+  const checkingReceive = waitingForReceive && !receiveBlocked;
 
   const copy = releasing
     ? {
@@ -127,18 +134,24 @@ export function PendingStep({
           data-testid="enrollment-continue"
           disabled={
             refreshing ||
-            Option.exists(problem, (shown) => shown.stopped) ||
-            (waitingForReceive && !receiveBlocked)
+            discarding ||
+            checkingReceive ||
+            Option.exists(problem, (shown) => shown.stopped)
           }
           onClick={onConfirm}
         >
-          {copy.action}
+          {refreshing
+            ? "Actualizando…"
+            : checkingReceive
+              ? "Revisando el link…"
+              : copy.action}
         </Button>
         {releasing ? null : (
           <Button
             className="w-full"
             type="button"
             variant="ghost"
+            disabled={refreshing || discarding}
             onClick={onChooseAnother}
           >
             Elegir otro @usuario

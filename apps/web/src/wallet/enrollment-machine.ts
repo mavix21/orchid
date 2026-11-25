@@ -48,7 +48,17 @@ export const stoppedBy = (message: string) =>
     takenName: false,
   });
 
-export type EnrollmentStage = Data.TaggedEnum<{
+const resignedMessage =
+  "La solicitud se actualizó. Confirma otra vez con tu passkey.";
+
+const unsupportedDeviceMessage =
+  "Este navegador no puede guardar tu llave de forma segura.";
+
+export const resignedProblem = notice(resignedMessage);
+
+export const unsupportedDeviceProblem = stoppedBy(unsupportedDeviceMessage);
+
+export type EnrollmentStep = Data.TaggedEnum<{
   Checking: {};
   Choosing: {
     readonly problem: Option.Option<Problem>;
@@ -67,10 +77,10 @@ export type EnrollmentStage = Data.TaggedEnum<{
   Finishing: { readonly username: string };
 }>;
 
-export const EnrollmentStage = Data.taggedEnum<EnrollmentStage>();
+export const EnrollmentStep = Data.taggedEnum<EnrollmentStep>();
 
 export type Activating = Extract<
-  EnrollmentStage,
+  EnrollmentStep,
   { readonly _tag: "Activating" }
 >;
 
@@ -97,6 +107,7 @@ export type EnrollmentEvent = Data.TaggedEnum<{
   ReceiveBlocked: { readonly problem: Problem };
   ReceiveRetried: {};
   Refreshing: {};
+  Refreshed: { readonly pending: EnrollmentPending };
   Finished: { readonly username: string };
   Discarded: {};
 }>;
@@ -114,8 +125,7 @@ const refusalMessage = (refusal: Refusal, moment: Moment) =>
         : `@${username} se ocupó mientras abríamos tu cuenta. Elige otro @usuario.`,
     HumanCheckRefused: () =>
       "No pudimos verificar que eres una persona. Inténtalo de nuevo.",
-    DraftRejected: () =>
-      "La solicitud se actualizó. Confirma otra vez con tu passkey.",
+    DraftRejected: () => resignedMessage,
     NoWallet: () => "Tu registro se interrumpió. Vuelve a elegir tu @usuario.",
     BackupUnsupported: () =>
       "Este dispositivo o navegador no es compatible con passkeys con PRF. Orchid necesita una passkey compatible para crear y proteger tu cuenta.",
@@ -135,8 +145,7 @@ const refusalMessage = (refusal: Refusal, moment: Moment) =>
     ChallengeRefused: () => "Tu solicitud venció. Vuelve a elegir tu @usuario.",
     RegistrationRefused: () =>
       "No pudimos registrar tu passkey. Vuelve a elegir tu @usuario.",
-    UnsupportedDevice: () =>
-      "Este navegador no puede guardar tu llave de forma segura.",
+    UnsupportedDevice: () => unsupportedDeviceMessage,
     LinkSecretMismatch: () =>
       "Este link está incompleto. Ábrelo de nuevo desde el mensaje que te enviaron.",
     Offline: unavailableMessage,
@@ -162,7 +171,7 @@ const activating = (
   pending: EnrollmentPending,
   problem: Option.Option<Problem>,
 ) =>
-  EnrollmentStage.Activating({
+  EnrollmentStep.Activating({
     pending,
     problem,
     receiveBlocked: false,
@@ -170,21 +179,21 @@ const activating = (
   });
 
 const choosing = (problem: Option.Option<Problem>) =>
-  EnrollmentStage.Choosing({ problem, busy: false });
+  EnrollmentStep.Choosing({ problem, busy: false });
 
 const whenActivating = (
-  stage: EnrollmentStage,
-  next: (current: Activating) => EnrollmentStage,
-) => (EnrollmentStage.$is("Activating")(stage) ? next(stage) : stage);
+  stage: EnrollmentStep,
+  next: (current: Activating) => EnrollmentStep,
+) => (EnrollmentStep.$is("Activating")(stage) ? next(stage) : stage);
 
 export const advanceEnrollment = (
-  stage: EnrollmentStage,
+  stage: EnrollmentStep,
   event: EnrollmentEvent,
-): EnrollmentStage =>
+): EnrollmentStep =>
   Match.valueTags(event, {
     Checked: ({ pending, saved, problem }) =>
       Option.match(saved, {
-        onSome: (username) => EnrollmentStage.Finishing({ username }),
+        onSome: (username) => EnrollmentStep.Finishing({ username }),
         onNone: () =>
           Option.match(pending, {
             onSome: (current) => activating(current, problem),
@@ -192,19 +201,19 @@ export const advanceEnrollment = (
           }),
       }),
     Edited: () =>
-      EnrollmentStage.$is("Choosing")(stage) &&
+      EnrollmentStep.$is("Choosing")(stage) &&
       Option.exists(stage.problem, (shown) => !shown.stopped)
         ? choosing(Option.none())
         : stage,
     Submitted: () =>
-      EnrollmentStage.Choosing({ problem: Option.none(), busy: true }),
+      EnrollmentStep.Choosing({ problem: Option.none(), busy: true }),
     Confirmed: () =>
       whenActivating(stage, ({ pending }) =>
-        EnrollmentStage.Confirming({ pending, committing: false }),
+        EnrollmentStep.Confirming({ pending, committing: false }),
       ),
     Committing: () =>
-      EnrollmentStage.$is("Confirming")(stage)
-        ? EnrollmentStage.Confirming({
+      EnrollmentStep.$is("Confirming")(stage)
+        ? EnrollmentStep.Confirming({
             pending: stage.pending,
             committing: true,
           })
@@ -221,7 +230,7 @@ export const advanceEnrollment = (
     Noted: ({ problem }) => choosing(Option.some(problem)),
     ReceiveBlocked: ({ problem }) =>
       whenActivating(stage, (current) =>
-        EnrollmentStage.Activating({
+        EnrollmentStep.Activating({
           ...current,
           problem: Option.some(problem),
           receiveBlocked: true,
@@ -229,7 +238,7 @@ export const advanceEnrollment = (
       ),
     ReceiveRetried: () =>
       whenActivating(stage, (current) =>
-        EnrollmentStage.Activating({
+        EnrollmentStep.Activating({
           ...current,
           problem: Option.none(),
           receiveBlocked: false,
@@ -237,9 +246,11 @@ export const advanceEnrollment = (
       ),
     Refreshing: () =>
       whenActivating(stage, (current) =>
-        EnrollmentStage.Activating({ ...current, refreshing: true }),
+        EnrollmentStep.Activating({ ...current, refreshing: true }),
       ),
-    Finished: ({ username }) => EnrollmentStage.Finishing({ username }),
+    Refreshed: ({ pending }) =>
+      whenActivating(stage, () => activating(pending, Option.none())),
+    Finished: ({ username }) => EnrollmentStep.Finishing({ username }),
     Discarded: () => choosing(Option.none()),
   });
 

@@ -108,8 +108,8 @@ export const takeHumanCheck = async (): Promise<
 
   if (Option.isSome(taken)) {
     held = Option.none();
-    settle(takes);
     become("waiting");
+    settle(takes);
   }
 
   return taken;

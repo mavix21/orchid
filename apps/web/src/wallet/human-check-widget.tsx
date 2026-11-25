@@ -93,7 +93,7 @@ export function HumanCheckWidget() {
       .then(([sitekey, turnstile]) => {
         if (!active) return;
 
-        widgetId = turnstile.render(host, {
+        const rendered = turnstile.render(host, {
           sitekey,
           appearance: "interaction-only",
           language: "es",
@@ -103,6 +103,14 @@ export function HumanCheckWidget() {
           "error-callback": failHumanCheck,
           "before-interactive-callback": interactHumanCheck,
         });
+
+        if (rendered === undefined) {
+          failHumanCheck();
+
+          return;
+        }
+
+        widgetId = rendered;
 
         release = onHumanCheckTaken(() => {
           if (widgetId !== undefined) turnstile.reset(widgetId);
@@ -123,28 +131,35 @@ export function HumanCheckWidget() {
 
   return (
     <div className="relative flex h-18 w-full shrink-0 items-center justify-center">
-      <div key={attempt} ref={setHost} />
-      {status === "waiting" ? (
-        <p
-          role="status"
-          className="absolute text-label text-muted-foreground motion-safe:animate-pulse"
-        >
-          Verificando que eres una persona…
-        </p>
-      ) : null}
-      {status === "ready" ? (
-        <p
-          role="status"
-          className="absolute flex items-center gap-1.5 text-label text-muted-foreground"
-        >
-          <CheckIcon aria-hidden="true" className="size-4 text-primary" />
-          Verificamos que eres una persona
-        </p>
-      ) : null}
+      <div
+        key={attempt}
+        ref={setHost}
+        aria-hidden={status !== "interactive"}
+        className={
+          status === "interactive" ? undefined : "pointer-events-none opacity-0"
+        }
+      />
+      <div
+        role="status"
+        aria-live="polite"
+        className="pointer-events-none absolute inset-x-0 flex justify-center"
+      >
+        {status === "waiting" ? (
+          <p className="text-label text-muted-foreground motion-safe:animate-pulse">
+            Verificando que eres una persona…
+          </p>
+        ) : null}
+        {status === "ready" ? (
+          <p className="flex items-center gap-1.5 text-label text-muted-foreground">
+            <CheckIcon aria-hidden="true" className="size-4 text-primary" />
+            Verificamos que eres una persona
+          </p>
+        ) : null}
+      </div>
       {status === "unavailable" ? (
         <div
           role="alert"
-          className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center"
+          className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-background text-center"
         >
           <p className="text-label text-destructive">
             No pudimos verificar que eres una persona.
