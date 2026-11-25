@@ -175,10 +175,13 @@ export const sweepFlow = (actions: {
     return Effect.gen(function* () {
       const runStartedAt = yield* DateTime.now;
 
-      const pruned = yield* transfers.pruneExpiredDrafts.pipe(
-        Effect.andThen(assets.pruneExpiredDrafts),
-        Effect.andThen(directory.pruneAbandonedOpenings),
-        Effect.exit,
+      const pruned = yield* Effect.forEach(
+        [
+          transfers.pruneExpiredDrafts,
+          assets.pruneExpiredDrafts,
+          directory.pruneAbandonedOpenings,
+        ],
+        (prune) => prune.pipe(Effect.exit),
       );
 
       const balanceExits = yield* goneBalanceIds.pipe(
@@ -203,7 +206,7 @@ export const sweepFlow = (actions: {
       const drained = yield* drainStuckRecords(runStartedAt).pipe(Effect.exit);
 
       const failed = [
-        ...(Exit.isFailure(pruned) ? [pruned.cause] : []),
+        ...pruned.flatMap((exit) => (Exit.isFailure(exit) ? [exit.cause] : [])),
         ...(Exit.isFailure(balanceExits)
           ? [balanceExits.cause]
           : balanceExits.value.flatMap((exit) =>

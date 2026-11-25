@@ -19,6 +19,7 @@ import {
   accountState,
   amount,
   addressOf,
+  approveOpening,
   authorizeTransfer,
   claimFor,
   create,
@@ -253,10 +254,20 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const abandoned = claimFor(Keypair.random(), "abandoned");
           const waiting = claimFor(Keypair.random(), "waiting");
           const attempting = claimFor(Keypair.random(), "attempting");
+          const sealedKey = Keypair.random();
+          const sealed = claimFor(sealedKey, "sealed");
           const funded = yield* fundedWallet("bound");
 
           for (const claim of [abandoned, waiting, attempting])
             assertTagged(yield* opening(claim), "OpeningDraft");
+
+          const sealedDraft = yield* opening(sealed);
+
+          assertTagged(sealedDraft, "OpeningDraft");
+          assertTagged(
+            yield* opening(sealed, approveOpening(sealedKey, sealedDraft)),
+            "OpeningPending",
+          );
 
           const draftOnWaiting = crypto.randomUUID();
 
@@ -269,6 +280,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           for (const address of [
             abandoned.address,
             waiting.address,
+            sealed.address,
             addressOf(funded),
           ])
             yield* expireAttempt(address);
@@ -279,6 +291,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             false,
           );
           expect(Option.isSome(yield* findWallet(waiting.address))).toBe(true);
+          expect(Option.isSome(yield* findWallet(sealed.address))).toBe(true);
           expect(Option.isSome(yield* findWallet(attempting.address))).toBe(
             true,
           );

@@ -1,5 +1,5 @@
 import { Database } from "@workspace/db";
-import { and, eq, exists, lte, not } from "drizzle-orm";
+import { and, eq, exists, isNull, lte, not } from "drizzle-orm";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import { epochAt, network } from "../stellar/network";
@@ -55,6 +55,7 @@ export const pruneAbandonedOpenings = Effect.fn(
         eq(wallets.testnetEpoch, epochAt(DateTime.toEpochMillis(now))),
         eq(wallets.status, "opening"),
         lte(wallets.attemptExpiresAt, stuckSince(now)),
+        isNull(wallets.attemptHash),
         ...referencing.map((query) => not(exists(query))),
       ),
     );
