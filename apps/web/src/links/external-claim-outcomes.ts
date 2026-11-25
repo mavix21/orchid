@@ -221,6 +221,7 @@ const mapResult = (
     LedgerUnreachable: onUnavailable,
     ServiceFailed: onUnavailable,
     SessionRequired: onUnavailable,
+    RateLimited: onUnavailable,
     InvalidResponse: onUnavailable,
   });
 };

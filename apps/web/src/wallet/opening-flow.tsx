@@ -178,6 +178,7 @@ const readOutcome = (
     LedgerUnreachable: unavailable,
     ServiceFailed: unavailable,
     SessionRequired: unavailable,
+    RateLimited: unavailable,
     InvalidResponse: unavailable,
   });
 };

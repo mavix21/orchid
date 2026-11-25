@@ -46,6 +46,7 @@ const refusal = (outcome: Refusal) =>
     LedgerUnreachable: unavailableMessage,
     ServiceFailed: unavailableMessage,
     SessionRequired: unavailableMessage,
+    RateLimited: unavailableMessage,
     InvalidResponse: unavailableMessage,
   });
 

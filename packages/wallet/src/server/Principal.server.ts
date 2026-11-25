@@ -10,9 +10,11 @@ import {
   type Approval,
   type AssetOrder,
   type CredentialId,
+  RateLimited,
   SessionRequired,
 } from "../contract";
 import { Directory, type StoreFailure } from "./Directory.server";
+import { RateLimits } from "./RateLimits.server";
 import { WalletSettings } from "./settings.server";
 import {
   type SessionClaims,
@@ -24,6 +26,11 @@ import {
 
 export const SessionCookie = Context.Reference<Option.Option<string>>(
   "@workspace/wallet/server/SessionCookie",
+  { defaultValue: () => Option.none() },
+);
+
+export const ClientAddress = Context.Reference<Option.Option<string>>(
+  "@workspace/wallet/server/ClientAddress",
   { defaultValue: () => Option.none() },
 );
 
@@ -39,11 +46,14 @@ export class Principal extends Context.Service<
       address: AccountAddress,
       credentialId: CredentialId,
     ): Effect.Effect<void>;
-    speaksFor(address: AccountAddress): Effect.Effect<void, SessionRequired>;
+    speaksFor(
+      address: AccountAddress,
+    ): Effect.Effect<void, SessionRequired | RateLimited>;
     admitsDrafting(
       order: AssetOrder,
       approval: Option.Option<Approval>,
-    ): Effect.Effect<void, SessionRequired | StoreFailure>;
+    ): Effect.Effect<void, SessionRequired | RateLimited | StoreFailure>;
+    readonly admitsPublicCall: Effect.Effect<void, RateLimited>;
     readonly issued: Effect.Effect<Option.Option<SessionGrant>>;
   }
 >()("@workspace/wallet/server/Principal") {
@@ -52,6 +62,7 @@ export class Principal extends Context.Service<
     Effect.gen(function* () {
       const settings = yield* WalletSettings;
       const directory = yield* Directory;
+      const limits = yield* RateLimits;
       const pending = yield* Ref.make(Option.none<SessionClaims>());
 
       const presented = Effect.gen(function* () {
@@ -78,7 +89,7 @@ export class Principal extends Context.Service<
         );
       });
 
-      const speaksFor = Effect.fn("Principal.speaksFor")(function* (
+      const recognises = Effect.fn("Principal.recognises")(function* (
         address: AccountAddress,
       ) {
         const claims = yield* presented;
@@ -94,6 +105,35 @@ export class Principal extends Context.Service<
           );
       });
 
+      const withinPrincipalLimit = Effect.fn("Principal.withinPrincipalLimit")(
+        function* (address: AccountAddress) {
+          if (yield* limits.admitsPrincipal(address)) return;
+
+          yield* Effect.logWarning("Principal rate limit reached");
+
+          return yield* new RateLimited();
+        },
+      );
+
+      const admitsPublicCall = Effect.gen(function* () {
+        const clientAddress = yield* ClientAddress;
+
+        if (Option.isNone(clientAddress)) return;
+
+        if (yield* limits.admitsClient(clientAddress.value)) return;
+
+        yield* Effect.logWarning("Client rate limit reached");
+
+        return yield* new RateLimited();
+      });
+
+      const speaksFor = Effect.fn("Principal.speaksFor")(function* (
+        address: AccountAddress,
+      ) {
+        yield* recognises(address);
+        yield* withinPrincipalLimit(address);
+      });
+
       const isOpening = Effect.fn("Principal.isOpening")(function* (
         address: AccountAddress,
       ) {
@@ -106,12 +146,13 @@ export class Principal extends Context.Service<
         order: AssetOrder,
         approval: Option.Option<Approval>,
       ) {
-        const refusal = yield* speaksFor(order.wallet).pipe(
+        const refusal = yield* recognises(order.wallet).pipe(
           Effect.flip,
           Effect.option,
         );
 
-        if (Option.isNone(refusal)) return;
+        if (Option.isNone(refusal))
+          return yield* withinPrincipalLimit(order.wallet);
 
         const receivesBeforeOpened =
           Predicate.isTagged(order.action, "ReceiveLink") &&
@@ -119,6 +160,8 @@ export class Principal extends Context.Service<
           (yield* isOpening(order.wallet));
 
         if (!receivesBeforeOpened) return yield* refusal.value;
+
+        yield* admitsPublicCall;
       });
 
       const issued = Effect.gen(function* () {
@@ -135,7 +178,13 @@ export class Principal extends Context.Service<
         });
       });
 
-      return Principal.of({ grant, speaksFor, admitsDrafting, issued });
+      return Principal.of({
+        grant,
+        speaksFor,
+        admitsDrafting,
+        admitsPublicCall,
+        issued,
+      });
     }),
   );
 }

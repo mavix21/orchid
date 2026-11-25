@@ -7,6 +7,7 @@ import type * as HttpClientError from "effect/http/HttpClientError";
 import type * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as TestClock from "effect/testing/TestClock";
 import { Chain } from "../src/server/Chain.server";
+import { RateLimits } from "../src/server/RateLimits.server";
 import { Wallet } from "../src/server/Wallet.server";
 import {
   httpClientAnswering,
@@ -23,6 +24,7 @@ export const stellarWallet = (
   ) => Effect.Effect<Response, HttpClientError.HttpClientError>,
 ) =>
   Layer.fresh(Wallet.serviceLayer).pipe(
+    Layer.provide(RateLimits.unlimited),
     Layer.provide(fakeHumanCheck),
     Layer.provide(Layer.fresh(Chain.layer)),
     Layer.provide(settingsFor(testRpcUrl)),

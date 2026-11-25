@@ -117,6 +117,7 @@ const latestNotice = (
     LedgerUnreachable: () => Option.none(),
     ServiceFailed: () => Option.none(),
     SessionRequired: () => Option.none(),
+    RateLimited: () => Option.none(),
     InvalidResponse: () => Option.none(),
   });
 
@@ -134,6 +135,7 @@ const listProblem = (
     LedgerUnreachable: unavailableMessage,
     ServiceFailed: unavailableMessage,
     SessionRequired: unavailableMessage,
+    RateLimited: unavailableMessage,
     InvalidResponse: unavailableMessage,
   });
 

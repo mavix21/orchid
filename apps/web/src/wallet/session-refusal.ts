@@ -27,5 +27,6 @@ export const sessionRefusal = (outcome: SessionRefusal) =>
     LedgerUnreachable: unavailableMessage,
     ServiceFailed: unavailableMessage,
     SessionRequired: unavailableMessage,
+    RateLimited: unavailableMessage,
     InvalidResponse: unavailableMessage,
   });

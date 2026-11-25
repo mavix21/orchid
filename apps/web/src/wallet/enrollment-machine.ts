@@ -156,6 +156,7 @@ const refusalMessage = (refusal: Refusal, moment: Moment) =>
     LedgerUnreachable: unavailableMessage,
     ServiceFailed: unavailableMessage,
     SessionRequired: unavailableMessage,
+    RateLimited: unavailableMessage,
     InvalidResponse: unavailableMessage,
   });
 

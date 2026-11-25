@@ -731,10 +731,16 @@ export class SessionRequired extends Schema.TaggedError<SessionRequired>()(
   {},
 ) {}
 
+export class RateLimited extends Schema.TaggedError<RateLimited>()(
+  "RateLimited",
+  {},
+) {}
+
 export const ServerFailure = Schema.Union([
   LedgerUnreachable,
   ServiceFailed,
   SessionRequired,
+  RateLimited,
 ]);
 
 export type ServerFailure = typeof ServerFailure.Type;
@@ -745,6 +751,7 @@ export const WalletUnavailable = Schema.Union([
   LedgerUnreachable,
   ServiceFailed,
   SessionRequired,
+  RateLimited,
   InvalidResponse,
 ]);
 

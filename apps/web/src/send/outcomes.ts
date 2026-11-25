@@ -197,6 +197,12 @@ export const sendResult = (
         `Necesitamos confirmar que eres tú. ${maybeMoving}`,
         "retry",
       ),
+    RateLimited: () =>
+      new SendScreen(
+        "Demasiadas solicitudes seguidas",
+        `Espera un momento e inténtalo de nuevo. ${maybeMoving}`,
+        "retry",
+      ),
     InvalidResponse: () =>
       new SendScreen("No pudimos leer la respuesta", maybeMoving, "home"),
     NoWallet: () =>

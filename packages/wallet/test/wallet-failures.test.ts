@@ -3,7 +3,8 @@ import * as Effect from "effect/Effect";
 import * as Latch from "effect/Latch";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import { ServiceFailed } from "../src/contract";
+import { RateLimited, ServiceFailed } from "../src/contract";
+import { concealFailure } from "../src/server/failures.server";
 import {
   jsonResponse,
   queriedHash,
@@ -45,6 +46,17 @@ const signedTransfer = Effect.fn(function* (username: string) {
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
+    it.effect("answers a rate refusal as RateLimited, not ServiceFailed", () =>
+      Effect.gen(function* () {
+        const refusal = yield* new RateLimited().pipe(
+          Effect.catchCause(concealFailure),
+          Effect.flip,
+        );
+
+        assertTagged(refusal, "RateLimited");
+      }),
+    );
+
     it.effect("keeps sweeping other records after one record's read dies", () =>
       Effect.gen(function* () {
         const unreadable = yield* signedTransfer("maria");
