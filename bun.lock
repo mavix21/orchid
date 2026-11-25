@@ -12,6 +12,7 @@
         "@effect/tsgo": "0.73.2",
         "@oxlint/plugins": "1.93.0",
         "@shadcn/lint": "^0.2.5",
+        "@workspace/wallet": "workspace:*",
         "eslint-plugin-playwright": "2.12.2",
         "oxc-parser": "0.148.0",
         "oxfmt": "^0.78.0",

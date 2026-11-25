@@ -4,21 +4,28 @@ import {
   readFileSync,
   renameSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  devVarsPath,
+  isPortListening,
+  linkMainCheckoutDevVars,
+  postgresName,
+  postgresState,
+  repoRoot,
+  startPostgres,
+  waitForPostgres,
+} from "./local-environment.mjs";
+
 const devPort = 3000;
 const servePort = 8443;
 const devTarget = `http://localhost:${devPort}`;
-const repoRoot = new URL("../", import.meta.url).pathname;
 const pidFile = join(tmpdir(), "orchid-dev-phone.pid");
 const readyTimeoutMs = 120_000;
 const shutDownGraceMs = 10_000;
-const postgresName = "orchid-postgres";
-const postgresReadyTimeoutMs = 30_000;
 const setupHint = 'One-time setup: see "Test from your phone" in README.md.';
 
 const fail = (message) => {
@@ -165,11 +172,6 @@ const claimState = () => {
   }
 };
 
-const isPortBusy = () =>
-  spawnSync("lsof", ["-nP", `-iTCP:${devPort}`, "-sTCP:LISTEN"], {
-    encoding: "utf8",
-  }).stdout.trim() !== "";
-
 const assertNotPublic = () => {
   if (isAnyFunnelOpen())
     fail(
@@ -223,91 +225,40 @@ const waitUntilReady = async (isAlive) => {
 };
 
 const ensureDevVars = () => {
-  const local = join(repoRoot, "apps/web/.dev.vars");
+  if (existsSync(devVarsPath)) return;
 
-  if (existsSync(local)) return;
-
-  const mainCheckout = spawnSync("git", ["worktree", "list", "--porcelain"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  })
-    .stdout.split("\n")
-    .find((line) => line.startsWith("worktree "))
-    ?.slice("worktree ".length);
-
-  const shared = mainCheckout && join(mainCheckout, "apps/web/.dev.vars");
-
-  if (!shared || shared === local || !existsSync(shared))
+  if (!linkMainCheckoutDevVars())
     fail(
-      "apps/web/.dev.vars is missing, so the wallet has no sponsor keys. Create it as described in Run it locally in README.md.",
+      "apps/web/.dev.vars is missing, so the wallet has no sponsor keys. Run `bun run setup`.",
     );
 
-  rmSync(local, { force: true });
-  symlinkSync(shared, local);
   process.stdout.write(
     "dev:phone linked apps/web/.dev.vars to the main checkout.\n",
   );
 };
 
-const docker = (...args) => {
-  const result = spawnSync("docker", args, { encoding: "utf8" });
-
-  if (result.error?.code === "ENOENT")
-    fail("the docker CLI is not installed. See Run it locally in README.md.");
-
-  return result;
-};
-
 const ensurePostgres = async () => {
-  const state = docker(
-    "inspect",
-    "--format",
-    "{{.State.Running}}",
-    postgresName,
-  );
+  try {
+    const state = postgresState();
 
-  if (state.status !== 0) {
-    if (/no such object/i.test(state.stderr))
+    if (state === "missing")
       fail(
-        `the ${postgresName} container does not exist. Create it with the docker run step in Run it locally in README.md.`,
+        `the ${postgresName} container does not exist. Run \`bun run setup\`.`,
       );
 
-    fail(`docker is not available. Start Docker Desktop.\n${state.stderr}`);
-  }
-
-  if (state.stdout.trim() !== "true") {
-    const started = docker("start", postgresName);
-
-    if (started.status !== 0)
-      fail(`could not start ${postgresName}.\n${started.stderr}`);
-
-    process.stdout.write(`dev:phone started the ${postgresName} container.\n`);
-  }
-
-  const deadline = Date.now() + postgresReadyTimeoutMs;
-
-  while (Date.now() < deadline) {
-    const ready = docker(
-      "exec",
-      postgresName,
-      "pg_isready",
-      "-q",
-      "-U",
-      "orchid",
-      "-d",
-      "orchid",
-    );
-
-    if (ready.status === 0) {
-      process.stdout.write(`${postgresName} accepts connections.\n`);
-
-      return;
+    if (state === "stopped") {
+      startPostgres();
+      process.stdout.write(
+        `dev:phone started the ${postgresName} container.\n`,
+      );
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await waitForPostgres();
+  } catch (error) {
+    fail(error.message);
   }
 
-  fail(`${postgresName} did not accept connections in time.`);
+  process.stdout.write(`${postgresName} accepts connections.\n`);
 };
 
 const start = async () => {
@@ -339,7 +290,7 @@ const start = async () => {
       fail("another dev:phone is starting. Retry in a moment.");
   }
 
-  if (isPortBusy()) {
+  if (isPortListening(devPort)) {
     rmSync(pidFile, { force: true });
     fail(
       `port ${devPort} is in use. Stop the process using it (a plain \`bun run dev\` included) and retry.`,

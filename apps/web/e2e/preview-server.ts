@@ -1,10 +1,9 @@
-import { Keypair } from "@stellar/stellar-sdk";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { fundWithFriendbot } from "@workspace/wallet/testnet";
+import { fundedTestnetKeypair } from "@workspace/wallet/testnet";
 
 const humanCheckTestKeys: Record<
   "TURNSTILE_SITE_KEY" | "TURNSTILE_SECRET_KEY",
@@ -19,11 +18,8 @@ const developerSecrets = fileURLToPath(
 );
 
 const fundedTestnetSecrets = async () => {
-  const reserveSponsor = Keypair.random();
-  const feePayer = Keypair.random();
-
-  await fundWithFriendbot(reserveSponsor.publicKey());
-  await fundWithFriendbot(feePayer.publicKey());
+  const reserveSponsor = await fundedTestnetKeypair();
+  const feePayer = await fundedTestnetKeypair();
 
   return {
     RESERVE_SPONSOR_SECRET: reserveSponsor.secret(),
