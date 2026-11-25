@@ -177,8 +177,10 @@ export interface EnrollmentEffects {
   advance(
     shown?: OpeningReview,
     receive?: EnrollmentReceive,
+    committing?: Effect.Effect<void>,
   ): Effect.Effect<EnrollWalletOutcome>;
   reviewReceive(code: LinkCode): Effect.Effect<ReviewEnrollmentReceiveOutcome>;
+  discard(): Effect.Effect<boolean>;
 }
 
 export interface EnrollmentClient {
@@ -187,6 +189,8 @@ export interface EnrollmentClient {
   advance(
     shown?: OpeningReview,
     receive?: EnrollmentReceive,
+    onCommitting?: () => void,
   ): Promise<EnrollWalletOutcome>;
   reviewReceive(code: LinkCode): Promise<ReviewEnrollmentReceiveOutcome>;
+  discard(): Promise<boolean>;
 }

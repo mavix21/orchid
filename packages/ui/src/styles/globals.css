@@ -178,6 +178,24 @@
   }
 }
 
+@keyframes orchid-sway {
+  50% {
+    transform: rotate(calc(var(--angle) * 0.86)) scale(0.94);
+  }
+}
+
+@keyframes orchid-glow-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes orchid-settle-in {
+  from {
+    opacity: 0;
+  }
+}
+
 @utility orchid-fall {
   animation: orchid-fall 0.75s var(--ease-in-quad) both;
 
@@ -216,6 +234,23 @@
   @media (prefers-reduced-motion: reduce) {
     animation: none;
   }
+}
+
+@utility orchid-sway {
+  animation: orchid-sway 2.2s var(--ease-in-out-quad) infinite;
+  animation-delay: calc(var(--stagger) * 3);
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility orchid-glow-pulse {
+  animation: orchid-glow-pulse 2.2s var(--ease-in-out-quad) infinite;
+}
+
+@utility orchid-settle-in {
+  animation: orchid-settle-in 0.4s var(--ease-out-quad) 0.2s both;
 }
 
 @utility orchid-sepal {

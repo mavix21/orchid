@@ -26,18 +26,32 @@ export const enrollmentEffects: EnrollmentEffects = {
     ),
   start: (usernameText) =>
     withEnrollment((enrollment) => enrollment.start(usernameText)),
-  advance: (shown, receive) =>
-    withEnrollment((enrollment) => enrollment.advance(shown, receive)),
+  advance: (shown, receive, committing) =>
+    withEnrollment((enrollment) =>
+      enrollment.advance(shown, receive, committing),
+    ),
   reviewReceive: (code) =>
     withEnrollment((enrollment) => enrollment.reviewReceive(code)),
+  discard: () =>
+    loaded.pipe(
+      Effect.flatMap((enrollment) => enrollment.discard()),
+      Effect.orElseSucceed(() => false),
+    ),
 };
 
 export const enrollmentClient: EnrollmentClient = {
   pending: () => Effect.runPromise(enrollmentEffects.pending()),
   start: (usernameText) =>
     Effect.runPromise(enrollmentEffects.start(usernameText)),
-  advance: (shown, receive) =>
-    Effect.runPromise(enrollmentEffects.advance(shown, receive)),
+  advance: (shown, receive, onCommitting) =>
+    Effect.runPromise(
+      enrollmentEffects.advance(
+        shown,
+        receive,
+        onCommitting === undefined ? Effect.void : Effect.sync(onCommitting),
+      ),
+    ),
   reviewReceive: (code) =>
     Effect.runPromise(enrollmentEffects.reviewReceive(code)),
+  discard: () => Effect.runPromise(enrollmentEffects.discard()),
 };
