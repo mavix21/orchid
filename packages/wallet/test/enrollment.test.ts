@@ -9,36 +9,25 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import {
   BackupEnrollment,
-  BackupFound,
+  ChallengeRefused,
   HumanCheckRefused,
   Offline,
   Username,
-  UsernameTaken,
+  WalletClaim,
   type WalletPort,
 } from "../src/contract";
 import type { RelyingParty } from "../src/device/assertion";
+import { DraftRejected } from "../src/device/outcomes";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
   type EnrollmentDependencies,
   EnrollmentPending,
-  type PendingEnrollmentRecord,
   type PendingEnrollmentStorage,
-  PendingActivation,
-  PendingCandidate,
   makeEnrollmentEffects,
 } from "../src/device/enrollment";
-import {
-  LocalPhraseEnvelope,
-  reopenLocalEnvelope,
-} from "../src/device/local-envelope";
-import { backupSalt, openPhrase } from "../src/device/phrase-seal";
+import { reopenLocalEnvelope } from "../src/device/local-envelope";
 import { signingKey } from "../src/device/signing";
-import {
-  backups,
-  passkeyChallenges,
-  usernames,
-  wallets,
-} from "../src/server/tables.server";
+import { wallets } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { network } from "../src/stellar/network";
 import { clearDatabase, relyingParty } from "./sealed-wallet-fixtures";
@@ -53,51 +42,11 @@ import {
   world,
 } from "./wallet-harness";
 
-const withTamperedEnvelope = (record: PendingEnrollmentRecord) => {
-  const ciphertext = Uint8Array.from(record.candidate.envelope.ciphertext);
-
-  ciphertext[0] = (ciphertext[0] ?? 0) ^ 0xff;
-
-  return new PendingActivation({
-    enrollment: record.enrollment,
-    review: record.review,
-    candidate: new PendingCandidate({
-      ...record.candidate,
-      envelope: new LocalPhraseEnvelope({
-        ...record.candidate.envelope,
-        ciphertext,
-      }),
-    }),
-  });
-};
-
-const memoryPendingStorage = (): PendingEnrollmentStorage & {
-  tamperEnvelope: boolean;
-  readSync(): Option.Option<PendingEnrollmentRecord>;
-} => {
-  let saved = Option.none<PendingEnrollmentRecord>();
-
-  const storage = {
-    tamperEnvelope: false,
-    read: () =>
-      Effect.sync(() =>
-        storage.tamperEnvelope
-          ? Option.map(saved, withTamperedEnvelope)
-          : saved,
-      ),
-    write: (record: PendingEnrollmentRecord) =>
-      Effect.sync(() => {
-        saved = Option.some(record);
-      }),
-    clear: () =>
-      Effect.sync(() => {
-        saved = Option.none();
-      }),
-    readSync: () => saved,
-  };
-
-  return storage;
-};
+import {
+  memoryPendingStorage,
+  restoreBackupPhrase,
+  tableRows,
+} from "./enrollment-fixtures";
 
 const enrollmentFor = (
   port: WalletPort,
@@ -114,39 +63,6 @@ const enrollmentFor = (
     relyingParty: party,
     pending,
     exclusive,
-  });
-
-const tableRows = Effect.gen(function* () {
-  const db = yield* Database;
-
-  return {
-    backups: yield* db.select().from(backups),
-    usernames: yield* db.select().from(usernames),
-    wallets: yield* db.select().from(wallets),
-  };
-});
-
-const restoreBackupPhrase = (port: WalletPort, auth: SoftwareAuthenticator) =>
-  Effect.gen(function* () {
-    const challenge = yield* port.restoreChallenge();
-
-    const authenticated = Option.getOrThrow(
-      yield* auth.passkeys.authenticate(challenge, yield* backupSalt),
-    );
-
-    const restored = yield* port.restore(authenticated.assertion);
-
-    expect(restored).toBeInstanceOf(BackupFound);
-
-    if (!(restored instanceof BackupFound))
-      throw new Error("Expected BackupFound");
-
-    return {
-      profile: restored.profile,
-      phrase: Option.getOrThrow(
-        yield* openPhrase(authenticated.prf, restored.sealed),
-      ),
-    };
   });
 
 useDisposableDatabase();
@@ -366,6 +282,37 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(mismatchedRetry._tag).toBe("ChallengeRefused");
 
+          const impostor = new SoftwareAuthenticator(passkeyOrigin);
+
+          const issued = yield* wallet.enrollmentChallenge(
+            new WalletClaim({
+              username: savedRelease.enrollment.username,
+              address: savedRelease.enrollment.address,
+            }),
+          );
+
+          assertTagged(issued, "ChallengeIssued");
+
+          const impostorRegistration = Option.getOrThrow(
+            yield* impostor.registration.register({
+              challenge: issued.challenge,
+              username: savedRelease.enrollment.username,
+            }),
+          );
+
+          expect(
+            yield* wallet.enroll(
+              new BackupEnrollment({
+                ...savedRelease.enrollment,
+                registration: impostorRegistration,
+              }),
+              savedRelease.approvals,
+            ),
+          ).toEqual(new ChallengeRefused());
+          expect(
+            (yield* tableRows).backups.map((row) => row.credentialId),
+          ).toEqual(committed.backups.map((row) => row.credentialId));
+
           dropCommittedResponse = false;
 
           const reloadedTab = enrollmentFor(wallet, auth, pending);
@@ -394,190 +341,52 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
-    it.effect("refuses a taken name before any passkey is created", () =>
-      Effect.gen(function* () {
-        yield* Effect.promise(clearDatabase);
-
-        const wallet = settlingOpenings(yield* Wallet);
-
-        const owner = enrollmentFor(
-          wallet,
-          new SoftwareAuthenticator(passkeyOrigin),
-        );
-
-        const started = yield* owner.start("maria");
-
-        assertTagged(started, "EnrollmentPending");
-        assertTagged(yield* owner.advance(started.review), "WalletEnrolled");
-        yield* Effect.promise(clearDatabase);
-
-        const latecomer = new SoftwareAuthenticator(passkeyOrigin);
-
-        expect(yield* enrollmentFor(wallet, latecomer).start("maria")).toEqual(
-          new UsernameTaken({
-            username: Schema.decodeSync(Username)("maria"),
-          }),
-        );
-        expect(latecomer.registered).toHaveLength(0);
-      }),
-    );
-
     it.effect(
-      "returns to choosing a name with nothing stored when another device binds it first",
+      "asks for one more confirmation when the opening lapses before the commit, then opens",
       () =>
         Effect.gen(function* () {
           yield* Effect.promise(clearDatabase);
 
           const wallet = settlingOpenings(yield* Wallet);
+          const auth = new SoftwareAuthenticator(passkeyOrigin);
 
-          const loser = enrollmentFor(
-            wallet,
-            new SoftwareAuthenticator(passkeyOrigin),
-            memoryPendingStorage(),
+          const db = yield* Database;
+
+          let lapse = true;
+
+          const lapsingPort: WalletPort = {
+            ...wallet,
+            enroll: (enrollment, approvals) =>
+              Effect.gen(function* () {
+                if (lapse) {
+                  lapse = false;
+
+                  yield* db
+                    .update(wallets)
+                    .set({ attemptExpiresAt: new Date(Date.now() - 1000) })
+                    .pipe(Effect.orDie);
+                }
+
+                return yield* wallet.enroll(enrollment, approvals);
+              }),
+          };
+
+          const tab = enrollmentFor(lapsingPort, auth, memoryPendingStorage());
+          const started = yield* tab.start("maria");
+
+          assertTagged(started, "EnrollmentPending");
+          expect(yield* tab.advance(started.review)).toEqual(
+            new DraftRejected(),
           );
-
-          const loserStarted = yield* loser.start("maria");
-
-          assertTagged(loserStarted, "EnrollmentPending");
-
-          const winner = enrollmentFor(
-            wallet,
-            new SoftwareAuthenticator(passkeyOrigin),
-          );
-
-          const winnerStarted = yield* winner.start("maria");
-
-          assertTagged(winnerStarted, "EnrollmentPending");
-          assertTagged(
-            yield* winner.advance(winnerStarted.review),
-            "WalletEnrolled",
-          );
-
-          const winnerRows = yield* tableRows;
-
-          yield* Effect.promise(clearDatabase);
-
-          expect(yield* loser.advance(loserStarted.review)).toEqual(
-            new UsernameTaken({
-              username: Schema.decodeSync(Username)("maria"),
-            }),
-          );
-          expect(yield* loser.pending()).toEqual(Option.none());
-          expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
-          expect((yield* tableRows).backups).toEqual(winnerRows.backups);
-          expect((yield* tableRows).usernames).toEqual(winnerRows.usernames);
-        }),
-    );
-
-    const refusalCases = [
-      [
-        "the authenticator returns no PRF on the activation get",
-        (wallet: WalletPort) =>
-          Effect.gen(function* () {
-            const auth = new SoftwareAuthenticator(passkeyOrigin);
-
-            auth.prf = false;
-
-            const enrollment = enrollmentFor(wallet, auth);
-
-            const started = yield* enrollment.start("maria");
-
-            assertTagged(started, "EnrollmentPending");
-
-            return {
-              outcome: yield* enrollment.advance(started.review),
-              expectedTag: "BackupUnsupported",
-              enrollment,
-            };
-          }),
-      ],
-      [
-        "the registration comes from an unlisted origin",
-        (wallet: WalletPort) =>
-          Effect.gen(function* () {
-            const unlisted = {
-              origin: "https://example.com",
-              rpId: "example.com",
-            };
-
-            const auth = new SoftwareAuthenticator(unlisted.origin);
-
-            const enrollment = enrollmentFor(wallet, auth, undefined, unlisted);
-
-            const started = yield* enrollment.start("maria");
-
-            assertTagged(started, "EnrollmentPending");
-
-            return {
-              outcome: yield* enrollment.advance(started.review),
-              expectedTag: "RegistrationRefused",
-              enrollment,
-            };
-          }),
-      ],
-      [
-        "the enrollment challenge expires before the commit",
-        (wallet: WalletPort) =>
-          Effect.gen(function* () {
-            const auth = new SoftwareAuthenticator(passkeyOrigin);
-            const enrollment = enrollmentFor(wallet, auth);
-            const started = yield* enrollment.start("maria");
-
-            assertTagged(started, "EnrollmentPending");
-
-            const db = yield* Database;
-
-            yield* db
-              .update(passkeyChallenges)
-              .set({ expiresAt: new Date(Date.now() - 1000) });
-
-            return {
-              outcome: yield* enrollment.advance(started.review),
-              expectedTag: "ChallengeRefused",
-              enrollment,
-            };
-          }),
-      ],
-      [
-        "the persisted candidate envelope is tampered before it is read back",
-        (wallet: WalletPort) =>
-          Effect.gen(function* () {
-            const auth = new SoftwareAuthenticator(passkeyOrigin);
-            const pending = memoryPendingStorage();
-
-            const enrollment = enrollmentFor(wallet, auth, pending);
-
-            const started = yield* enrollment.start("maria");
-
-            assertTagged(started, "EnrollmentPending");
-            pending.tamperEnvelope = true;
-
-            return {
-              outcome: yield* enrollment.advance(started.review),
-              expectedTag: "CorruptEnvelope",
-              enrollment,
-            };
-          }),
-      ],
-    ] as const;
-
-    it.effect.each(refusalCases)(
-      "refuses activation without storing a local wallet, binding a username or releasing a signature when %s",
-      ([, runCase]) =>
-        Effect.gen(function* () {
-          yield* Effect.promise(clearDatabase);
-
-          const wallet = settlingOpenings(yield* Wallet);
-
-          const { outcome, expectedTag, enrollment } = yield* runCase(wallet);
-
-          expect(outcome._tag).toBe(expectedTag);
-          expect(yield* enrollment.pending()).toEqual(Option.none());
-          expect(yield* browserKeyStore.readPublic()).toEqual(Option.none());
-          expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
-          expect((yield* tableRows).usernames).toEqual([]);
           expect((yield* tableRows).backups).toEqual([]);
-          expect(world.submitted).toHaveLength(0);
+          expect((yield* tableRows).usernames).toEqual([]);
+          expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
+
+          const redrafted = Option.getOrThrow(yield* tab.pending());
+
+          expect(redrafted.stage).toBe("activate");
+          assertTagged(yield* tab.advance(redrafted.review), "WalletEnrolled");
+          expect(auth.issued).toHaveLength(2);
         }),
     );
   },

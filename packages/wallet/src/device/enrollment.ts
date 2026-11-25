@@ -236,15 +236,15 @@ export function makeEnrollmentEffects(
   });
 
   const resign = Effect.fn("Device.resignEnrollment")(function* (held: Held) {
-    const sealed = PendingState.Sealed({
-      enrollment: held.enrollment,
-      candidate: held.candidate,
-      review: Option.none(),
-    });
+    const refreshed = yield* refreshReview(
+      PendingState.Sealed({
+        enrollment: held.enrollment,
+        candidate: held.candidate,
+        review: Option.none(),
+      }),
+      true,
+    );
 
-    state = sealed;
-
-    const refreshed = yield* refreshReview(sealed, true);
     const current = state;
 
     if (
@@ -254,7 +254,7 @@ export function makeEnrollmentEffects(
     )
       return refreshed;
 
-    yield* storage
+    const written = yield* storage
       .write(
         new PendingActivation({
           enrollment: held.enrollment,
@@ -262,7 +262,13 @@ export function makeEnrollmentEffects(
           review: current.review.value,
         }),
       )
-      .pipe(Effect.ignore);
+      .pipe(Effect.result);
+
+    if (Result.isFailure(written)) {
+      state = held;
+
+      return new UnsupportedDevice();
+    }
 
     return new DraftRejected();
   });

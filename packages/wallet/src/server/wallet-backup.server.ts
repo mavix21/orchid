@@ -176,24 +176,22 @@ export const backupFlow = Effect.gen(function* () {
 
     const { publicKey, algorithm, counter } = verified.value;
     const sealed = Schema.encodeSync(SealedPhrase)(enrollment.sealed);
-    const existing = yield* backups.byCredential(registration.id);
-
-    if (
-      Option.isSome(existing) &&
-      !matchesCommittedBackup(
-        existing.value,
-        enrollment,
-        publicKey,
-        algorithm,
-        sealed,
-      )
-    )
-      return new ChallengeRefused();
 
     const claim = new WalletClaim({
       username: enrollment.username,
       address: enrollment.address,
     });
+
+    const matches = (stored: StoredBackup) =>
+      matchesCommittedBackup(stored, enrollment, publicKey, algorithm, sealed);
+
+    const existing = yield* backups.byCredential(registration.id);
+
+    if (Option.isSome(existing) && !matches(existing.value))
+      return new ChallengeRefused();
+
+    if (Option.isNone(existing) && (yield* directory.bound(claim)))
+      return new ChallengeRefused();
 
     const step = yield* openWith(claim, Option.some(approvals), {
       check: Effect.succeed(Option.none()),
@@ -211,8 +209,15 @@ export const backupFlow = Effect.gen(function* () {
     });
 
     const committed = (opened: EnrollStep) =>
-      Effect.map(directory.bound(claim), (bound) =>
-        bound ? opened : new ChallengeRefused(),
+      Effect.map(
+        Effect.all([
+          directory.bound(claim),
+          backups.byCredential(registration.id),
+        ]),
+        ([bound, stored]) =>
+          bound && Option.exists(stored, matches)
+            ? opened
+            : new ChallengeRefused(),
       );
 
     return yield* Match.valueTags(step, {

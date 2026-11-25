@@ -88,11 +88,14 @@ const walletInstallLock = "orchid-wallet-install";
 
 const acrossTabs = <A, E>(run: Effect.Effect<A, E>): Effect.Effect<A, E> =>
   "locks" in navigator
-    ? Effect.promise(() =>
+    ? Effect.tryPromise(() =>
         navigator.locks.request(walletInstallLock, () =>
           Effect.runPromiseExit(run),
         ),
-      ).pipe(Effect.flatMap((exit) => exit))
+      ).pipe(
+        Effect.catch(() => Effect.exit(run)),
+        Effect.flatMap((exit) => exit),
+      )
     : run;
 
 export const enrollmentEffects = makeEnrollmentEffects({
