@@ -6,7 +6,9 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   Amount,
+  type AddressRecipient,
   type AssessmentStep,
+  type CheckedRecipient,
   type DestinationAddress,
   ExternalRecipient,
   InsufficientBalance,
@@ -14,11 +16,16 @@ import {
   LinkRecipient,
   NotOpened,
   PhoneNotSupported,
+  type Profile,
   type Receipt,
+  RecipientCheck,
+  type Recipient,
+  type RecipientStep,
   type ResolvedRecipient,
   SenderBusy,
   TransferAssessment,
   UnknownRecipient,
+  type UsernameRecipient,
   assetKey,
 } from "../contract";
 import { baseAccountOf, isMuxed } from "../stellar/destination";
@@ -108,6 +115,52 @@ export const transferCheckFlow = Effect.gen(function* () {
       : Option.none<KnownExchangeMemo>();
   });
 
+  const resolveContact = (
+    to: typeof UsernameRecipient.Type | typeof AddressRecipient.Type,
+  ) =>
+    Match.valueTags(to, {
+      Username: ({ value }) =>
+        directory
+          .byUsername(value)
+          .pipe(
+            Effect.map((found): Profile | UnknownRecipient =>
+              Option.isSome(found)
+                ? found.value
+                : new UnknownRecipient({ username: value }),
+            ),
+          ),
+      Address: ({ value }) =>
+        isMuxed(value)
+          ? Effect.succeed<Profile | ExternalRecipient>(
+              new ExternalRecipient({ address: value }),
+            )
+          : directory
+              .byAddress(value)
+              .pipe(
+                Effect.flatMap(
+                  (
+                    found,
+                  ): Effect.Effect<Profile | ExternalRecipient, StoreFailure> =>
+                    Option.isSome(found) && found.value.status === "active"
+                      ? directory.profile(found.value)
+                      : Effect.succeed(
+                          new ExternalRecipient({ address: value }),
+                        ),
+                ),
+              ),
+    });
+
+  const resolveRecipient = (to: Recipient) =>
+    Match.valueTags(to, {
+      Username: resolveContact,
+      Address: resolveContact,
+      PaymentLink: ({ value }) =>
+        Effect.succeed<ResolvedRecipient>(
+          new LinkRecipient({ kind: "paymentLink", address: value }),
+        ),
+      Phone: () => Effect.die("Phone was rejected before recipient resolution"),
+    });
+
   const examine = Effect.fn("Wallet.examineTransfer")(function* (
     terms: TransferTerms,
     effects: TransferEffects,
@@ -126,40 +179,7 @@ export const transferCheckFlow = Effect.gen(function* () {
         return new SenderBusy({ inFlight: receipt });
     }
 
-    const recipient = yield* Match.valueTags(terms.to, {
-      Username: ({ value }) =>
-        directory
-          .byUsername(value)
-          .pipe(
-            Effect.map((found): ResolvedRecipient | UnknownRecipient =>
-              Option.isSome(found)
-                ? found.value
-                : new UnknownRecipient({ username: value }),
-            ),
-          ),
-      Address: ({ value }) =>
-        isMuxed(value)
-          ? Effect.succeed<ResolvedRecipient>(
-              new ExternalRecipient({ address: value }),
-            )
-          : directory
-              .byAddress(value)
-              .pipe(
-                Effect.flatMap(
-                  (found): Effect.Effect<ResolvedRecipient, StoreFailure> =>
-                    Option.isSome(found) && found.value.status === "active"
-                      ? directory.profile(found.value)
-                      : Effect.succeed(
-                          new ExternalRecipient({ address: value }),
-                        ),
-                ),
-              ),
-      PaymentLink: ({ value }) =>
-        Effect.succeed<ResolvedRecipient>(
-          new LinkRecipient({ kind: "paymentLink", address: value }),
-        ),
-      Phone: () => Effect.die("Phone was rejected before recipient resolution"),
-    });
+    const recipient = yield* resolveRecipient(terms.to);
 
     if (Predicate.isTagged(recipient, "UnknownRecipient")) return recipient;
 
@@ -231,5 +251,26 @@ export const transferCheckFlow = Effect.gen(function* () {
       : examined;
   });
 
-  return { malformed, memoRequirement, examine, assess };
+  const checkRecipient = Effect.fn("Wallet.checkRecipient")(function* (
+    to: CheckedRecipient,
+  ): Effect.fn.Return<RecipientStep, StoreFailure | ChainUnreachable> {
+    if (Predicate.isTagged(to, "Phone")) return new PhoneNotSupported();
+
+    if (Predicate.isTagged(to, "Address") && !chain.validAddress(to.value))
+      return new InvalidAddress({ address: to.value });
+
+    const recipient = yield* resolveContact(to);
+
+    if (Predicate.isTagged(recipient, "UnknownRecipient")) return recipient;
+
+    const requirement = yield* memoRequirement(recipient);
+
+    return new RecipientCheck({
+      recipient,
+      memoRequired: Option.isSome(requirement),
+      exchange: Option.map(requirement, (known) => known.exchange),
+    });
+  });
+
+  return { malformed, memoRequirement, examine, assess, checkRecipient };
 });

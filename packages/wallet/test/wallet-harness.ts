@@ -18,6 +18,7 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   AddressRecipient,
+  type CheckedRecipient,
   Amount,
   Approval,
   type Approvals,
@@ -580,6 +581,9 @@ export const send = (
   order: TransferOrder,
   approval: Option.Option<Approval> = Option.none(),
 ) => Wallet.use((w) => w.transfer(order, approval));
+
+export const checkRecipient = (to: CheckedRecipient) =>
+  Wallet.use((w) => w.checkRecipient(to));
 
 export const assess = (sender: Keypair, order: TransferOrder) =>
   Wallet.use((w) =>
