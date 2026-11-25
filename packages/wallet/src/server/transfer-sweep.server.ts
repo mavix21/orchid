@@ -68,3 +68,21 @@ export const stuckTransfers = Effect.fn("Transfers.inFlight")(function* (
       ),
   );
 });
+
+export const pruneExpiredTransferDrafts = Effect.fn(
+  "Transfers.pruneExpiredDrafts",
+)(function* () {
+  const db = yield* Database;
+  const now = yield* DateTime.now;
+
+  yield* db
+    .delete(transfers)
+    .where(
+      and(
+        eq(transfers.network, network),
+        eq(transfers.testnetEpoch, epochAt(DateTime.toEpochMillis(now))),
+        eq(transfers.status, "proposed"),
+        lte(transfers.expiresAt, stuckSince(now)),
+      ),
+    );
+});

@@ -31,6 +31,7 @@ import {
 import type { RecoveryFacts } from "../stellar/envelopes";
 import { epochAt, network, sweepBatchSize } from "../stellar/network";
 import type { Sealed } from "./Chain.server";
+import { pruneAbandonedOpenings } from "./abandoned-openings.server";
 import { pairedRecovery } from "./opening-attempt.server";
 import { walletHasSignedWork } from "./signed-work.server";
 import { SignedWorkInFlight, walletLock } from "./slot.server";
@@ -118,6 +119,7 @@ export class Directory extends Context.Service<
 
     recover(row: WalletRow): Effect.Effect<void, StoreFailure>;
     readonly recoverable: Effect.Effect<ReadonlyArray<WalletRow>, StoreFailure>;
+    readonly pruneAbandonedOpenings: Effect.Effect<void, StoreFailure>;
   }
 >()("@workspace/wallet/server/Directory") {
   static readonly layer = Layer.effect(
@@ -585,6 +587,9 @@ export class Directory extends Context.Service<
           wrap(proven(activatePaired(row, facts, claim, binding))),
         hasSignedWork: (address) => wrap(walletHasSignedWork(db, address)),
         recover: (row) => wrap(recover(row)),
+        pruneAbandonedOpenings: wrap(
+          pruneAbandonedOpenings().pipe(Effect.provideService(Database, db)),
+        ),
         recoverable: wrap(
           Effect.gen(function* () {
             const now = yield* DateTime.now;

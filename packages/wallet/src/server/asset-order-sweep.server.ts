@@ -111,3 +111,20 @@ export const receivedLinksToClean = Effect.fn(
     ),
   );
 });
+
+export const pruneExpiredAssetOrderDrafts = Effect.fn(
+  "AssetOrders.pruneExpiredDrafts",
+)(function* () {
+  const db = yield* Database;
+  const now = yield* DateTime.now;
+
+  yield* db
+    .delete(assetOrders)
+    .where(
+      and(
+        scopeAt(DateTime.toEpochMillis(now)),
+        eq(assetOrders.status, "proposed"),
+        lte(assetOrders.expiresAt, stuckSince(now)),
+      ),
+    );
+});
