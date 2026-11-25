@@ -16,7 +16,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { DepositOpeningSpent, DepositOpeningsFull } from "../contract";
 import { epochAt, network } from "../stellar/network";
-import { deposits, transfers, wallets } from "./tables.server";
+import { assetOrders, deposits, transfers, wallets } from "./tables.server";
 
 type Executor = Pick<Database["Service"], "select">;
 
@@ -33,19 +33,40 @@ export const depositOpeningRefusal = Effect.fn(
     return Option.some<DepositOpeningRefusal>(new DepositOpeningSpent());
 
   const now = yield* DateTime.now;
+  const epoch = epochAt(DateTime.toEpochMillis(now));
 
   const received = [
     executor
       .select({ wallet: deposits.wallet })
       .from(deposits)
-      .where(eq(deposits.wallet, wallets.address)),
+      .where(
+        and(
+          eq(deposits.network, network),
+          eq(deposits.testnetEpoch, epoch),
+          eq(deposits.wallet, wallets.address),
+        ),
+      ),
     executor
       .select({ destination: transfers.destination })
       .from(transfers)
       .where(
         and(
+          eq(transfers.network, network),
+          eq(transfers.testnetEpoch, epoch),
           eq(transfers.destination, wallets.address),
           eq(transfers.status, "settled"),
+        ),
+      ),
+    executor
+      .select({ wallet: assetOrders.wallet })
+      .from(assetOrders)
+      .where(
+        and(
+          eq(assetOrders.network, network),
+          eq(assetOrders.testnetEpoch, epoch),
+          eq(assetOrders.wallet, wallets.address),
+          eq(assetOrders.status, "settled"),
+          isNotNull(assetOrders.balanceId),
         ),
       ),
   ];
@@ -56,7 +77,7 @@ export const depositOpeningRefusal = Effect.fn(
     .where(
       and(
         eq(wallets.network, network),
-        eq(wallets.testnetEpoch, epochAt(DateTime.toEpochMillis(now))),
+        eq(wallets.testnetEpoch, epoch),
         eq(wallets.depositOpening, "attempted"),
         ne(wallets.address, row.address),
         or(

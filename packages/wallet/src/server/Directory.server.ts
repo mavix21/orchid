@@ -32,6 +32,7 @@ import { markRecoverable, markRecovered } from "./recoverable-wallets.server";
 import { pairedRecovery } from "./opening-attempt.server";
 import { walletHasSignedWork } from "./signed-work.server";
 import { SignedWorkInFlight, walletLock } from "./slot.server";
+import { StoreFailure } from "./store-failure.server";
 import { usernames, wallets } from "./tables.server";
 import {
   bind,
@@ -51,12 +52,7 @@ import {
   Available,
 } from "./username-standing.server";
 
-export class StoreFailure extends Schema.TaggedError<StoreFailure>()(
-  "StoreFailure",
-  {
-    cause: Schema.Defect(),
-  },
-) {}
+export { StoreFailure };
 
 export type WalletRow = typeof wallets.$inferSelect;
 
@@ -173,7 +169,10 @@ export class Directory extends Context.Service<
 
       const unopenedRow = and(
         eq(wallets.status, "opening"),
-        isNull(wallets.attemptHash),
+        or(
+          isNull(wallets.attemptHash),
+          eq(wallets.depositOpening, "attempted"),
+        ),
       );
 
       const enrollUnopened = Effect.fn("Directory.enrollUnopened")(function* (
@@ -217,7 +216,10 @@ export class Directory extends Context.Service<
       const unopened = Effect.fn("Directory.unopened")(function* (
         row: WalletRow,
       ) {
-        if (row.status !== "opening" || row.attemptHash !== null)
+        if (
+          row.status !== "opening" ||
+          (row.attemptHash !== null && row.depositOpening !== "attempted")
+        )
           return Option.none<Profile>();
 
         const names = yield* boundNames(db, eq(usernames.address, row.address));

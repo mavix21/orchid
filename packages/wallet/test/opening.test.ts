@@ -437,6 +437,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           assertTagged(unapplied, "OpeningDraft");
           yield* opening(claim, approveOpening(key, unapplied));
           world.failSubmit = false;
+          const pending = yield* overviewOf(claim.address);
+
+          assertTagged(pending, "NotOpened");
+          expect(pending.profile).toEqual(Option.some(new Profile(claim)));
           yield* Database.use((db) =>
             db
               .update(wallets)

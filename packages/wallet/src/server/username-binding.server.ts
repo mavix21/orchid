@@ -3,7 +3,7 @@ import { type SQL, eq, or } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { HumanCheckRefused, type WalletClaim } from "../contract";
-import { StoreFailure } from "./Directory.server";
+import { StoreFailure } from "./store-failure.server";
 import { usernames } from "./tables.server";
 import type { Transaction } from "./transaction.server";
 import {
