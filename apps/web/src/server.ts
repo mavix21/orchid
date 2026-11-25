@@ -9,7 +9,7 @@ import { attendMessage } from "./server/work.server";
 export default {
   fetch: createStartHandler(defaultStreamHandler),
   scheduled: async () => {
-    await runWallet(Wallet.use((wallet) => wallet.sweep));
+    await runWallet(Wallet.use((wallet) => wallet.scheduled));
   },
   queue: async (batch: MessageBatch) => {
     for (const message of batch.messages) await attendMessage(message);

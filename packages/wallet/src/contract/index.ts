@@ -392,12 +392,30 @@ export class ClaimedLinkActivity extends Schema.TaggedClass<ClaimedLinkActivity>
   },
 ) {}
 
+export const DepositId = Schema.String.check(Schema.isUUID(4)).pipe(
+  Schema.brand("DepositId"),
+);
+
+export type DepositId = typeof DepositId.Type;
+
+export class DepositActivity extends Schema.TaggedClass<DepositActivity>()(
+  "DepositActivity",
+  {
+    id: DepositId,
+    createdAt: Schema.DateTimeUtcFromString,
+    from: ExternalRecipient,
+    asset: Asset,
+    amount: PositiveAmount,
+  },
+) {}
+
 export const ActivityEntry = Schema.Union([
   SentActivity,
   ReceivedActivity,
   AwaitingAcceptanceActivity,
   TakenBackActivity,
   ClaimedLinkActivity,
+  DepositActivity,
 ]);
 
 export type ActivityEntry = typeof ActivityEntry.Type;

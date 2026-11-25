@@ -15,9 +15,11 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  ActivityPage,
   AddressRecipient,
   Approval,
   type Approvals,
+  DepositActivity,
   type DestinationAddress,
   ExternalMemoRequired,
   MemoNotAllowed,
@@ -52,7 +54,7 @@ import {
 } from "../src/stellar/envelopes";
 import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 import { freshDatabase, rpcUrl, walletServices } from "./live.server";
-import { fundWithFriendbot, horizon } from "./testnet-funding";
+import { fundWithFriendbot, fundWithUsdc, horizon } from "./testnet-funding";
 import { memoRequiredDataName } from "../src/server/exchange-memos.server";
 
 const sponsor = Keypair.random();
@@ -618,6 +620,61 @@ console.log(
   "PASS a muxed payment to the test exchange settles to the muxed destination without a memo, and a memo is refused with MemoNotAllowed.",
 );
 
+const depositor = Keypair.random();
+
+await fundWithFriendbot(depositor.publicKey());
+
+await fundWithUsdc(depositor.publicKey(), "10");
+
+const depositPayment = new TransactionBuilder(
+  await horizon.loadAccount(depositor.publicKey()),
+  { fee: baseFee, networkPassphrase },
+)
+  .addOperation(
+    Operation.payment({
+      destination: second.claim.address,
+      asset: usdc,
+      amount: "5",
+    }),
+  )
+  .setTimeout(120)
+  .build();
+
+depositPayment.sign(depositor);
+
+const depositSubmitted = await horizon.submitTransaction(depositPayment);
+
+remember("USDC deposit from a plain account", depositSubmitted.hash);
+
+const listedDeposits = async () => {
+  await run(Wallet.use((wallet) => wallet.ingestDeposits));
+
+  const page = await run(
+    Wallet.use((wallet) => wallet.activity(second.claim.address)),
+  );
+
+  return page instanceof ActivityPage
+    ? page.entries.filter((entry) => entry instanceof DepositActivity)
+    : [];
+};
+
+let deposits = await listedDeposits();
+
+for (let attempt = 0; attempt < 30 && deposits.length === 0; attempt++) {
+  await Bun.sleep(2000);
+  deposits = await listedDeposits();
+}
+
+assert.equal(deposits.length, 1);
+
+assert.equal(deposits[0]?.from.address, addressOf(depositor));
+
+assert.equal(deposits[0]?.amount, 50000000n);
+
+console.log(
+  "PASS a USDC payment from a plain account is ingested from RPC events and listed as one deposit.",
+);
+
 const result = {
   verifiedAt: new Date().toISOString(),
   network: "testnet",
@@ -643,6 +700,7 @@ const result = {
     "config.memo_required = 1 refuses a memoless payment with SEP-29 evidence",
     "memo payment to a config.memo_required account drafts with memoRequired and settles",
     "muxed payment to a config.memo_required account settles to the muxed destination with no memo; a memo with a muxed recipient is refused with MemoNotAllowed",
+    "USDC payment from a plain account is read from getEvents and listed as one deposit",
   ],
   deferred: [
     "Live USDC payment and nonzero-USDC recovery guard require Circle testnet USDC funding; covered by local behavioral tests.",

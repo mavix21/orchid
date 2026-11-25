@@ -4,13 +4,19 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
+  AssetCode,
   AssetOrder,
   AssetOrderId,
   AwaitingAcceptanceActivity,
   BalanceId,
   Claimed,
   ClaimedLinkActivity,
+  DepositActivity,
+  DepositId,
+  DestinationAddress,
   ExternalRecipient,
+  IssuedAsset,
+  PositiveAmount,
   Profile,
   ReceivedActivity,
   Refunded,
@@ -23,6 +29,7 @@ import {
   Username,
 } from "../contract";
 import { StoreFailure } from "./Directory.server";
+import type { deposits } from "./tables.server";
 import type { StoredOrder } from "./asset-order-records.server";
 import {
   OrderJson,
@@ -181,5 +188,23 @@ export const linkClaimEntry = (claim: LinkClaimRow) =>
         amount: link.amount,
       });
     },
+    catch: (cause) => new StoreFailure({ cause }),
+  });
+
+export const depositEntry = (row: typeof deposits.$inferSelect) =>
+  Effect.try({
+    try: () =>
+      new DepositActivity({
+        id: Schema.decodeSync(DepositId)(row.id),
+        createdAt: DateTime.makeUnsafe(row.closedAt),
+        from: new ExternalRecipient({
+          address: Schema.decodeSync(DestinationAddress)(row.sender),
+        }),
+        asset: IssuedAsset.make({
+          code: Schema.decodeSync(AssetCode)(row.code),
+          issuer: Schema.decodeSync(AccountAddress)(row.issuer),
+        }),
+        amount: Schema.decodeSync(PositiveAmount)(row.amount.toString()),
+      }),
     catch: (cause) => new StoreFailure({ cause }),
   });

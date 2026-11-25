@@ -16,7 +16,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import {
   AccountAddress,
   AddressRecipient,
@@ -49,6 +48,7 @@ import {
   type Settlement,
   Undecided,
 } from "../src/server/Chain.server";
+import { Deposits } from "../src/server/Deposits.server";
 import { Directory } from "../src/server/Directory.server";
 import { HumanCheck } from "../src/server/HumanCheck.server";
 import { checkedBinding } from "../src/server/username-standing.server";
@@ -88,6 +88,7 @@ import {
   addressOf,
   enrolledDeviceWallet,
 } from "./device-fixtures";
+import { ledgersHttp, resetLedgers } from "./rpc-events";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
 
@@ -133,6 +134,7 @@ const storesFor = <E>(db: Layer.Layer<Database, E>) =>
     Transfers.layer,
     AssetOrders.layer,
     Backups.layer,
+    Deposits.layer,
   ).pipe(Layer.provide(db), Layer.provide(recordingQueue));
 
 const stores = storesFor(dbLayer);
@@ -154,7 +156,7 @@ const settings = settingsFor();
 
 const realChain = Chain.layer.pipe(
   Layer.provide(settings),
-  Layer.provide(FetchHttpClient.layer),
+  Layer.provide(ledgersHttp),
 );
 
 export const amount = (value: string) => Schema.decodeSync(Amount)(value);
@@ -675,10 +677,11 @@ export function useDisposableDatabase() {
     world.ledgerDown = false;
     world.unreadable.clear();
     world.claimablesDown = false;
+    resetLedgers();
     await Effect.runPromise(
       Database.use((db) =>
         db.execute(
-          sql`truncate asset_orders, trustlines, transfers, usernames, wallets, backups, passkey_challenges`,
+          sql`truncate asset_orders, trustlines, transfers, usernames, wallets, backups, passkey_challenges, deposits, deposit_cursors`,
         ),
       ).pipe(Effect.provide(dbLayer)),
     );
