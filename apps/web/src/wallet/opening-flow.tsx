@@ -10,6 +10,7 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
+import { OrchidPending } from "@/components/orchid-pending";
 import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
 import { walletEffects } from "@/wallet";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
@@ -252,8 +253,13 @@ export function OpeningFlow({
   };
 
   return Match.valueTags(step, {
-    Preparing: () => <ScreenStatus title="Preparando tu cuenta…" />,
-    Confirming: () => <ScreenStatus title="Abriendo tu cuenta…" />,
+    Preparing: () => <OrchidPending title="Preparando tu cuenta…" />,
+    Confirming: () => (
+      <OrchidPending
+        title="Abriendo tu cuenta…"
+        note="Esto toma unos segundos."
+      />
+    ),
     Shown: ({ review, problem }) => (
       <OpeningReviewScreen
         review={review}

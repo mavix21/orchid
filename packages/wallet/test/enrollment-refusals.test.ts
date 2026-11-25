@@ -4,7 +4,12 @@ import { Database } from "@workspace/db";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { Username, UsernameTaken, type WalletPort } from "../src/contract";
+import {
+  Offline,
+  Username,
+  UsernameTaken,
+  type WalletPort,
+} from "../src/contract";
 import type { RelyingParty } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
@@ -121,6 +126,39 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(yield* browserKeyStore.readSealed()).toEqual(Option.none());
           expect((yield* tableRows).backups).toEqual(winnerRows.backups);
           expect((yield* tableRows).usernames).toEqual(winnerRows.usernames);
+        }),
+    );
+
+    it.effect(
+      "discards an unsigned enrollment so another name can be chosen, but never a signed one",
+      () =>
+        Effect.gen(function* () {
+          yield* Effect.promise(clearDatabase);
+
+          const wallet = settlingOpenings(yield* Wallet);
+
+          const offlineCommit: WalletPort = {
+            ...wallet,
+            enroll: () => Effect.fail(new Offline()),
+          };
+
+          const tab = enrollmentFor(
+            offlineCommit,
+            new SoftwareAuthenticator(passkeyOrigin),
+            memoryPendingStorage(),
+          );
+
+          assertTagged(yield* tab.start("maria"), "EnrollmentPending");
+          expect(yield* tab.discard()).toBe(true);
+          expect(yield* tab.pending()).toEqual(Option.none());
+
+          const renamed = yield* tab.start("pedro");
+
+          assertTagged(renamed, "EnrollmentPending");
+          expect(renamed.username).toBe("pedro");
+          expect(yield* tab.advance(renamed.review)).toEqual(new Offline());
+          expect(yield* tab.discard()).toBe(false);
+          expect(Option.getOrThrow(yield* tab.pending()).stage).toBe("release");
         }),
     );
 

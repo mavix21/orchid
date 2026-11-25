@@ -65,7 +65,6 @@ import {
   CorruptEnvelope,
   freshInstallationSalt,
   localPhrasePrfInput,
-  openLocalEnvelope,
   sealLocalEnvelope,
 } from "./local-envelope";
 import { linkSecretFor, receiveReviewJson } from "./link-receive";
@@ -80,7 +79,7 @@ import {
   UnsupportedDevice,
   WalletOnDevice,
 } from "./outcomes";
-import { backupSalt, openPhrase, sealPhrase } from "./phrase-seal";
+import { backupSalt, sealPhrase } from "./phrase-seal";
 import { generateSecretPhrase } from "./secret-phrase";
 import {
   approveWithLinkSecret,
@@ -88,6 +87,8 @@ import {
   signingKey,
 } from "./signing";
 
+import { enrollmentChallenge } from "./enrollment-challenge";
+import { candidateVerifier } from "./enrollment-verify";
 import { enrollmentRelease } from "./enrollment-release";
 
 export * from "./enrollment-records";
@@ -348,51 +349,7 @@ export function makeEnrollmentEffects(
     return next;
   });
 
-  const verifyCandidate = Effect.fn("Device.verifyEnrollmentCandidate")(
-    function* (
-      devicePrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
-      backupPrf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
-    ): Effect.fn.Return<Verified | EnrollWalletOutcome> {
-      const persisted = yield* storage.read();
-
-      if (
-        Option.isNone(persisted) ||
-        !Predicate.isTagged(persisted.value, "PendingActivation")
-      )
-        return yield* clearPending.pipe(Effect.as(new NoWallet()));
-
-      const { enrollment, candidate } = persisted.value;
-
-      const local = yield* openLocalEnvelope(
-        candidate.envelope,
-        {
-          network,
-          address: candidate.address,
-          credentialId: candidate.credential.id,
-        },
-        devicePrf,
-      );
-
-      const backup = yield* openPhrase(
-        Redacted.value(backupPrf),
-        enrollment.sealed,
-      );
-
-      if (
-        local instanceof CorruptEnvelope ||
-        Option.isNone(backup) ||
-        backup.value !== Redacted.value(local.phrase) ||
-        signingKey(backup.value).publicKey() !== candidate.address
-      )
-        return yield* clearPending.pipe(Effect.as(new CorruptEnvelope()));
-
-      return new Verified({
-        enrollment,
-        candidate,
-        phrase: backup.value,
-      });
-    },
-  );
+  const verifyCandidate = candidateVerifier(storage, clearPending);
 
   const sealAndSign = Effect.fn("Device.sealAndSignEnrollment")(function* (
     current: Awaiting,
@@ -473,6 +430,7 @@ export function makeEnrollmentEffects(
     current: Awaiting,
     shown: OpeningReview | undefined,
     receive: EnrollmentReceive | undefined,
+    committing: Effect.Effect<void>,
   ): Effect.fn.Return<EnrollWalletOutcome> {
     if (Option.isNone(current.review) || !(yield* hasLiveReview(current)))
       return yield* refreshReview(current, false);
@@ -538,7 +496,9 @@ export function makeEnrollmentEffects(
                 Effect.all([zeroed(prf.first), zeroed(backupPrf)]),
               ),
               Effect.flatMap((signed) =>
-                isHeld(signed) ? release(signed) : Effect.succeed(signed),
+                isHeld(signed)
+                  ? release(signed, committing)
+                  : Effect.succeed(signed),
               ),
             ),
         }),
@@ -571,22 +531,12 @@ export function makeEnrollmentEffects(
       signingKey(phrase).publicKey(),
     );
 
-    const issued = yield* deps.port
-      .enrollmentChallenge(
-        new WalletClaim({ username: username.value, address }),
-      )
-      .pipe(Effect.result);
+    const step = yield* enrollmentChallenge(
+      deps.port,
+      new WalletClaim({ username: username.value, address }),
+    );
 
-    if (Result.isFailure(issued)) return issued.failure;
-
-    const step = issued.success;
-
-    if (!(step instanceof ChallengeIssued))
-      return Match.valueTags(step, {
-        UsernameTaken: (taken): EnrollWalletOutcome => taken,
-        HumanCheckRefused: (refused): EnrollWalletOutcome => refused,
-        AddressBound: (): EnrollWalletOutcome => new InvalidResponse(),
-      });
+    if (!(step instanceof ChallengeIssued)) return step;
 
     const registered = yield* deps.registration
       .register({ challenge: step.challenge, username: username.value })
@@ -618,6 +568,7 @@ export function makeEnrollmentEffects(
   const advance = Effect.fn("Device.advanceEnrollment")(function* (
     shown: OpeningReview | undefined,
     receive: EnrollmentReceive | undefined,
+    committing: Effect.Effect<void>,
   ): Effect.fn.Return<EnrollWalletOutcome> {
     const current = yield* loadPending;
 
@@ -627,10 +578,20 @@ export function makeEnrollmentEffects(
 
     return yield* PendingState.$match(current, {
       Idle: () => Effect.succeed(new NoWallet()),
-      Created: (awaiting) => activate(awaiting, shown, receive),
-      Sealed: (awaiting) => activate(awaiting, shown, receive),
-      Held: release,
+      Created: (awaiting) => activate(awaiting, shown, receive, committing),
+      Sealed: (awaiting) => activate(awaiting, shown, receive, committing),
+      Held: (held) => release(held, committing),
     });
+  });
+
+  const discard = Effect.fn("Device.discardEnrollment")(function* () {
+    const current = yield* loadPending;
+
+    if (isHeld(current)) return false;
+
+    yield* clearPending;
+
+    return true;
   });
 
   const pending = Effect.fn("Device.pendingEnrollment")(function* () {
@@ -676,8 +637,10 @@ export function makeEnrollmentEffects(
   return {
     pending: () => lock.withPermit(pending()),
     start: (usernameText) => lock.withPermit(start(usernameText)),
-    advance: (shown, receive) => lock.withPermit(advance(shown, receive)),
+    advance: (shown, receive, committing = Effect.void) =>
+      lock.withPermit(advance(shown, receive, committing)),
     reviewReceive: (code) => lock.withPermit(reviewReceive(code)),
+    discard: () => lock.withPermit(discard()),
   };
 }
 
@@ -689,8 +652,15 @@ export function makeEnrollmentClient(
   return {
     pending: () => Effect.runPromise(effects.pending()),
     start: (usernameText) => Effect.runPromise(effects.start(usernameText)),
-    advance: (shown, receive) =>
-      Effect.runPromise(effects.advance(shown, receive)),
+    advance: (shown, receive, onCommitting) =>
+      Effect.runPromise(
+        effects.advance(
+          shown,
+          receive,
+          onCommitting === undefined ? Effect.void : Effect.sync(onCommitting),
+        ),
+      ),
     reviewReceive: (code) => Effect.runPromise(effects.reviewReceive(code)),
+    discard: () => Effect.runPromise(effects.discard()),
   };
 }

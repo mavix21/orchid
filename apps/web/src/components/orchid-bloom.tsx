@@ -2,7 +2,7 @@ import { cn } from "@workspace/ui/lib/utils";
 
 import { ScreenActions } from "@/components/screen";
 
-type OrchidMotion = "bloom" | "flourish" | "rest" | "breathe";
+type OrchidMotion = "bloom" | "flourish" | "rest" | "breathe" | "sway";
 
 type PartStyle = React.CSSProperties & {
   "--angle": string;
@@ -45,6 +45,7 @@ const partMotion: Record<OrchidMotion, string> = {
   flourish: "orchid-part orchid-flourish",
   rest: "orchid-part",
   breathe: "orchid-part",
+  sway: "orchid-part orchid-sway",
 };
 
 export function OrchidBloom({

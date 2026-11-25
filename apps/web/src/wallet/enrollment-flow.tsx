@@ -1,5 +1,6 @@
+import { Link } from "@tanstack/react-router";
 import { ChevronLeftIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { Field, FieldError, FieldLabel } from "@workspace/ui/components/field";
 import {
@@ -11,8 +12,6 @@ import {
   currentUntil,
   type EnrollWalletOutcome,
   type EnrollmentPending,
-  type EnrollmentStage,
-  type LinkReceiveReview,
   type ReadLinkCode,
   receiveCurrentUntil,
   type ReviewEnrollmentReceiveOutcome,
@@ -27,72 +26,29 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
-import {
-  Screen,
-  ScreenActions,
-  ScreenNote,
-  ScreenStatus,
-} from "@/components/screen";
+import { OrchidPending } from "@/components/orchid-pending";
+import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav, type TopNavAction } from "@/components/top-nav";
 import { UserAvatar } from "@/components/user-avatar";
 import { me } from "@/fixtures/account";
 import { receiveRefusal } from "@/links/receive-outcomes";
-import { amountLabel } from "@/send/money";
 import { displayLock } from "@/wallet/display-lock";
 import { enrollmentClient } from "@/wallet/enrollment";
-import { HumanCheckWidget } from "@/wallet/human-check-widget";
+import {
+  EnrollmentEvent,
+  EnrollmentStage,
+  type Moment,
+  advanceEnrollment,
+  notice,
+  receiveFor,
+  stoppedBy,
+} from "@/wallet/enrollment-machine";
+import { PendingStep, StepLabel } from "@/wallet/enrollment-pending-step";
+import {
+  HumanCheckWidget,
+  useHumanCheckStatus,
+} from "@/wallet/human-check-widget";
 import { OpeningFlow } from "@/wallet/opening-flow";
-import { retryable, unavailableMessage } from "@/wallet/unavailable";
-
-const refusal = (
-  outcome: Exclude<
-    EnrollWalletOutcome,
-    {
-      _tag:
-        | "EnrollmentPending"
-        | "WalletEnrolled"
-        | "WalletOnDevice"
-        | "OpeningPending";
-    }
-  >,
-) =>
-  Match.valueTags(outcome, {
-    InvalidUsername: () =>
-      `Solo letras, números y guion bajo, de ${usernameMinLength} a ${usernameMaxLength} caracteres.`,
-    UsernameTaken: ({ username }) =>
-      `@${username} ya no está disponible. Elige otro usuario.`,
-    DraftRejected: () =>
-      "La solicitud cambió antes de firmarse. Toca de nuevo para activar tu cuenta.",
-    NoWallet: () =>
-      "Tu registro se interrumpió antes de guardarse. Vuelve a elegir tu @usuario.",
-    BackupUnsupported: () =>
-      "Este dispositivo o navegador no es compatible con passkeys con PRF. Orchid necesita una passkey compatible para crear y proteger tu cuenta.",
-    PasskeyCancelled: () =>
-      "Cancelaste el uso de tu passkey. Inténtalo de nuevo para continuar.",
-    PasskeyFailed: () => "No pudimos usar tu passkey. Inténtalo de nuevo.",
-    WrongCredential: () =>
-      "Usaste una passkey distinta. Vuelve a intentarlo con la misma passkey.",
-    AssertionRejected: () =>
-      "No pudimos verificar tu passkey. Confirma con tu huella, rostro o PIN del dispositivo e inténtalo de nuevo.",
-    CorruptEnvelope: () =>
-      "No pudimos comprobar el cifrado local de tu llave. Vuelve a intentarlo.",
-    CorruptDeviceWallet: () =>
-      "Los datos guardados en este navegador están dañados.",
-    ChallengeRefused: () => "La solicitud venció. Inténtalo de nuevo.",
-    RegistrationRefused: () =>
-      "No pudimos guardar el respaldo de tu cuenta. Inténtalo de nuevo.",
-    UnsupportedDevice: () =>
-      "Este navegador no puede guardar tu llave de forma segura.",
-    LinkSecretMismatch: () =>
-      "Este link está incompleto. Ábrelo de nuevo desde el mensaje que te enviaron.",
-    HumanCheckRefused: () =>
-      "No pudimos verificar que eres una persona. Inténtalo de nuevo.",
-    Offline: unavailableMessage,
-    ServerUnreachable: unavailableMessage,
-    LedgerUnreachable: unavailableMessage,
-    ServiceFailed: unavailableMessage,
-    InvalidResponse: unavailableMessage,
-  });
 
 const issueMessage = (issue: UsernameIssue) =>
   Match.valueTags(issue, {
@@ -106,53 +62,9 @@ const issueMessage = (issue: UsernameIssue) =>
     UsernameTooShort: () => `Mínimo ${usernameMinLength} caracteres.`,
   });
 
-const stageCopy = (
-  stage: EnrollmentStage,
-  username: string,
-  preparing: boolean,
-  receive: Option.Option<LinkReceiveReview>,
-) =>
-  Match.value(stage).pipe(
-    Match.when("activate", () =>
-      preparing
-        ? {
-            title: "Prepara tu activación",
-            description: `Aún no tenemos la solicitud de @${username}. Reintenta sin crear otra passkey.`,
-            action: "Preparar de nuevo",
-            busyAction: "Preparando…",
-          }
-        : Option.match(receive, {
-            onNone: () => ({
-              title: "Activa tu cuenta",
-              description: `Usa tu passkey una vez para abrir @${username}, guardar su respaldo y autorizar su cierre por inactividad.`,
-              action: "Activar con passkey",
-              busyAction: "Activando…",
-            }),
-            onSome: (shown) => ({
-              title: "Activa tu cuenta y recibe tu dinero",
-              description: `Usa tu passkey una vez para abrir @${username}, guardar su respaldo, autorizar su cierre por inactividad y recibir ${amountLabel(shown.amount, shown.asset)} de @${shown.sender.username}.`,
-              action: "Activar y recibir",
-              busyAction: "Activando…",
-            }),
-          }),
-    ),
-    Match.when("release", () => ({
-      title: "Termina de abrir tu cuenta",
-      description: `Tu passkey ya firmó la apertura de @${username}. Reintenta sin usarla otra vez.`,
-      action: "Reintentar apertura",
-      busyAction: "Abriendo…",
-    })),
-    Match.exhaustive,
-  );
-
-function AccountMedia({ username }: { username: string }) {
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <UserAvatar profile={me} size="xl" />
-      <p className="text-label-lg">@{username}</p>
-    </div>
-  );
-}
+const resignedNotice = notice(
+  "La solicitud se actualizó. Confirma otra vez con tu passkey.",
+);
 
 interface EnrollmentFlowProps {
   title: string;
@@ -163,16 +75,7 @@ interface EnrollmentFlowProps {
   onOpened: () => void;
 }
 
-export function EnrollmentFlow(props: EnrollmentFlowProps) {
-  return (
-    <Screen>
-      <EnrollmentStages {...props} />
-      <HumanCheckWidget />
-    </Screen>
-  );
-}
-
-function EnrollmentStages({
+export function EnrollmentFlow({
   title,
   back,
   walletClient,
@@ -180,69 +83,46 @@ function EnrollmentStages({
   onEnrolled,
   onOpened,
 }: EnrollmentFlowProps) {
-  const [hydrated, setHydrated] = useState(false);
-  const [deviceChecked, setDeviceChecked] = useState(false);
+  const [stage, dispatch] = useReducer(
+    advanceEnrollment,
+    EnrollmentStage.Checking(),
+  );
+
   const [username, setUsername] = useState("");
   const [touched, setTouched] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string>();
-  const [unsupportedPrf, setUnsupportedPrf] = useState(false);
-  const [stopped, setStopped] = useState(false);
-  const [receiveBlocked, setReceiveBlocked] = useState(false);
-
-  const [pending, setPending] = useState<Option.Option<EnrollmentPending>>(
-    Option.none(),
-  );
-
-  const [finishing, setFinishing] = useState<Option.Option<string>>(
-    Option.none(),
-  );
-
-  const [stale, setStale] = useState(false);
-
-  const typedIssue = usernameIssue(username);
-  const length = Array.from(username).length;
-
-  const blockingIssue = typedIssue.pipe(
-    Option.filter((found) => !Predicate.isTagged(found, "UsernameTooShort")),
-  );
-
-  const issue = touched ? typedIssue : blockingIssue;
-
-  const message = Option.match(issue, {
-    onNone: () => problem,
-    onSome: issueMessage,
-  });
+  const humanCheck = useHumanCheckStatus();
 
   useEffect(() => {
     let current = true;
 
-    setHydrated(true);
-
     void Promise.all([walletClient.saved(), enrollmentClient.pending()]).then(
-      ([saved, currentPending]) => {
+      ([saved, pending]) => {
         if (!current) return;
 
-        setDeviceChecked(true);
+        const savedName = Predicate.isTagged(saved, "SavedWallet")
+          ? Option.some(saved.username)
+          : Option.none<string>();
 
-        if (Option.isSome(currentPending)) {
-          setUsername(currentPending.value.username);
-          setPending(currentPending);
+        setUsername(
+          Option.match(pending, {
+            onSome: (found) => found.username,
+            onNone: () => Option.getOrElse(savedName, () => ""),
+          }),
+        );
 
-          return;
-        }
-
-        if (Predicate.isTagged(saved, "SavedWallet")) {
-          setUsername(saved.username);
-          setFinishing(Option.some(saved.username));
-
-          return;
-        }
-
-        if (Predicate.isTagged(saved, "UnsupportedDevice"))
-          setProblem(
-            "Este navegador no puede guardar tu llave de forma segura.",
-          );
+        dispatch(
+          EnrollmentEvent.Checked({
+            pending,
+            saved: Option.isNone(pending) ? savedName : Option.none(),
+            problem: Predicate.isTagged(saved, "UnsupportedDevice")
+              ? Option.some(
+                  stoppedBy(
+                    "Este navegador no puede guardar tu llave de forma segura.",
+                  ),
+                )
+              : Option.none(),
+          }),
+        );
       },
     );
 
@@ -251,56 +131,36 @@ function EnrollmentStages({
     };
   }, [walletClient]);
 
-  const finishOpening = async () => {
-    const saved = await walletClient.saved();
-
-    setPending(Option.none());
-    setUnsupportedPrf(false);
-
-    if (Predicate.isTagged(saved, "SavedWallet")) {
-      setUsername(saved.username);
-      setFinishing(Option.some(saved.username));
-      setProblem(undefined);
-    } else {
-      setProblem("Ya existe una cuenta guardada en este dispositivo.");
-    }
-  };
-
   const readReceive = (answer: ReviewEnrollmentReceiveOutcome) => {
     if (Predicate.isTagged(answer, "EnrollmentPending")) {
-      setPending(Option.some(answer));
-      setReceiveBlocked(false);
+      dispatch(
+        EnrollmentEvent.Pending({ pending: answer, problem: Option.none() }),
+      );
 
       return;
     }
 
-    setReceiveBlocked(true);
-    setProblem(receiveRefusal(answer));
-  };
-
-  const requestReceive = async () => {
-    if (receive === undefined) return;
-
-    readReceive(await enrollmentClient.reviewReceive(receive.code));
-  };
-
-  const receiveFor = (current: EnrollmentPending) =>
-    Option.filter(
-      Option.fromNullishOr(current.receive),
-      (shown) => receive !== undefined && shown.link === receive.link,
+    dispatch(
+      EnrollmentEvent.ReceiveBlocked({
+        problem: notice(receiveRefusal(answer)),
+      }),
     );
+  };
 
-  const awaitingReceive = Option.exists(
-    pending,
-    (current) =>
-      receive !== undefined &&
-      current.stage === "activate" &&
-      current.review !== undefined &&
-      Option.isNone(receiveFor(current)),
-  );
+  const activeRecord = EnrollmentStage.$is("Activating")(stage)
+    ? stage.pending
+    : undefined;
+
+  const awaitingReceive =
+    EnrollmentStage.$is("Activating")(stage) &&
+    !stage.receiveBlocked &&
+    receive !== undefined &&
+    stage.pending.stage === "activate" &&
+    stage.pending.review !== undefined &&
+    Option.isNone(receiveFor(stage.pending, receive));
 
   useEffect(() => {
-    if (!awaitingReceive || receiveBlocked || receive === undefined) return;
+    if (!awaitingReceive || receive === undefined) return;
 
     let current = true;
 
@@ -311,287 +171,342 @@ function EnrollmentStages({
     return () => {
       current = false;
     };
-  }, [awaitingReceive, receiveBlocked, receive]);
+  }, [awaitingReceive, receive]);
 
   useEffect(() => {
-    if (Option.isNone(pending)) return;
+    if (activeRecord === undefined) return;
 
-    const { stage, review } = pending.value;
-    const shownReceive = receiveFor(pending.value);
+    const { stage: step, review } = activeRecord;
 
-    if (stage !== "activate" || review === undefined) return;
+    if (step !== "activate" || review === undefined) return;
 
-    const deadline = Math.min(
-      currentUntil(review),
-      Option.match(shownReceive, {
-        onNone: () => Number.POSITIVE_INFINITY,
-        onSome: receiveCurrentUntil,
+    const shownReceive = receiveFor(activeRecord, receive);
+
+    const remaining =
+      Math.min(
+        currentUntil(review),
+        Option.match(shownReceive, {
+          onNone: () => Number.POSITIVE_INFINITY,
+          onSome: receiveCurrentUntil,
+        }),
+      ) - Date.now();
+
+    if (remaining <= 0) return;
+
+    let current = true;
+
+    const timer = setTimeout(() => {
+      dispatch(EnrollmentEvent.Refreshing());
+      void enrollmentClient.pending().then(async (next) => {
+        if (!current) return;
+
+        if (Option.isNone(next)) {
+          dispatch(EnrollmentEvent.Discarded());
+
+          return;
+        }
+
+        dispatch(
+          EnrollmentEvent.Pending({
+            pending: next.value,
+            problem: Option.none(),
+          }),
+        );
+
+        if (Option.isSome(shownReceive) && receive !== undefined)
+          readReceive(await enrollmentClient.reviewReceive(receive.code));
+      });
+    }, remaining);
+
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [activeRecord, receive]);
+
+  const finishOpening = async () => {
+    const saved = await walletClient.saved();
+
+    if (Predicate.isTagged(saved, "SavedWallet")) {
+      setUsername(saved.username);
+      dispatch(EnrollmentEvent.Finished({ username: saved.username }));
+
+      return;
+    }
+
+    dispatch(
+      EnrollmentEvent.Noted({
+        problem: stoppedBy(
+          "Ya existe una cuenta guardada en este dispositivo.",
+        ),
       }),
     );
+  };
 
-    const timer = setTimeout(
-      () => {
-        setStale(true);
-        void enrollmentClient.pending().then(async (next) => {
-          setPending(next);
-
-          if (Option.isSome(shownReceive)) await requestReceive();
-
-          setStale(false);
-        });
-      },
-      Math.max(0, deadline - Date.now()),
-    );
-
-    return () => clearTimeout(timer);
-  }, [pending, receive]);
-
-  const handleOutcome = async (outcome: EnrollWalletOutcome) => {
+  const answer = async (outcome: EnrollWalletOutcome, moment: Moment) => {
     await Match.value(outcome).pipe(
       Match.tag("EnrollmentPending", (next) => {
         setUsername(next.username);
-        setPending(Option.some(next));
-        setProblem(undefined);
-        setUnsupportedPrf(false);
-        setStopped(false);
+        dispatch(
+          EnrollmentEvent.Pending({ pending: next, problem: Option.none() }),
+        );
       }),
-      Match.tag("WalletEnrolled", (enrolled) => {
-        setPending(Option.none());
-        setProblem(undefined);
-        setUnsupportedPrf(false);
-        setStopped(false);
-        onEnrolled(enrolled);
-      }),
+      Match.tag("WalletEnrolled", onEnrolled),
       Match.tag("OpeningPending", finishOpening),
       Match.tag("WalletOnDevice", finishOpening),
-      Match.orElse(async (refused) => {
-        const nextPending = await enrollmentClient.pending();
-
-        setPending(nextPending);
-        setProblem(refusal(refused));
-        setUnsupportedPrf(Predicate.isTagged(refused, "BackupUnsupported"));
-        setStopped(!retryable(refused));
+      Match.orElse(async (refusal) => {
+        dispatch(
+          EnrollmentEvent.Refused({
+            refusal,
+            moment,
+            pending: await enrollmentClient.pending(),
+          }),
+        );
       }),
     );
-
-    setBusy(false);
   };
 
-  const startEnrollment = async (name: string) => {
-    setBusy(true);
-    setProblem(undefined);
-    setUnsupportedPrf(false);
-    await handleOutcome(await enrollmentClient.start(name));
-  };
+  const typedIssue = usernameIssue(username);
 
-  const continueEnrollment = async () => {
-    setBusy(true);
-    setProblem(undefined);
-    setUnsupportedPrf(false);
-
-    const shown = Option.isSome(pending) ? pending.value.review : undefined;
-
-    const shownReceive = Option.isSome(pending)
-      ? Option.getOrUndefined(receiveFor(pending.value))
-      : undefined;
-
-    const verifying =
-      Option.isSome(pending) && pending.value.stage === "activate";
-
-    const ticket = displayLock.begin();
-
-    const outcome = await enrollmentClient.advance(
-      shown,
-      receive !== undefined && shownReceive !== undefined
-        ? { review: shownReceive, code: receive.code }
-        : undefined,
-    );
-
-    if (
-      verifying &&
-      (Predicate.isTagged(outcome, "WalletEnrolled") ||
-        Predicate.isTagged(outcome, "OpeningPending"))
-    )
-      displayLock.unlock(ticket);
-
-    await handleOutcome(outcome);
-
-    if (
-      shown !== undefined &&
-      Predicate.isTagged(outcome, "EnrollmentPending") &&
-      outcome.stage === "activate"
-    )
-      setProblem("La solicitud venció. Toca de nuevo para activar tu cuenta.");
-  };
+  const blockingIssue = typedIssue.pipe(
+    Option.filter((found) => !Predicate.isTagged(found, "UsernameTooShort")),
+  );
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setTouched(true);
 
-    if (Option.isNone(typedIssue)) void startEnrollment(username);
+    if (Option.isSome(typedIssue)) return;
+
+    dispatch(EnrollmentEvent.Submitted());
+    void enrollmentClient
+      .start(username)
+      .then((outcome) => answer(outcome, "start"));
   };
 
-  const nav = (disabled: boolean) => (
-    <TopNav
-      title={title}
-      label="Atrás"
-      icon={<ChevronLeftIcon />}
-      disabled={disabled}
-      {...back(disabled)}
-    />
-  );
+  const confirm = (current: EnrollmentPending) => {
+    const moment: Moment =
+      current.stage === "activate" ? "activation" : "release";
 
-  if (!deviceChecked) return <>{nav(false)}</>;
+    const shownReceive = Option.getOrUndefined(receiveFor(current, receive));
+    const ticket = displayLock.begin();
 
-  if (Option.isSome(finishing))
-    return (
-      <>
-        {nav(false)}
-        <div className="flex flex-1 flex-col pb-30">
-          <OpeningFlow username={finishing.value} onOpened={onOpened} />
-        </div>
-      </>
-    );
+    dispatch(EnrollmentEvent.Confirmed());
+    void enrollmentClient
+      .advance(
+        current.review,
+        receive !== undefined && shownReceive !== undefined
+          ? { review: shownReceive, code: receive.code }
+          : undefined,
+        () => dispatch(EnrollmentEvent.Committing()),
+      )
+      .then(async (outcome) => {
+        if (
+          moment === "activation" &&
+          (Predicate.isTagged(outcome, "WalletEnrolled") ||
+            Predicate.isTagged(outcome, "OpeningPending"))
+        )
+          displayLock.unlock(ticket);
 
-  if (Option.isSome(pending)) {
-    const shownReceive = receiveFor(pending.value);
+        if (
+          current.review !== undefined &&
+          Predicate.isTagged(outcome, "EnrollmentPending") &&
+          outcome.stage === "activate"
+        ) {
+          dispatch(
+            EnrollmentEvent.Pending({
+              pending: outcome,
+              problem: Option.some(resignedNotice),
+            }),
+          );
 
-    const copy = stageCopy(
-      pending.value.stage,
-      pending.value.username,
-      pending.value.review === undefined,
-      shownReceive,
-    );
+          return;
+        }
 
-    const waitingForReceive =
-      receive !== undefined &&
-      pending.value.stage === "activate" &&
-      Option.isNone(shownReceive);
+        await answer(outcome, moment);
+      });
+  };
 
-    return (
-      <>
-        {nav(busy)}
-        <ScreenStatus
-          title={copy.title}
-          media={<AccountMedia username={pending.value.username} />}
-          data-testid="enrollment-step"
-          data-stage={pending.value.stage}
-          data-receive={Option.isSome(shownReceive)}
-        >
-          <ScreenNote>{copy.description}</ScreenNote>
-          {problem ? (
-            <p role="alert" className="text-body text-destructive">
-              {problem}
-            </p>
-          ) : null}
-        </ScreenStatus>
-        <ScreenActions>
-          {waitingForReceive && receiveBlocked ? (
-            <Button
-              className="w-full"
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                setProblem(undefined);
-                setReceiveBlocked(false);
-              }}
-            >
-              Revisar el link de nuevo
-            </Button>
-          ) : null}
-          <Button
-            className="w-full"
-            type="button"
-            data-testid="enrollment-continue"
-            disabled={
-              !hydrated ||
-              busy ||
-              stopped ||
-              stale ||
-              (waitingForReceive && !receiveBlocked)
-            }
-            onClick={() => {
-              void continueEnrollment();
-            }}
-          >
-            {busy ? copy.busyAction : copy.action}
-          </Button>
-        </ScreenActions>
-      </>
-    );
-  }
+  const chooseAnother = () => {
+    void enrollmentClient.discard().then(async (discarded) => {
+      if (discarded) {
+        dispatch(EnrollmentEvent.Discarded());
+
+        return;
+      }
+
+      const next = await enrollmentClient.pending();
+
+      if (Option.isSome(next))
+        dispatch(
+          EnrollmentEvent.Pending({
+            pending: next.value,
+            problem: Option.none(),
+          }),
+        );
+    });
+  };
+
+  const busy =
+    EnrollmentStage.$is("Confirming")(stage) ||
+    (EnrollmentStage.$is("Choosing")(stage) && stage.busy);
 
   return (
-    <>
-      {nav(busy)}
-      <form className="flex flex-1 flex-col" noValidate onSubmit={submit}>
-        <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-          <div className="flex flex-col gap-2">
-            <h1 className="font-display text-h1">Elige tu @usuario</h1>
-            <p className="text-body text-muted-foreground">
-              Así te encuentran para enviarte plata.
-            </p>
-          </div>
-          <div className="flex justify-center">
-            <UserAvatar profile={me} size="xl" />
-          </div>
-          <Field>
-            <FieldLabel htmlFor="username">Usuario</FieldLabel>
-            <InputGroup>
-              <InputGroupAddon>@</InputGroupAddon>
-              <InputGroupInput
-                id="username"
-                name="username"
-                value={username}
-                onChange={(event) => {
-                  setUsername(event.target.value.toLowerCase());
-                  setProblem(undefined);
-                  setUnsupportedPrf(false);
-                }}
-                onBlur={() => setTouched(username.length > 0)}
-                disabled={!hydrated || busy}
-                aria-invalid={message ? true : undefined}
-                aria-describedby={message ? "username-error" : undefined}
-                autoComplete="username"
-                autoCapitalize="none"
-                spellCheck={false}
-                autoFocus
-              />
-              <InputGroupAddon align="inline-end">
-                <span
-                  data-exceeded={length > usernameMaxLength}
-                  className="text-label tabular-nums data-[exceeded=true]:text-destructive"
-                >
-                  {length}/{usernameMaxLength}
-                </span>
-              </InputGroupAddon>
-            </InputGroup>
-            {message ? (
-              <FieldError
-                id="username-error"
-                data-testid={unsupportedPrf ? "prf-unsupported" : undefined}
+    <Screen>
+      <TopNav
+        title={title}
+        label="Atrás"
+        icon={<ChevronLeftIcon />}
+        disabled={busy}
+        {...back(busy)}
+      />
+      {EnrollmentStage.$match(stage, {
+        Checking: () => <OrchidPending title="Preparando tu cuenta…" />,
+        Finishing: ({ username: name }) => (
+          <>
+            <div className="flex flex-1 flex-col">
+              <OpeningFlow username={name} onOpened={onOpened} />
+            </div>
+            <HumanCheckWidget />
+          </>
+        ),
+        Confirming: ({ pending, committing }) => {
+          const opening = committing || pending.stage === "release";
+
+          return (
+            <OrchidPending
+              title={
+                opening
+                  ? Option.isSome(receiveFor(pending, receive))
+                    ? "Abriendo tu cuenta y recibiendo tu dinero…"
+                    : "Abriendo tu cuenta…"
+                  : "Confirma con tu passkey"
+              }
+              note={
+                opening
+                  ? "Esto toma unos segundos."
+                  : "Tu dispositivo te la pedirá ahora."
+              }
+            />
+          );
+        },
+        Activating: (current) => (
+          <PendingStep
+            current={current}
+            receive={receive}
+            onConfirm={() => confirm(current.pending)}
+            onChooseAnother={chooseAnother}
+            onRecheckReceive={() => dispatch(EnrollmentEvent.ReceiveRetried())}
+          />
+        ),
+        Choosing: ({ problem: found, busy: starting }) => {
+          const fieldMessage = Option.match(
+            touched ? typedIssue : blockingIssue,
+            {
+              onNone: () => Option.getOrUndefined(found)?.message,
+              onSome: issueMessage,
+            },
+          );
+
+          const length = Array.from(username).length;
+
+          return (
+            <>
+              <form
+                id="choose-username"
+                className="flex flex-1 flex-col"
+                noValidate
+                onSubmit={submit}
               >
-                {message}
-              </FieldError>
-            ) : null}
-          </Field>
-        </main>
-        <ScreenActions>
-          <Button
-            className="w-full"
-            type="submit"
-            data-testid="create-submit"
-            disabled={
-              busy ||
-              stopped ||
-              username.length === 0 ||
-              Option.isSome(blockingIssue)
-            }
-          >
-            {busy ? "Creando passkey…" : "Continuar"}
-          </Button>
-        </ScreenActions>
-      </form>
-    </>
+                <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
+                  <div className="flex flex-col gap-2">
+                    <StepLabel>Paso 1 de 2</StepLabel>
+                    <h1 className="font-display text-h1">Elige tu @usuario</h1>
+                    <p className="text-body text-muted-foreground">
+                      Así te encuentran para enviarte plata. Después crearás una
+                      passkey para proteger tu cuenta.
+                    </p>
+                  </div>
+                  <div className="flex justify-center">
+                    <UserAvatar profile={me} size="xl" />
+                  </div>
+                  <Field>
+                    <FieldLabel htmlFor="username">Usuario</FieldLabel>
+                    <InputGroup>
+                      <InputGroupAddon>@</InputGroupAddon>
+                      <InputGroupInput
+                        id="username"
+                        name="username"
+                        value={username}
+                        onChange={(event) => {
+                          setUsername(event.target.value.toLowerCase());
+                          dispatch(EnrollmentEvent.Edited());
+                        }}
+                        onBlur={() => setTouched(username.length > 0)}
+                        disabled={starting}
+                        aria-invalid={fieldMessage ? true : undefined}
+                        aria-describedby={
+                          fieldMessage ? "username-error" : undefined
+                        }
+                        autoComplete="username"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        autoFocus
+                      />
+                      <InputGroupAddon align="inline-end">
+                        <span
+                          data-exceeded={length > usernameMaxLength}
+                          className="text-label tabular-nums data-[exceeded=true]:text-destructive"
+                        >
+                          {length}/{usernameMaxLength}
+                        </span>
+                      </InputGroupAddon>
+                    </InputGroup>
+                    {fieldMessage ? (
+                      <FieldError
+                        id="username-error"
+                        data-testid={
+                          Option.exists(found, (shown) => shown.prfUnsupported)
+                            ? "prf-unsupported"
+                            : undefined
+                        }
+                      >
+                        {fieldMessage}
+                      </FieldError>
+                    ) : null}
+                    {Option.exists(found, (shown) => shown.takenName) ? (
+                      <Link
+                        to="/restore"
+                        className="text-label text-primary underline-offset-4 hover:underline"
+                      >
+                        ¿Es tuyo? Entra con tu passkey
+                      </Link>
+                    ) : null}
+                  </Field>
+                </main>
+              </form>
+              <ScreenActions>
+                <HumanCheckWidget />
+                <Button
+                  className="w-full"
+                  type="submit"
+                  form="choose-username"
+                  data-testid="create-submit"
+                  disabled={
+                    starting ||
+                    humanCheck !== "ready" ||
+                    Option.exists(found, (shown) => shown.stopped) ||
+                    username.length === 0 ||
+                    Option.isSome(blockingIssue)
+                  }
+                >
+                  {starting ? "Creando passkey…" : "Crear passkey"}
+                </Button>
+              </ScreenActions>
+            </>
+          );
+        },
+      })}
+    </Screen>
   );
 }

@@ -139,7 +139,10 @@ export const enrollmentRelease = (
 
   const release = Effect.fn("Device.releaseEnrollment")(function* (
     held: Held,
+    committing: Effect.Effect<void> = Effect.void,
   ): Effect.fn.Return<EnrollWalletOutcome> {
+    yield* committing;
+
     const committed = yield* exclusive(commitAndInstall(held));
 
     if (
