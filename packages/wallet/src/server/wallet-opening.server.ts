@@ -32,13 +32,8 @@ import {
   ChainUnreachable,
   Sealed,
 } from "./Chain.server";
-import {
-  type BindingCheck,
-  Directory,
-  StoreFailure,
-  type WalletRow,
-  unavailability,
-} from "./Directory.server";
+import { Directory, StoreFailure, type WalletRow } from "./Directory.server";
+import { type BindingCheck, unavailability } from "./username-standing.server";
 import { HumanCheck } from "./HumanCheck.server";
 import { openingAttempt, pairedRecovery } from "./opening-attempt.server";
 import { SignedWorkInFlight } from "./slot.server";

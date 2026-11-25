@@ -34,7 +34,7 @@ The ledger is the truth for balances and for whether a payment happened. Postgre
 
 ## Decisions
 
-- **Usernames.** `[a-z0-9_]`, 3-20 characters, lowercase and permanent, bound when the signed opening is stored, after the server validates a Cloudflare Turnstile token with Siteverify in the same transaction; a name already bound to the address needs no token and nothing from the check is stored. Names containing `orchid` and reserved words cannot be bound.
+- **Usernames.** `[a-z0-9_]`, 3-20 characters, lowercase and permanent, bound when the signed opening is stored, after the server validates a Cloudflare Turnstile token with Siteverify just before the binding transaction opens, so no lock or connection is held during the call, and the transaction refuses to insert unless that check passed; a name already bound to the address needs no token and nothing from the check is stored. Names containing `orchid` and reserved words cannot be bound.
 - **Registration.** Open, with no invite or quota.
 - **Schema location.** Tables and migrations live in `packages/wallet`; `packages/db` is the driver.
 - **External memos.** Required for addresses in the known-exchange registry and for accounts that publish the SEP-29 `config.memo_required` data entry as `1`; other external sends accept an optional text or ID memo. Orchid sends carry none.

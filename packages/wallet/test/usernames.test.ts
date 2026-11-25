@@ -152,6 +152,40 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         }),
     );
 
+    it.effect(
+      "the human check runs without the wallet's locks, and a wallet changed meanwhile binds nothing",
+      () =>
+        Effect.gen(function* () {
+          const claim = claimFor(Keypair.random(), "maria");
+          const draft = yield* opening(claim);
+
+          assertTagged(draft, "OpeningDraft");
+
+          const stored = Option.getOrThrow(yield* findWallet(claim.address));
+
+          const written = yield* Directory.use((directory) =>
+            directory.seal(
+              stored,
+              placeholderSealed(),
+              claim,
+              Option.none(),
+              false,
+              directory
+                .recoveryDraft(stored, draft.request)
+                .pipe(
+                  Effect.orDie,
+                  Effect.as(Option.none<HumanCheckRefused>()),
+                ),
+            ),
+          );
+
+          expect(written).toMatchObject({ version: stored.version + 1 });
+          expect(
+            (yield* opening(claimFor(Keypair.random(), "maria")))._tag,
+          ).toBe("OpeningDraft");
+        }),
+    );
+
     it.effect("a reserved name is never bound", () =>
       Effect.gen(function* () {
         const key = Keypair.random();
