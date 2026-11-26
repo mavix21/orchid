@@ -1,5 +1,4 @@
 import { LinkIcon, WalletIcon } from "lucide-react";
-import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar";
 import { Badge } from "@workspace/ui/components/badge";
 import {
   Item,
@@ -15,6 +14,7 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
+import { FlowerAvatar } from "@/components/flower-avatar";
 import {
   type Direction,
   type EntryMedia,
@@ -22,21 +22,6 @@ import {
   createdWhen,
   shownEntry,
 } from "@/activity/entry";
-
-const tones: ReadonlyArray<React.ComponentProps<typeof Avatar>["tone"]> = [
-  "orchid",
-  "lila",
-  "rosa",
-  "durazno",
-];
-
-const usernameTone = (username: string) =>
-  tones[
-    Array.from(username).reduce(
-      (sum, letter) => sum + letter.charCodeAt(0),
-      0,
-    ) % tones.length
-  ];
 
 const partyKey = (party: Party) =>
   party instanceof Profile ? party.username : party.address;
@@ -60,11 +45,7 @@ export function EntryAvatar({ media }: { media: EntryMedia }) {
   if (media instanceof Profile)
     return (
       <ItemMedia>
-        <Avatar tone={usernameTone(media.username)}>
-          <AvatarFallback>
-            {media.username.charAt(0).toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
+        <FlowerAvatar username={media.username} />
       </ItemMedia>
     );
 

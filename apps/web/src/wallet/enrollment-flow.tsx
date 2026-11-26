@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { ChevronLeftIcon } from "lucide-react";
+import { ChevronLeftIcon, Flower2Icon } from "lucide-react";
 import { useEffect, useReducer, useRef, useState } from "react";
+import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar";
 import { Button } from "@workspace/ui/components/button";
 import { Field, FieldError, FieldLabel } from "@workspace/ui/components/field";
 import {
@@ -29,8 +30,7 @@ import * as Predicate from "effect/Predicate";
 import { OrchidPending } from "@/components/orchid-pending";
 import { Screen, ScreenActions } from "@/components/screen";
 import { TopNav, type TopNavAction } from "@/components/top-nav";
-import { UserAvatar } from "@/components/user-avatar";
-import { me } from "@/fixtures/account";
+import { FlowerAvatar } from "@/components/flower-avatar";
 import { receiveRefusal } from "@/links/receive-outcomes";
 import { sessionLapse } from "@/wallet/session-lapse";
 import { enrollmentClient } from "@/wallet/enrollment";
@@ -454,7 +454,15 @@ export function EnrollmentFlow({
                     </p>
                   </div>
                   <div className="flex justify-center">
-                    <UserAvatar profile={me} size="xl" />
+                    {Option.isNone(typedIssue) ? (
+                      <FlowerAvatar username={username} size="xl" />
+                    ) : (
+                      <Avatar size="xl">
+                        <AvatarFallback>
+                          <Flower2Icon className="size-8 text-icon-muted" />
+                        </AvatarFallback>
+                      </Avatar>
+                    )}
                   </div>
                   <Field>
                     <FieldLabel htmlFor="username">Usuario</FieldLabel>
