@@ -11,7 +11,6 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import * as Clock from "effect/Clock";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -25,9 +24,7 @@ import {
   Profile,
   Username,
 } from "../contract";
-import { muxedPrefixesOf } from "../stellar/destination";
 import { activityPageSize } from "../policy";
-import { epochAt, network } from "../stellar/network";
 import { StoreFailure } from "./Directory.server";
 import {
   type Closers,
@@ -101,13 +98,22 @@ const isClosed = (
 const newestFirst = (left: Candidate, right: Candidate) =>
   left.cursor < right.cursor ? 1 : left.cursor > right.cursor ? -1 : 0;
 
-export const activityFor = Effect.fn("Transfers.activity")(function* (
-  address: AccountAddress,
-  before: ActivityCursor | undefined,
-) {
+export interface ActivityQuery {
+  readonly address: AccountAddress;
+  readonly destinationPrefixes: ReadonlyArray<string>;
+  readonly network: string;
+  readonly epoch: string;
+  readonly before: ActivityCursor | undefined;
+}
+
+export const activityFor = Effect.fn("Transfers.activity")(function* ({
+  address,
+  destinationPrefixes,
+  network,
+  epoch,
+  before,
+}: ActivityQuery) {
   const db = yield* Database;
-  const now = yield* Clock.currentTimeMillis;
-  const epoch = epochAt(now);
   const cursor = Option.fromNullishOr(before);
   const fetched = activityPageSize + 1;
 
@@ -188,7 +194,10 @@ export const activityFor = Effect.fn("Transfers.activity")(function* (
             sql`${action} ->> '_tag' = 'ReceiveLinkExternal'`,
             or(
               sql`${action} ->> 'destination' = ${address}`,
-              sql`left(${action} ->> 'destination', 53) in (${sql.join(muxedPrefixesOf(address), sql`, `)})`,
+              ...destinationPrefixes.map(
+                (prefix) =>
+                  sql`starts_with(${action} ->> 'destination', ${prefix})`,
+              ),
             ),
           ),
         ),

@@ -17,7 +17,6 @@ import {
   sameAsset,
   needsTrustline,
 } from "../contract";
-import { baseAccountOf } from "../stellar/destination";
 import { claimableQuota } from "../policy";
 import { Chain } from "./Chain.server";
 import { type QuotaCheck, claimableQuotaFlow } from "./claimable-quota.server";
@@ -129,8 +128,10 @@ export const deliveryFlow = Effect.gen(function* () {
       return DeliveryRoute.PaymentLink({ address: recipient.address });
     }
 
+    const receivingAccount = chain.receivingAccount(recipient.address);
+
     const blocker = yield* chain.receiveBlocker(
-      baseAccountOf(recipient.address),
+      receivingAccount,
       terms.asset,
       terms.amount,
     );
@@ -146,7 +147,7 @@ export const deliveryFlow = Effect.gen(function* () {
         const missing = reason === "no_account" || reason === "no_trustline";
 
         return new RecipientCannotReceive({
-          address: baseAccountOf(recipient.address),
+          address: receivingAccount,
           reason,
           linkable:
             missing &&

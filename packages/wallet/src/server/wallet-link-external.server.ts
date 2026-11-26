@@ -22,7 +22,6 @@ import {
   RecipientCannotReceive,
   type SigningRequest,
 } from "../contract";
-import { baseAccountOf } from "../stellar/destination";
 import {
   type AssetAuthorized,
   AssetOrders,
@@ -165,12 +164,12 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
           : yield* shared.balanceGone(order.balance);
 
       const { asset, amount } = funded.value;
-      const baseDestination = baseAccountOf(order.destination);
+      const receivingAccount = chain.receivingAccount(order.destination);
 
-      if (baseDestination === order.link)
+      if (receivingAccount === order.link)
         return new LinkUnclaimable({ reason: "destination_is_link" });
 
-      if (chain.issuedBy(asset, baseDestination))
+      if (chain.issuedBy(asset, receivingAccount))
         return new LinkUnclaimable({ reason: "destination_is_issuer" });
 
       const rule = yield* chain.memoRule(order.destination);
@@ -186,14 +185,14 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
       const memoRequired = Predicate.isTagged(rule, "MemoRequired");
 
       const blocker = yield* chain.receiveBlocker(
-        baseDestination,
+        receivingAccount,
         asset,
         amount,
       );
 
       if (Option.isSome(blocker))
         return new RecipientCannotReceive({
-          address: baseDestination,
+          address: receivingAccount,
           reason: blocker.value,
         });
 

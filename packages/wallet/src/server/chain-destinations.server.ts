@@ -11,7 +11,7 @@ import {
   sameAsset,
 } from "../contract";
 import { isMuxedAddress } from "../stellar/address-rules";
-import { baseAccountOf } from "../stellar/destination";
+import { baseAccountOf, muxedPrefixesOf } from "../stellar/destination";
 import type { ChainUnreachable } from "./chain-errors.server";
 import type { KnownExchangeMemo } from "./exchange-memos.server";
 import type { Holdings } from "./ledger-assets.server";
@@ -31,6 +31,8 @@ export const MemoRule = Data.taggedEnum<MemoRule>();
 export type ReceiveBlocker = RecipientCannotReceive["reason"];
 
 export interface DestinationChain {
+  receivingAccount(destination: DestinationAddress): AccountAddress;
+  destinationPrefixesPayingInto(account: AccountAddress): ReadonlyArray<string>;
   memoRule(
     destination: DestinationAddress,
   ): Effect.Effect<MemoRule, ChainUnreachable>;
@@ -70,6 +72,8 @@ export const destinationChain = (
     address: AccountAddress,
   ) => Effect.Effect<Option.Option<KnownExchangeMemo>, ChainUnreachable>,
 ): DestinationChain => ({
+  receivingAccount: baseAccountOf,
+  destinationPrefixesPayingInto: muxedPrefixesOf,
   memoRule: (destination) => {
     if (isMuxedAddress(destination))
       return Effect.succeed(MemoRule.MemoForbidden());
