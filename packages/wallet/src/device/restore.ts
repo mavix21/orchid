@@ -12,7 +12,7 @@ import {
   type WalletPort,
   type WalletUnavailable,
 } from "../contract";
-import { network } from "../stellar/network";
+import { network } from "../device-network";
 import {
   AssertionIntent,
   PinnedCredential,

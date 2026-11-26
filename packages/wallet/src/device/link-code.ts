@@ -5,7 +5,7 @@ import { base58 } from "@scure/base";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type { AccountAddress, LinkSecret } from "../contract";
-import { stellarSigningScheme } from "../stellar/signing-scheme";
+import { signingScheme } from "../device-network";
 import type { SigningScheme } from "./signing-scheme";
 
 const linkCodeVersion = 1;
@@ -79,7 +79,7 @@ const keyFromEntropy = (
 export const linkKeyOf = (code: LinkCode): Option.Option<LinkKey> =>
   Option.map(linkCodeEntropy(code), (entropy) => {
     try {
-      return keyFromEntropy(stellarSigningScheme, entropy);
+      return keyFromEntropy(signingScheme, entropy);
     } finally {
       entropy.fill(0);
     }

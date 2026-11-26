@@ -7,7 +7,7 @@ import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import type { Approval, SigningRequest } from "../contract";
-import { network } from "../stellar/network";
+import { network } from "../device-network";
 import {
   AssertionIntent,
   AssertionRejected,

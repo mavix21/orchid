@@ -3,7 +3,7 @@ import { mnemonicToSeedSync } from "@scure/bip39";
 import type * as Arr from "effect/Array";
 import { HDKey } from "micro-key-producer/slip10.js";
 import { Approval, type LinkSecret, type SigningRequest } from "../contract";
-import { stellarSigningScheme } from "../stellar/signing-scheme";
+import { signingScheme } from "../device-network";
 import type { SecretPhrase } from "./secret-phrase";
 import type { SigningScheme } from "./signing-scheme";
 
@@ -61,4 +61,4 @@ function signingWith(scheme: SigningScheme) {
 }
 
 export const { phraseAddress, approveWithPhrase, approveWithLinkSecret } =
-  signingWith(stellarSigningScheme);
+  signingWith(signingScheme);

@@ -14,7 +14,7 @@ import {
   WalletClaim,
 } from "../contract";
 import { type LinkCode } from "./link-code";
-import { network } from "../stellar/network";
+import { network } from "../device-network";
 import {
   AssertionIntent,
   AssertionRejected,

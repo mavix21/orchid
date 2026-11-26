@@ -20,10 +20,7 @@ import {
   type WalletUnavailable,
   sameAsset,
 } from "../contract";
-import { isIssuedBy } from "../stellar/assets";
-import { readEnvelope } from "../stellar/envelopes";
 import { approvalMargin } from "../policy";
-import { network } from "../stellar/network";
 import {
   type ClaimKind,
   type ClaimReviews,
@@ -35,6 +32,7 @@ import type {
   KeyStoreUnavailable,
   PublicDeviceWallet,
 } from "./key-store";
+import { isIssuedBy, network, readDraft } from "../device-network";
 import {
   type ConfirmLinkReceiveOutcome,
   type LinkReceiveTarget,
@@ -76,7 +74,7 @@ export const receiveReviewOf = (
   redrafted: boolean,
   target: LinkReceiveTarget,
 ) => {
-  const facts = readEnvelope(draft.request.envelope);
+  const facts = readDraft(draft.request);
   const { action } = order;
 
   if (

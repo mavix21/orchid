@@ -3,11 +3,6 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import type { AccountAddress, TransferOrder } from "../contract";
-import type {
-  ClaimableFacts,
-  PaymentLinkFacts,
-} from "../stellar/asset-envelopes";
-import type { PaymentFacts } from "../stellar/envelopes";
 import {
   type CorruptDeviceWallet,
   type KeyStoreUnavailable,
@@ -15,6 +10,11 @@ import {
   type SealedKeyStore,
 } from "./key-store";
 import type { SealedLinkCode } from "./link-seal";
+import type {
+  ClaimableFacts,
+  PaymentFacts,
+  PaymentLinkFacts,
+} from "../device-network";
 import { ApprovalOutstanding, DraftRejected, NoWallet } from "./outcomes";
 import { Reserved } from "./reviewed-approval";
 import { restoredLinkSlot, savedLinkFor, withSavedLink } from "./saved-links";

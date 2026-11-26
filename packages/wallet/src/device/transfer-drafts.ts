@@ -13,10 +13,8 @@ import {
   sameAsset,
   type TransferIntent,
 } from "../contract";
-import type { PaymentLinkFacts } from "../stellar/asset-envelopes";
-import { readEnvelope } from "../stellar/envelopes";
-import { network } from "../stellar/network";
 import { type PublicDeviceWallet, receiptJson } from "./key-store";
+import { type PaymentLinkFacts, network, readDraft } from "../device-network";
 
 export const clockAllowance = 60;
 
@@ -37,7 +35,7 @@ export const orderJson = Schema.encodeSync(
   Schema.fromJsonString(TransferOrder),
 );
 
-const sameMemo = (
+export const sameMemo = (
   drafted: PaymentMemo | undefined,
   ordered: PaymentMemo | undefined,
 ) => drafted?.type === ordered?.type && drafted?.value === ordered?.value;
@@ -107,7 +105,7 @@ export const orderedFacts = (
   order: TransferOrder,
   draft: TransferDraft,
 ) => {
-  const facts = readEnvelope(draft.request.envelope);
+  const facts = readDraft(draft.request);
   const to = destination(order, draft);
 
   if (Option.isNone(facts) || Option.isNone(to)) return Option.none();

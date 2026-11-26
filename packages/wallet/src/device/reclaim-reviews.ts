@@ -2,9 +2,8 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import { type AssetDraft, type AssetOrder, sameAsset } from "../contract";
-import { readEnvelope } from "../stellar/envelopes";
-import { network } from "../stellar/network";
 import type { PublicDeviceWallet } from "./key-store";
+import { network, readDraft } from "../device-network";
 import { type PaymentLinkTarget, ReclaimReview } from "./outcomes";
 
 export const reviewJson = Schema.encodeSync(
@@ -22,7 +21,7 @@ export const reviewOf = (
   redrafted: boolean,
   { asset, amount }: PaymentLinkTarget,
 ) => {
-  const facts = readEnvelope(draft.request.envelope);
+  const facts = readDraft(draft.request);
 
   if (
     Option.isNone(facts) ||
