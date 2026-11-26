@@ -1,4 +1,9 @@
-import { type Amount, type Asset, formatAmount } from "@workspace/wallet";
+import {
+  type Amount,
+  type Asset,
+  formatAmount,
+  precisionOf,
+} from "@workspace/wallet";
 import * as Match from "effect/Match";
 
 export const assetCode = (asset: Asset) =>
@@ -8,7 +13,7 @@ export const assetCode = (asset: Asset) =>
   });
 
 export const amountLabel = (amount: Amount, asset: Asset) =>
-  `${formatAmount(amount)} ${assetCode(asset)}`;
+  `${formatAmount(amount, precisionOf(asset))} ${assetCode(asset)}`;
 
 export const shortAddress = (address: string) =>
   `${address.slice(0, 4)}…${address.slice(-4)}`;

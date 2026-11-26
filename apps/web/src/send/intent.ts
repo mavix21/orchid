@@ -10,6 +10,7 @@ import {
   Username,
   UsernameRecipient,
   parseAmount,
+  precisionOf,
   recogniseAddress,
 } from "@workspace/wallet";
 import * as Match from "effect/Match";
@@ -103,7 +104,10 @@ export function intentOf(
 
   if (Result.isFailure(to)) return Result.fail(to.failure);
 
-  const amount = parseAmount(form.amount.trim().replace(",", "."));
+  const amount = parseAmount(
+    form.amount.trim().replace(",", "."),
+    precisionOf(asset),
+  );
 
   if (Option.isNone(amount))
     return Result.fail(new FieldProblem("amount", "Escribe un monto válido"));

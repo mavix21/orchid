@@ -17,16 +17,20 @@ import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import {
   AccountAddress,
+  AddressRecipient,
   Approval,
+  type AssetPrecision,
   BalanceId,
   DestinationAddress,
   PaymentMemo,
   PositiveAmount,
   SigningRequest,
+  TransferOrder,
   UnsignedEnvelope,
   baseAsset,
   formatAmount,
   parseAmount,
+  precisionOf,
 } from "../src/contract";
 import {
   Applied,
@@ -137,30 +141,64 @@ const sealedPaymentAt = (now: number) =>
     now + 120,
   );
 
+const baseAssetPrecision = precisionOf(baseAsset);
+
+const sixDecimals: AssetPrecision = {
+  decimals: 6,
+  maximum: 18_446_744_073_709_551_615n,
+};
+
 it.each([
-  ["zero", "0"],
-  ["negative", "-1"],
-  ["scientific notation", "1e2"],
-  ["more than seven decimals", "1.00000001"],
-  ["above int64 max", "922337203686"],
-])("money parsing rejects %s", (_name, value) => {
-  expect(Option.isNone(parseAmount(value))).toBe(true);
+  ["zero", "0", baseAssetPrecision],
+  ["negative", "-1", baseAssetPrecision],
+  ["scientific notation", "1e2", baseAssetPrecision],
+  ["more decimals than the base asset", "1.00000001", baseAssetPrecision],
+  ["above the base asset maximum", "922337203685.4775808", baseAssetPrecision],
+  ["more decimals than a six-decimal asset", "1.0000001", sixDecimals],
+  ["above a six-decimal asset maximum", "18446744073709.551616", sixDecimals],
+])("money parsing rejects %s", (_name, value, precision) => {
+  expect(Option.isNone(parseAmount(value, precision))).toBe(true);
 });
 
-it("money parsing preserves all seven decimals and int64 limits", () => {
-  expect(Option.getOrThrow(parseAmount("5.5000001")).toString()).toBe(
-    "55000001",
-  );
-  expect(formatAmount(Schema.decodeSync(PositiveAmount)("55000001"))).toBe(
-    "5.5000001",
-  );
-  expect(
-    Option.getOrThrow(parseAmount("922337203685.4775807")).toString(),
-  ).toBe("9223372036854775807");
-  expect(
-    formatAmount(Schema.decodeSync(PositiveAmount)("9223372036854775807")),
-  ).toBe("922337203685.4775807");
+it.each([
+  ["base asset amounts", "5.5000001", "55000001", baseAssetPrecision],
+  [
+    "the base asset maximum",
+    "922337203685.4775807",
+    "9223372036854775807",
+    baseAssetPrecision,
+  ],
+  ["six-decimal amounts", "5.500001", "5500001", sixDecimals],
+  [
+    "a six-decimal asset maximum",
+    "18446744073709.551615",
+    "18446744073709551615",
+    sixDecimals,
+  ],
+])("money round-trips %s", (_name, text, units, precision) => {
+  const amount = Schema.decodeSync(PositiveAmount)(units);
+
+  expect(parseAmount(text, precision)).toStrictEqual(Option.some(amount));
+  expect(formatAmount(amount, precision)).toBe(text);
 });
+
+it.each([
+  ["at", "9223372036854775807", true],
+  ["above", "9223372036854775808", false],
+])(
+  "accepts a transfer order %s the asset maximum only within it",
+  (_name, amount, accepted) => {
+    const decoded = Schema.decodeUnknownOption(TransferOrder)({
+      id: "6f1f3c1e-9a2b-4c3d-8e4f-5a6b7c8d9e0f",
+      from: address,
+      to: AddressRecipient.make({ value: to }),
+      asset: baseAsset,
+      amount,
+    });
+
+    expect(Option.isSome(decoded)).toBe(accepted);
+  },
+);
 
 it("payment envelopes preserve amount, destination, bounds and next sequence", () => {
   const amount = Schema.decodeSync(PositiveAmount)("55000001");

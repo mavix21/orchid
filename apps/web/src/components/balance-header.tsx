@@ -6,26 +6,33 @@ import {
   QrCodeIcon,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import {
+  type Amount,
+  baseAsset,
+  formatAmount,
+  precisionOf,
+} from "@workspace/wallet";
 
 import { formattingLocale } from "@/locale/format";
 import { ActionTile } from "@/components/action-tile";
 import { FlowerAvatar } from "@/components/flower-avatar";
 
-const unitsPerDollar = 10_000_000n;
-const unitsPerCent = 100_000n;
+const centDigits = 2;
 
 export function BalanceHeader({
   username,
   dollars,
 }: {
   username: string;
-  dollars: bigint;
+  dollars: Amount;
 }) {
-  const whole = (dollars / unitsPerDollar).toLocaleString(formattingLocale());
+  const [units = "0", fraction = ""] = formatAmount(
+    dollars,
+    precisionOf(baseAsset),
+  ).split(".");
 
-  const cents = ((dollars % unitsPerDollar) / unitsPerCent)
-    .toString()
-    .padStart(2, "0");
+  const whole = BigInt(units).toLocaleString(formattingLocale());
+  const cents = fraction.slice(0, centDigits).padEnd(centDigits, "0");
 
   return (
     <section className="flex flex-col gap-6">
