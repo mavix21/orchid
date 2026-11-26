@@ -13,6 +13,7 @@ import {
   type Asset,
   type BalanceId,
   type DestinationAddress,
+  LinkUnclaimable,
   type PaymentMemo,
   type PositiveAmount,
   SigningRequest,
@@ -24,15 +25,25 @@ import type { ChainUnreachable } from "./chain-errors.server";
 import type { AccountState } from "./ledger.server";
 import type { StoreFailure } from "./store-failure.server";
 
+export interface LinkReceive {
+  readonly link: AccountAddress;
+  readonly destination: DestinationAddress;
+  readonly balance: BalanceId;
+  readonly asset: Asset;
+  readonly amount: PositiveAmount;
+  readonly memo?: PaymentMemo;
+}
+
+export interface PreparedLinkReceive extends LinkReceive {
+  readonly createsLinkAccount: boolean;
+}
+
 export interface LinkChain {
+  prepareLinkReceive(
+    receive: LinkReceive,
+  ): Effect.Effect<PreparedLinkReceive | LinkUnclaimable, ChainUnreachable>;
   draftLinkReceive(
-    link: AccountAddress,
-    createsLinkAccount: boolean,
-    destination: DestinationAddress,
-    balance: BalanceId,
-    asset: Asset,
-    amount: PositiveAmount,
-    memo?: PaymentMemo,
+    receive: PreparedLinkReceive,
   ): Effect.Effect<SigningRequest, ChainUnreachable | StoreFailure>;
   cleanUpLink(link: AccountAddress): Effect.Effect<boolean, ChainUnreachable>;
 }
@@ -57,28 +68,25 @@ export const linkChain = (
   });
 
   return {
+    prepareLinkReceive: Effect.fn("Chain.prepareLinkReceive")(function* (
+      receive: LinkReceive,
+    ) {
+      const state = yield* account(receive.link);
+
+      return Option.exists(state, ({ untouched }) => !untouched)
+        ? new LinkUnclaimable({ reason: "link_account_unexpected" })
+        : { ...receive, createsLinkAccount: Option.isNone(state) };
+    }),
     draftLinkReceive: Effect.fn("Chain.draftLinkReceive")(function* (
-      link: AccountAddress,
-      createsLinkAccount: boolean,
-      destination: DestinationAddress,
-      balance: BalanceId,
-      asset: Asset,
-      amount: PositiveAmount,
-      memo?: PaymentMemo,
+      receive: PreparedLinkReceive,
     ) {
       const { minTime, maxTime } = yield* lifetime;
 
       return new SigningRequest({
         envelope: draftLinkReceive({
+          ...receive,
           channel: yield* leaseChannel(maxTime),
-          link,
           reserveSponsor,
-          createsLinkAccount,
-          destination,
-          balance,
-          asset,
-          amount,
-          memo,
           minTime,
           maxTime,
         }),

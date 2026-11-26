@@ -98,7 +98,7 @@ it.effect("fails with ChainUnreachable on a non-OK HTTP status", () =>
     );
 
     expect(
-      yield* Chain.use((c) => c.account(address)).pipe(
+      yield* Chain.use((c) => c.balance(address)).pipe(
         Effect.provide(chainWithHttp(http)),
         Effect.flip,
       ),
@@ -223,7 +223,6 @@ it("incoming capacity of a trustline subtracts its balance and buying liabilitie
 
   const holdings = holdingsFromEntries(
     [{ xdr: accountEntryXdr(key, 1n, 1) }, { xdr: line }],
-    100,
     Keypair.random().publicKey(),
     Schema.decodeSync(AccountAddress)(key.publicKey()),
     [baseAsset],

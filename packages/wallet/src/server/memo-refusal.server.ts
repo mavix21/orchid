@@ -1,3 +1,4 @@
+import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import {
   ExternalMemoRequired,
@@ -7,13 +8,12 @@ import {
   type ResolvedRecipient,
   type TransferOrder,
 } from "../contract";
-import { baseAccountOf, isMuxed } from "../stellar/destination";
-import type { KnownExchangeMemo } from "./exchange-memos.server";
+import type { MemoRule } from "./Chain.server";
 
 export const memoRefusal = (
   order: Pick<TransferOrder, "memo">,
   recipient: ResolvedRecipient,
-  requirement: Option.Option<KnownExchangeMemo>,
+  rule: MemoRule,
 ): Option.Option<ExternalMemoRequired | MemoNotAllowed> => {
   if (recipient instanceof LinkRecipient)
     return order.memo
@@ -25,18 +25,17 @@ export const memoRefusal = (
       ? Option.some(new MemoNotAllowed({ reason: "orchid" }))
       : Option.none();
 
-  if (isMuxed(recipient.address))
-    return order.memo
-      ? Option.some(new MemoNotAllowed({ reason: "muxed" }))
-      : Option.none();
-
-  return Option.isSome(requirement) && !order.memo
-    ? Option.some(
-        new ExternalMemoRequired({
-          address: baseAccountOf(recipient.address),
-          exchange: requirement.value.exchange,
-          source: requirement.value.source,
-        }),
-      )
-    : Option.none();
+  return Match.valueTags(rule, {
+    MemoForbidden: () =>
+      order.memo
+        ? Option.some(new MemoNotAllowed({ reason: "muxed" }))
+        : Option.none(),
+    MemoOptional: () => Option.none(),
+    MemoRequired: ({ account, exchange, source }) =>
+      order.memo
+        ? Option.none()
+        : Option.some(
+            new ExternalMemoRequired({ address: account, exchange, source }),
+          ),
+  });
 };

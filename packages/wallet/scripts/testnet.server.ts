@@ -175,12 +175,9 @@ const create = async (key: Keypair, name: string) => {
   await waitApplied(sealed);
   remember(`${name} opening`, sealed.hash);
 
-  const sponsorship = Option.getOrThrow(
-    await run(Chain.use((chain) => chain.account(claim.address))),
-  );
-
-  assert.ok(
-    sponsorship.accountSponsored && sponsorship.sponsored,
+  assert.equal(
+    await run(Chain.use((chain) => chain.standing(claim.address))),
+    "open",
     "Raw extXdr must identify Orchid as both sponsors",
   );
 
@@ -263,10 +260,9 @@ assert.ok(
     UsernameTaken,
 );
 
-assert.ok(
-  Option.isNone(
-    await run(Chain.use((chain) => chain.account(racerClaim.address))),
-  ),
+assert.equal(
+  await run(Chain.use((chain) => chain.standing(racerClaim.address))),
+  "absent",
 );
 
 console.log(

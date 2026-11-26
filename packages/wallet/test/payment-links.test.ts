@@ -408,7 +408,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 { xdr: accountEntryXdr(sender, 1000n, 1) },
                 { xdr: trustlineXdr },
               ],
-              100,
               reserveSponsor,
               senderAddr,
               [baseAsset],

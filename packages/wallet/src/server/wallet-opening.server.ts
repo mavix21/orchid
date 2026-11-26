@@ -47,7 +47,7 @@ export const openingFlow = Effect.gen(function* () {
   const directory = yield* Directory;
   const humanCheck = yield* HumanCheck;
   const transfers = yield* Transfers;
-  const { readAccount } = yield* confirmedReads;
+  const { readStanding } = yield* confirmedReads;
 
   const waitingClaim = Effect.fn("Wallet.waitingClaim")(function* (
     address: AccountAddress,
@@ -191,13 +191,9 @@ export const openingFlow = Effect.gen(function* () {
     if (!chain.validAddress(claim.address))
       return new InvalidAddress({ address: claim.address });
 
-    const state = yield* readAccount(claim.address);
+    const standing = yield* readStanding(claim.address);
 
-    if (
-      Option.isSome(state) &&
-      (!state.value.accountSponsored ||
-        (Option.isSome(state.value.balance) && !state.value.sponsored))
-    )
+    if (standing === "foreign" || standing === "foreignIncomplete")
       return new NotSponsored();
 
     const availability = yield* directory.available(claim);
@@ -207,7 +203,7 @@ export const openingFlow = Effect.gen(function* () {
     if (Option.isSome(refused)) return refused.value;
 
     const existing = yield* directory.byAddress(claim.address);
-    const usable = Option.isSome(state) && Option.isSome(state.value.balance);
+    const usable = standing === "open";
 
     if (Option.isNone(existing)) {
       const drafted = yield* draftOpening(claim.address);
@@ -267,16 +263,8 @@ export const openingFlow = Effect.gen(function* () {
         return new OpeningPending();
       }
 
-      if (expiredOpening) {
-        const confirmed = yield* readAccount(claim.address);
-
-        if (
-          Option.isSome(confirmed) &&
-          Option.isSome(confirmed.value.balance) &&
-          confirmed.value.sponsored
-        )
-          return yield* activation(row, claim, binding);
-      }
+      if (expiredOpening && (yield* readStanding(claim.address)) === "open")
+        return yield* activation(row, claim, binding);
     }
 
     const waiting = yield* waitingClaim(claim.address);

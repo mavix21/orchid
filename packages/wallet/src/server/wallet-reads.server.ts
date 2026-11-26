@@ -16,20 +16,23 @@ export const live = (request: SigningRequest) =>
 export const confirmedReads = Effect.gen(function* () {
   const chain = yield* Chain;
 
-  const readAccount = Effect.fn("Wallet.readAccount")(function* (
+  const readStanding = Effect.fn("Wallet.readStanding")(function* (
     address: AccountAddress,
   ) {
-    const first = yield* chain.account(address);
+    const first = yield* chain.standing(address);
 
-    return Option.isNone(first) || Option.isNone(first.value.balance)
-      ? yield* chain.account(address)
-      : first;
+    return first === "open" || first === "foreign"
+      ? first
+      : yield* chain.standing(address);
   });
 
-  const readBalance = (address: AccountAddress) =>
-    readAccount(address).pipe(
-      Effect.map(Option.flatMap((state) => state.balance)),
-    );
+  const readBalance = Effect.fn("Wallet.readBalance")(function* (
+    address: AccountAddress,
+  ) {
+    const first = yield* chain.balance(address);
 
-  return { readAccount, readBalance };
+    return Option.isNone(first) ? yield* chain.balance(address) : first;
+  });
+
+  return { readStanding, readBalance };
 });

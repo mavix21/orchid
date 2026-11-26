@@ -28,15 +28,14 @@ import {
   type UsernameRecipient,
   assetKey,
 } from "../contract";
-import { baseAccountOf, isMuxed } from "../stellar/destination";
-import { Chain, type ChainUnreachable } from "./Chain.server";
+import { isMuxed } from "../stellar/destination";
+import { Chain, type ChainUnreachable, MemoRule } from "./Chain.server";
 import { type QuotaCheck, claimableQuotaFlow } from "./claimable-quota.server";
 import {
   Directory,
   type StoreFailure,
   type WalletRow,
 } from "./Directory.server";
-import type { KnownExchangeMemo } from "./exchange-memos.server";
 import { memoRefusal } from "./memo-refusal.server";
 import { type Authorized, Transfers, pending } from "./Transfers.server";
 import {
@@ -49,7 +48,7 @@ import {
 
 export class Examined extends Data.TaggedClass("Examined")<{
   readonly recipient: ResolvedRecipient;
-  readonly requirement: Option.Option<KnownExchangeMemo>;
+  readonly requirement: MemoRule;
   readonly delivery: DeliveryRoute;
 }> {}
 
@@ -110,10 +109,21 @@ export const transferCheckFlow = Effect.gen(function* () {
   const memoRequirement = Effect.fn("Wallet.memoRequirement")(function* (
     recipient: ResolvedRecipient,
   ) {
-    return recipient instanceof ExternalRecipient && !isMuxed(recipient.address)
-      ? yield* chain.memoRequiredFor(baseAccountOf(recipient.address))
-      : Option.none<KnownExchangeMemo>();
+    return recipient instanceof ExternalRecipient
+      ? yield* chain.memoRule(recipient.address)
+      : MemoRule.MemoForbidden();
   });
+
+  const memoDemand = (rule: MemoRule) => {
+    const required = MemoRule.$is("MemoRequired")(rule)
+      ? Option.some(rule)
+      : Option.none();
+
+    return {
+      memoRequired: Option.isSome(required),
+      exchange: Option.map(required, ({ exchange }) => exchange),
+    };
+  };
 
   const resolveContact = (
     to: typeof UsernameRecipient.Type | typeof AddressRecipient.Type,
@@ -242,11 +252,7 @@ export const transferCheckFlow = Effect.gen(function* () {
     return examined instanceof Examined
       ? new TransferAssessment({
           recipient: examined.recipient,
-          memoRequired: Option.isSome(examined.requirement),
-          exchange: Option.map(
-            examined.requirement,
-            (requirement) => requirement.exchange,
-          ),
+          ...memoDemand(examined.requirement),
         })
       : examined;
   });
@@ -265,11 +271,7 @@ export const transferCheckFlow = Effect.gen(function* () {
 
     const requirement = yield* memoRequirement(recipient);
 
-    return new RecipientCheck({
-      recipient,
-      memoRequired: Option.isSome(requirement),
-      exchange: Option.map(requirement, (known) => known.exchange),
-    });
+    return new RecipientCheck({ recipient, ...memoDemand(requirement) });
   });
 
   return { malformed, memoRequirement, examine, assess, checkRecipient };

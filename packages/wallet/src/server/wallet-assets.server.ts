@@ -22,11 +22,7 @@ import {
   Unchanged,
   assetKey,
 } from "../contract";
-import {
-  type AssetPlan,
-  ClaimPlan,
-  plannedSequence,
-} from "../stellar/asset-plans";
+import { type AssetPlan, ClaimPlan } from "../stellar/asset-plans";
 import { fromStellarAsset } from "../stellar/assets";
 import { maxSponsoredTrustlines } from "../policy";
 import { usdc } from "../stellar/network";
@@ -42,6 +38,7 @@ import {
   type Applied,
   Chain,
   type ChainUnreachable,
+  DraftPurpose,
   type Expired,
   type Rejected,
 } from "./Chain.server";
@@ -200,27 +197,26 @@ export const assetFlow = Effect.gen(function* () {
       plan = ClaimPlan.make({ balance: action.balance });
 
       if (Predicate.isTagged(entry.asset, "Issued")) {
-        const state = yield* chain.holdings(order.wallet, [entry.asset]);
+        const blocker = yield* chain.receiveBlocker(
+          order.wallet,
+          entry.asset,
+          entry.amount,
+        );
 
-        if (Option.isNone(state)) return new NotOpened();
+        if (Option.isSome(blocker)) {
+          if (blocker.value === "no_account") return new NotOpened();
 
-        const line = state.value.lines[0];
+          if (blocker.value !== "no_trustline")
+            return new RecipientCannotReceive({
+              address: order.wallet,
+              reason: blocker.value,
+            });
 
-        if (!line)
           plan = ClaimPlan.make({
             balance: action.balance,
             opens: entry.asset,
           });
-        else if (!line.authorized)
-          return new RecipientCannotReceive({
-            address: order.wallet,
-            reason: "not_authorized",
-          });
-        else if (line.capacity < entry.amount)
-          return new RecipientCannotReceive({
-            address: order.wallet,
-            reason: "no_capacity",
-          });
+        }
       }
     } else {
       plan = action;
@@ -272,14 +268,13 @@ export const assetFlow = Effect.gen(function* () {
       (yield* live(existing.value.request))
     ) {
       const stored = existing.value;
-      const state = yield* chain.account(order.wallet);
-      const sequence = plannedSequence(stored.request.envelope, plan);
 
-      if (
-        Option.isSome(state) &&
-        Option.isSome(sequence) &&
-        BigInt(sequence.value) === BigInt(state.value.sequence) + 1n
-      ) {
+      const current = yield* chain.draftCurrent(
+        stored.request,
+        DraftPurpose.AssetChange({ address: order.wallet, plan }),
+      );
+
+      if (current) {
         if (Option.isNone(approval))
           return new AssetDraft({ request: stored.request });
 
