@@ -17,6 +17,7 @@ import {
   UnsignedEnvelope,
   formatAmount,
   parseAmount,
+  precisionOf,
 } from "../contract";
 import { fromStellarAsset, toStellarAsset } from "./assets";
 import { bounds } from "./bounds";
@@ -56,7 +57,7 @@ export interface LinkReceiveInput {
 
 export function draftLinkReceive(input: LinkReceiveInput): UnsignedEnvelope {
   const asset = toStellarAsset(input.asset);
-  const amount = formatAmount(input.amount);
+  const amount = formatAmount(input.amount, precisionOf(input.asset));
   const issued = Predicate.isTagged(input.asset, "Issued");
 
   const builder = new TransactionBuilder(input.channel, {
@@ -159,7 +160,8 @@ export function readLinkReceive(
   )
     return Option.none();
 
-  const amount = parseAmount(payment.amount);
+  const received = fromStellarAsset(payment.asset);
+  const amount = parseAmount(payment.amount, precisionOf(received));
 
   if (Option.isNone(amount)) return Option.none();
 
@@ -179,7 +181,7 @@ export function readLinkReceive(
     createsLinkAccount,
     destination,
     balance: Schema.decodeSync(BalanceId)(claim.balanceId),
-    asset: fromStellarAsset(payment.asset),
+    asset: received,
     amount: amount.value,
     memo,
   });

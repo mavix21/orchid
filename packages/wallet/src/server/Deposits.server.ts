@@ -7,7 +7,12 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { AccountAddress, PositiveAmount, baseAsset } from "../contract";
+import {
+  AccountAddress,
+  PositiveAmount,
+  baseAsset,
+  precisionOf,
+} from "../contract";
 import { depositContract, epochAt, network } from "../stellar/network";
 import { AssetEvent } from "./chain-deposits.server";
 import { StoreFailure } from "./Directory.server";
@@ -131,6 +136,10 @@ export class Deposits extends Context.Service<
 
                     const amount = Schema.decodeOption(PositiveAmount)(
                       payment.amount.toString(),
+                    ).pipe(
+                      Option.filter(
+                        (units) => units <= precisionOf(baseAsset).maximum,
+                      ),
                     );
 
                     return Option.isSome(sender) &&

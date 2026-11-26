@@ -18,9 +18,12 @@ import {
   type WalletPort,
   baseAsset,
 } from "../src/contract";
-import { signingKey } from "../src/device/signing";
 import { networkPassphrase } from "../src/stellar/network";
-import { type DeviceWallet, memoryKeyStore } from "./device-fixtures";
+import {
+  type DeviceWallet,
+  memoryKeyStore,
+  signingKey,
+} from "./device-fixtures";
 import { assertTagged } from "./tagged";
 import {
   accountState,

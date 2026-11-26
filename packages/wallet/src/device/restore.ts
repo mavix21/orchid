@@ -42,7 +42,7 @@ import {
 } from "./outcomes";
 import type { PasskeyCancelled, PasskeyFailed, Passkeys } from "./passkeys";
 import { backupSalt, openPhrase } from "./phrase-seal";
-import { signingKey } from "./signing";
+import { phraseAddress } from "./signing";
 
 export interface PendingRestore {
   readonly profile: Profile;
@@ -158,7 +158,7 @@ export function deviceRestore(
 
     if (
       Option.isNone(phrase) ||
-      signingKey(phrase.value).publicKey() !== profile.address
+      phraseAddress(phrase.value) !== profile.address
     )
       return new BackupMismatch();
 

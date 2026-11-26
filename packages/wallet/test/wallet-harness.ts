@@ -33,7 +33,6 @@ import {
   WalletClaim,
   baseAsset,
 } from "../src/contract";
-import { signingKey } from "../src/device/signing";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import {
@@ -86,6 +85,7 @@ import {
   type MemoryKeyStore,
   addressOf,
   enrolledDeviceWallet,
+  signingKey,
 } from "./device-fixtures";
 import { ledgersHttp, resetLedgers } from "./rpc-events";
 import { SoftwareAuthenticator } from "./software-authenticator";

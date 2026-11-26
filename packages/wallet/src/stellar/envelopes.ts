@@ -17,6 +17,7 @@ import {
   UnsignedEnvelope,
   formatAmount,
   parseAmount,
+  precisionOf,
 } from "../contract";
 import { type AssetFacts, readAssetEnvelope } from "./asset-envelopes";
 import { fromStellarAsset, toStellarAsset } from "./assets";
@@ -127,7 +128,7 @@ export function draftPayment(input: PaymentInput): UnsignedEnvelope {
         Operation.payment({
           destination: input.to,
           asset: toStellarAsset(input.asset),
-          amount: formatAmount(input.amount),
+          amount: formatAmount(input.amount, precisionOf(input.asset)),
         }),
       )
       .setTimebounds(input.minTime, input.maxTime)
@@ -205,8 +206,8 @@ export function readEnvelope(
     if (first?.type === "payment") {
       const reference = fromStellarMemo(tx.memo);
       const payment = reference ? { memo: reference } : {};
-      const amount = parseAmount(first.amount);
       const asset = fromStellarAsset(first.asset);
+      const amount = parseAmount(first.amount, precisionOf(asset));
       const from = Schema.decodeSync(AccountAddress)(tx.source);
       const to = Schema.decodeSync(DestinationAddress)(first.destination);
 

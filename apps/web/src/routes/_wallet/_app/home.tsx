@@ -3,6 +3,7 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import {
   type ActivityOutcome,
+  Amount,
   type BackUpOutcome,
   type Holding,
   type SavedBackup,
@@ -139,7 +140,7 @@ function Home({
   const dollars =
     holding.balances.find(
       (balance) => assetKey(balance.asset) === assetKey(baseAsset),
-    )?.amount ?? 0n;
+    )?.amount ?? Amount.make(0n);
 
   return (
     <Screen>

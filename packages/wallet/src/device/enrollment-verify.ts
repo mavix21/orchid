@@ -11,7 +11,7 @@ import { Verified } from "./enrollment-state";
 import { CorruptEnvelope, openLocalEnvelope } from "./local-envelope";
 import { NoWallet } from "./outcomes";
 import { openPhrase } from "./phrase-seal";
-import { signingKey } from "./signing";
+import { phraseAddress } from "./signing";
 
 export const candidateVerifier = (
   storage: PendingEnrollmentStorage,
@@ -50,7 +50,7 @@ export const candidateVerifier = (
       local instanceof CorruptEnvelope ||
       Option.isNone(backup) ||
       backup.value !== Redacted.value(local.phrase) ||
-      signingKey(backup.value).publicKey() !== candidate.address
+      phraseAddress(backup.value) !== candidate.address
     )
       return yield* clearPending.pipe(Effect.as(new CorruptEnvelope()));
 

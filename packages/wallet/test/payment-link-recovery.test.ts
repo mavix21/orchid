@@ -27,9 +27,13 @@ import {
   makeWalletEffects,
 } from "../src/device/client";
 import { linkKeyOf } from "../src/device/link-code";
-import { signingKey } from "../src/device/signing";
 import { Transfers } from "../src/server/Transfers.server";
-import { DeviceWallet, memoryKeyStore, savedWallet } from "./device-fixtures";
+import {
+  DeviceWallet,
+  memoryKeyStore,
+  savedWallet,
+  signingKey,
+} from "./device-fixtures";
 import {
   approvingDevice,
   installSealedWallet,

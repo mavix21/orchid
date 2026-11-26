@@ -10,8 +10,11 @@ const decodeCode = Schema.decodeUnknownOption(LinkCode);
 it("derives the same link account from an issued code", () => {
   const key = Option.flatMap(decodeCode(issued), linkKeyOf);
 
-  expect(Option.map(key, ({ address }) => address)).toEqual(
-    Option.some("GBSGJFXVVJ4HPVNWP2EJAC6YKXJCJUAO7OYANKGEYNJKKYNXSGJCXLED"),
+  expect(key).toEqual(
+    Option.some({
+      address: "GBSGJFXVVJ4HPVNWP2EJAC6YKXJCJUAO7OYANKGEYNJKKYNXSGJCXLED",
+      secret: "SDCY6327IVTWNBEP2WYIDS5GUCPXEP5CDWM4OSR7FQ2UBWTPJEWDBBCA",
+    }),
   );
 });
 

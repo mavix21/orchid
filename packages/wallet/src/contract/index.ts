@@ -18,7 +18,13 @@ import {
   TrustlineNotEmpty,
   Unchanged,
 } from "./asset-orders";
-import { Amount, Asset, BalanceId, PositiveAmount } from "./assets";
+import {
+  Amount,
+  Asset,
+  BalanceId,
+  PositiveAmount,
+  withinAssetMaximum,
+} from "./assets";
 import {
   type BackupEnrollment,
   ChallengeIssued,
@@ -233,15 +239,17 @@ const transferIntentFields = {
 
 export class TransferIntent extends Schema.Class<TransferIntent>(
   "@workspace/wallet/TransferIntent",
-)(transferIntentFields) {}
+)(Schema.Struct(transferIntentFields).check(withinAssetMaximum)) {}
 
 export class TransferOrder extends Schema.Class<TransferOrder>(
   "@workspace/wallet/TransferOrder",
-)({
-  id: TransferId,
-  from: AccountAddress,
-  ...transferIntentFields,
-}) {}
+)(
+  Schema.Struct({
+    id: TransferId,
+    from: AccountAddress,
+    ...transferIntentFields,
+  }).check(withinAssetMaximum),
+) {}
 
 export class LinkRecipient extends Schema.Class<LinkRecipient>(
   "@workspace/wallet/LinkRecipient",

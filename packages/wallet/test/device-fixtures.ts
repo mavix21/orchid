@@ -1,9 +1,11 @@
+import { mnemonicToSeedSync } from "@scure/bip39";
 import { Account, Keypair, MuxedAccount } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
+import { HDKey } from "micro-key-producer/slip10.js";
 import {
   AccountAddress,
   type Asset,
@@ -32,12 +34,12 @@ import {
   generateSecretPhrase,
 } from "../src/device/secret-phrase";
 import { generateLinkCode, linkKeyOf } from "../src/device/link-code";
-import { signingKey } from "../src/device/signing";
 import {
   draftClaimable,
   draftPaymentLink,
 } from "../src/stellar/asset-envelopes";
 import { draftPayment } from "../src/stellar/envelopes";
+import { stellarSigningScheme } from "../src/stellar/signing-scheme";
 
 export const linkFixture = () => {
   const code = generateLinkCode();
@@ -54,6 +56,13 @@ export const addressOf = (key: Keypair) =>
 export const knownPhrase = Schema.decodeSync(SecretPhrase)(
   "illness spike retreat truth genius clock brain pass fit cave bargain toe",
 );
+
+export const signingKey = (phrase: SecretPhrase) =>
+  Keypair.fromRawEd25519Seed(
+    HDKey.fromMasterSeed(mnemonicToSeedSync(phrase)).derive(
+      stellarSigningScheme.derivationPath,
+    ).privateKey,
+  );
 
 export const nowSeconds = () => Math.floor(Date.now() / 1000);
 

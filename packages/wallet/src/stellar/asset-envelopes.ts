@@ -18,6 +18,7 @@ import {
   UnsignedEnvelope,
   formatAmount,
   parseAmount,
+  precisionOf,
 } from "../contract";
 import { fromStellarAsset, toStellarAsset } from "./assets";
 import { bounds } from "./bounds";
@@ -171,7 +172,7 @@ export function draftClaimable(input: ClaimableInput): UnsignedEnvelope {
       input.reserveSponsor,
       Operation.createClaimableBalance({
         asset: toStellarAsset(input.asset),
-        amount: formatAmount(input.amount),
+        amount: formatAmount(input.amount, precisionOf(input.asset)),
         claimants: [
           new Claimant(input.to, Claimant.predicateUnconditional()),
           new Claimant(
@@ -194,7 +195,7 @@ export function draftPaymentLink(input: ClaimableInput): UnsignedEnvelope {
       input.reserveSponsor,
       Operation.createClaimableBalance({
         asset: toStellarAsset(input.asset),
-        amount: formatAmount(input.amount),
+        amount: formatAmount(input.amount, precisionOf(input.asset)),
         claimants: [
           new Claimant(input.to, Claimant.predicateUnconditional()),
           new Claimant(
@@ -290,8 +291,8 @@ export function readAssetEnvelope(
     }
 
     if (second?.type === "createClaimableBalance") {
-      const amount = parseAmount(second.amount);
       const asset = fromStellarAsset(second.asset);
+      const amount = parseAmount(second.amount, precisionOf(asset));
 
       const to = Schema.decodeUnknownSync(AccountAddress)(
         second.claimants[0]?.destination,
