@@ -222,7 +222,7 @@ function ChoiceModal<Value extends string>({
             <ModalDescription>{description}</ModalDescription>
           )}
         </ModalHeader>
-        <div className="flex flex-col gap-1 px-4 pb-safe md:px-0 md:pb-0">
+        <div className="flex flex-col gap-1 p-4">
           {choices.map((choice) => (
             <Item
               key={choice.value}
