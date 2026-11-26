@@ -19,6 +19,7 @@ import {
   DeviceFailure,
   useWalletTask,
 } from "@/send/use-wallet-task";
+import { m } from "@/paraglide/messages";
 
 type OpeningStep = Data.TaggedEnum<{
   Preparing: {};
@@ -44,19 +45,16 @@ export interface OpeningCopy {
   readonly action: string;
 }
 
-export const reopeningCopy: OpeningCopy = {
-  preparing: "Preparando tu cuenta…",
-  confirming: "Abriendo tu cuenta…",
-  title: "Abre tu cuenta",
-  explanation:
-    "Tu cuenta todavía no está abierta en la red Stellar. Confirma con tu passkey para abrirla.",
-  action: "Abrir con passkey",
-};
+const reopeningCopy = (): OpeningCopy => ({
+  preparing: m.account_preparing(),
+  confirming: m.opening_confirming(),
+  title: m.opening_title(),
+  explanation: m.opening_explanation(),
+  action: m.opening_action(),
+});
 
 const concluded = (title: string, message: string, retry?: string) =>
   OpeningStep.Concluded({ title, message, retry: Option.fromNullishOr(retry) });
-
-const unopened = "Tu cuenta sigue como estaba.";
 
 const reasonToRetry = (problem: string, review: OpeningReview) =>
   OpeningStep.Shown({ review, problem: Option.some(problem) });
@@ -68,9 +66,9 @@ const readAnswer = (
 ): OpeningStep =>
   answer instanceof DeviceFailure
     ? concluded(
-        "No pudimos continuar",
-        `Algo falló en este dispositivo. ${unopened}`,
-        "Reintentar",
+        m.opening_failed_title(),
+        m.opening_device_failed(),
+        m.common_retry(),
       )
     : readOutcome(answer, previous, onOpened);
 
@@ -81,21 +79,20 @@ const readOutcome = (
 ): OpeningStep => {
   const refused = (problem: string) =>
     Option.match(previous, {
-      onNone: () => concluded("No pudimos continuar", problem, "Reintentar"),
+      onNone: () =>
+        concluded(m.opening_failed_title(), problem, m.common_retry()),
       onSome: (review) => reasonToRetry(problem, review),
     });
 
   const unavailable = (failure: WalletUnavailable) =>
     concluded(
-      "No pudimos continuar",
+      m.opening_failed_title(),
       unavailableMessage(failure),
-      retryable(failure) ? "Reintentar" : undefined,
+      retryable(failure) ? m.common_retry() : undefined,
     );
 
-  const unsupported = concluded(
-    "No pudimos continuar",
-    `Este dispositivo no pudo preparar la apertura. ${unopened}`,
-  );
+  const unsupported = () =>
+    concluded(m.opening_failed_title(), m.opening_unsupported());
 
   return Match.valueTags(answer, {
     OpeningReview: (review) =>
@@ -103,7 +100,7 @@ const readOutcome = (
         review,
         problem:
           Option.isSome(previous) && review.redrafted
-            ? Option.some("La solicitud cambió. Revísala y confirma otra vez.")
+            ? Option.some(m.opening_redrafted())
             : Option.none(),
       }),
     Opened: () => {
@@ -113,83 +110,54 @@ const readOutcome = (
     },
     OpeningPending: () =>
       concluded(
-        "Seguimos abriendo tu cuenta",
-        "La red Stellar todavía está confirmando. Actualiza en unos segundos.",
-        "Actualizar",
+        m.opening_pending_title(),
+        m.opening_pending_note(),
+        m.common_refresh(),
       ),
-    PasskeyCancelled: () =>
-      refused("No usaste tu passkey, así que no abrimos tu cuenta."),
-    PasskeyFailed: () =>
-      refused("No pudimos usar tu passkey. Inténtalo de nuevo."),
+    PasskeyCancelled: () => refused(m.opening_passkey_cancelled()),
+    PasskeyFailed: () => refused(m.passkey_failed()),
     HumanCheckRefused: () =>
       concluded(
-        "No pudimos continuar",
-        "No pudimos verificar que eres una persona. Inténtalo de nuevo.",
-        "Reintentar",
+        m.opening_failed_title(),
+        m.human_check_refused(),
+        m.common_retry(),
       ),
-    WrongCredential: () =>
-      refused(
-        "Usaste una passkey distinta. Confirma con la passkey de tu cuenta.",
-      ),
-    AssertionRejected: () =>
-      refused(
-        "No pudimos verificar tu passkey. Confirma con tu huella, rostro o PIN del dispositivo.",
-      ),
+    WrongCredential: () => refused(m.opening_wrong_credential()),
+    AssertionRejected: () => refused(m.opening_assertion_rejected()),
     PrfOutputMissing: () =>
-      concluded(
-        "Tu passkey no puede firmar aquí",
-        `Tu passkey no abrió tu llave en este dispositivo. ${unopened}`,
-      ),
+      concluded(m.opening_prf_missing_title(), m.opening_prf_missing()),
     CorruptDeviceWallet: () =>
-      concluded(
-        "No pudimos leer tu llave",
-        `Los datos guardados en este navegador están dañados. ${unopened}`,
-      ),
+      concluded(m.opening_corrupt_title(), m.opening_corrupt()),
     DraftRejected: () =>
       concluded(
-        "La solicitud cambió",
-        `Preparamos una nueva para que la revises. ${unopened}`,
-        "Reintentar",
+        m.opening_draft_rejected_title(),
+        m.opening_draft_rejected(),
+        m.common_retry(),
       ),
     UsernameTaken: ({ username }) =>
       concluded(
-        `@${username} ya no está disponible`,
-        "Otra cuenta tomó ese usuario antes de que abrieras la tuya.",
+        m.opening_username_taken_title({ username }),
+        m.opening_username_taken(),
       ),
     AddressBound: ({ profile }) =>
       concluded(
-        `Esta cuenta es de @${profile.username}`,
-        "Tu usuario ya está asociado a esta cuenta.",
-        "Reintentar",
+        m.opening_address_bound_title({ username: profile.username }),
+        m.opening_address_bound(),
+        m.common_retry(),
       ),
     NotSponsored: () =>
-      concluded(
-        "No podemos abrir esta cuenta",
-        "Orchid no patrocina esta cuenta.",
-      ),
+      concluded(m.opening_not_sponsored_title(), m.opening_not_sponsored()),
     InvalidAddress: () =>
-      concluded(
-        "La llave guardada no es válida",
-        "La llave guardada en este dispositivo no es una cuenta válida.",
-      ),
+      concluded(m.opening_invalid_address_title(), m.opening_invalid_address()),
     NoWallet: () =>
-      concluded(
-        "No encontramos tu cuenta",
-        "Este navegador no tiene una cuenta guardada.",
-      ),
+      concluded(m.opening_no_wallet_title(), m.opening_no_wallet()),
     UnsupportedDevice: () =>
-      concluded(
-        "No pudimos leer tu llave",
-        "Este navegador no puede leer tu llave de forma segura.",
-      ),
+      concluded(m.opening_corrupt_title(), m.device_cannot_read_key()),
     InvalidUsername: () =>
-      concluded(
-        "Tu usuario no es válido",
-        "Solo letras, números y guion bajo.",
-      ),
-    BackupUnsupported: () => unsupported,
-    ChallengeRefused: () => unsupported,
-    RegistrationRefused: () => unsupported,
+      concluded(m.opening_invalid_username_title(), m.username_allowed()),
+    BackupUnsupported: unsupported,
+    ChallengeRefused: unsupported,
+    RegistrationRefused: unsupported,
     Offline: unavailable,
     ServerUnreachable: unavailable,
     LedgerUnreachable: unavailable,
@@ -224,7 +192,7 @@ function OpeningReviewScreen({
         </p>
         <p className="text-body text-muted-foreground">
           {Option.isSome(arrival)
-            ? "Abrimos tu cuenta y recibimos tu pago con tu passkey."
+            ? m.opening_arrival_explanation()
             : copy.explanation}
         </p>
         {Option.isSome(problem) ? (
@@ -239,7 +207,7 @@ function OpeningReviewScreen({
           onClick={onConfirm}
           data-testid="confirm-opening"
         >
-          {Option.isSome(arrival) ? "Recibir con passkey" : copy.action}
+          {Option.isSome(arrival) ? m.receive_with_passkey() : copy.action}
         </Button>
       </ScreenActions>
     </>
@@ -250,7 +218,7 @@ export function OpeningFlow({
   username,
   arrival = Option.none(),
   onOpened,
-  copy = reopeningCopy,
+  copy = reopeningCopy(),
 }: {
   username: string;
   arrival?: Option.Option<string>;
@@ -293,8 +261,8 @@ export function OpeningFlow({
         title={Option.getOrElse(arrival, () => copy.confirming)}
         note={
           Option.isSome(arrival)
-            ? "Abriendo tu cuenta. Esto toma unos segundos."
-            : "Esto toma unos segundos."
+            ? m.opening_arrival_note()
+            : m.account_takes_seconds()
         }
       />
     ),

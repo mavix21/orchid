@@ -1,6 +1,7 @@
 import { WalletUnavailable } from "@workspace/wallet";
 import * as Match from "effect/Match";
 import * as Schema from "effect/Schema";
+import { m } from "@/paraglide/messages";
 
 export class UnavailableNotice {
   constructor(
@@ -11,38 +12,17 @@ export class UnavailableNotice {
 
 export const unavailableNotice = (failure: WalletUnavailable) =>
   Match.valueTags(failure, {
-    Offline: () =>
-      new UnavailableNotice(
-        "Sin conexión. Revisa tu internet e inténtalo de nuevo.",
-        true,
-      ),
+    Offline: () => new UnavailableNotice(m.unavailable_offline(), true),
     ServerUnreachable: () =>
-      new UnavailableNotice(
-        "No pudimos conectar con Orchid. Inténtalo de nuevo en unos minutos.",
-        true,
-      ),
+      new UnavailableNotice(m.unavailable_server(), true),
     LedgerUnreachable: () =>
-      new UnavailableNotice(
-        "La red Stellar no responde. Inténtalo de nuevo en unos minutos.",
-        true,
-      ),
-    ServiceFailed: () =>
-      new UnavailableNotice(
-        "Algo falló de nuestro lado. Ya quedó registrado para revisarlo.",
-        false,
-      ),
-    SessionRequired: () =>
-      new UnavailableNotice(
-        "Confirma con tu passkey para seguir usando tu cuenta.",
-        true,
-      ),
+      new UnavailableNotice(m.unavailable_ledger(), true),
+    ServiceFailed: () => new UnavailableNotice(m.unavailable_service(), false),
+    SessionRequired: () => new UnavailableNotice(m.unavailable_session(), true),
     RateLimited: () =>
-      new UnavailableNotice(
-        "Hiciste demasiadas solicitudes seguidas. Espera un momento e inténtalo de nuevo.",
-        true,
-      ),
+      new UnavailableNotice(m.unavailable_rate_limited(), true),
     InvalidResponse: () =>
-      new UnavailableNotice("No pudimos leer la respuesta de Orchid.", false),
+      new UnavailableNotice(m.unavailable_invalid_response(), false),
   });
 
 export const unavailableMessage = (failure: WalletUnavailable) =>

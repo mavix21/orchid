@@ -4,6 +4,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
 import { amountLabel } from "@/send/money";
+import { m } from "@/paraglide/messages";
 
 export interface Arrival {
   readonly opening: boolean;
@@ -37,4 +38,7 @@ export const arrivalOf = (overview: DeviceOverview): Option.Option<Arrival> => {
 };
 
 export const arrivalSentence = ({ payment }: Arrival) =>
-  `@${payment.from.username} te envió ${amountLabel(payment.amount, payment.asset)}`;
+  m.arrival_sentence({
+    username: payment.from.username,
+    amount: amountLabel(payment.amount, payment.asset),
+  });

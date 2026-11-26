@@ -13,6 +13,7 @@ import {
   androidDefaultBrowserLink,
   classifyBrowser,
 } from "@/browser/support";
+import { m } from "@/paraglide/messages";
 
 const subscribeToNothing = () => () => {};
 
@@ -54,14 +55,10 @@ function OutdatedIosScreen() {
   return (
     <Screen>
       <ScreenStatus
-        title="Este dispositivo no es compatible"
+        title={m.browser_outdated_ios_title()}
         data-testid="outdated-ios"
       >
-        <ScreenNote>
-          Orchid necesita iOS 18.4 o más reciente para proteger tu cuenta con
-          una passkey. Actualiza desde Ajustes, General, Actualización de
-          software.
-        </ScreenNote>
+        <ScreenNote>{m.browser_outdated_ios_note()}</ScreenNote>
       </ScreenStatus>
     </Screen>
   );
@@ -97,34 +94,22 @@ function EmbeddedBrowserScreen({
       >
         <div className="flex flex-col gap-2">
           <h1 className="font-display text-h1 text-balance">
-            Abre Orchid en tu navegador
+            {m.browser_embedded_title()}
           </h1>
-          <ScreenNote>
-            {app} abre los links en un navegador propio que no puede usar
-            passkeys, y Orchid las necesita para proteger tu cuenta.
-          </ScreenNote>
-          <ScreenNote>
-            Tu navegador guarda sus datos aparte de {app}: una cuenta creada
-            dentro de {app} no aparecerá allá, y si ya tienes una cuenta
-            respaldada puedes restaurarla con tu passkey.
-          </ScreenNote>
+          <ScreenNote>{m.browser_embedded_reason({ app })}</ScreenNote>
+          <ScreenNote>{m.browser_embedded_storage({ app })}</ScreenNote>
         </div>
         <section className="flex flex-col gap-2">
-          <h2 className="text-label-lg">Abrir en el navegador</h2>
+          <h2 className="text-label-lg">{m.browser_open_in_browser()}</h2>
           <ol className="flex list-decimal flex-col gap-1 pl-5 text-body text-muted-foreground">
-            <li>Toca el menú ⋯ o el ícono de compartir de {app}.</li>
-            <li>
-              Elige «Abrir en el navegador», «Abrir en Safari» o «Abrir en
-              Chrome».
-            </li>
-            <li>
-              Si no aparece, copia el link y pégalo en la barra de tu navegador.
-            </li>
+            <li>{m.browser_step_menu({ app })}</li>
+            <li>{m.browser_step_choose()}</li>
+            <li>{m.browser_step_paste()}</li>
           </ol>
           {copied === "unavailable" ? (
             <>
               <p role="alert" className="text-caption text-destructive">
-                No pudimos copiarlo. Mantén presionado el link para copiarlo.
+                {m.browser_copy_failed()}
               </p>
               <p
                 data-testid="embedded-browser-link"
@@ -148,7 +133,7 @@ function EmbeddedBrowserScreen({
               />
             }
           >
-            Abrir en el navegador
+            {m.browser_open_in_browser()}
           </Button>
         ) : null}
         <Button
@@ -157,7 +142,9 @@ function EmbeddedBrowserScreen({
           onClick={copy}
           data-testid="copy-link"
         >
-          {copied === "copied" ? "Link copiado" : "Copiar link"}
+          {copied === "copied"
+            ? m.browser_link_copied()
+            : m.browser_copy_link()}
         </Button>
       </ScreenActions>
     </Screen>

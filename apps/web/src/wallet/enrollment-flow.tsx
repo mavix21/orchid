@@ -51,17 +51,18 @@ import {
   useHumanCheckStatus,
 } from "@/wallet/human-check-widget";
 import { OpeningFlow } from "@/wallet/opening-flow";
+import { m } from "@/paraglide/messages";
 
 const issueMessage = (issue: UsernameIssue) =>
   Match.valueTags(issue, {
     ForbiddenCharacter: ({ character }) =>
       /\s/u.test(character)
-        ? "No puede tener espacios."
+        ? m.username_has_spaces()
         : /\p{L}/u.test(character)
-          ? "Usa letras sin tildes ni ñ."
-          : "Solo letras, números y guion bajo.",
-    UsernameTooLong: () => `Máximo ${usernameMaxLength} caracteres.`,
-    UsernameTooShort: () => `Mínimo ${usernameMinLength} caracteres.`,
+          ? m.username_accented()
+          : m.username_allowed(),
+    UsernameTooLong: () => m.username_too_long({ max: usernameMaxLength }),
+    UsernameTooShort: () => m.username_too_short({ min: usernameMinLength }),
   });
 
 interface EnrollmentFlowProps {
@@ -128,7 +129,7 @@ export function EnrollmentFlow({
             pending,
             saved: Option.isNone(pending) ? savedName : Option.none(),
             problem: Predicate.isTagged(saved, "UnsupportedDevice")
-              ? Option.some(unsupportedDeviceProblem)
+              ? Option.some(unsupportedDeviceProblem())
               : Option.none(),
           }),
         );
@@ -255,9 +256,7 @@ export function EnrollmentFlow({
 
     send(
       EnrollmentEvent.Noted({
-        problem: stoppedBy(
-          "Ya existe una cuenta guardada en este dispositivo.",
-        ),
+        problem: stoppedBy(m.enrollment_account_on_device()),
       }),
     );
   };
@@ -336,7 +335,7 @@ export function EnrollmentFlow({
           send(
             EnrollmentEvent.Pending({
               pending: outcome,
-              problem: Option.some(resignedProblem),
+              problem: Option.some(resignedProblem()),
             }),
           );
 
@@ -380,13 +379,13 @@ export function EnrollmentFlow({
     <Screen>
       <TopNav
         title={title}
-        label="Atrás"
+        label={m.common_back()}
         icon={<ChevronLeftIcon />}
         disabled={busy}
         {...back(busy)}
       />
       {EnrollmentStep.$match(stage, {
-        Checking: () => <OrchidPending title="Preparando tu cuenta…" />,
+        Checking: () => <OrchidPending title={m.account_preparing()} />,
         Finishing: ({ username: name }) => (
           <>
             <div className="flex flex-1 flex-col">
@@ -403,14 +402,14 @@ export function EnrollmentFlow({
               title={
                 opening
                   ? Option.isSome(receiveFor(pending, receive))
-                    ? "Abriendo tu cuenta y recibiendo tu dinero…"
-                    : "Creando tu cuenta…"
-                  : "Confirma con tu passkey"
+                    ? m.enrollment_opening_receiving()
+                    : m.enrollment_creating()
+                  : m.passkey_confirm_title()
               }
               note={
                 opening
-                  ? "Esto toma unos segundos."
-                  : "Tu dispositivo te la pedirá ahora."
+                  ? m.account_takes_seconds()
+                  : m.enrollment_device_will_ask()
               }
             />
           );
@@ -446,11 +445,12 @@ export function EnrollmentFlow({
               >
                 <main className="flex flex-1 flex-col justify-center gap-6 px-5 py-8">
                   <div className="flex flex-col gap-2">
-                    <StepLabel>Paso 1 de 2</StepLabel>
-                    <h1 className="font-display text-h1">Elige tu @usuario</h1>
+                    <StepLabel>{m.enrollment_step_one()}</StepLabel>
+                    <h1 className="font-display text-h1">
+                      {m.enrollment_choose_title()}
+                    </h1>
                     <p className="text-body text-muted-foreground">
-                      Así te encuentran para enviarte plata. Después crearás una
-                      passkey para proteger tu cuenta.
+                      {m.enrollment_choose_explanation()}
                     </p>
                   </div>
                   <div className="flex justify-center">
@@ -465,7 +465,9 @@ export function EnrollmentFlow({
                     )}
                   </div>
                   <Field>
-                    <FieldLabel htmlFor="username">Usuario</FieldLabel>
+                    <FieldLabel htmlFor="username">
+                      {m.enrollment_username_label()}
+                    </FieldLabel>
                     <InputGroup>
                       <InputGroupAddon>@</InputGroupAddon>
                       <InputGroupInput
@@ -516,7 +518,7 @@ export function EnrollmentFlow({
                         to="/restore"
                         className="text-label text-primary underline-offset-4 hover:underline"
                       >
-                        ¿Es tuyo? Entra con tu passkey
+                        {m.enrollment_is_it_yours()}
                       </Link>
                     ) : null}
                   </Field>
@@ -537,7 +539,9 @@ export function EnrollmentFlow({
                     Option.isSome(blockingIssue)
                   }
                 >
-                  {starting ? "Creando passkey…" : "Crear passkey"}
+                  {starting
+                    ? m.enrollment_creating_passkey()
+                    : m.enrollment_create_passkey()}
                 </Button>
               </ScreenActions>
             </>

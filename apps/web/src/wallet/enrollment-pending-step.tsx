@@ -6,6 +6,7 @@ import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
 import { FlowerAvatar } from "@/components/flower-avatar";
 import { amountLabel } from "@/send/money";
 import { type Activating, receiveFor } from "@/wallet/enrollment-machine";
+import { m } from "@/paraglide/messages";
 
 export function StepLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-label text-primary">{children}</p>;
@@ -58,23 +59,25 @@ export function PendingStep({
 
   const copy = releasing
     ? {
-        title: "Termina de crear tu cuenta",
-        note: "No necesitas tu passkey otra vez.",
-        action: "Reintentar",
+        title: m.enrollment_finish_title(),
+        note: m.enrollment_no_passkey_again(),
+        action: m.common_retry(),
       }
     : Option.match(shownReceive, {
         onNone: () => ({
-          title: "Confirma tu passkey",
-          note: "Usa la passkey que acabas de crear para abrir tu cuenta.",
+          title: m.enrollment_confirm_passkey(),
+          note: m.enrollment_use_new_passkey(),
           action:
             waitingForReceive && receiveBlocked
-              ? "Crear mi cuenta sin recibir"
-              : "Confirmar con passkey",
+              ? m.enrollment_create_without_receiving()
+              : m.passkey_confirm_action(),
         }),
         onSome: (shown) => ({
-          title: "Confirma tu passkey",
-          note: `Usa la passkey que acabas de crear para abrir tu cuenta y recibir ${amountLabel(shown.amount, shown.asset)}.`,
-          action: "Confirmar y recibir",
+          title: m.enrollment_confirm_passkey(),
+          note: m.enrollment_use_new_passkey_receive({
+            amount: amountLabel(shown.amount, shown.asset),
+          }),
+          action: m.enrollment_confirm_and_receive(),
         }),
       });
 
@@ -85,7 +88,9 @@ export function PendingStep({
         media={
           <AccountMedia
             username={pending.username}
-            step={releasing ? Option.none() : Option.some("Paso 2 de 2")}
+            step={
+              releasing ? Option.none() : Option.some(m.enrollment_step_two())
+            }
           />
         }
         data-testid="enrollment-step"
@@ -115,7 +120,7 @@ export function PendingStep({
             disabled={refreshing || discarding}
             onClick={onRecheckReceive}
           >
-            Revisar el link de nuevo
+            {m.enrollment_recheck_link()}
           </Button>
         ) : null}
         <Button
@@ -131,9 +136,9 @@ export function PendingStep({
           onClick={onConfirm}
         >
           {refreshing
-            ? "Actualizando…"
+            ? m.enrollment_updating()
             : checkingReceive
-              ? "Revisando el link…"
+              ? m.enrollment_checking_link()
               : copy.action}
         </Button>
         {releasing ? null : (
@@ -144,7 +149,7 @@ export function PendingStep({
             disabled={refreshing || discarding}
             onClick={onChooseAnother}
           >
-            Elegir otro @usuario
+            {m.enrollment_choose_another()}
           </Button>
         )}
       </ScreenActions>
