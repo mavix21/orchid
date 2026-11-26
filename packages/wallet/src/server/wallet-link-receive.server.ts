@@ -325,10 +325,14 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
         amount,
       };
 
+      const prepared = yield* chain.prepareLinkReceive(terms);
+
+      if (prepared instanceof LinkUnclaimable) return prepared;
+
       const current = (request: SigningRequest) =>
         chain.draftCurrent(
           request,
-          DraftPurpose.LinkPayout({ receive: terms }),
+          DraftPurpose.LinkReceive({ receive: prepared }),
         );
 
       const proposed = Option.filter(existing, (stored) =>
@@ -367,9 +371,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
         });
       }
 
-      const request = yield* chain.draftLinkReceive(terms);
-
-      if (request instanceof LinkUnclaimable) return request;
+      const request = yield* chain.draftLinkReceive(prepared);
 
       const stored =
         Option.isSome(proposed) &&

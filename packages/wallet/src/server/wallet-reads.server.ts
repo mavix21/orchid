@@ -21,7 +21,9 @@ export const confirmedReads = Effect.gen(function* () {
   ) {
     const first = yield* chain.standing(address);
 
-    return first === "open" ? first : yield* chain.standing(address);
+    return first === "open" || first === "foreign"
+      ? first
+      : yield* chain.standing(address);
   });
 
   const readBalance = Effect.fn("Wallet.readBalance")(function* (

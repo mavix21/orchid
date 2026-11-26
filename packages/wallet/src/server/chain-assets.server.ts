@@ -14,6 +14,7 @@ import {
 import { draftClaimable, draftPaymentLink } from "../stellar/asset-envelopes";
 import { type AssetPlan, draftPlan } from "../stellar/asset-plans";
 import { toStellarAsset } from "../stellar/assets";
+import { usdc } from "../stellar/network";
 import { paymentLifetime } from "../policy";
 import { ChainUnreachable } from "./chain-errors.server";
 import {
@@ -85,6 +86,7 @@ export const assetChain = (
       read(
         [
           accountKey(address),
+          lineKey(address, usdc),
           ...assets.map((asset) => lineKey(address, toStellarAsset(asset))),
         ],
         (result) =>

@@ -56,9 +56,9 @@ export interface EventsPage {
 }
 
 export interface DepositChain {
-  resumeDeposits(
-    stored: Option.Option<DepositPosition>,
-  ): Effect.Effect<EventsStart, ChainUnreachable>;
+  resumeDeposits<E>(
+    cursor: Effect.Effect<Option.Option<DepositPosition>, E>,
+  ): Effect.Effect<EventsStart, ChainUnreachable | E>;
   catchUpDeposits(
     recent: Option.Option<DepositPosition>,
   ): Effect.Effect<EventsStart, ChainUnreachable>;
@@ -211,10 +211,11 @@ const readable = (
   );
 
 const resumeDeposits = (rpc: StellarRpc) =>
-  Effect.fn("Chain.resumeDeposits")(function* (
-    stored: Option.Option<DepositPosition>,
+  Effect.fn("Chain.resumeDeposits")(function* <E>(
+    cursor: Effect.Effect<Option.Option<DepositPosition>, E>,
   ) {
     const window = yield* rpc.call("getHealth", {}, RawHealth);
+    const stored = yield* cursor;
 
     if (
       Option.isSome(stored) &&

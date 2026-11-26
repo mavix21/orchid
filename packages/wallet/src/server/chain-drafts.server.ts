@@ -12,7 +12,7 @@ import { type AssetPlan, plannedSequence } from "../stellar/asset-plans";
 import { readEnvelope } from "../stellar/envelopes";
 import { sameMemo } from "../stellar/memo";
 import type { ChainUnreachable } from "./chain-errors.server";
-import { type LinkReceive, linkAccountPlan } from "./chain-links.server";
+import type { PreparedLinkReceive } from "./chain-links.server";
 import type { AccountState } from "./ledger.server";
 
 export type DraftPurpose = Data.TaggedEnum<{
@@ -21,7 +21,7 @@ export type DraftPurpose = Data.TaggedEnum<{
     readonly address: AccountAddress;
     readonly plan: AssetPlan;
   };
-  LinkPayout: { readonly receive: LinkReceive };
+  LinkReceive: { readonly receive: PreparedLinkReceive };
 }>;
 
 export const DraftPurpose = Data.taggedEnum<DraftPurpose>();
@@ -78,7 +78,7 @@ export const draftChain = (
   });
 
   const linkReceiveCurrent = Effect.fn("Chain.linkReceiveDraftCurrent")(
-    function* (request: SigningRequest, receive: LinkReceive) {
+    function* (request: SigningRequest, receive: PreparedLinkReceive) {
       const facts = readEnvelope(request.envelope);
 
       if (
@@ -87,12 +87,10 @@ export const draftChain = (
       )
         return false;
 
-      const plan = linkAccountPlan(yield* account(receive.link));
       const channel = yield* account(facts.value.channel);
 
       return (
-        plan !== "Refuse" &&
-        facts.value.createsLinkAccount === (plan === "Create") &&
+        facts.value.createsLinkAccount === receive.createsLinkAccount &&
         facts.value.link === receive.link &&
         facts.value.balance === receive.balance &&
         facts.value.destination === receive.destination &&
@@ -110,7 +108,7 @@ export const draftChain = (
         Transfer: ({ from }) => transferCurrent(request, from),
         AssetChange: ({ address, plan }) =>
           assetCurrent(request, address, plan),
-        LinkPayout: ({ receive }) => linkReceiveCurrent(request, receive),
+        LinkReceive: ({ receive }) => linkReceiveCurrent(request, receive),
       }),
   };
 };

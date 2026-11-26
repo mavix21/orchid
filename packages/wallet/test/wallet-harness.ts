@@ -277,7 +277,7 @@ export const fakeChain = Layer.effect(
           : Effect.succeed(exchangeMemoFor(addr, world.exchangeMemos)),
       ),
       ...draftChain(account),
-      draftLinkReceive: links.draftLinkReceive,
+      ...links,
       holdings,
       claimable: (ids) =>
         world.claimablesDown

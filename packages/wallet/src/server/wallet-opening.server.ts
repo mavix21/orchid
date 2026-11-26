@@ -193,7 +193,8 @@ export const openingFlow = Effect.gen(function* () {
 
     const standing = yield* readStanding(claim.address);
 
-    if (standing === "foreign") return new NotSponsored();
+    if (standing === "foreign" || standing === "foreignIncomplete")
+      return new NotSponsored();
 
     const availability = yield* directory.available(claim);
 

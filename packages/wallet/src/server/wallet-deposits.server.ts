@@ -23,7 +23,7 @@ export const depositFlow = Effect.gen(function* () {
       seconds: depositTimeBudget,
     });
 
-    let start = yield* chain.resumeDeposits(yield* deposits.cursor);
+    let start = yield* chain.resumeDeposits(deposits.cursor);
 
     while (true) {
       const page = yield* chain.assetEvents({

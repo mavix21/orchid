@@ -34,20 +34,17 @@ export interface LinkReceive {
   readonly memo?: PaymentMemo;
 }
 
-export const linkAccountPlan = (state: Option.Option<AccountState>) =>
-  Option.match(state, {
-    onNone: () => "Create" as const,
-    onSome: ({ untouched }) =>
-      untouched ? ("Reuse" as const) : ("Refuse" as const),
-  });
+export interface PreparedLinkReceive extends LinkReceive {
+  readonly createsLinkAccount: boolean;
+}
 
 export interface LinkChain {
-  draftLinkReceive(
+  prepareLinkReceive(
     receive: LinkReceive,
-  ): Effect.Effect<
-    SigningRequest | LinkUnclaimable,
-    ChainUnreachable | StoreFailure
-  >;
+  ): Effect.Effect<PreparedLinkReceive | LinkUnclaimable, ChainUnreachable>;
+  draftLinkReceive(
+    receive: PreparedLinkReceive,
+  ): Effect.Effect<SigningRequest, ChainUnreachable | StoreFailure>;
   cleanUpLink(link: AccountAddress): Effect.Effect<boolean, ChainUnreachable>;
 }
 
@@ -71,14 +68,18 @@ export const linkChain = (
   });
 
   return {
-    draftLinkReceive: Effect.fn("Chain.draftLinkReceive")(function* (
+    prepareLinkReceive: Effect.fn("Chain.prepareLinkReceive")(function* (
       receive: LinkReceive,
     ) {
-      const plan = linkAccountPlan(yield* account(receive.link));
+      const state = yield* account(receive.link);
 
-      if (plan === "Refuse")
-        return new LinkUnclaimable({ reason: "link_account_unexpected" });
-
+      return Option.exists(state, ({ untouched }) => !untouched)
+        ? new LinkUnclaimable({ reason: "link_account_unexpected" })
+        : { ...receive, createsLinkAccount: Option.isNone(state) };
+    }),
+    draftLinkReceive: Effect.fn("Chain.draftLinkReceive")(function* (
+      receive: PreparedLinkReceive,
+    ) {
       const { minTime, maxTime } = yield* lifetime;
 
       return new SigningRequest({
@@ -86,7 +87,6 @@ export const linkChain = (
           ...receive,
           channel: yield* leaseChannel(maxTime),
           reserveSponsor,
-          createsLinkAccount: plan === "Create",
           minTime,
           maxTime,
         }),

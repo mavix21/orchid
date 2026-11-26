@@ -209,10 +209,14 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
         memo: order.memo,
       };
 
+      const prepared = yield* chain.prepareLinkReceive(terms);
+
+      if (prepared instanceof LinkUnclaimable) return prepared;
+
       const current = (request: SigningRequest) =>
         chain.draftCurrent(
           request,
-          DraftPurpose.LinkPayout({ receive: terms }),
+          DraftPurpose.LinkReceive({ receive: prepared }),
         );
 
       const proposed = Option.filter(existing, (stored) =>
@@ -259,9 +263,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
         });
       }
 
-      const request = yield* chain.draftLinkReceive(terms);
-
-      if (request instanceof LinkUnclaimable) return request;
+      const request = yield* chain.draftLinkReceive(prepared);
 
       const stored =
         Option.isSome(proposed) &&

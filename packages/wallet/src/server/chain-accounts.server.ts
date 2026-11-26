@@ -4,7 +4,12 @@ import type { AccountAddress, Amount } from "../contract";
 import type { ChainUnreachable } from "./chain-errors.server";
 import type { AccountState } from "./ledger.server";
 
-export type AccountStanding = "absent" | "incomplete" | "open" | "foreign";
+export type AccountStanding =
+  | "absent"
+  | "incomplete"
+  | "open"
+  | "foreign"
+  | "foreignIncomplete";
 
 export interface AccountChain {
   standing(
@@ -16,12 +21,10 @@ export interface AccountChain {
 }
 
 const standingOf = (state: AccountState): AccountStanding => {
-  const holdsBaseAsset = Option.isSome(state.balance);
+  if (Option.isNone(state.balance))
+    return state.accountSponsored ? "incomplete" : "foreignIncomplete";
 
-  if (!state.accountSponsored || (holdsBaseAsset && !state.sponsored))
-    return "foreign";
-
-  return holdsBaseAsset ? "open" : "incomplete";
+  return state.sponsored ? "open" : "foreign";
 };
 
 export const accountChain = (
