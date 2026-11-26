@@ -68,7 +68,11 @@ test("creates an open wallet that shows its deposit address after exactly two pa
 
   await expect(page.getByTestId("open-send")).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId("session-confirmation")).toBeHidden();
-  await expect(page.getByText(`@${username}`)).toBeVisible();
+
+  const homeUsername = page.getByTestId("home-username");
+
+  await expect(homeUsername).toBeVisible();
+  await expect(homeUsername).toHaveAttribute("data-username", username);
   expect(await storedWalletRecord(page)).toBe(true);
   expect(await prompts()).toEqual({ create: 1, get: 1 });
 
@@ -96,7 +100,8 @@ test("creates an open wallet that shows its deposit address after exactly two pa
   await page.getByTestId("restore-submit").click();
 
   await expect(page.getByTestId("open-send")).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByText(`@${username}`)).toBeVisible();
+  await expect(homeUsername).toBeVisible();
+  await expect(homeUsername).toHaveAttribute("data-username", username);
   expect(await storedWalletRecord(page)).toBe(true);
 });
 

@@ -20,12 +20,18 @@ export function ReviewRow({
 
 export function PaymentReviewCard({ review }: { review: PaymentReview }) {
   const address = shortAddress(review.to);
+  const asset = assetCode(review.asset);
+  const amount = formatAmount(review.amount, precisionOf(review.asset));
 
   return (
     <div className="flex flex-col gap-4">
       <dl
         aria-label="Resumen del pago"
         className="flex flex-col divide-y divide-border rounded-lg border border-border px-4"
+        data-testid="payment-summary"
+        data-username={review.username}
+        data-asset={asset}
+        data-amount={amount}
       >
         <ReviewRow label="Para">
           {review.username === undefined ? (
@@ -46,10 +52,8 @@ export function PaymentReviewCard({ review }: { review: PaymentReview }) {
             </span>
           )}
         </ReviewRow>
-        <ReviewRow label="Activo">{assetCode(review.asset)}</ReviewRow>
-        <ReviewRow label="Monto">
-          {formatAmount(review.amount, precisionOf(review.asset))}
-        </ReviewRow>
+        <ReviewRow label="Activo">{asset}</ReviewRow>
+        <ReviewRow label="Monto">{amount}</ReviewRow>
         {review.memo === undefined ? null : (
           <ReviewRow label="Memo">
             <span className="break-all whitespace-pre-wrap">

@@ -38,7 +38,13 @@ export function BalanceHeader({
     <section className="flex flex-col gap-6">
       <div className="flex items-center gap-3">
         <FlowerAvatar username={username} />
-        <p className="flex-1 truncate text-label-lg">@{username}</p>
+        <p
+          className="flex-1 truncate text-label-lg"
+          data-testid="home-username"
+          data-username={username}
+        >
+          @{username}
+        </p>
         <button
           type="button"
           aria-label="Mi código QR"

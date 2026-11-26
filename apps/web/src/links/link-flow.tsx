@@ -189,6 +189,7 @@ function LinkReview({
         className="flex flex-1 flex-col gap-6 px-5 pt-2"
         data-testid="link-review"
         data-saved={intent.saveOnDevice}
+        data-amount={formatAmount(review.amount, precisionOf(review.asset))}
       >
         <ReviewHero
           title="Revisa tu link"
