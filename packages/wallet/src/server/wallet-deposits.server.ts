@@ -7,7 +7,6 @@ import {
   depositCatchUpLimit,
   depositCatchUpSpan,
   depositFreshness,
-  depositLedgerScan,
   depositPageLimit,
   depositTimeBudget,
 } from "../policy";
@@ -19,40 +18,12 @@ export const depositFlow = Effect.gen(function* () {
   const chain = yield* Chain;
   const deposits = yield* Deposits;
 
-  const resumeFrom = Effect.fn("Wallet.resumeDepositIngest")(function* () {
-    const window = yield* chain.ledgerWindow;
-    const stored = yield* deposits.cursor;
-
-    if (
-      Option.isSome(stored) &&
-      stored.value.ledger >= window.oldestLedger &&
-      stored.value.ledger <= window.latestLedger
-    )
-      return EventsStart.FromCursor({ cursor: stored.value.cursor });
-
-    yield* Effect.logWarning(
-      "Deposit ingest restarts at the oldest ledger",
-      Option.match(stored, {
-        onNone: () => ({
-          skippedFrom: "never read",
-          oldestLedger: window.oldestLedger,
-        }),
-        onSome: ({ ledger }) => ({
-          skippedFrom: ledger,
-          oldestLedger: window.oldestLedger,
-        }),
-      }),
-    );
-
-    return EventsStart.FromLedger({ ledger: window.oldestLedger });
-  });
-
   const ingest = Effect.fn("Wallet.ingestDeposits")(function* () {
     const budgetEndsAt = DateTime.add(yield* DateTime.now, {
       seconds: depositTimeBudget,
     });
 
-    let start = yield* resumeFrom();
+    let start = yield* chain.resumeDeposits(yield* deposits.cursor);
 
     while (true) {
       const page = yield* chain.assetEvents({
@@ -63,11 +34,7 @@ export const depositFlow = Effect.gen(function* () {
 
       yield* deposits.store(
         page.events,
-        Option.some({
-          cursor: page.cursor,
-          ledger: page.cursorLedger,
-          closedAt: page.cursorClosedAt,
-        }),
+        Option.some({ ...page.position, closedAt: page.cursorClosedAt }),
       );
 
       if (page.drained) return;
@@ -78,28 +45,8 @@ export const depositFlow = Effect.gen(function* () {
         return;
       }
 
-      start = EventsStart.FromCursor({ cursor: page.cursor });
+      start = EventsStart.FromCursor({ cursor: page.position.cursor });
     }
-  });
-
-  const catchUpStart = Effect.fn("Wallet.depositCatchUpStart")(function* (
-    stored: Option.Option<{ readonly ledger: number }>,
-    sinceCursor: Option.Option<number>,
-  ) {
-    if (
-      Option.isSome(stored) &&
-      Option.exists(sinceCursor, (age) => age <= depositCatchUpSpan * 1000)
-    )
-      return EventsStart.FromLedger({ ledger: stored.value.ledger });
-
-    const window = yield* chain.ledgerWindow;
-
-    return EventsStart.FromLedger({
-      ledger: Math.max(
-        window.oldestLedger,
-        window.latestLedger - (depositLedgerScan - 1),
-      ),
-    });
   });
 
   const catchUp = Effect.fn("Wallet.catchUpDeposits")(function* (
@@ -118,8 +65,12 @@ export const depositFlow = Effect.gen(function* () {
     if (Option.exists(sinceCursor, (age) => age <= depositFreshness * 1000))
       return;
 
+    const recent = Option.filter(stored, () =>
+      Option.exists(sinceCursor, (age) => age <= depositCatchUpSpan * 1000),
+    );
+
     const page = yield* chain.assetEvents({
-      start: yield* catchUpStart(stored, sinceCursor),
+      start: yield* chain.catchUpDeposits(recent),
       wallet: Option.some(address),
       limit: depositCatchUpLimit,
     });

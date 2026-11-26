@@ -1,12 +1,10 @@
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 import {
   type AccountAddress,
   type BalanceId,
-  Amount,
   Balance,
   ClaimableBalance,
   NativeAsset,
@@ -43,13 +41,11 @@ export const portfolioFlow = Effect.gen(function* () {
             new Balance({ asset: line.asset, amount: line.balance }),
           );
 
-        if (state.value.account.nativeBalance > 0n)
+        if (state.value.nativeTotal > 0n)
           balances.push(
             new Balance({
               asset: NativeAsset.make({}),
-              amount: Schema.decodeSync(Amount)(
-                state.value.account.nativeBalance.toString(),
-              ),
+              amount: state.value.nativeTotal,
             }),
           );
 

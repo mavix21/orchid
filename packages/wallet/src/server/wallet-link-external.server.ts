@@ -14,19 +14,15 @@ import {
   type ExternalLinkPending,
   type ExternalLinkSettled,
   type ExternalLinkStep,
-  ExternalMemoRequired,
+  ExternalRecipient,
   InvalidAddress,
   LinkUnclaimable,
-  MemoNotAllowed,
   NotClaimable,
   PaymentLinkChecking,
   RecipientCannotReceive,
   type SigningRequest,
-  assetKey,
 } from "../contract";
-import { baseAccountOf, isMuxed } from "../stellar/destination";
-import { readEnvelope } from "../stellar/envelopes";
-import { sameMemo } from "../stellar/memo";
+import { baseAccountOf } from "../stellar/destination";
 import {
   type AssetAuthorized,
   AssetOrders,
@@ -35,8 +31,14 @@ import {
   StoredOrderJson,
   toStoredExternalOrder,
 } from "./AssetOrders.server";
-import { Chain, type ChainUnreachable } from "./Chain.server";
+import {
+  Chain,
+  type ChainUnreachable,
+  DraftPurpose,
+  type LinkReceive,
+} from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
+import { memoRefusal } from "./memo-refusal.server";
 import { type FundedLink, Transfers } from "./Transfers.server";
 import { live } from "./wallet-reads.server";
 
@@ -45,12 +47,7 @@ export type OrderReceipt =
   | ExternalLinkSettled
   | ExternalLinkFailed;
 
-export type LinkAccountPlan = "Create" | "Reuse" | "Refuse";
-
 export interface LinkReceiveShared {
-  readonly linkAccountPlan: (
-    link: AccountAddress,
-  ) => Effect.Effect<LinkAccountPlan, ChainUnreachable>;
   readonly liveLink: (
     link: AccountAddress,
     funded: FundedLink,
@@ -117,37 +114,6 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
     const reconcileExternal = (stored: AssetAuthorized) =>
       shared.settled(stored).pipe(Effect.flatMap(externalStep));
 
-    const currentExternalReceive = Effect.fn("Wallet.currentExternalReceive")(
-      function* (
-        request: SigningRequest,
-        order: ExternalLinkOrder,
-        funded: FundedLink,
-        createsLinkAccount: boolean,
-      ) {
-        const facts = readEnvelope(request.envelope);
-
-        if (
-          Option.isNone(facts) ||
-          !Predicate.isTagged(facts.value, "LinkReceiveFacts")
-        )
-          return false;
-
-        const channel = yield* chain.account(facts.value.channel);
-
-        return (
-          Option.isSome(channel) &&
-          facts.value.link === order.link &&
-          facts.value.balance === order.balance &&
-          facts.value.destination === order.destination &&
-          sameMemo(facts.value.memo, order.memo) &&
-          facts.value.createsLinkAccount === createsLinkAccount &&
-          assetKey(facts.value.asset) === assetKey(funded.asset) &&
-          facts.value.amount === funded.amount &&
-          BigInt(channel.value.sequence) + 1n === BigInt(facts.value.sequence)
-        );
-      },
-    );
-
     return Effect.fn("Wallet.claimPaymentLink")(function* (
       order: ExternalLinkOrder,
       approval: Option.Option<Approval>,
@@ -210,62 +176,44 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
       )
         return new LinkUnclaimable({ reason: "destination_is_issuer" });
 
-      let memoRequired = false;
+      const rule = yield* chain.memoRule(order.destination);
 
-      if (isMuxed(order.destination)) {
-        if (order.memo !== undefined)
-          return new MemoNotAllowed({ reason: "muxed" });
-      } else {
-        const requirement = yield* chain.memoRequiredFor(baseDestination);
-
-        if (Option.isSome(requirement) && order.memo === undefined)
-          return new ExternalMemoRequired({
-            address: baseDestination,
-            exchange: requirement.value.exchange,
-            source: requirement.value.source,
-          });
-
-        memoRequired = Option.isSome(requirement);
-      }
-
-      const holdings = yield* chain.holdings(
-        baseDestination,
-        Predicate.isTagged(asset, "Issued") ? [asset] : [],
+      const refusal = memoRefusal(
+        order,
+        new ExternalRecipient({ address: order.destination }),
+        rule,
       );
 
-      if (Option.isNone(holdings))
+      if (Option.isSome(refusal)) return refusal.value;
+
+      const memoRequired = Predicate.isTagged(rule, "MemoRequired");
+
+      const blocker = yield* chain.receiveBlocker(
+        baseDestination,
+        asset,
+        amount,
+      );
+
+      if (Option.isSome(blocker))
         return new RecipientCannotReceive({
           address: baseDestination,
-          reason: "no_account",
+          reason: blocker.value,
         });
 
-      if (Predicate.isTagged(asset, "Issued")) {
-        const line = holdings.value.lines.find(
-          (candidate) => assetKey(candidate.asset) === assetKey(asset),
+      const terms: LinkReceive = {
+        link: order.link,
+        destination: order.destination,
+        balance: order.balance,
+        asset,
+        amount,
+        memo: order.memo,
+      };
+
+      const current = (request: SigningRequest) =>
+        chain.draftCurrent(
+          request,
+          DraftPurpose.LinkPayout({ receive: terms }),
         );
-
-        const reason =
-          line === undefined
-            ? "no_trustline"
-            : !line.authorized
-              ? "not_authorized"
-              : line.capacity < amount
-                ? "no_capacity"
-                : undefined;
-
-        if (reason !== undefined)
-          return new RecipientCannotReceive({
-            address: baseDestination,
-            reason,
-          });
-      }
-
-      const plan = yield* shared.linkAccountPlan(order.link);
-
-      if (plan === "Refuse")
-        return new LinkUnclaimable({ reason: "link_account_unexpected" });
-
-      const createsLinkAccount = plan === "Create";
 
       const proposed = Option.filter(existing, (stored) =>
         Predicate.isTagged(stored, "AssetProposed"),
@@ -275,12 +223,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
         Option.isSome(proposed) &&
         Predicate.isTagged(proposed.value, "AssetProposed") &&
         (yield* live(proposed.value.request)) &&
-        (yield* currentExternalReceive(
-          proposed.value.request,
-          order,
-          funded.value,
-          createsLinkAccount,
-        ))
+        (yield* current(proposed.value.request))
       ) {
         const stored = proposed.value;
 
@@ -294,15 +237,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
           .seal(stored.request, approval.value, order.link)
           .pipe(Effect.option);
 
-        if (
-          Option.isNone(sealed) ||
-          !(yield* currentExternalReceive(
-            stored.request,
-            order,
-            funded.value,
-            createsLinkAccount,
-          ))
-        )
+        if (Option.isNone(sealed) || !(yield* current(stored.request)))
           return new ExternalLinkDraft({
             request: stored.request,
             memoRequired,
@@ -324,15 +259,9 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
         });
       }
 
-      const request = yield* chain.draftLinkReceive(
-        order.link,
-        createsLinkAccount,
-        order.destination,
-        order.balance,
-        asset,
-        amount,
-        order.memo,
-      );
+      const request = yield* chain.draftLinkReceive(terms);
+
+      if (request instanceof LinkUnclaimable) return request;
 
       const stored =
         Option.isSome(proposed) &&

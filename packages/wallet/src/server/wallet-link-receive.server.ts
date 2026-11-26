@@ -34,7 +34,6 @@ import {
   assetKey,
   baseAsset,
 } from "../contract";
-import { readEnvelope } from "../stellar/envelopes";
 import {
   type AssetAuthorized,
   type AssetConcluded,
@@ -42,14 +41,16 @@ import {
   type ConcludedReceipt,
   type StoredAssetOrder,
 } from "./AssetOrders.server";
-import { Chain, type ChainUnreachable } from "./Chain.server";
+import {
+  Chain,
+  type ChainUnreachable,
+  DraftPurpose,
+  type LinkReceive,
+} from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import { selectRecoverablePaymentLinks } from "./ledger-assets.server";
 import { type FundedLink, Transfers } from "./Transfers.server";
-import {
-  type LinkAccountPlan,
-  externalLinkClaimFlow,
-} from "./wallet-link-external.server";
+import { externalLinkClaimFlow } from "./wallet-link-external.server";
 import { live } from "./wallet-reads.server";
 
 type ReconciledStep =
@@ -122,18 +123,6 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       );
 
       return { matched, present: entries.length > 0 };
-    });
-
-    const linkAccountPlan = Effect.fn("Wallet.linkAccountPlan")(function* (
-      link: AccountAddress,
-    ) {
-      const state = yield* chain.account(link);
-
-      return Option.match(state, {
-        onNone: (): LinkAccountPlan => "Create",
-        onSome: (existing): LinkAccountPlan =>
-          existing.untouched ? "Reuse" : "Refuse",
-      });
     });
 
     const cleanUp = Effect.fn("Wallet.cleanUpReceivedLink")(function* (
@@ -281,36 +270,6 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
         : new PaymentLinkUsed();
     });
 
-    const currentReceive = Effect.fn("Wallet.currentReceive")(function* (
-      request: SigningRequest,
-      order: AssetOrder,
-      action: typeof ReceiveLink.Type,
-      funded: FundedLink,
-      createsLinkAccount: boolean,
-    ) {
-      const facts = readEnvelope(request.envelope);
-
-      if (
-        Option.isNone(facts) ||
-        !Predicate.isTagged(facts.value, "LinkReceiveFacts")
-      )
-        return false;
-
-      const channel = yield* chain.account(facts.value.channel);
-
-      return (
-        Option.isSome(channel) &&
-        facts.value.link === action.link &&
-        facts.value.balance === action.balance &&
-        facts.value.destination === order.wallet &&
-        facts.value.memo === undefined &&
-        facts.value.createsLinkAccount === createsLinkAccount &&
-        assetKey(facts.value.asset) === assetKey(funded.asset) &&
-        facts.value.amount === funded.amount &&
-        BigInt(channel.value.sequence) + 1n === BigInt(facts.value.sequence)
-      );
-    });
-
     const receive = Effect.fn("Wallet.receiveLink")(function* (
       order: AssetOrder,
       action: typeof ReceiveLink.Type,
@@ -341,42 +300,36 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       if (Predicate.isTagged(asset, "Issued") && asset.issuer === order.wallet)
         return new LinkUnclaimable({ reason: "destination_is_issuer" });
 
-      const holdings = yield* chain.holdings(
-        order.wallet,
-        Predicate.isTagged(asset, "Issued") ? [asset] : [],
-      );
+      const blocker = yield* chain.receiveBlocker(order.wallet, asset, amount);
 
       const openedByOpening =
         walletOpening &&
         (Predicate.isTagged(asset, "Native") ||
           assetKey(asset) === assetKey(baseAsset));
 
-      if (Option.isNone(holdings) && !openedByOpening) return new NotOpened();
+      if (Option.isSome(blocker)) {
+        if (blocker.value !== "no_account")
+          return new RecipientCannotReceive({
+            address: order.wallet,
+            reason: blocker.value,
+          });
 
-      if (Option.isSome(holdings) && Predicate.isTagged(asset, "Issued")) {
-        const line = holdings.value.lines.find(
-          (candidate) => assetKey(candidate.asset) === assetKey(asset),
-        );
-
-        const reason =
-          line === undefined
-            ? "no_trustline"
-            : !line.authorized
-              ? "not_authorized"
-              : line.capacity < amount
-                ? "no_capacity"
-                : undefined;
-
-        if (reason !== undefined)
-          return new RecipientCannotReceive({ address: order.wallet, reason });
+        if (!openedByOpening) return new NotOpened();
       }
 
-      const plan = yield* linkAccountPlan(action.link);
+      const terms: LinkReceive = {
+        link: action.link,
+        destination: order.wallet,
+        balance: action.balance,
+        asset,
+        amount,
+      };
 
-      if (plan === "Refuse")
-        return new LinkUnclaimable({ reason: "link_account_unexpected" });
-
-      const createsLinkAccount = plan === "Create";
+      const current = (request: SigningRequest) =>
+        chain.draftCurrent(
+          request,
+          DraftPurpose.LinkPayout({ receive: terms }),
+        );
 
       const proposed = Option.filter(existing, (stored) =>
         Predicate.isTagged(stored, "AssetProposed"),
@@ -386,13 +339,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
         Option.isSome(proposed) &&
         Predicate.isTagged(proposed.value, "AssetProposed") &&
         (yield* live(proposed.value.request)) &&
-        (yield* currentReceive(
-          proposed.value.request,
-          order,
-          action,
-          funded.value,
-          createsLinkAccount,
-        ))
+        (yield* current(proposed.value.request))
       ) {
         const stored = proposed.value;
 
@@ -403,16 +350,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
           .seal(stored.request, approval.value, action.link)
           .pipe(Effect.option);
 
-        if (
-          Option.isNone(sealed) ||
-          !(yield* currentReceive(
-            stored.request,
-            order,
-            action,
-            funded.value,
-            createsLinkAccount,
-          ))
-        )
+        if (Option.isNone(sealed) || !(yield* current(stored.request)))
           return new AssetDraft({ request: stored.request });
 
         const authorized = yield* orders.authorize(stored, sealed.value);
@@ -429,14 +367,9 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
         });
       }
 
-      const request = yield* chain.draftLinkReceive(
-        action.link,
-        createsLinkAccount,
-        order.wallet,
-        action.balance,
-        asset,
-        amount,
-      );
+      const request = yield* chain.draftLinkReceive(terms);
+
+      if (request instanceof LinkUnclaimable) return request;
 
       const stored =
         Option.isSome(proposed) &&
@@ -455,7 +388,6 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
     const claimExternal = yield* externalLinkClaimFlow({
       liveLink,
-      linkAccountPlan,
       settleOnBalance,
       balanceGone,
       settled,

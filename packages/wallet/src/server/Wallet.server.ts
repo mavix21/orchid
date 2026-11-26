@@ -43,9 +43,13 @@ import {
   type WalletPort,
   type ServerFailure,
 } from "../contract";
-import { readEnvelope } from "../stellar/envelopes";
-import { Chain, ChainUnreachable, type Sealed } from "./Chain.server";
-import type { KnownExchangeMemo } from "./exchange-memos.server";
+import {
+  Chain,
+  ChainUnreachable,
+  DraftPurpose,
+  type MemoRule,
+  type Sealed,
+} from "./Chain.server";
 import { memoRefusal } from "./memo-refusal.server";
 import { Directory, StoreFailure } from "./Directory.server";
 import {
@@ -120,7 +124,7 @@ export class Wallet extends Context.Service<
 
       const proposedStep = (
         proposed: Proposed,
-        requirement: Option.Option<KnownExchangeMemo>,
+        requirement: MemoRule,
       ): TransferDraft | ExternalMemoRequired | MemoNotAllowed => {
         const refusal = memoRefusal(
           proposed.order,
@@ -133,7 +137,7 @@ export class Wallet extends Context.Service<
         return new TransferDraft({
           request: proposed.request,
           recipient: proposed.recipient,
-          memoRequired: Option.isSome(requirement),
+          memoRequired: Predicate.isTagged(requirement, "MemoRequired"),
           claimable: proposed.claimable,
         });
       };
@@ -146,7 +150,7 @@ export class Wallet extends Context.Service<
 
       const resumed = Effect.fn("Wallet.resumed")(function* (
         transfer: Transfer,
-        requirement: Option.Option<KnownExchangeMemo>,
+        requirement: MemoRule,
       ): Effect.fn.Return<TransferStep, StoreFailure | ChainUnreachable> {
         return Predicate.isTagged(transfer, "Proposed")
           ? proposedStep(transfer, requirement)
@@ -155,7 +159,7 @@ export class Wallet extends Context.Service<
 
       const redrafted = Effect.fn("Wallet.redrafted")(function* (
         stored: Proposed,
-        requirement: Option.Option<KnownExchangeMemo>,
+        requirement: MemoRule,
       ) {
         const request = yield* delivery(stored.order, stored.recipient);
 
@@ -170,23 +174,16 @@ export class Wallet extends Context.Service<
       const currentDraft = Effect.fn("Wallet.currentDraft")(function* (
         stored: Proposed,
       ) {
-        const state = yield* chain.account(stored.order.from);
-        const facts = readEnvelope(stored.request.envelope);
-
-        return (
-          Option.isSome(state) &&
-          Option.isSome(facts) &&
-          (Predicate.isTagged(facts.value, "PaymentFacts") ||
-            Predicate.isTagged(facts.value, "ClaimableFacts") ||
-            Predicate.isTagged(facts.value, "PaymentLinkFacts")) &&
-          BigInt(state.value.sequence) + 1n === BigInt(facts.value.sequence)
+        return yield* chain.draftCurrent(
+          stored.request,
+          DraftPurpose.Transfer({ from: stored.order.from }),
         );
       });
 
       const authorizing = Effect.fn("Wallet.authorizing")(function* (
         stored: Proposed,
         sealed: Sealed,
-        requirement: Option.Option<KnownExchangeMemo>,
+        requirement: MemoRule,
         mayRetry: boolean,
       ): Effect.fn.Return<TransferStep, StoreFailure | ChainUnreachable> {
         const authorized = yield* transfers.authorize(stored, sealed);

@@ -6,14 +6,10 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { type AccountAddress, BalanceId } from "../contract";
+import { depositLedgerScan } from "../policy";
 import { depositContract } from "../stellar/network";
 import type { ChainUnreachable } from "./chain-errors.server";
 import type { StellarRpc } from "./ledger.server";
-
-export interface LedgerWindow {
-  readonly oldestLedger: number;
-  readonly latestLedger: number;
-}
 
 export type AssetEvent = Data.TaggedEnum<{
   Payment: {
@@ -47,16 +43,25 @@ export interface EventsQuery {
   readonly limit: number;
 }
 
+export interface DepositPosition {
+  readonly cursor: string;
+  readonly ledger: number;
+}
+
 export interface EventsPage {
   readonly events: ReadonlyArray<AssetEvent>;
-  readonly cursor: string;
-  readonly cursorLedger: number;
+  readonly position: DepositPosition;
   readonly drained: boolean;
   readonly cursorClosedAt: Option.Option<DateTime.Utc>;
 }
 
 export interface DepositChain {
-  readonly ledgerWindow: Effect.Effect<LedgerWindow, ChainUnreachable>;
+  resumeDeposits(
+    stored: Option.Option<DepositPosition>,
+  ): Effect.Effect<EventsStart, ChainUnreachable>;
+  catchUpDeposits(
+    recent: Option.Option<DepositPosition>,
+  ): Effect.Effect<EventsStart, ChainUnreachable>;
   assetEvents(query: EventsQuery): Effect.Effect<EventsPage, ChainUnreachable>;
 }
 
@@ -205,8 +210,56 @@ const readable = (
     ),
   );
 
+const resumeDeposits = (rpc: StellarRpc) =>
+  Effect.fn("Chain.resumeDeposits")(function* (
+    stored: Option.Option<DepositPosition>,
+  ) {
+    const window = yield* rpc.call("getHealth", {}, RawHealth);
+
+    if (
+      Option.isSome(stored) &&
+      stored.value.ledger >= window.oldestLedger &&
+      stored.value.ledger <= window.latestLedger
+    )
+      return EventsStart.FromCursor({ cursor: stored.value.cursor });
+
+    yield* Effect.logWarning(
+      "Deposit ingest restarts at the oldest ledger",
+      Option.match(stored, {
+        onNone: () => ({
+          skippedFrom: "never read",
+          oldestLedger: window.oldestLedger,
+        }),
+        onSome: ({ ledger }) => ({
+          skippedFrom: ledger,
+          oldestLedger: window.oldestLedger,
+        }),
+      }),
+    );
+
+    return EventsStart.FromLedger({ ledger: window.oldestLedger });
+  });
+
+const catchUpDeposits = (rpc: StellarRpc) =>
+  Effect.fn("Chain.catchUpDeposits")(function* (
+    recent: Option.Option<DepositPosition>,
+  ) {
+    if (Option.isSome(recent))
+      return EventsStart.FromLedger({ ledger: recent.value.ledger });
+
+    const window = yield* rpc.call("getHealth", {}, RawHealth);
+
+    return EventsStart.FromLedger({
+      ledger: Math.max(
+        window.oldestLedger,
+        window.latestLedger - (depositLedgerScan - 1),
+      ),
+    });
+  });
+
 export const depositChain = (rpc: StellarRpc): DepositChain => ({
-  ledgerWindow: rpc.call("getHealth", {}, RawHealth),
+  resumeDeposits: resumeDeposits(rpc),
+  catchUpDeposits: catchUpDeposits(rpc),
   assetEvents: Effect.fn("Chain.assetEvents")(function* (query: EventsQuery) {
     const filters = [
       {
@@ -243,8 +296,7 @@ export const depositChain = (rpc: StellarRpc): DepositChain => ({
       events: events.flatMap((event) =>
         Option.isSome(event) ? [event.value] : [],
       ),
-      cursor: reply.cursor,
-      cursorLedger,
+      position: { cursor: reply.cursor, ledger: cursorLedger },
       drained,
       cursorClosedAt: truncated
         ? Option.some(last.ledgerClosedAt)

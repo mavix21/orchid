@@ -15,7 +15,6 @@ import { draftClaimable, draftPaymentLink } from "../stellar/asset-envelopes";
 import { type AssetPlan, draftPlan } from "../stellar/asset-plans";
 import { toStellarAsset } from "../stellar/assets";
 import { paymentLifetime } from "../policy";
-import { usdc } from "../stellar/network";
 import { ChainUnreachable } from "./chain-errors.server";
 import {
   type ClaimableEntry,
@@ -86,13 +85,11 @@ export const assetChain = (
       read(
         [
           accountKey(address),
-          lineKey(address, usdc),
           ...assets.map((asset) => lineKey(address, toStellarAsset(asset))),
         ],
         (result) =>
           holdingsFromEntries(
             result.entries ?? [],
-            result.latestLedger,
             reserveSponsor,
             address,
             assets,

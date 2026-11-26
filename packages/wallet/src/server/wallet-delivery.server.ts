@@ -133,33 +133,15 @@ export const deliveryFlow = Effect.gen(function* () {
       return DeliveryRoute.PaymentLink({ address: recipient.address });
     }
 
-    const assets = Match.valueTags(terms.asset, {
-      Native: () => [],
-      Issued: (asset) => [asset],
-    });
-
-    const destination = yield* chain.holdings(
+    const blocker = yield* chain.receiveBlocker(
       baseAccountOf(recipient.address),
-      assets,
+      terms.asset,
+      terms.amount,
     );
 
-    const line = Option.flatMap(destination, (holdings) =>
-      Option.fromNullishOr(holdings.lines[0]),
-    );
+    if (Option.isSome(blocker)) {
+      const reason = blocker.value;
 
-    const reason = Option.isNone(destination)
-      ? "no_account"
-      : assets.length === 0
-        ? undefined
-        : Option.isNone(line)
-          ? "no_trustline"
-          : !line.value.authorized
-            ? "not_authorized"
-            : line.value.capacity < terms.amount
-              ? "no_capacity"
-              : undefined;
-
-    if (reason) {
       const claimable =
         reason === "no_trustline" ||
         (reason === "no_account" && (yield* awaitsOpening(terms, recipient)));

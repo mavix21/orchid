@@ -166,10 +166,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           let reads = 0;
 
           const transientWallet = walletWithChain((actual) => ({
-            account: (addr) =>
+            balance: (addr) =>
               ++reads === 1
                 ? Effect.succeed(Option.none())
-                : actual.account(addr),
+                : actual.balance(addr),
           }));
 
           expect(

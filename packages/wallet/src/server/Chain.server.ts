@@ -28,31 +28,35 @@ import {
   PaymentMemo,
   PositiveAmount,
   SigningRequest,
-  Amount,
 } from "../contract";
 import { baseAccountOf, isMuxed } from "../stellar/destination";
 import { draftOpening, draftPayment, readEnvelope } from "../stellar/envelopes";
 import { approvalMargin, paymentLifetime } from "../policy";
 import { baseFee, networkPassphrase, usdc } from "../stellar/network";
+import { type AccountChain, accountChain } from "./chain-accounts.server";
 import { type AssetChain, assetChain } from "./chain-assets.server";
+import {
+  type DestinationChain,
+  destinationChain,
+} from "./chain-destinations.server";
+import { type DraftChain, draftChain } from "./chain-drafts.server";
 import { channelPool } from "./channel-pool.server";
 import { type LinkChain, linkChain } from "./chain-links.server";
 import { type DepositChain, depositChain } from "./chain-deposits.server";
 import { ChainUnreachable } from "./chain-errors.server";
-import {
-  type AccountState,
-  accountFromEntries,
-  stellarRpc,
-} from "./ledger.server";
+import { accountFromEntries, stellarRpc } from "./ledger.server";
 
 export { ChainUnreachable } from "./chain-errors.server";
 
-export type { AccountState } from "./ledger.server";
+export type { AccountStanding } from "./chain-accounts.server";
 
-import {
-  type KnownExchangeMemo,
-  memoRequirementFor,
-} from "./exchange-memos.server";
+export { MemoRule } from "./chain-destinations.server";
+
+export { DraftPurpose } from "./chain-drafts.server";
+
+export type { LinkReceive } from "./chain-links.server";
+
+import { memoRequirementFor } from "./exchange-memos.server";
 import { validateRpcTimeout, validateRpcUrl } from "./rpc-settings.server";
 import { WalletSettings, rpcReadConcurrency } from "./settings.server";
 import type { StoreFailure } from "./store-failure.server";
@@ -106,22 +110,16 @@ const RawSendTransaction = Schema.Union([
 
 export class Chain extends Context.Service<
   Chain,
-  AssetChain &
+  AccountChain &
+    AssetChain &
+    DestinationChain &
+    DraftChain &
     LinkChain &
     DepositChain & {
       validAddress(address: DestinationAddress): boolean;
-      memoRequiredFor(
-        address: AccountAddress,
-      ): Effect.Effect<Option.Option<KnownExchangeMemo>, ChainUnreachable>;
       pastOpeningWindow(
         sealed: Sealed,
       ): Effect.Effect<boolean, ChainUnreachable>;
-      account(
-        address: AccountAddress,
-      ): Effect.Effect<Option.Option<AccountState>, ChainUnreachable>;
-      balance(
-        address: AccountAddress,
-      ): Effect.Effect<Option.Option<Amount>, ChainUnreachable>;
       draftOpening(
         address: AccountAddress,
         claim?: BalanceId,
@@ -444,18 +442,17 @@ export class Chain extends Context.Service<
       );
 
       return Chain.of({
+        ...accountChain(account),
         ...assets,
+        ...destinationChain(assets.holdings, (address) =>
+          memoRequirementFor(rpc, address),
+        ),
+        ...draftChain(account),
         ...depositChain(rpc),
         validAddress: (address) =>
           StrKey.isValidEd25519PublicKey(address) ||
           StrKey.isValidMed25519PublicKey(address),
-        memoRequiredFor: (address) => memoRequirementFor(rpc, address),
         pastOpeningWindow,
-        account,
-        balance: (address) =>
-          account(address).pipe(
-            Effect.map(Option.flatMap((state) => state.balance)),
-          ),
         draftOpening: draftOpen,
         draftPayment: draftPay,
         ...links,

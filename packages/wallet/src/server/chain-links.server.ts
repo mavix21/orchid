@@ -13,6 +13,7 @@ import {
   type Asset,
   type BalanceId,
   type DestinationAddress,
+  LinkUnclaimable,
   type PaymentMemo,
   type PositiveAmount,
   SigningRequest,
@@ -24,16 +25,29 @@ import type { ChainUnreachable } from "./chain-errors.server";
 import type { AccountState } from "./ledger.server";
 import type { StoreFailure } from "./store-failure.server";
 
+export interface LinkReceive {
+  readonly link: AccountAddress;
+  readonly destination: DestinationAddress;
+  readonly balance: BalanceId;
+  readonly asset: Asset;
+  readonly amount: PositiveAmount;
+  readonly memo?: PaymentMemo;
+}
+
+export const linkAccountPlan = (state: Option.Option<AccountState>) =>
+  Option.match(state, {
+    onNone: () => "Create" as const,
+    onSome: ({ untouched }) =>
+      untouched ? ("Reuse" as const) : ("Refuse" as const),
+  });
+
 export interface LinkChain {
   draftLinkReceive(
-    link: AccountAddress,
-    createsLinkAccount: boolean,
-    destination: DestinationAddress,
-    balance: BalanceId,
-    asset: Asset,
-    amount: PositiveAmount,
-    memo?: PaymentMemo,
-  ): Effect.Effect<SigningRequest, ChainUnreachable | StoreFailure>;
+    receive: LinkReceive,
+  ): Effect.Effect<
+    SigningRequest | LinkUnclaimable,
+    ChainUnreachable | StoreFailure
+  >;
   cleanUpLink(link: AccountAddress): Effect.Effect<boolean, ChainUnreachable>;
 }
 
@@ -58,27 +72,21 @@ export const linkChain = (
 
   return {
     draftLinkReceive: Effect.fn("Chain.draftLinkReceive")(function* (
-      link: AccountAddress,
-      createsLinkAccount: boolean,
-      destination: DestinationAddress,
-      balance: BalanceId,
-      asset: Asset,
-      amount: PositiveAmount,
-      memo?: PaymentMemo,
+      receive: LinkReceive,
     ) {
+      const plan = linkAccountPlan(yield* account(receive.link));
+
+      if (plan === "Refuse")
+        return new LinkUnclaimable({ reason: "link_account_unexpected" });
+
       const { minTime, maxTime } = yield* lifetime;
 
       return new SigningRequest({
         envelope: draftLinkReceive({
+          ...receive,
           channel: yield* leaseChannel(maxTime),
-          link,
           reserveSponsor,
-          createsLinkAccount,
-          destination,
-          balance,
-          asset,
-          amount,
-          memo,
+          createsLinkAccount: plan === "Create",
           minTime,
           maxTime,
         }),

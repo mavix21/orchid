@@ -15,14 +15,8 @@ import {
   PositiveAmount,
 } from "../contract";
 import { fromStellarAsset, toStellarAsset } from "../stellar/assets";
-import { baseReserve, usdc } from "../stellar/network";
-import {
-  type AccountState,
-  type LedgerEntry,
-  accountFromEntries,
-  sponsorOf,
-  sponsoredBy,
-} from "./ledger.server";
+import { baseReserve } from "../stellar/network";
+import { type LedgerEntry, sponsorOf, sponsoredBy } from "./ledger.server";
 
 export interface Line {
   readonly asset: IssuedAsset;
@@ -43,7 +37,7 @@ export interface Reserves {
 }
 
 export interface Holdings {
-  readonly account: AccountState;
+  readonly nativeTotal: Amount;
   readonly reserveSponsor: Option.Option<AccountAddress>;
 
   readonly native: Amount;
@@ -114,7 +108,6 @@ function reservesOf(account: xdr.AccountEntry): Reserves & {
 
 export function holdingsFromEntries(
   entries: ReadonlyArray<LedgerEntry>,
-  ledger: number,
   sponsor: string,
   address: AccountAddress,
   assets: ReadonlyArray<IssuedAsset>,
@@ -133,16 +126,8 @@ export function holdingsFromEntries(
     );
 
   const account = own.find(({ data }) => data.type === "account");
-  const base = lineOf(usdc);
 
-  const state = accountFromEntries(
-    [account, base].flatMap((entry) => (entry ? [entry.raw] : [])),
-    ledger,
-    sponsor,
-  );
-
-  if (!account || account.data.type !== "account" || Option.isNone(state))
-    return Option.none();
+  if (!account || account.data.type !== "account") return Option.none();
 
   const reserves = reservesOf(account.data.value);
 
@@ -152,7 +137,7 @@ export function holdingsFromEntries(
     reserves.selling;
 
   return Option.some({
-    account: state.value,
+    nativeTotal: amountOf(account.data.value.balance),
     reserveSponsor: sponsorOf(account.raw),
     native: amountOf(account.data.value.balance - locked),
     reserves: {

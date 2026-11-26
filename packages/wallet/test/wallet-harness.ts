@@ -37,7 +37,6 @@ import { signingKey } from "../src/device/signing";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
 import {
-  type AccountState,
   Applied,
   Chain,
   ChainUnreachable,
@@ -45,6 +44,10 @@ import {
   type Settlement,
   Undecided,
 } from "../src/server/Chain.server";
+import { accountChain } from "../src/server/chain-accounts.server";
+import { destinationChain } from "../src/server/chain-destinations.server";
+import { draftChain } from "../src/server/chain-drafts.server";
+import { linkChain } from "../src/server/chain-links.server";
 import { Deposits } from "../src/server/Deposits.server";
 import { Directory } from "../src/server/Directory.server";
 import { HumanCheck } from "../src/server/HumanCheck.server";
@@ -58,6 +61,7 @@ import type {
   ClaimableEntry,
   Holdings,
 } from "../src/server/ledger-assets.server";
+import type { AccountState } from "../src/server/ledger.server";
 import {
   type PendingWork,
   QueueUnavailable,
@@ -76,7 +80,6 @@ import {
   draftPayment,
   signingPayload,
 } from "../src/stellar/envelopes";
-import { draftLinkReceive } from "../src/stellar/link-receive";
 import { networkPassphrase } from "../src/stellar/network";
 import {
   DeviceWallet,
@@ -177,7 +180,9 @@ export const holdingsFor = (
   address: AccountAddress,
   overrides: Partial<Holdings> = {},
 ): Holdings => ({
-  account: world.accounts.get(address) ?? accountState(),
+  nativeTotal: amount(
+    (world.accounts.get(address) ?? accountState()).nativeBalance.toString(),
+  ),
   reserveSponsor: Option.none(),
   native: amount("0"),
   reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
@@ -220,47 +225,60 @@ export const fakeChain = Layer.effect(
         });
       });
 
+    const holdings: Chain["Service"]["holdings"] = (addr, assets) =>
+      world.holdings.has(addr)
+        ? Effect.succeed(Option.fromNullishOr(world.holdings.get(addr)))
+        : account(addr).pipe(
+            Effect.map(
+              Option.map((s) =>
+                holdingsFor(addr, {
+                  nativeTotal: amount(s.nativeBalance.toString()),
+                  reserveSponsor: s.accountSponsored
+                    ? Option.some(reserveSponsor)
+                    : Option.none(),
+                  native: amount(s.nativeBalance.toString()),
+                  reserves: { subentries: 1, sponsored: 3, sponsoring: 0 },
+                  lines: assets.flatMap((a) =>
+                    a.code === baseAsset.code &&
+                    a.issuer === baseAsset.issuer &&
+                    Option.isSome(s.balance)
+                      ? [
+                          {
+                            asset: a,
+                            balance: s.balance.value,
+                            spendable: s.balance.value,
+                            capacity: amount("9223372036854775807"),
+                            authorized: true,
+                            clawbackEnabled: false,
+                            sponsored: true,
+                          },
+                        ]
+                      : [],
+                  ),
+                }),
+              ),
+            ),
+          );
+
+    const links = linkChain(
+      sponsor,
+      feePayer,
+      account,
+      () => Effect.sync(() => sourceOf(channel)),
+      () => Effect.void,
+    );
+
     return Chain.of({
       ...real,
-      memoRequiredFor: (addr) =>
+      ...accountChain(account),
+      ...destinationChain(holdings, (addr) =>
         world.ledgerDown
           ? rpcDown()
           : Effect.succeed(exchangeMemoFor(addr, world.exchangeMemos)),
-      account,
-      holdings: (addr, assets) =>
-        world.holdings.has(addr)
-          ? Effect.succeed(Option.fromNullishOr(world.holdings.get(addr)))
-          : account(addr).pipe(
-              Effect.map(
-                Option.map((s) =>
-                  holdingsFor(addr, {
-                    account: s,
-                    reserveSponsor: s.accountSponsored
-                      ? Option.some(reserveSponsor)
-                      : Option.none(),
-                    native: amount(s.nativeBalance.toString()),
-                    reserves: { subentries: 1, sponsored: 3, sponsoring: 0 },
-                    lines: assets.flatMap((a) =>
-                      a.code === baseAsset.code &&
-                      a.issuer === baseAsset.issuer &&
-                      Option.isSome(s.balance)
-                        ? [
-                            {
-                              asset: a,
-                              balance: s.balance.value,
-                              spendable: s.balance.value,
-                              capacity: amount("9223372036854775807"),
-                              authorized: true,
-                              clawbackEnabled: false,
-                              sponsored: true,
-                            },
-                          ]
-                        : [],
-                    ),
-                  }),
-                ),
-              ),
-            ),
+      ),
+      ...draftChain(account),
+      draftLinkReceive: links.draftLinkReceive,
+      holdings,
       claimable: (ids) =>
         world.claimablesDown
           ? rpcDown()
@@ -303,29 +321,6 @@ export const fakeChain = Layer.effect(
             ...w,
           }),
         ),
-      draftLinkReceive: (
-        link,
-        createsLinkAccount,
-        destination,
-        balance,
-        a,
-        val,
-        memo,
-      ) =>
-        draftWith((w) =>
-          draftLinkReceive({
-            channel: sourceOf(channel),
-            link,
-            reserveSponsor,
-            createsLinkAccount,
-            destination,
-            balance,
-            asset: a,
-            amount: val,
-            memo,
-            ...w,
-          }),
-        ),
       cleanUpLink: (link) =>
         Effect.sync(
           () => !world.unmergeable.has(link) && !world.accounts.delete(link),
@@ -335,8 +330,6 @@ export const fakeChain = Layer.effect(
           Clock.currentTimeMillis,
           (now) => DateTime.toEpochMillis(s.expiresAt) < now,
         ),
-      balance: (addr) =>
-        account(addr).pipe(Effect.map(Option.flatMap((s) => s.balance))),
       draftOpening: (addr, claim) =>
         draftWith((w) =>
           draftOpening({
