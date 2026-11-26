@@ -3,24 +3,16 @@ import { balancesToCheck } from "./balance-sweep.server";
 import {
   fundedLinkAt,
   openBalancesFor,
+  openClaimableCountFrom,
+  openFromAt,
   openPaymentLinksFor,
   receivedPaymentLinksFor,
+  settledOpenBalanceIdsFrom,
+  unclaimedAt,
   waitingBalancesFor,
 } from "./open-claimables.server";
 import { Database } from "@workspace/db";
-import {
-  and,
-  count,
-  desc,
-  eq,
-  gt,
-  inArray,
-  isNotNull,
-  isNull,
-  lt,
-  or,
-  sql,
-} from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -43,7 +35,7 @@ import {
   type TransferOrder,
 } from "../contract";
 import { claimableBalanceOf } from "../stellar/asset-envelopes";
-import { approvalMargin, claimableReadLimit, claimableQuota } from "../policy";
+import { approvalMargin, claimableQuota } from "../policy";
 import { epochAt, network } from "../stellar/network";
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
@@ -158,6 +150,7 @@ export class Transfers extends Context.Service<
 
     activity(
       address: AccountAddress,
+      destinationPrefixes: ReadonlyArray<string>,
       before?: ActivityCursor,
     ): Effect.Effect<ActivityPage, StoreFailure>;
 
@@ -180,30 +173,6 @@ export class Transfers extends Context.Service<
           try: () => readTransferRow(row),
           catch: (cause) => new StoreFailure({ cause }),
         });
-
-      const unclaimedAt = (now: number) =>
-        and(
-          scopeAt(now),
-          isNotNull(transfers.balanceId),
-          isNull(transfers.balanceClosedAt),
-        );
-
-      const openFromAt = (
-        sender: AccountAddress,
-        kind: ClaimableKind,
-        now: number,
-      ) =>
-        and(
-          unclaimedAt(now),
-          eq(transfers.sender, sender),
-          kind === "username"
-            ? or(
-                eq(transfers.claimableKind, "username"),
-                isNull(transfers.claimableKind),
-              )
-            : eq(transfers.claimableKind, "paymentLink"),
-          inArray(transfers.status, ["authorized", "settled"]),
-        );
 
       const find = Effect.fn("Transfers.find")(function* (id: TransferId) {
         const now = yield* Clock.currentTimeMillis;
@@ -557,38 +526,14 @@ export class Transfers extends Context.Service<
         ),
         openClaimables: (sender, kind = "username") =>
           wrap(
-            Clock.currentTimeMillis.pipe(
-              Effect.flatMap((now) =>
-                db
-                  .select({ total: count() })
-                  .from(transfers)
-                  .where(openFromAt(sender, kind, now)),
-              ),
-              Effect.map((rows) => rows[0]?.total ?? 0),
+            openClaimableCountFrom(sender, kind).pipe(
+              Effect.provideService(Database, db),
             ),
           ),
         settledOpenBalanceIds: (sender, kind) =>
           wrap(
-            Clock.currentTimeMillis.pipe(
-              Effect.flatMap((now) =>
-                db
-                  .select({ balance: transfers.balanceId })
-                  .from(transfers)
-                  .where(
-                    and(
-                      openFromAt(sender, kind, now),
-                      eq(transfers.status, "settled"),
-                    ),
-                  )
-                  .limit(claimableReadLimit),
-              ),
-              Effect.map((rows) =>
-                rows.flatMap((row) =>
-                  row.balance
-                    ? [Schema.decodeSync(BalanceId)(row.balance)]
-                    : [],
-                ),
-              ),
+            settledOpenBalanceIdsFrom(sender, kind).pipe(
+              Effect.provideService(Database, db),
             ),
           ),
         openBalances: (address) =>
@@ -615,9 +560,18 @@ export class Transfers extends Context.Service<
           ),
         fundedLink: (link) =>
           wrap(fundedLinkAt(link).pipe(Effect.provideService(Database, db))),
-        activity: (address, before) =>
+        activity: (address, destinationPrefixes, before) =>
           wrap(
-            activityFor(address, before).pipe(
+            Clock.currentTimeMillis.pipe(
+              Effect.flatMap((now) =>
+                activityFor({
+                  address,
+                  destinationPrefixes,
+                  network,
+                  epoch: epochAt(now),
+                  before,
+                }),
+              ),
               Effect.provideService(Database, db),
             ),
           ),

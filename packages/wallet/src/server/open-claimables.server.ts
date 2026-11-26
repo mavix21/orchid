@@ -1,5 +1,16 @@
 import { Database } from "@workspace/db";
-import { and, asc, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import * as Option from "effect/Option";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
@@ -19,6 +30,7 @@ import { StoreFailure } from "./Directory.server";
 import { StoredOrderJson } from "./AssetOrders.server";
 import { assetOrders, transfers, usernames } from "./tables.server";
 import {
+  type ClaimableKind,
   FundedLink,
   OpenBalance,
   OpenLinkRecord,
@@ -26,13 +38,61 @@ import {
   RecipientJson,
 } from "./transfer-records.server";
 
-const unclaimedAt = (now: number) =>
+export const unclaimedAt = (now: number) =>
   and(
     eq(transfers.network, network),
     eq(transfers.testnetEpoch, epochAt(now)),
     isNotNull(transfers.balanceId),
     isNull(transfers.balanceClosedAt),
   );
+
+export const openFromAt = (
+  sender: AccountAddress,
+  kind: ClaimableKind,
+  now: number,
+) =>
+  and(
+    unclaimedAt(now),
+    eq(transfers.sender, sender),
+    kind === "username"
+      ? or(
+          eq(transfers.claimableKind, "username"),
+          isNull(transfers.claimableKind),
+        )
+      : eq(transfers.claimableKind, "paymentLink"),
+    inArray(transfers.status, ["authorized", "settled"]),
+  );
+
+export const openClaimableCountFrom = Effect.fn("Transfers.openClaimables")(
+  function* (sender: AccountAddress, kind: ClaimableKind) {
+    const db = yield* Database;
+    const now = yield* Clock.currentTimeMillis;
+
+    const rows = yield* db
+      .select({ total: count() })
+      .from(transfers)
+      .where(openFromAt(sender, kind, now));
+
+    return rows[0]?.total ?? 0;
+  },
+);
+
+export const settledOpenBalanceIdsFrom = Effect.fn(
+  "Transfers.settledOpenBalanceIds",
+)(function* (sender: AccountAddress, kind: ClaimableKind) {
+  const db = yield* Database;
+  const now = yield* Clock.currentTimeMillis;
+
+  const rows = yield* db
+    .select({ balance: transfers.balanceId })
+    .from(transfers)
+    .where(and(openFromAt(sender, kind, now), eq(transfers.status, "settled")))
+    .limit(claimableReadLimit);
+
+  return rows.flatMap((row) =>
+    row.balance ? [Schema.decodeSync(BalanceId)(row.balance)] : [],
+  );
+});
 
 export const openBalancesFor = Effect.fn("Transfers.openBalances")(function* (
   address: AccountAddress,
