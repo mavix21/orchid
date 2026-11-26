@@ -28,6 +28,7 @@ import {
   UnknownRecipient,
   type UsernameRecipient,
   sameAsset,
+  needsTrustline,
 } from "../contract";
 import { isMuxed } from "../stellar/destination";
 import { Chain, type ChainUnreachable, MemoRule } from "./Chain.server";
@@ -216,7 +217,7 @@ export const transferCheckFlow = Effect.gen(function* () {
       if (Option.isSome(linkRefusal)) return linkRefusal.value;
     }
 
-    const balance = chain.needsTrustline(terms.asset)
+    const balance = needsTrustline(terms.asset)
       ? (state.value.lines.find(
           (line) => sameAsset(line.asset, terms.asset) && line.authorized,
         )?.spendable ?? Schema.decodeSync(Amount)("0"))

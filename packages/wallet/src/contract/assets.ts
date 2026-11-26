@@ -30,6 +30,10 @@ export const baseAsset = Asset.make({
 export const sameAsset = (left: Asset, right: Asset) =>
   left.id === right.id && left.code === right.code;
 
+export const needsTrustline = (asset: Asset) => asset.id !== nativeAsset.id;
+
+export const TrustlineAsset = Asset.check(Schema.makeFilter(needsTrustline));
+
 export interface AssetPrecision {
   readonly decimals: number;
   readonly maximum: bigint;

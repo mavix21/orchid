@@ -15,10 +15,11 @@ import {
   PositiveAmount,
   UnsignedEnvelope,
   formatAmount,
+  needsTrustline,
   parseAmount,
   precisionOf,
 } from "../contract";
-import { fromStellarAsset, needsTrustline, toStellarAsset } from "./assets";
+import { fromStellarAsset, toStellarAsset } from "./assets";
 import { bounds } from "./bounds";
 import { isMuxed } from "./destination";
 import { fromStellarMemo, toStellarMemo } from "./memo";

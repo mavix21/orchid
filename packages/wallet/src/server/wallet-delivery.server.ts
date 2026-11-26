@@ -15,6 +15,7 @@ import {
   type TransferOrder,
   baseAsset,
   sameAsset,
+  needsTrustline,
 } from "../contract";
 import { baseAccountOf } from "../stellar/destination";
 import { claimableQuota } from "../policy";
@@ -58,7 +59,7 @@ export const paymentLinkAssetRefusal = Effect.gen(function* () {
   ) {
     const { asset } = order;
 
-    if (!chain.needsTrustline(asset)) return Option.none<AssetUnsupported>();
+    if (!needsTrustline(asset)) return Option.none<AssetUnsupported>();
 
     const [holdings, issuer] = yield* Effect.all(
       [

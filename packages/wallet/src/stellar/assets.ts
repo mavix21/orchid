@@ -51,8 +51,6 @@ export function toStellarAsset(asset: Asset): StellarAsset {
   return Option.getOrThrow(stellarAssetOf(asset));
 }
 
-export const needsTrustline = (asset: Asset) => asset.id !== nativeAsset.id;
-
 const issuerOf = (asset: Asset) =>
   Option.flatMap(stellarAssetOf(asset), (parsed) =>
     Option.fromUndefinedOr(parsed.getIssuer()),

@@ -9,13 +9,13 @@ import {
   type BalanceId,
   type PositiveAmount,
   SigningRequest,
+  needsTrustline,
 } from "../contract";
 import { draftClaimable, draftPaymentLink } from "../stellar/asset-envelopes";
 import { type AssetPlan, draftPlan } from "../stellar/asset-plans";
 import {
   isIssuedBy,
   issuerAccountKey,
-  needsTrustline,
   toStellarAsset,
   validAsset,
 } from "../stellar/assets";
@@ -37,7 +37,6 @@ import type { LedgerResult, StellarRpc } from "./ledger.server";
 
 export interface AssetChain {
   validAsset(asset: Asset): boolean;
-  needsTrustline(asset: Asset): boolean;
   issuedBy(asset: Asset, account: AccountAddress): boolean;
   holdings(
     address: AccountAddress,
@@ -89,7 +88,6 @@ export const assetChain = (
 
   return {
     validAsset,
-    needsTrustline,
     issuedBy: isIssuedBy,
     holdings: (address, assets) => {
       const trusted = assets.filter(needsTrustline);

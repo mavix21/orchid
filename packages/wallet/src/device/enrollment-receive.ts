@@ -8,9 +8,9 @@ import {
   RecipientCannotReceive,
   type WalletPort,
   baseAsset,
+  needsTrustline,
   sameAsset,
 } from "../contract";
-import { needsTrustline } from "../stellar/assets";
 import { type LinkCode } from "./link-code";
 import { claimStanding } from "./claim-reviews";
 import type {

@@ -22,6 +22,7 @@ import {
   Unchanged,
   baseAsset,
   sameAsset,
+  needsTrustline,
 } from "../contract";
 import { type AssetPlan, ClaimPlan } from "../stellar/asset-plans";
 import { maxSponsoredTrustlines } from "../policy";
@@ -125,14 +126,11 @@ export const assetFlow = Effect.gen(function* () {
       return new InvalidAddress({ address: order.wallet });
 
     if (
-      Predicate.isTagged(order.action, "OpenTrustline") ||
-      Predicate.isTagged(order.action, "CloseTrustline")
-    ) {
-      if (!chain.validAsset(order.action.asset))
-        return new AssetUnsupported({ reason: "issuer_missing" });
-
-      if (!chain.needsTrustline(order.action.asset)) return new Unchanged();
-    }
+      (Predicate.isTagged(order.action, "OpenTrustline") ||
+        Predicate.isTagged(order.action, "CloseTrustline")) &&
+      !chain.validAsset(order.action.asset)
+    )
+      return new AssetUnsupported({ reason: "issuer_missing" });
 
     const row = yield* directory.byAddress(order.wallet);
 
@@ -206,7 +204,7 @@ export const assetFlow = Effect.gen(function* () {
 
       plan = ClaimPlan.make({ balance: action.balance });
 
-      if (chain.needsTrustline(entry.asset)) {
+      if (needsTrustline(entry.asset)) {
         const blocker = yield* chain.receiveBlocker(
           order.wallet,
           entry.asset,

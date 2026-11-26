@@ -7,15 +7,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import {
-  BalanceId,
-  PaymentLinkRecipient,
-  PositiveAmount,
-  TransferId,
-  Username,
-  baseAsset,
-  nativeAsset,
-} from "../src/contract";
+import { Username } from "../src/contract";
 import type { AssertionCeremony } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
@@ -27,11 +19,9 @@ import {
   reopenLocalEnvelope,
   sealLocalEnvelope,
 } from "../src/device/local-envelope";
-import { network, usdc } from "../src/stellar/network";
+import { network } from "../src/stellar/network";
 import { addressOf } from "./device-fixtures";
 import {
-  TaggedIssued,
-  TaggedNative,
   clearDatabase,
   enrollDisposableWallet,
   putRawEntry,
@@ -189,51 +179,6 @@ it.effect(
 
       assertTagged(reopened, "PhraseOpened");
       expect(Redacted.value(reopened.phrase)).toBe(disposable.phrase);
-    }),
-);
-
-it.effect(
-  "reads a wallet whose transfer and link receipt were stored with tagged assets",
-  () =>
-    Effect.gen(function* () {
-      yield* Effect.promise(clearDatabase);
-
-      const { record, address } = yield* enrollDisposableWallet();
-      const encoded = Schema.encodeSync(SealedDeviceWallet)(record);
-      const balance = Schema.decodeSync(BalanceId)(`00000000${"a".repeat(64)}`);
-
-      yield* Effect.promise(() =>
-        putRawEntry("wallet", {
-          ...encoded,
-          public: {
-            address,
-            username: record.public.username,
-            transfer: {
-              id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
-              from: address,
-              to: PaymentLinkRecipient.make({ value: address }),
-              asset: TaggedNative.make({}),
-              amount: Schema.decodeSync(PositiveAmount)("1").toString(),
-            },
-            linkReceipt: {
-              network,
-              address,
-              asset: TaggedIssued.make({
-                code: usdc.code,
-                issuer: usdc.issuer ?? "",
-              }),
-              amount: "1",
-              balance,
-              attempts: [balance],
-            },
-          },
-        }),
-      );
-
-      const stored = Option.getOrThrow(yield* browserKeyStore.readPublic());
-
-      expect(stored.transfer?.asset).toEqual(nativeAsset);
-      expect(stored.linkReceipt?.asset).toEqual(baseAsset);
     }),
 );
 

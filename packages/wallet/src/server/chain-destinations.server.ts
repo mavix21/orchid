@@ -7,9 +7,9 @@ import {
   type DestinationAddress,
   type PositiveAmount,
   type RecipientCannotReceive,
+  needsTrustline,
   sameAsset,
 } from "../contract";
-import { needsTrustline } from "../stellar/assets";
 import { baseAccountOf, isMuxed } from "../stellar/destination";
 import type { ChainUnreachable } from "./chain-errors.server";
 import type { KnownExchangeMemo } from "./exchange-memos.server";

@@ -21,7 +21,6 @@ import {
   PositiveAmount,
   RecipientCannotReceive,
   TransferOrder,
-  Unchanged,
   Username,
   UsernameRecipient,
 } from "../src/contract";
@@ -489,7 +488,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "an asset whose code disagrees with its id is refused and never stored",
+      "an inconsistent asset is refused and never stored, and a trustline order for XLM does not decode",
       () =>
         Effect.gen(function* () {
           const key = yield* fundedWallet("relabeller");
@@ -519,11 +518,16 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ),
           ).toEqual(unsupported);
 
+          const opening = Schema.encodeSync(AssetOrder)(
+            assetOrder(key, OpenTrustline.make({ asset: euro })),
+          );
+
           expect(
-            yield* manage(
-              assetOrder(key, OpenTrustline.make({ asset: nativeAsset })),
-            ),
-          ).toEqual(new Unchanged());
+            Schema.decodeUnknownOption(AssetOrder)({
+              ...opening,
+              action: { ...opening.action, asset: nativeAsset },
+            }),
+          ).toEqual(Option.none());
         }),
     );
 

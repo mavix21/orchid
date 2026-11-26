@@ -33,6 +33,7 @@ import {
   type SigningRequest,
   sameAsset,
   baseAsset,
+  needsTrustline,
 } from "../contract";
 import {
   type AssetAuthorized,
@@ -304,7 +305,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
       const openedByOpening =
         walletOpening &&
-        (!chain.needsTrustline(asset) || sameAsset(asset, baseAsset));
+        (!needsTrustline(asset) || sameAsset(asset, baseAsset));
 
       if (Option.isSome(blocker)) {
         if (blocker.value !== "no_account")
