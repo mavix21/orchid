@@ -31,7 +31,7 @@ import {
   SavedWallet,
   makeWalletEffects,
 } from "../src/device/client";
-import { signingKey } from "../src/device/signing";
+import { phraseAddress } from "../src/device/signing";
 import { Wallet } from "../src/server/Wallet.server";
 import { draftOpening, signingPayload } from "../src/stellar/envelopes";
 import { approvalMargin, paymentLifetime } from "../src/policy";
@@ -42,6 +42,7 @@ import {
   memoryKeyStore,
   seededDeviceWallet,
   unusedPort,
+  signingKey,
 } from "./device-fixtures";
 import {
   approvingDevice,
@@ -67,14 +68,10 @@ import {
 
 const passkeys = new SoftwareAuthenticator(passkeyOrigin).passkeys;
 const seeded = seededDeviceWallet(reserveSponsor);
-const holderKey = signingKey(seeded.phrase);
 
 it("derives the Stellar account of a SEP-5 secret phrase", () => {
-  expect(holderKey.publicKey()).toBe(
+  expect(phraseAddress(seeded.phrase)).toBe(
     "GDRXE2BQUC3AZNPVFSCEZ76NJ3WWL25FYFK6RGZGIEKWE4SOOHSUJUJ6",
-  );
-  expect(holderKey.secret()).toBe(
-    "SBGWSG6BTNCKCOB3DIFBGCVMUPQFYPA2G4O34RMTB343OYPXU5DJDVMN",
   );
 });
 

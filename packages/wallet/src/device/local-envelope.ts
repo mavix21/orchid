@@ -19,7 +19,7 @@ import {
 import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";
 import { canonicalTuple, sha256 } from "./canonical-digest";
 import { SecretPhrase } from "./secret-phrase";
-import { signingKey } from "./signing";
+import { phraseAddress } from "./signing";
 
 export const localEnvelopeVersion = 2;
 export const installationSaltLength = 32;
@@ -180,7 +180,7 @@ export const sealLocalEnvelope = Effect.fn("Device.sealLocalEnvelope")(
       input.network.length === 0 ||
       input.salt.byteLength !== installationSaltLength ||
       Redacted.value(prf).byteLength === 0 ||
-      signingKey(input.phrase).publicKey() !== input.address
+      phraseAddress(input.phrase) !== input.address
     )
       return new CorruptEnvelope();
 
@@ -277,7 +277,7 @@ export const openLocalEnvelope = Effect.fn("Device.openLocalEnvelope")(
 
     if (
       Option.isNone(phrase) ||
-      signingKey(phrase.value).publicKey() !== expected.address
+      phraseAddress(phrase.value) !== expected.address
     )
       return new CorruptEnvelope();
 

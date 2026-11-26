@@ -1,11 +1,12 @@
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { base58 } from "@scure/base";
-import { Keypair } from "@stellar/stellar-sdk";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { AccountAddress, LinkSecret } from "../contract";
-import { networkPassphrase } from "../stellar/network";
+import type { AccountAddress, LinkSecret } from "../contract";
+import { stellarSigningScheme } from "../stellar/signing-scheme";
+import type { SigningScheme } from "./signing-scheme";
 
 const linkCodeVersion = 1;
 const linkCodeEntropyLength = 16;
@@ -54,22 +55,21 @@ const encoder = new TextEncoder();
 
 const linkKeySalt = encoder.encode("orchid-payment-link-code-v1");
 
-const networkInfo = encoder.encode(networkPassphrase);
-
 export interface LinkKey {
   readonly address: AccountAddress;
   readonly secret: LinkSecret;
 }
 
-const keyFromEntropy = (entropy: Uint8Array): LinkKey => {
-  const seed = hkdf(sha256, entropy, linkKeySalt, networkInfo, 32);
+const keyFromEntropy = (
+  scheme: SigningScheme,
+  entropy: Uint8Array,
+): LinkKey => {
+  const seed = hkdf(sha256, entropy, linkKeySalt, scheme.linkKeyInfo, 32);
 
   try {
-    const keypair = Keypair.fromRawEd25519Seed(seed);
-
     return {
-      address: Schema.decodeSync(AccountAddress)(keypair.publicKey()),
-      secret: Schema.decodeSync(LinkSecret)(keypair.secret()),
+      address: scheme.address(ed25519.getPublicKey(seed)),
+      secret: scheme.linkSecret(seed),
     };
   } finally {
     seed.fill(0);
@@ -79,7 +79,7 @@ const keyFromEntropy = (entropy: Uint8Array): LinkKey => {
 export const linkKeyOf = (code: LinkCode): Option.Option<LinkKey> =>
   Option.map(linkCodeEntropy(code), (entropy) => {
     try {
-      return keyFromEntropy(entropy);
+      return keyFromEntropy(stellarSigningScheme, entropy);
     } finally {
       entropy.fill(0);
     }

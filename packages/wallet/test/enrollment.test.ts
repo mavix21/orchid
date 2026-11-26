@@ -27,7 +27,6 @@ import {
   makeEnrollmentEffects,
 } from "../src/device/enrollment";
 import { reopenLocalEnvelope } from "../src/device/local-envelope";
-import { signingKey } from "../src/device/signing";
 import { Principal, type SessionGrant } from "../src/server/Principal.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { network } from "../src/stellar/network";
@@ -51,6 +50,7 @@ import {
   restoreBackupPhrase,
   tableRows,
 } from "./enrollment-fixtures";
+import { signingKey } from "./device-fixtures";
 
 const enrollmentFor = (
   port: WalletPort,
