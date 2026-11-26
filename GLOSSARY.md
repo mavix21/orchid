@@ -16,7 +16,7 @@ _Avoid_: Recovery, seed backup.
 **Restore**: Recovering a wallet on a device from its backup, after the device proves it holds the passkey.
 _Avoid_: Recovery, import.
 
-**Account address**: The public Stellar address identifying an account on the network.
+**Account address**: The public identifier of an account on the wallet's network, which decides what a valid one looks like.
 _Avoid_: Username, private key.
 
 **Username**: A permanent name bound to one account address when the wallet is created. It resolves as a recipient while the wallet is unopened or active and stays bound if the wallet's account leaves the network.

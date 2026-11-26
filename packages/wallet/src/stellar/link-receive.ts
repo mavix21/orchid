@@ -21,7 +21,7 @@ import {
 } from "../contract";
 import { fromStellarAsset, toStellarAsset } from "./assets";
 import { bounds } from "./bounds";
-import { isMuxed } from "./destination";
+import { isMuxedAddress } from "./address-rules";
 import { fromStellarMemo, toStellarMemo } from "./memo";
 import { baseFee, networkPassphrase } from "./network";
 
@@ -171,7 +171,7 @@ export function readLinkReceive(
 
   const memo = fromStellarMemo(tx.memo);
 
-  if (isMuxed(destination) && memo !== undefined) return Option.none();
+  if (isMuxedAddress(destination) && memo !== undefined) return Option.none();
 
   const facts = new LinkReceiveFacts({
     ...fields,

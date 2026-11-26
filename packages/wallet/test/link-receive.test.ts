@@ -10,14 +10,13 @@ import {
   BalanceGone,
   BalanceId,
   ClaimBalance,
-  type DestinationAddress,
+  DestinationAddress,
   ExternalLinkOrder,
   ExternalMemoRequired,
   InvalidAddress,
   LedgerUnreachable,
   LinkUnclaimable,
   MemoNotAllowed,
-  MuxedAddress,
   PaymentLinkUsed,
   PaymentMemo,
   ReceiveLink,
@@ -53,7 +52,7 @@ const envelopeBalance = Schema.decodeSync(BalanceId)(
 );
 
 it("link receive envelope reader rejects a muxed destination with a memo", () => {
-  const muxed = Schema.decodeSync(MuxedAddress)(
+  const muxed = Schema.decodeSync(DestinationAddress)(
     new MuxedAccount(
       new Account(addressOf(Keypair.random()), "0"),
       "42",
@@ -331,7 +330,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           fundHolder(base);
           registerExchange(addressOf(base));
 
-          const muxed = Schema.decodeSync(MuxedAddress)(
+          const muxed = Schema.decodeSync(DestinationAddress)(
             new MuxedAccount(
               new Account(addressOf(base), "0"),
               "42",
@@ -514,7 +513,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           fundHolder(target);
 
           return {
-            destination: Schema.decodeSync(MuxedAddress)(
+            destination: Schema.decodeSync(DestinationAddress)(
               new MuxedAccount(
                 new Account(addressOf(target), "0"),
                 "7",

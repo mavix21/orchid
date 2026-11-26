@@ -18,6 +18,7 @@ import {
   type ExternalLinkReview,
   type LinkCode,
   type PaymentLinkOpen,
+  forbidsMemo,
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as Match from "effect/Match";
@@ -46,7 +47,6 @@ import {
   type ExternalClaimFieldProblem,
   type ExternalClaimForm,
   externalClaimIntentOf,
-  isMuxedDestination,
 } from "./external-claim-intent";
 import {
   type ExternalClaimAction,
@@ -99,7 +99,7 @@ export function ExternalClaimFlow({
   );
 
   const sent = amountLabel(open.amount, open.asset);
-  const muxed = isMuxedDestination(form.destination);
+  const muxed = forbidsMemo(form.destination.trim());
 
   useEffect(() => {
     if (!Predicate.isTagged(step, "Form") || Option.isNone(step.problem))

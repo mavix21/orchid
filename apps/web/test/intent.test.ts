@@ -30,3 +30,14 @@ it.each([
 ])("a memo %s is not sent", (_, memo, recipient) => {
   expect(Result.getOrThrow(intentFor(memo, recipient)).memo).toBeUndefined();
 });
+
+it("an address from another network is refused on the recipient field", () => {
+  expect(
+    Option.map(
+      Result.getFailure(
+        intentFor("", "0x71C7656EC7ab88b098defB751B7401B5f6d8976F"),
+      ),
+      (problem) => problem.field,
+    ),
+  ).toEqual(Option.some("recipient"));
+});

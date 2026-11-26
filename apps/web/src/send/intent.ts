@@ -2,13 +2,13 @@ import {
   type AddressNetwork,
   DestinationAddress,
   AddressRecipient,
-  MuxedAddress,
   type Asset,
   PaymentMemo,
   type Recipient,
   TransferIntent,
   Username,
   UsernameRecipient,
+  forbidsMemo,
   parseAmount,
   precisionOf,
   recogniseAddress,
@@ -117,7 +117,7 @@ export function intentOf(
   if (
     destination === "username" ||
     memo === "" ||
-    Schema.is(MuxedAddress)(to.success.value)
+    forbidsMemo(to.success.value)
   )
     return Result.succeed(
       new TransferIntent({ to: to.success, asset, amount: amount.value }),

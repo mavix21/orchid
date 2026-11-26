@@ -10,7 +10,7 @@ import {
   ActivityPage,
   ExternalRecipient,
   InvalidAddress,
-  MuxedAddress,
+  DestinationAddress,
   NotOpened,
   OpenPaymentLinks,
   Profile,
@@ -125,7 +125,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           yield* claimExternally(
             wallet,
             toMuxed,
-            Schema.decodeSync(MuxedAddress)(
+            Schema.decodeSync(DestinationAddress)(
               new MuxedAccount(
                 new Account(addressOf(claimer), "0"),
                 "42",

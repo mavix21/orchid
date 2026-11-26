@@ -10,7 +10,8 @@ import {
   needsTrustline,
   sameAsset,
 } from "../contract";
-import { baseAccountOf, isMuxed } from "../stellar/destination";
+import { isMuxedAddress } from "../stellar/address-rules";
+import { baseAccountOf } from "../stellar/destination";
 import type { ChainUnreachable } from "./chain-errors.server";
 import type { KnownExchangeMemo } from "./exchange-memos.server";
 import type { Holdings } from "./ledger-assets.server";
@@ -70,7 +71,8 @@ export const destinationChain = (
   ) => Effect.Effect<Option.Option<KnownExchangeMemo>, ChainUnreachable>,
 ): DestinationChain => ({
   memoRule: (destination) => {
-    if (isMuxed(destination)) return Effect.succeed(MemoRule.MemoForbidden());
+    if (isMuxedAddress(destination))
+      return Effect.succeed(MemoRule.MemoForbidden());
 
     const account = baseAccountOf(destination);
 

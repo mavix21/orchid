@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
+  AccountAddress,
   Amount,
   type AddressRecipient,
   type AssessmentStep,
@@ -30,7 +31,6 @@ import {
   sameAsset,
   needsTrustline,
 } from "../contract";
-import { isMuxed } from "../stellar/destination";
 import { Chain, type ChainUnreachable, MemoRule } from "./Chain.server";
 import { type QuotaCheck, claimableQuotaFlow } from "./claimable-quota.server";
 import {
@@ -145,11 +145,8 @@ export const transferCheckFlow = Effect.gen(function* () {
             ),
           ),
       Address: ({ value }) =>
-        isMuxed(value)
-          ? Effect.succeed<Profile | ExternalRecipient>(
-              new ExternalRecipient({ address: value }),
-            )
-          : directory
+        Schema.is(AccountAddress)(value)
+          ? directory
               .byAddress(value)
               .pipe(
                 Effect.flatMap(
@@ -162,7 +159,10 @@ export const transferCheckFlow = Effect.gen(function* () {
                           new ExternalRecipient({ address: value }),
                         ),
                 ),
-              ),
+              )
+          : Effect.succeed<Profile | ExternalRecipient>(
+              new ExternalRecipient({ address: value }),
+            ),
     });
 
   const resolveRecipient = (to: Recipient) =>

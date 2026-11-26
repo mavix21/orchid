@@ -1,9 +1,10 @@
 import * as Schema from "effect/Schema";
+import { addressRules } from "../address-rules";
 import { Asset, BalanceId, PositiveAmount, withinAssetMaximum } from "./assets";
 import { AccountAddress, Profile } from "./identity";
 
 export const LinkSecret = Schema.String.check(
-  Schema.isPattern(/^S[A-Z2-7]{55}$/u),
+  Schema.makeFilter(addressRules.isLinkSecret),
 ).pipe(Schema.brand("LinkSecret"));
 
 export type LinkSecret = typeof LinkSecret.Type;

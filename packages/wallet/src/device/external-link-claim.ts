@@ -16,7 +16,8 @@ import {
   sameAsset,
 } from "../contract";
 import { isIssuedBy } from "../stellar/assets";
-import { baseAccountOf, isMuxed } from "../stellar/destination";
+import { isMuxedAddress } from "../stellar/address-rules";
+import { baseAccountOf } from "../stellar/destination";
 import { readEnvelope } from "../stellar/envelopes";
 import { sameMemo } from "../stellar/memo";
 import { network } from "../stellar/network";
@@ -74,7 +75,7 @@ export const externalReviewOf = (
     !sameAsset(receive.asset, target.asset) ||
     receive.amount !== target.amount ||
     isIssuedBy(receive.asset, baseDestination) ||
-    (isMuxed(receive.destination) && receive.memo !== undefined) ||
+    (isMuxedAddress(receive.destination) && receive.memo !== undefined) ||
     !sameMemo(receive.memo, order.memo) ||
     (draft.memoRequired && receive.memo === undefined)
   )
@@ -278,7 +279,7 @@ export function deviceExternalLinkClaim(
   ): Effect.fn.Return<ReviewExternalLinkOutcome, WalletUnavailable> {
     if (Option.isNone(linkKeyOf(code))) return new LinkSecretMismatch();
 
-    if (isMuxed(intent.destination) && intent.memo !== undefined)
+    if (isMuxedAddress(intent.destination) && intent.memo !== undefined)
       return new MemoNotAllowed({ reason: "muxed" });
 
     const target = yield* openLink(port, code);

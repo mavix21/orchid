@@ -2,8 +2,8 @@ import {
   type AddressNetwork,
   DestinationAddress,
   ExternalLinkIntent,
-  MuxedAddress,
   PaymentMemo,
+  forbidsMemo,
   recogniseAddress,
 } from "@workspace/wallet";
 import * as Option from "effect/Option";
@@ -42,9 +42,6 @@ const destinationProblem = (typed: string) =>
         : `Esta es una dirección de ${otherNetworkNames[network]}. Este link solo se puede enviar a una dirección de Stellar.`,
   });
 
-export const isMuxedDestination = (typed: string) =>
-  Schema.is(MuxedAddress)(typed.trim());
-
 export function externalClaimIntentOf(
   form: ExternalClaimForm,
 ): Result.Result<ExternalLinkIntent, ExternalClaimFieldProblem> {
@@ -61,7 +58,7 @@ export function externalClaimIntentOf(
 
   const destination = decoded.value;
 
-  if (Schema.is(MuxedAddress)(destination))
+  if (forbidsMemo(destination))
     return Result.succeed(new ExternalLinkIntent({ destination }));
 
   const trimmed = form.memo.trim();

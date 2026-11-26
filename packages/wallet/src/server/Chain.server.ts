@@ -3,7 +3,6 @@ import {
   Keypair,
   Transaction,
   TransactionBuilder,
-  StrKey,
   xdr,
 } from "@stellar/stellar-sdk";
 import * as Clock from "effect/Clock";
@@ -18,6 +17,7 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
 import { Database } from "@workspace/db";
+import { addressRules } from "../address-rules";
 import {
   AccountAddress,
   DestinationAddress,
@@ -29,7 +29,8 @@ import {
   PositiveAmount,
   SigningRequest,
 } from "../contract";
-import { baseAccountOf, isMuxed } from "../stellar/destination";
+import { isMuxedAddress } from "../stellar/address-rules";
+import { baseAccountOf } from "../stellar/destination";
 import { draftOpening, draftPayment, readEnvelope } from "../stellar/envelopes";
 import { approvalMargin, paymentLifetime } from "../policy";
 import { baseFee, networkPassphrase, usdc } from "../stellar/network";
@@ -292,7 +293,7 @@ export class Chain extends Context.Service<
                   LinkReceiveFacts: (f) =>
                     f.link === holder &&
                     baseAccountOf(f.destination) !== holder &&
-                    (!isMuxed(f.destination) || f.memo === undefined) &&
+                    (!isMuxedAddress(f.destination) || f.memo === undefined) &&
                     Option.isSome(channels.signer(f.channel)) &&
                     f.reserveSponsor === sponsorAddress,
                 });
@@ -449,9 +450,7 @@ export class Chain extends Context.Service<
         ),
         ...draftChain(account),
         ...depositChain(rpc),
-        validAddress: (address) =>
-          StrKey.isValidEd25519PublicKey(address) ||
-          StrKey.isValidMed25519PublicKey(address),
+        validAddress: addressRules.hasValidChecksum,
         pastOpeningWindow,
         draftOpening: draftOpen,
         draftPayment: draftPay,

@@ -12,6 +12,15 @@ const stellarMuxed = new MuxedAccount(
   "1",
 ).accountId();
 
+const base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+const flipLowestBit = (address: string, fromEnd: number) => {
+  const position = address.length - fromEnd;
+  const index = base32Alphabet.indexOf(address.charAt(position));
+
+  return `${address.slice(0, position)}${base32Alphabet.charAt(index ^ 1)}${address.slice(position + 1)}`;
+};
+
 it.each<{ name: string; address: string; network: AddressNetwork }>([
   { name: "Stellar account", address: stellarAccount, network: "stellar" },
   { name: "Stellar muxed account", address: stellarMuxed, network: "stellar" },
@@ -43,6 +52,18 @@ it.each<{ name: string; address: string }>([
   {
     name: "Stellar account with a bad checksum",
     address: `${stellarAccount.slice(0, -1)}A`,
+  },
+  {
+    name: "Stellar muxed account with a bad checksum",
+    address: flipLowestBit(stellarMuxed, 2),
+  },
+  {
+    name: "Stellar muxed account with its unused last bit set",
+    address: flipLowestBit(stellarMuxed, 1),
+  },
+  {
+    name: "Stellar account with another version byte and a matching checksum",
+    address: "GEDQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQPOLF",
   },
   {
     name: "EVM mixed-case with a wrong capital",
