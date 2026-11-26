@@ -19,6 +19,7 @@ import { Route as WalletLinksRouteImport } from "./routes/_wallet/links";
 import { Route as WalletReceiveRouteImport } from "./routes/_wallet/receive";
 import { Route as WalletAppActivityRouteImport } from "./routes/_wallet/_app/activity";
 import { Route as WalletAppHomeRouteImport } from "./routes/_wallet/_app/home";
+import { Route as WalletAppSettingsRouteImport } from "./routes/_wallet/_app/settings";
 import { Route as WalletSendIndexRouteImport } from "./routes/_wallet/send/index";
 import { Route as WalletSendAssetRouteImport } from "./routes/_wallet/send/$asset";
 
@@ -70,6 +71,11 @@ const WalletAppHomeRoute = WalletAppHomeRouteImport.update({
   path: "/home",
   getParentRoute: () => WalletAppRoute,
 } as any);
+const WalletAppSettingsRoute = WalletAppSettingsRouteImport.update({
+  id: "/settings",
+  path: "/settings",
+  getParentRoute: () => WalletAppRoute,
+} as any);
 const WalletSendIndexRoute = WalletSendIndexRouteImport.update({
   id: "/send/",
   path: "/send/",
@@ -90,6 +96,7 @@ export interface FileRoutesByFullPath {
   "/receive": typeof WalletReceiveRoute;
   "/activity": typeof WalletAppActivityRoute;
   "/home": typeof WalletAppHomeRoute;
+  "/settings": typeof WalletAppSettingsRoute;
   "/send/$asset": typeof WalletSendAssetRoute;
   "/send/": typeof WalletSendIndexRoute;
 }
@@ -102,6 +109,7 @@ export interface FileRoutesByTo {
   "/receive": typeof WalletReceiveRoute;
   "/activity": typeof WalletAppActivityRoute;
   "/home": typeof WalletAppHomeRoute;
+  "/settings": typeof WalletAppSettingsRoute;
   "/send/$asset": typeof WalletSendAssetRoute;
   "/send": typeof WalletSendIndexRoute;
 }
@@ -117,6 +125,7 @@ export interface FileRoutesById {
   "/_wallet/receive": typeof WalletReceiveRoute;
   "/_wallet/_app/activity": typeof WalletAppActivityRoute;
   "/_wallet/_app/home": typeof WalletAppHomeRoute;
+  "/_wallet/_app/settings": typeof WalletAppSettingsRoute;
   "/_wallet/send/$asset": typeof WalletSendAssetRoute;
   "/_wallet/send/": typeof WalletSendIndexRoute;
 }
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
     | "/receive"
     | "/activity"
     | "/home"
+    | "/settings"
     | "/send/$asset"
     | "/send/";
   fileRoutesByTo: FileRoutesByTo;
@@ -143,6 +153,7 @@ export interface FileRouteTypes {
     | "/receive"
     | "/activity"
     | "/home"
+    | "/settings"
     | "/send/$asset"
     | "/send";
   id:
@@ -157,6 +168,7 @@ export interface FileRouteTypes {
     | "/_wallet/receive"
     | "/_wallet/_app/activity"
     | "/_wallet/_app/home"
+    | "/_wallet/_app/settings"
     | "/_wallet/send/$asset"
     | "/_wallet/send/";
   fileRoutesById: FileRoutesById;
@@ -241,6 +253,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof WalletAppHomeRouteImport;
       parentRoute: typeof WalletAppRoute;
     };
+    "/_wallet/_app/settings": {
+      id: "/_wallet/_app/settings";
+      path: "/settings";
+      fullPath: "/settings";
+      preLoaderRoute: typeof WalletAppSettingsRouteImport;
+      parentRoute: typeof WalletAppRoute;
+    };
     "/_wallet/send/": {
       id: "/_wallet/send/";
       path: "/send";
@@ -261,11 +280,13 @@ declare module "@tanstack/react-router" {
 interface WalletAppRouteChildren {
   WalletAppActivityRoute: typeof WalletAppActivityRoute;
   WalletAppHomeRoute: typeof WalletAppHomeRoute;
+  WalletAppSettingsRoute: typeof WalletAppSettingsRoute;
 }
 
 const WalletAppRouteChildren: WalletAppRouteChildren = {
   WalletAppActivityRoute: WalletAppActivityRoute,
   WalletAppHomeRoute: WalletAppHomeRoute,
+  WalletAppSettingsRoute: WalletAppSettingsRoute,
 };
 
 const WalletAppRouteWithChildren = WalletAppRoute._addFileChildren(

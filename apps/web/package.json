@@ -4,17 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "messages": "paraglide-js compile --silent",
     "dev": "vite dev --port 3000",
     "dev:neon": "vite dev --port 3000 --mode neon",
     "generate-routes": "tsr generate",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun run messages && tsc --noEmit",
     "deploy": "bun run check:hyperdrive && bun run build && wrangler deploy",
     "check:hyperdrive": "bun ../../tools/wallet/check-hyperdrive-caching.mjs",
     "cf-typegen": "wrangler types",
     "test:e2e": "playwright test",
-    "test": "vitest run"
+    "test": "bun run messages && vitest run"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.69.1",
+    "@inlang/paraglide-js": "^3.2.2",
     "@playwright/test": "1.65.1",
     "@stellar/stellar-sdk": "17.4.0",
     "@tanstack/devtools-vite": "latest",

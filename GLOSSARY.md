@@ -74,3 +74,18 @@ _Avoid_: Webview when talking to users.
 _Avoid_: Payment or transfer when the money did not go through Orchid.
 
 **Sweep**: Hourly backstop that reconciles pending operations the queue left unfinished, cleans up received links, and prunes expired drafts and abandoned openings.
+
+## Names in the app
+
+The app is localized in Spanish and English. These product names are translated:
+
+| Spanish      | English      |
+| ------------ | ------------ |
+| Ahorro       | Savings      |
+| Mis links    | My links     |
+| Link de pago | Payment link |
+| Inicio       | Home         |
+| Actividad    | Activity     |
+| Enviar       | Send         |
+| Recibir      | Receive      |
+| Ajustes      | Settings     |

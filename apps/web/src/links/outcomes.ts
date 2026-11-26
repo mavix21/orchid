@@ -22,6 +22,7 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
+import { formattingLocale } from "@/locale/format";
 import { amountLabel, assetCode } from "@/send/money";
 import type { DeviceFailure } from "@/send/use-wallet-task";
 import { unavailableMessage } from "@/wallet/unavailable";
@@ -447,7 +448,7 @@ export const reclaimResult = (
           new LinkScreen(
             "Aún no puedes recuperar este dinero",
             `Podrás recuperarlo desde el ${DateTime.toDate(at).toLocaleString(
-              "es-PE",
+              formattingLocale(),
               { dateStyle: "long", timeStyle: "short" },
             )}. ${stillInLink}`,
             "done",

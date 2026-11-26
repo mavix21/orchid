@@ -22,6 +22,7 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
+import { formattingLocale } from "@/locale/format";
 import {
   Screen,
   ScreenActions,
@@ -140,7 +141,7 @@ const listProblem = (
   });
 
 const createdOn = (link: ListedPaymentLink, withSeconds: boolean) =>
-  DateTime.toDate(link.createdAt).toLocaleString("es-PE", {
+  DateTime.toDate(link.createdAt).toLocaleString(formattingLocale(), {
     day: "numeric",
     month: "short",
     hour: "2-digit",
@@ -243,7 +244,7 @@ function PaymentLinks() {
 }
 
 const receivedOn = (link: ReceivedPaymentLink) =>
-  DateTime.toDate(link.receivedAt).toLocaleString("es-PE", {
+  DateTime.toDate(link.receivedAt).toLocaleString(formattingLocale(), {
     day: "numeric",
     month: "short",
     hour: "2-digit",

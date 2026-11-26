@@ -4,6 +4,7 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { paraglideVitePlugin } from "@inlang/paraglide-js";
 
 function walletBoundaryProbe(): Plugin {
   return {
@@ -65,6 +66,7 @@ const config = defineConfig(({ command, mode, isPreview }) => {
     }),
     plugins: [
       walletBoundaryProbe(),
+      paraglideVitePlugin({ project: "./project.inlang" }),
       cloudflare({
         viteEnvironment: { name: "ssr" },
         ...(phoneOrigin && {
