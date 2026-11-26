@@ -8,7 +8,7 @@ import type {
   Settled,
   TransferOrder,
 } from "../contract";
-import { network } from "../stellar/network";
+import { network } from "./network";
 import {
   type DeviceRecords,
   type DeviceRecordsUpdate,

@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { network } from "../stellar/network";
+import { network } from "./network";
 import {
   CorruptDeviceWallet,
   type DeviceRecords,

@@ -4,9 +4,9 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import type { AccountAddress, OpeningDraft, SigningRequest } from "../contract";
-import { readEnvelope } from "../stellar/envelopes";
 import { approvalMargin, paymentLifetime } from "../policy";
 import type { PublicDeviceWallet } from "./key-store";
+import { readDraft } from "./network";
 import { OpeningReview } from "./outcomes";
 import { clockAllowance } from "./transfer-drafts";
 
@@ -44,7 +44,7 @@ export const standingOf = (
   if (wallet.address !== shown.address || wallet.username !== shown.username)
     return "stale";
 
-  const opening = readEnvelope(shown.draft.request.envelope);
+  const opening = readDraft(shown.draft.request);
 
   return Option.isSome(opening) &&
     Predicate.isTagged(opening.value, "OpeningFacts") &&
@@ -65,7 +65,7 @@ export const standingNow = (wallet: PublicDeviceWallet, shown: OpeningReview) =>
 export const reserveSponsorOf = (
   draft: OpeningDraft,
 ): Option.Option<AccountAddress> => {
-  const facts = readEnvelope(draft.request.envelope);
+  const facts = readDraft(draft.request);
 
   return Option.isSome(facts) && Predicate.isTagged(facts.value, "OpeningFacts")
     ? Option.some(facts.value.reserveSponsor)

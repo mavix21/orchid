@@ -13,7 +13,7 @@ import {
   type WalletUnavailable,
   TransferIntent,
 } from "../contract";
-import { network } from "../stellar/network";
+import { network } from "./network";
 import {
   AssertionIntent,
   AssertionRejected,

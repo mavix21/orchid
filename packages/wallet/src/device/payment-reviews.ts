@@ -4,14 +4,14 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import type { SigningRequest, TransferDraft, TransferOrder } from "../contract";
-import type {
-  ClaimableFacts,
-  PaymentLinkFacts,
-} from "../stellar/asset-envelopes";
-import type { PaymentFacts } from "../stellar/envelopes";
 import { approvalMargin, paymentLifetime } from "../policy";
-import { network } from "../stellar/network";
 import type { PublicDeviceWallet } from "./key-store";
+import {
+  type ClaimableFacts,
+  type PaymentFacts,
+  type PaymentLinkFacts,
+  network,
+} from "./network";
 import { PaymentReview } from "./outcomes";
 import {
   approvalOutstanding,
