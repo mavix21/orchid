@@ -19,6 +19,7 @@ import {
   type SavedLinkTarget,
   formatAmount,
   parseAmount,
+  precisionOf,
 } from "@workspace/wallet";
 import * as DateTime from "effect/DateTime";
 import * as Match from "effect/Match";
@@ -94,7 +95,7 @@ function LinkAmountStep({
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    Option.match(parseAmount(amount), {
+    Option.match(parseAmount(amount, precisionOf(asset)), {
       onNone: () => refuse("Escribe un monto válido"),
       onSome: (entered) =>
         entered > available
@@ -136,7 +137,7 @@ function LinkAmountStep({
           className="w-full"
           type="submit"
           data-testid="review-link"
-          disabled={Option.isNone(parseAmount(amount))}
+          disabled={Option.isNone(parseAmount(amount, precisionOf(asset)))}
         >
           Revisar
         </Button>
@@ -462,7 +463,7 @@ export function LinkFlow({
   const [state, send] = useReducer(reduceLinkFlow, undefined, () => ({
     amount: Option.match(initialAmount, {
       onNone: () => "",
-      onSome: formatAmount,
+      onSome: (initial) => formatAmount(initial, precisionOf(asset)),
     }),
     step: startingStep(asset, initialAmount),
   }));

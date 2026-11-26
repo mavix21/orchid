@@ -6,6 +6,7 @@ import {
   MuxedAddress,
   type TransferIntent,
   parseAmount,
+  precisionOf,
 } from "@workspace/wallet";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
@@ -56,7 +57,7 @@ export function AmountStep({
   const amountProblem = messageFor(problem, "amount");
   const [memoOpen, setMemoOpen] = useState(Option.isSome(memoProblem));
 
-  const entered = Option.isSome(parseAmount(form.amount));
+  const entered = Option.isSome(parseAmount(form.amount, precisionOf(asset)));
 
   const refuse = (found: FieldProblem) => {
     onProblem(found);

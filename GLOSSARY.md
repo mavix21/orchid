@@ -35,7 +35,7 @@ _Avoid_: Fee payer when referring to reserves.
 **Channel**: An Orchid account that holds no funds and serves as the transaction source of an opening or a link receive, so drafts made at the same time never compete for one sequence number. Each draft leases its own channel until the draft settles or expires.
 _Avoid_: Fee payer or reserve sponsor when referring to the transaction source.
 
-**Asset**: XLM, or an issued asset identified by both its code and issuer.
+**Asset**: XLM, or an issued asset identified by both its code and issuer. Each asset has a precision: how many decimal places its amounts carry and the largest amount it allows.
 _Avoid_: Symbol alone when identifying an issued asset.
 
 **Trustline**: An account's relationship with an issued asset that allows it to hold that asset.

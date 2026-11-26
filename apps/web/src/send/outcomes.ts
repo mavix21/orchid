@@ -6,6 +6,7 @@ import {
   type ResumeOutcome,
   type TransferOrder,
   formatAmount,
+  precisionOf,
 } from "@workspace/wallet";
 import * as Match from "effect/Match";
 
@@ -226,7 +227,7 @@ export const sendResult = (
   });
 
 export const outstandingLabel = (order: TransferOrder) =>
-  `${formatAmount(order.amount)} ${assetCode(order.asset)} a ${Match.valueTags(
+  `${formatAmount(order.amount, precisionOf(order.asset))} ${assetCode(order.asset)} a ${Match.valueTags(
     order.to,
     {
       Username: ({ value }) => `@${value}`,

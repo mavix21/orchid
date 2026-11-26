@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { Asset, BalanceId, PositiveAmount } from "./assets";
+import { Asset, BalanceId, PositiveAmount, withinAssetMaximum } from "./assets";
 import { AccountAddress, Profile } from "./identity";
 
 export const LinkSecret = Schema.String.check(
@@ -16,14 +16,16 @@ export type TransferId = typeof TransferId.Type;
 
 export class PaymentLinkReceipt extends Schema.Class<PaymentLinkReceipt>(
   "@workspace/wallet/PaymentLinkReceipt",
-)({
-  network: Schema.String,
-  address: AccountAddress,
-  asset: Asset,
-  amount: PositiveAmount,
-  balance: BalanceId,
-  attempts: Schema.Array(BalanceId),
-}) {}
+)(
+  Schema.Struct({
+    network: Schema.String,
+    address: AccountAddress,
+    asset: Asset,
+    amount: PositiveAmount,
+    balance: BalanceId,
+    attempts: Schema.Array(BalanceId),
+  }).check(withinAssetMaximum),
+) {}
 
 export class OpenPaymentLink extends Schema.Class<OpenPaymentLink>(
   "@workspace/wallet/OpenPaymentLink",
