@@ -1,8 +1,10 @@
 import { mnemonicToSeedSync } from "@scure/bip39";
 import type * as Arr from "effect/Array";
+import * as Option from "effect/Option";
 import { HDKey } from "micro-key-producer/slip10.js";
 import { Approval, type SigningRequest } from "../contract";
 import { signingScheme } from "../device-network";
+import { type LinkCode, withLinkKey } from "./link-code";
 import type { SecretPhrase } from "./secret-phrase";
 import type { LinkKey, SigningScheme } from "./signing-scheme";
 
@@ -51,5 +53,14 @@ function signingWith(scheme: SigningScheme) {
   };
 }
 
-export const { phraseAddress, approveWithPhrase, approveWithLinkKey } =
-  signingWith(signingScheme);
+const signing = signingWith(signingScheme);
+
+export const { phraseAddress, approveWithPhrase } = signing;
+
+export const approveWithLinkCode = (
+  code: LinkCode,
+  requests: Arr.NonEmptyReadonlyArray<SigningRequest>,
+) =>
+  Option.getOrThrow(
+    withLinkKey(code, (key) => signing.approveWithLinkKey(key, requests)),
+  );

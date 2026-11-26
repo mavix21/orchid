@@ -5,7 +5,7 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { AccountAddress, HeldFundsId, CredentialId } from "../contract";
 import { canonicalTuple, sha256 } from "./canonical-digest";
-import { LinkCode, linkKeyOf } from "./link-code";
+import { LinkCode, linkAddressOf } from "./link-code";
 import { aesGcmTagLength, envelopeIvLength } from "./local-envelope";
 
 export const linkSealVersion = 2;
@@ -85,9 +85,6 @@ const linkKey = (
       rawPrf.fill(0);
     }
   }).pipe(Effect.option);
-
-const linkAddressOf = (code: LinkCode) =>
-  Option.map(linkKeyOf(code), (key) => key.address);
 
 export const sealLinkCode = Effect.fn("Device.sealLinkCode")(function* (
   context: LinkSealContext,

@@ -29,7 +29,7 @@ import {
   makeWalletEffects,
 } from "../src/device/client";
 import type { PublicDeviceWallet } from "../src/device/key-store";
-import { linkKeyOf } from "../src/device/link-code";
+import { linkAddressOf } from "../src/device/link-code";
 import { SealedLinkCode, linkPrfInput } from "../src/device/link-seal";
 import { holdingsFromEntries } from "../src/server/ledger-assets.server";
 import { transfers } from "../src/server/tables.server";
@@ -172,9 +172,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(created, "PaymentLinkCreated");
           expect(created.path).toBe(`/r#${created.code}`);
-          expect(
-            Option.map(linkKeyOf(created.code), ({ address }) => address),
-          ).toEqual(Option.some(created.address));
+          expect(linkAddressOf(created.code)).toEqual(
+            Option.some(created.address),
+          );
           expect(created.savedOnDevice).toBe(true);
 
           const linkInput = yield* linkPrfInput({

@@ -1,16 +1,14 @@
 import { expect, it } from "@effect/vitest";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { LinkCode, linkKeyOf } from "../src/device/link-code";
+import { LinkCode, linkAddressOf } from "../src/device/link-code";
 
 const issued = "Bcru1zp9FViPqN8CJTvQuS2zg";
 
 const decodeCode = Schema.decodeUnknownOption(LinkCode);
 
 it("derives the same link account from an issued code", () => {
-  const key = Option.flatMap(decodeCode(issued), linkKeyOf);
-
-  expect(Option.map(key, ({ address }) => address)).toEqual(
+  expect(Option.flatMap(decodeCode(issued), linkAddressOf)).toEqual(
     Option.some("GBSGJFXVVJ4HPVNWP2EJAC6YKXJCJUAO7OYANKGEYNJKKYNXSGJCXLED"),
   );
 });

@@ -13,7 +13,7 @@ import {
   Username,
   WalletClaim,
 } from "../contract";
-import { type LinkCode } from "./link-code";
+import { type LinkCode, opensLink } from "./link-code";
 import { network } from "../device-network";
 import {
   AssertionIntent,
@@ -60,7 +60,7 @@ import {
   localPhrasePrfInput,
   sealLocalEnvelope,
 } from "./local-envelope";
-import { linkKeyFor, receiveReviewJson } from "./link-receive";
+import { receiveReviewJson } from "./link-receive";
 import { reviewJson } from "./opening-drafts";
 import {
   BackupUnsupported,
@@ -75,7 +75,7 @@ import {
 import { backupSalt, sealPhrase } from "./phrase-seal";
 import { generateSecretPhrase } from "./secret-phrase";
 import {
-  approveWithLinkKey,
+  approveWithLinkCode,
   approveWithPhrase,
   phraseAddress,
 } from "./signing";
@@ -333,13 +333,9 @@ export function makeEnrollmentEffects(
     if ((yield* standingOfReview(sealed, review)) !== "current")
       return yield* refreshReview(sealed, true);
 
-    const linkKey =
-      receive === undefined
-        ? Option.none()
-        : linkKeyFor(receive.review.link, receive.code);
-
     if (receive !== undefined) {
-      if (Option.isNone(linkKey)) return new LinkCodeMismatch();
+      if (!opensLink(receive.code, receive.review.link))
+        return new LinkCodeMismatch();
 
       if ((yield* receiveStanding(sealed, receive.review)) !== "current")
         return yield* refreshReceive(sealed, receive.review);
@@ -350,14 +346,14 @@ export function makeEnrollmentEffects(
     ]);
 
     const heldReceive =
-      receive !== undefined && Option.isSome(linkKey)
-        ? new HeldReceive({
+      receive === undefined
+        ? undefined
+        : new HeldReceive({
             order: receive.review.order,
-            approval: approveWithLinkKey(linkKey.value, [
+            approval: approveWithLinkCode(receive.code, [
               receive.review.draft.request,
             ])[0],
-          })
-        : undefined;
+          });
 
     const written = yield* storage
       .write(
@@ -466,7 +462,7 @@ export function makeEnrollmentEffects(
       )
         return pendingNotice(current);
 
-      if (Option.isNone(linkKeyFor(receive.review.link, receive.code)))
+      if (!opensLink(receive.code, receive.review.link))
         return new LinkCodeMismatch();
 
       if ((yield* receiveStanding(current, receive.review)) !== "current")

@@ -17,8 +17,8 @@ import {
   sameAsset,
 } from "../contract";
 import type { ClaimIssue } from "./claim-reviews";
-import { linkKeyOf, type LinkCode } from "./link-code";
-import { OpenedLink, linkKeyFor, openLink } from "./link-receive";
+import { type LinkCode, linkAddressOf, opensLink } from "./link-code";
+import { OpenedLink, openLink } from "./link-receive";
 import {
   baseAccountOf,
   isIssuedBy,
@@ -37,7 +37,7 @@ import {
 } from "./outcomes";
 import { type DraftTiming, draftTiming } from "./payment-reviews";
 import { pendingSteps, pollSchedule } from "./polling";
-import { approveWithLinkKey } from "./signing";
+import { approveWithLinkCode } from "./signing";
 import { sameMemo } from "./transfer-drafts";
 
 const externalReviewJson = Schema.encodeSync(
@@ -279,7 +279,7 @@ export function deviceExternalLinkClaim(
     code: LinkCode,
     intent: ExternalLinkIntent,
   ): Effect.fn.Return<ReviewExternalLinkOutcome, WalletUnavailable> {
-    if (Option.isNone(linkKeyOf(code))) return new LinkCodeMismatch();
+    if (Option.isNone(linkAddressOf(code))) return new LinkCodeMismatch();
 
     if (forbidsMemo(intent.destination) && intent.memo !== undefined)
       return new MemoNotAllowed({ reason: "muxed" });
@@ -305,9 +305,7 @@ export function deviceExternalLinkClaim(
     shown: ExternalLinkReview,
     code: LinkCode,
   ): Effect.fn.Return<ConfirmExternalLinkOutcome, WalletUnavailable> {
-    const key = linkKeyFor(shown.link, code);
-
-    if (Option.isNone(key)) return new LinkCodeMismatch();
+    if (!opensLink(code, shown.link)) return new LinkCodeMismatch();
 
     const { issued: snapshot } = yield* Ref.get(state);
 
@@ -324,7 +322,7 @@ export function deviceExternalLinkClaim(
 
     if (!(yield* consume(snapshot.value))) return new DraftRejected();
 
-    const [approval] = approveWithLinkKey(key.value, [presented.draft.request]);
+    const [approval] = approveWithLinkCode(code, [presented.draft.request]);
 
     return yield* advance(presented.order, afterRelease, Option.some(approval));
   });

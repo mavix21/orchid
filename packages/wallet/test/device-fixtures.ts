@@ -1,3 +1,5 @@
+import { hkdf } from "@noble/hashes/hkdf.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { base58 } from "@scure/base";
 import { mnemonicToSeedSync } from "@scure/bip39";
 import { Account, Keypair, MuxedAccount } from "@stellar/stellar-sdk";
@@ -39,14 +41,20 @@ import {
   draftPaymentLink,
 } from "../src/stellar/asset-envelopes";
 import { draftPayment } from "../src/stellar/envelopes";
-import {
-  stellarLinkSeed,
-  stellarSigningScheme,
-} from "../src/stellar/signing-scheme";
+import { networkPassphrase } from "../src/stellar/network";
+import { stellarSigningScheme } from "../src/stellar/signing-scheme";
 
 export const linkKeypairOf = (code: LinkCode) =>
   Keypair.fromRawEd25519Seed(
-    Buffer.from(stellarLinkSeed(base58.decode(code).slice(1, 17))),
+    Buffer.from(
+      hkdf(
+        sha256,
+        base58.decode(code).slice(1, 17),
+        new TextEncoder().encode("orchid-payment-link-code-v1"),
+        new TextEncoder().encode(networkPassphrase),
+        32,
+      ),
+    ),
   );
 
 export const linkFixture = () => {

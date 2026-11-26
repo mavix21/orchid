@@ -26,7 +26,7 @@ import {
   type WalletEffects,
   makeWalletEffects,
 } from "../src/device/client";
-import { linkKeyOf } from "../src/device/link-code";
+import { linkAddressOf } from "../src/device/link-code";
 import { Transfers } from "../src/server/Transfers.server";
 import {
   DeviceWallet,
@@ -177,9 +177,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           });
 
           assertTagged(revealed, "PaymentLinkRevealed");
-          expect(
-            Option.map(linkKeyOf(revealed.code), ({ address }) => address),
-          ).toEqual(Option.some(funded.address));
+          expect(linkAddressOf(revealed.code)).toEqual(
+            Option.some(funded.address),
+          );
           expect(revealed.path).toBe(`/r#${revealed.code}`);
 
           const competingMiss = yield* wallet.resolvePaymentLink(

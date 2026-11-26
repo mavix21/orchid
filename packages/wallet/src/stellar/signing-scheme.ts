@@ -12,22 +12,23 @@ const encoder = new TextEncoder();
 const linkKeySalt = encoder.encode("orchid-payment-link-code-v1");
 const linkKeyInfo = encoder.encode(networkPassphrase);
 
-export const stellarLinkSeed = (entropy: Uint8Array) =>
-  hkdf(sha256, entropy, linkKeySalt, linkKeyInfo, 32);
-
 const address = (publicKey: Uint8Array) =>
   Schema.decodeSync(AccountAddress)(StrKey.encodeEd25519PublicKey(publicKey));
 
 export const stellarSigningScheme: SigningScheme = {
   derivationPath: "m/44'/148'/0'",
   address,
-  linkKey: (entropy) => {
-    const seed = stellarLinkSeed(entropy);
+  withLinkKey: (entropy, use) => {
+    const seed = hkdf(sha256, entropy, linkKeySalt, linkKeyInfo, 32);
 
-    return {
-      address: address(ed25519.getPublicKey(seed)),
-      sign: (payload) => ed25519.sign(payload, seed),
-    };
+    try {
+      return use({
+        address: address(ed25519.getPublicKey(seed)),
+        sign: (payload) => ed25519.sign(payload, seed),
+      });
+    } finally {
+      seed.fill(0);
+    }
   },
   signingPayload,
 };

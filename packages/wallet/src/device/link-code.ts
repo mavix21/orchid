@@ -49,14 +49,23 @@ export const LinkCode = Schema.String.check(
 
 export type LinkCode = typeof LinkCode.Type;
 
-export const linkKeyOf = (code: LinkCode): Option.Option<LinkKey> =>
+export const withLinkKey = <A>(
+  code: LinkCode,
+  use: (key: LinkKey) => A,
+): Option.Option<A> =>
   Option.map(linkCodeEntropy(code), (entropy) => {
     try {
-      return signingScheme.linkKey(entropy);
+      return signingScheme.withLinkKey(entropy, use);
     } finally {
       entropy.fill(0);
     }
   });
+
+export const linkAddressOf = (code: LinkCode) =>
+  withLinkKey(code, (key) => key.address);
+
+export const opensLink = (code: LinkCode, link: AccountAddress) =>
+  Option.contains(linkAddressOf(code), link);
 
 export const generateLinkCode = (): LinkCode => {
   const body = new Uint8Array(1 + linkCodeEntropyLength);
@@ -83,5 +92,5 @@ export interface ReadLinkCode {
 
 export const readLinkCode = (fragment: string): Option.Option<ReadLinkCode> =>
   Option.flatMap(Schema.decodeUnknownOption(LinkCode)(fragment), (code) =>
-    Option.map(linkKeyOf(code), (key) => ({ code, link: key.address })),
+    Option.map(linkAddressOf(code), (link) => ({ code, link })),
   );

@@ -30,7 +30,7 @@ import {
 } from "./key-store";
 import {
   generateLinkCode,
-  linkKeyOf,
+  linkAddressOf,
   linkPath,
   type LinkCode,
 } from "./link-code";
@@ -134,11 +134,11 @@ export function devicePaymentLinks(
     WalletUnavailable | KeyStoreUnavailable
   > {
     const code = generateLinkCode();
-    const key = linkKeyOf(code);
+    const derived = linkAddressOf(code);
 
-    if (Option.isNone(key)) return new DraftRejected();
+    if (Option.isNone(derived)) return new DraftRejected();
 
-    const { address } = key.value;
+    const address = derived.value;
 
     const reviewed = yield* transfers.reviewLinkFunding(
       new TransferIntent({

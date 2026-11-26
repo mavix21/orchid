@@ -42,9 +42,8 @@ import {
   type ReviewLinkReceiveOutcome,
 } from "./outcomes";
 import { pendingSteps, pollSchedule } from "./polling";
-import { linkKeyOf, type LinkCode } from "./link-code";
-import { approveWithLinkKey } from "./signing";
-import type { LinkKey } from "./signing-scheme";
+import { type LinkCode, linkAddressOf, opensLink } from "./link-code";
+import { approveWithLinkCode } from "./signing";
 
 export const receiveCurrentUntil = (review: LinkReceiveReview) =>
   DateTime.toEpochMillis(review.draft.request.expiresAt) -
@@ -57,12 +56,6 @@ export const receiveReviewJson = Schema.encodeSync(
 export const receiveReviewFromJson = Schema.decodeSync(
   Schema.fromJsonString(LinkReceiveReview),
 );
-
-export const linkKeyFor = (
-  link: AccountAddress,
-  code: LinkCode,
-): Option.Option<LinkKey> =>
-  Option.filter(linkKeyOf(code), (key) => key.address === link);
 
 export const receiveReviewOf = (
   wallet: PublicDeviceWallet,
@@ -151,11 +144,11 @@ export const openLink = Effect.fn("Device.openLink")(function* (
   OpenedLink | Exclude<PaymentLinkStep, PaymentLinkOpen> | LinkCodeMismatch,
   WalletUnavailable
 > {
-  const key = linkKeyOf(code);
+  const address = linkAddressOf(code);
 
-  if (Option.isNone(key)) return new LinkCodeMismatch();
+  if (Option.isNone(address)) return new LinkCodeMismatch();
 
-  const link = key.value.address;
+  const link = address.value;
 
   const status = yield* port.paymentLink(link);
 
@@ -197,11 +190,11 @@ export function deviceLinkReceive(
   const status = Effect.fn("Device.paymentLink")(function* (
     code: LinkCode,
   ): Effect.fn.Return<PaymentLinkOutcome, WalletUnavailable> {
-    const key = linkKeyOf(code);
+    const address = linkAddressOf(code);
 
-    if (Option.isNone(key)) return new LinkCodeMismatch();
+    if (Option.isNone(address)) return new LinkCodeMismatch();
 
-    return yield* port.paymentLink(key.value.address);
+    return yield* port.paymentLink(address.value);
   });
 
   const review = Effect.fn("Device.reviewLinkReceive")(function* (
@@ -232,12 +225,10 @@ export function deviceLinkReceive(
     ConfirmLinkReceiveOutcome,
     WalletUnavailable | KeyStoreUnavailable | CorruptDeviceWallet
   > {
-    const key = linkKeyFor(shown.link, code);
-
-    if (Option.isNone(key)) return new LinkCodeMismatch();
+    if (!opensLink(code, shown.link)) return new LinkCodeMismatch();
 
     return yield* claims.confirm(shown, (requests) =>
-      approveWithLinkKey(key.value, requests),
+      approveWithLinkCode(code, requests),
     );
   });
 

@@ -1,10 +1,9 @@
 import { expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
-import * as Option from "effect/Option";
 import { SigningRequest, UnsignedEnvelope } from "../src/contract";
-import { LinkCode, linkKeyOf } from "../src/device/link-code";
-import { approveWithLinkKey, approveWithPhrase } from "../src/device/signing";
+import { LinkCode } from "../src/device/link-code";
+import { approveWithLinkCode, approveWithPhrase } from "../src/device/signing";
 import { knownPhrase } from "./device-fixtures";
 
 const request = new SigningRequest({
@@ -14,9 +13,7 @@ const request = new SigningRequest({
   expiresAt: DateTime.makeUnsafe(1_800_000_120_000),
 });
 
-const linkKey = Option.getOrThrow(
-  linkKeyOf(Schema.decodeSync(LinkCode)("Bcru1zp9FViPqN8CJTvQuS2zg")),
-);
+const linkCode = Schema.decodeSync(LinkCode)("Bcru1zp9FViPqN8CJTvQuS2zg");
 
 it.each([
   {
@@ -27,7 +24,7 @@ it.each([
   },
   {
     name: "a link key",
-    approve: () => approveWithLinkKey(linkKey, [request]),
+    approve: () => approveWithLinkCode(linkCode, [request]),
     signature:
       "FXQhK6jUsvLpd2Wk34fPA87j5jmA1K3UeIUY4OjmGVH7J6jV5L3ACNj1Gsx5/QoH1ptBCEFLuhKo1CHAuwZuDg==",
   },
