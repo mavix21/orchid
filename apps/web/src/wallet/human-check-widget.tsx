@@ -14,11 +14,13 @@ import {
   watchHumanCheck,
 } from "@/wallet/human-check";
 import { humanCheckSiteKeyFn } from "@/wallet/human-check.functions";
+import { m } from "@/paraglide/messages";
+import { type Locale, getLocale } from "@/paraglide/runtime";
 
 interface TurnstileOptions {
   readonly sitekey: string;
   readonly appearance: "interaction-only";
-  readonly language: "es";
+  readonly language: Locale;
   readonly callback: (token: string) => void;
   readonly "expired-callback": () => void;
   readonly "timeout-callback": () => void;
@@ -96,7 +98,7 @@ export function HumanCheckWidget({ quiet = false }: { quiet?: boolean }) {
         const rendered = turnstile.render(host, {
           sitekey,
           appearance: "interaction-only",
-          language: "es",
+          language: getLocale(),
           callback: offerHumanCheck,
           "expired-callback": expireHumanCheck,
           "timeout-callback": expireHumanCheck,
@@ -134,16 +136,14 @@ export function HumanCheckWidget({ quiet = false }: { quiet?: boolean }) {
       role="alert"
       className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-background text-center"
     >
-      <p className="text-label text-destructive">
-        No pudimos verificar que eres una persona.
-      </p>
+      <p className="text-label text-destructive">{m.human_check_failed()}</p>
       <Button
         type="button"
         variant="ghost"
         size="sm"
         onClick={() => setAttempt((current) => current + 1)}
       >
-        Reintentar
+        {m.common_retry()}
       </Button>
     </div>
   );

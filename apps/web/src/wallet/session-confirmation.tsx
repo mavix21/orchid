@@ -17,6 +17,7 @@ import { useSessionChallenge } from "./session-challenge";
 import { sessionLapse } from "./session-lapse";
 import { sessionRefusal } from "./session-refusal";
 import { unavailableMessage } from "./unavailable";
+import { m } from "@/paraglide/messages";
 
 export function SessionConfirmation({
   client,
@@ -70,11 +71,8 @@ export function SessionConfirmation({
     <Modal open dismissible={false}>
       <ModalContent testId="session-confirmation">
         <ModalHeader>
-          <ModalTitle>Confirma con tu passkey</ModalTitle>
-          <ModalDescription>
-            Necesitamos confirmar que eres tú antes de seguir. Puedes usar tu
-            huella, tu rostro o el PIN de tu dispositivo.
-          </ModalDescription>
+          <ModalTitle>{m.passkey_confirm_title()}</ModalTitle>
+          <ModalDescription>{m.session_description()}</ModalDescription>
         </ModalHeader>
         {unreachable ? (
           <p role="alert" className="px-4 text-body text-destructive">
@@ -95,7 +93,7 @@ export function SessionConfirmation({
                 void refresh();
               }}
             >
-              Reintentar
+              {m.common_retry()}
             </Button>
           ) : (
             <Button
@@ -104,7 +102,7 @@ export function SessionConfirmation({
               disabled={confirming || !Predicate.isTagged(held, "Ready")}
               onClick={confirm}
             >
-              {confirming ? "Verificando…" : "Confirmar con passkey"}
+              {confirming ? m.session_verifying() : m.passkey_confirm_action()}
             </Button>
           )}
         </ModalFooter>

@@ -11,6 +11,7 @@ import * as Predicate from "effect/Predicate";
 import { walletEffects } from "@/wallet";
 import { type Arrival, arrivalSentence } from "@/wallet/arrival";
 import { DeviceFailure, useWalletTask } from "@/send/use-wallet-task";
+import { m } from "@/paraglide/messages";
 
 type WaitingStep = Data.TaggedEnum<{
   Claiming: {};
@@ -22,10 +23,10 @@ const WaitingStep = Data.taggedEnum<WaitingStep>();
 const stopped = (outcome: ConfirmReclaimOutcome | DeviceFailure) =>
   WaitingStep.Stopped({
     problem: Predicate.isTagged(outcome, "AssetPending")
-      ? "La red todavía está confirmando tu pago. Revisa en unos segundos."
+      ? m.waiting_asset_pending()
       : Predicate.isTagged(outcome, "PasskeyCancelled")
-        ? "No usaste tu passkey, así que el pago sigue esperando."
-        : "No pudimos recibir el pago. Inténtalo de nuevo.",
+        ? m.waiting_passkey_cancelled()
+        : m.waiting_failed(),
   });
 
 export function WaitingPayment({
@@ -82,7 +83,7 @@ export function WaitingPayment({
       {Match.valueTags(step, {
         Claiming: () => (
           <p role="status" className="text-body text-muted-foreground">
-            Recibiendo tu pago…
+            {m.waiting_receiving()}
           </p>
         ),
         Stopped: ({ problem }) => (
@@ -91,7 +92,7 @@ export function WaitingPayment({
               {problem}
             </p>
             <Button className="w-full" onClick={claim}>
-              Recibir con passkey
+              {m.receive_with_passkey()}
             </Button>
           </>
         ),

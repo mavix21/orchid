@@ -27,6 +27,7 @@ import {
   ModalTitle,
 } from "@/components/modal";
 import { Screen } from "@/components/screen";
+import { languageName } from "@/locale/language-name";
 import { type Theme, useTheme } from "@/components/theme-provider";
 import { m } from "@/paraglide/messages";
 import {
@@ -51,13 +52,6 @@ type Choice<Value extends string> = {
 type OpenChoice = "language" | "appearance" | "none";
 
 const themes: ReadonlyArray<Theme> = ["system", "light", "dark"];
-
-const languageName = (locale: Locale) =>
-  Match.value(locale).pipe(
-    Match.when("es", () => m.language_name_es()),
-    Match.when("en", () => m.language_name_en()),
-    Match.exhaustive,
-  );
 
 const themeName = (theme: Theme) =>
   Match.value(theme).pipe(

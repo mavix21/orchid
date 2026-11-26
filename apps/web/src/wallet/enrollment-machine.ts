@@ -11,6 +11,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
+import { m } from "@/paraglide/messages";
 
 export type Refusal = Exclude<
   EnrollWalletOutcome,
@@ -48,17 +49,10 @@ export const stoppedBy = (message: string) =>
     takenName: false,
   });
 
-const resignedMessage =
-  "La solicitud se actualizó. Confirma otra vez con tu passkey.";
+export const resignedProblem = () => notice(m.enrollment_resigned());
 
-const unsupportedDeviceMessage =
-  "Este navegador no puede guardar tu llave de forma segura.";
-
-const lapsedMessage = "Tu solicitud venció. Vuelve a elegir tu @usuario.";
-
-export const resignedProblem = notice(resignedMessage);
-
-export const unsupportedDeviceProblem = stoppedBy(unsupportedDeviceMessage);
+export const unsupportedDeviceProblem = () =>
+  stoppedBy(m.device_cannot_store_key());
 
 export type EnrollmentStep = Data.TaggedEnum<{
   Checking: {};
@@ -117,40 +111,31 @@ export type EnrollmentEvent = Data.TaggedEnum<{
 
 export const EnrollmentEvent = Data.taggedEnum<EnrollmentEvent>();
 
-const nameRule = `Solo letras, números y guion bajo, de ${usernameMinLength} a ${usernameMaxLength} caracteres.`;
-
 const refusalMessage = (refusal: Refusal, moment: Moment) =>
   Match.valueTags(refusal, {
-    InvalidUsername: () => nameRule,
+    InvalidUsername: () =>
+      m.username_rule({ min: usernameMinLength, max: usernameMaxLength }),
     UsernameTaken: ({ username }) =>
       moment === "start"
-        ? `@${username} ya está en uso. Elige otro.`
-        : `@${username} se ocupó mientras creábamos tu cuenta. Elige otro @usuario.`,
-    HumanCheckRefused: () =>
-      "No pudimos verificar que eres una persona. Inténtalo de nuevo.",
-    DraftRejected: () => resignedMessage,
-    NoWallet: () => "Tu registro se interrumpió. Vuelve a elegir tu @usuario.",
-    BackupUnsupported: () =>
-      "Este dispositivo o navegador no es compatible con passkeys con PRF. Orchid necesita una passkey compatible para crear y proteger tu cuenta.",
+        ? m.enrollment_username_taken({ username })
+        : m.enrollment_username_taken_meanwhile({ username }),
+    HumanCheckRefused: () => m.human_check_refused(),
+    DraftRejected: () => m.enrollment_resigned(),
+    NoWallet: () => m.enrollment_interrupted(),
+    BackupUnsupported: () => m.enrollment_prf_unsupported(),
     PasskeyCancelled: () =>
       moment === "start"
-        ? "Cancelaste la creación de tu passkey."
-        : "Cancelaste la confirmación. Tu cuenta aún no está creada.",
-    PasskeyFailed: () => "No pudimos usar tu passkey. Inténtalo de nuevo.",
-    WrongCredential: () =>
-      "Usaste otra passkey. Confirma con la que acabas de crear.",
-    AssertionRejected: () =>
-      "No pudimos verificar tu passkey. Confirma con tu huella, rostro o PIN.",
-    CorruptEnvelope: () =>
-      "No pudimos cifrar tu llave en este dispositivo. Vuelve a empezar.",
-    CorruptDeviceWallet: () =>
-      "Los datos guardados en este navegador están dañados.",
-    ChallengeRefused: () => lapsedMessage,
-    RegistrationRefused: () =>
-      "No pudimos registrar tu passkey. Vuelve a elegir tu @usuario.",
-    UnsupportedDevice: () => unsupportedDeviceMessage,
-    LinkCodeMismatch: () =>
-      "Este link está incompleto. Ábrelo de nuevo desde el mensaje que te enviaron.",
+        ? m.enrollment_passkey_cancelled_start()
+        : m.enrollment_passkey_cancelled_confirm(),
+    PasskeyFailed: () => m.passkey_failed(),
+    WrongCredential: () => m.enrollment_wrong_credential(),
+    AssertionRejected: () => m.enrollment_assertion_rejected(),
+    CorruptEnvelope: () => m.enrollment_corrupt_envelope(),
+    CorruptDeviceWallet: () => m.corrupt_device_wallet(),
+    ChallengeRefused: () => m.enrollment_lapsed(),
+    RegistrationRefused: () => m.enrollment_registration_refused(),
+    UnsupportedDevice: () => m.device_cannot_store_key(),
+    LinkCodeMismatch: () => m.enrollment_link_mismatch(),
     Offline: unavailableMessage,
     ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
@@ -256,7 +241,9 @@ export const advanceEnrollment = (
     Refreshed: ({ pending }) =>
       whenActivating(stage, () => activating(pending, Option.none())),
     Lapsed: () =>
-      whenActivating(stage, () => choosing(Option.some(notice(lapsedMessage)))),
+      whenActivating(stage, () =>
+        choosing(Option.some(notice(m.enrollment_lapsed()))),
+      ),
     Finished: ({ username }) => EnrollmentStep.Finishing({ username }),
     Discarded: () => choosing(Option.none()),
   });

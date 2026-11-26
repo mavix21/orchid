@@ -12,6 +12,7 @@ import { TopNav } from "@/components/top-nav";
 import { useHomeForSavedWallet } from "@/wallet/use-home-for-saved-wallet";
 import { sessionLapse } from "@/wallet/session-lapse";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
+import { m } from "@/paraglide/messages";
 
 export const Route = createFileRoute("/restore")({
   component: () => (
@@ -25,22 +26,16 @@ type Refusal = Exclude<RestoreOutcome, { _tag: "Restored" | "BackupLocated" }>;
 
 const refusal = (outcome: Refusal) =>
   Match.valueTags(outcome, {
-    BackupUnsupported: () =>
-      "Este navegador no puede abrir tu respaldo con esa passkey.",
-    PasskeyCancelled: () => "No usaste ninguna passkey. Inténtalo de nuevo.",
-    PasskeyFailed: () => "No pudimos usar tu passkey. Inténtalo de nuevo.",
-    ChallengeRefused: () => "La solicitud venció. Inténtalo de nuevo.",
-    NoBackup: () => "No encontramos un respaldo para esa passkey.",
-    AssertionRefused: () =>
-      "No pudimos verificar esa passkey. Inténtalo de nuevo.",
-    BackupMismatch: () =>
-      "El respaldo no coincide con la cuenta. No lo guardamos.",
-    RestoreUnverified: () =>
-      "No pudimos comprobar la copia en este dispositivo. Tu respaldo sigue intacto. Inténtalo de nuevo.",
-    UnsupportedDevice: () =>
-      "Este navegador no puede guardar tu llave de forma segura.",
-    CorruptDeviceWallet: () =>
-      "Los datos guardados en este dispositivo están dañados. No los reemplazamos.",
+    BackupUnsupported: () => m.restore_backup_unsupported(),
+    PasskeyCancelled: () => m.restore_passkey_cancelled(),
+    PasskeyFailed: () => m.passkey_failed(),
+    ChallengeRefused: () => m.restore_challenge_refused(),
+    NoBackup: () => m.restore_no_backup(),
+    AssertionRefused: () => m.restore_assertion_refused(),
+    BackupMismatch: () => m.restore_backup_mismatch(),
+    RestoreUnverified: () => m.restore_unverified(),
+    UnsupportedDevice: () => m.device_cannot_store_key(),
+    CorruptDeviceWallet: () => m.restore_corrupt_device(),
     Offline: unavailableMessage,
     ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
@@ -53,13 +48,12 @@ const refusal = (outcome: Refusal) =>
 const stageCopy = (progress: BackupLocated | undefined) =>
   Match.value(progress).pipe(
     Match.tag("BackupLocated", ({ profile }) => ({
-      description: `Encontramos el respaldo de @${profile.username}. Confirma con tu passkey para guardarlo en este dispositivo.`,
-      action: "Guardar en este dispositivo",
+      description: m.restore_located({ username: profile.username }),
+      action: m.restore_save_here(),
     })),
     Match.orElse(() => ({
-      description:
-        "Usa la passkey con la que respaldaste tu cuenta. Tu @usuario y tu saldo vuelven a este dispositivo.",
-      action: "Restaurar con passkey",
+      description: m.restore_explanation(),
+      action: m.restore_action(),
     })),
   );
 
@@ -115,13 +109,13 @@ function RestoreAccount() {
   return (
     <Screen>
       <TopNav
-        title="Restaurar cuenta"
-        label="Atrás"
+        title={m.restore_nav_title()}
+        label={m.common_back()}
         icon={<ChevronLeftIcon />}
         link={<Link to="/" />}
       />
       <main className="flex flex-1 flex-col gap-2 px-5 pt-2">
-        <h1 className="font-display text-h1">Entra con tu passkey</h1>
+        <h1 className="font-display text-h1">{m.restore_title()}</h1>
         <p className="text-body text-muted-foreground">{copy.description}</p>
         {problem ? (
           <p role="alert" className="text-body text-destructive">
@@ -136,7 +130,7 @@ function RestoreAccount() {
           onClick={restore}
           data-testid="restore-submit"
         >
-          {restoring ? "Restaurando…" : copy.action}
+          {restoring ? m.restore_restoring() : copy.action}
         </Button>
       </ScreenActions>
     </Screen>
