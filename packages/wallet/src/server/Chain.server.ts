@@ -32,13 +32,8 @@ import {
 } from "../contract";
 import { baseAccountOf, isMuxed } from "../stellar/destination";
 import { draftOpening, draftPayment, readEnvelope } from "../stellar/envelopes";
-import {
-  approvalMargin,
-  baseFee,
-  networkPassphrase,
-  paymentLifetime,
-  usdc,
-} from "../stellar/network";
+import { approvalMargin, paymentLifetime } from "../policy";
+import { baseFee, networkPassphrase, usdc } from "../stellar/network";
 import { type AssetChain, assetChain } from "./chain-assets.server";
 import { channelPool } from "./channel-pool.server";
 import { type LinkChain, linkChain } from "./chain-links.server";

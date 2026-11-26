@@ -26,7 +26,8 @@ import {
   Username,
 } from "../contract";
 import { muxedPrefixesOf } from "../stellar/destination";
-import { activityPageSize, epochAt, network } from "../stellar/network";
+import { activityPageSize } from "../policy";
+import { epochAt, network } from "../stellar/network";
 import { StoreFailure } from "./Directory.server";
 import {
   type Closers,

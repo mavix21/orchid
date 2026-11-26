@@ -2,7 +2,9 @@ import { Asset, Networks } from "@stellar/stellar-sdk";
 import { baseAsset } from "../contract";
 
 export const networkPassphrase = Networks.TESTNET;
+
 export const network = "testnet";
+
 export const testnetReset = Date.UTC(2026, 11, 16);
 
 export function epochAt(time: number): string {
@@ -15,40 +17,4 @@ export const depositContract = usdc.contractId(networkPassphrase);
 
 export const baseReserve = 5_000_000n;
 
-export const maxSponsoredTrustlines = 6;
-
-export const claimableQuota = { username: 2, paymentLink: 5 } as const;
-
-export const reclaimDelay = 7 * 24 * 60 * 60;
-
 export const baseFee = "100";
-export const paymentLifetime = 120;
-export const approvalMargin = 20;
-
-export const sweepBatchSize = 4;
-
-export const sweepStuckAge = 5 * 60;
-
-export const sweepTimeBudget = 10 * 60;
-
-export const workFirstDelay = 10;
-
-export const workRetryCeiling = 120;
-
-export const workSettlementGrace = 2 * 60;
-
-export const claimableReadLimit = 50;
-
-export const activityPageSize = 20;
-
-export const depositPageLimit = 10_000;
-
-export const depositCatchUpLimit = 1_000;
-
-export const depositLedgerScan = 10_000;
-
-export const depositFreshness = 60;
-
-export const depositCatchUpSpan = 13 * 60 * 60;
-
-export const depositTimeBudget = 4 * 60;

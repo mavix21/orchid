@@ -21,7 +21,8 @@ import {
 } from "../contract";
 import { fromStellarAsset, toStellarAsset } from "./assets";
 import { bounds } from "./bounds";
-import { baseFee, networkPassphrase, reclaimDelay } from "./network";
+import { reclaimDelay } from "../policy";
+import { baseFee, networkPassphrase } from "./network";
 
 export class TrustlineFacts extends Schema.TaggedClass<TrustlineFacts>()(
   "TrustlineFacts",

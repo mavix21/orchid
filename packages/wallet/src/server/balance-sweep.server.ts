@@ -4,7 +4,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { BalanceId } from "../contract";
-import { epochAt, network, sweepBatchSize } from "../stellar/network";
+import { sweepBatchSize } from "../policy";
+import { epochAt, network } from "../stellar/network";
 import { transfers } from "./tables.server";
 
 export const balancesToCheck = Effect.gen(function* () {

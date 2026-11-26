@@ -43,13 +43,8 @@ import {
   type TransferOrder,
 } from "../contract";
 import { claimableBalanceOf } from "../stellar/asset-envelopes";
-import {
-  approvalMargin,
-  claimableReadLimit,
-  epochAt,
-  claimableQuota,
-  network,
-} from "../stellar/network";
+import { approvalMargin, claimableReadLimit, claimableQuota } from "../policy";
+import { epochAt, network } from "../stellar/network";
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import { SlotOccupied, WalletInactive, walletLock } from "./slot.server";

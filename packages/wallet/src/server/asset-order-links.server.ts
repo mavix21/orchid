@@ -4,12 +4,8 @@ import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import type { AssetOrderId, BalanceId } from "../contract";
-import {
-  approvalMargin,
-  epochAt,
-  network,
-  sweepBatchSize,
-} from "../stellar/network";
+import { approvalMargin, sweepBatchSize } from "../policy";
+import { epochAt, network } from "../stellar/network";
 import type { Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import {

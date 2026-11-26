@@ -13,7 +13,8 @@ import {
   ReceivedPaymentLink,
   Username,
 } from "../contract";
-import { claimableReadLimit, epochAt, network } from "../stellar/network";
+import { claimableReadLimit } from "../policy";
+import { epochAt, network } from "../stellar/network";
 import { StoreFailure } from "./Directory.server";
 import { StoredOrderJson } from "./AssetOrders.server";
 import { assetOrders, transfers, usernames } from "./tables.server";

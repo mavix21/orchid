@@ -9,7 +9,8 @@ import type {
   PaymentLinkFacts,
 } from "../stellar/asset-envelopes";
 import type { PaymentFacts } from "../stellar/envelopes";
-import { approvalMargin, network, paymentLifetime } from "../stellar/network";
+import { approvalMargin, paymentLifetime } from "../policy";
+import { network } from "../stellar/network";
 import type { PublicDeviceWallet } from "./key-store";
 import { PaymentReview } from "./outcomes";
 import {

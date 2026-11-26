@@ -14,7 +14,8 @@ import {
 import { draftClaimable, draftPaymentLink } from "../stellar/asset-envelopes";
 import { type AssetPlan, draftPlan } from "../stellar/asset-plans";
 import { toStellarAsset } from "../stellar/assets";
-import { paymentLifetime, usdc } from "../stellar/network";
+import { paymentLifetime } from "../policy";
+import { usdc } from "../stellar/network";
 import { ChainUnreachable } from "./chain-errors.server";
 import {
   type ClaimableEntry,
