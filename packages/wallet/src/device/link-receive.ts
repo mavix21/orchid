@@ -18,8 +18,9 @@ import {
   ReceiveLink,
   type WalletPort,
   type WalletUnavailable,
-  assetKey,
+  sameAsset,
 } from "../contract";
+import { isIssuedBy } from "../stellar/assets";
 import { readEnvelope } from "../stellar/envelopes";
 import { approvalMargin } from "../policy";
 import { network } from "../stellar/network";
@@ -100,10 +101,9 @@ export const receiveReviewOf = (
     receive.channel === wallet.address ||
     receive.balance !== action.balance ||
     action.balance !== target.balance ||
-    assetKey(receive.asset) !== assetKey(target.asset) ||
+    !sameAsset(receive.asset, target.asset) ||
     receive.amount !== target.amount ||
-    (Predicate.isTagged(receive.asset, "Issued") &&
-      receive.asset.issuer === wallet.address)
+    isIssuedBy(receive.asset, wallet.address)
   )
     return Option.none();
 

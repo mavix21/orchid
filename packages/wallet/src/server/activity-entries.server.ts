@@ -4,7 +4,6 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
-  AssetCode,
   AssetOrder,
   AssetOrderId,
   AwaitingAcceptanceActivity,
@@ -15,7 +14,6 @@ import {
   DepositId,
   DestinationAddress,
   ExternalRecipient,
-  IssuedAsset,
   PositiveAmount,
   Profile,
   ReceivedActivity,
@@ -28,6 +26,7 @@ import {
   TransferId,
   Username,
 } from "../contract";
+import { issuedAsset } from "../stellar/assets";
 import { StoreFailure } from "./Directory.server";
 import type { deposits } from "./tables.server";
 import type { StoredOrder } from "./asset-order-records.server";
@@ -200,10 +199,7 @@ export const depositEntry = (row: typeof deposits.$inferSelect) =>
         from: new ExternalRecipient({
           address: Schema.decodeSync(DestinationAddress)(row.sender),
         }),
-        asset: IssuedAsset.make({
-          code: Schema.decodeSync(AssetCode)(row.code),
-          issuer: Schema.decodeSync(AccountAddress)(row.issuer),
-        }),
+        asset: issuedAsset(row.code, row.issuer),
         amount: Schema.decodeSync(PositiveAmount)(row.amount.toString()),
       }),
     catch: (cause) => new StoreFailure({ cause }),

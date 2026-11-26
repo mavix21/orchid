@@ -9,7 +9,7 @@ import * as Data from "effect/Data";
 import * as Match from "effect/Match";
 
 import { LinkScreen } from "@/links/outcomes";
-import { assetCode, shortAddress } from "@/send/money";
+import { shortAddress } from "@/send/money";
 import type { DeviceFailure } from "@/send/use-wallet-task";
 import { unavailableMessage } from "@/wallet/unavailable";
 
@@ -89,7 +89,7 @@ const mapResult = (
         readonly destination: DestinationAddress;
       },
 ): ExternalClaimResult => {
-  const code = assetCode(asset);
+  const code = asset.code;
 
   const onUnavailable = (failure: WalletUnavailable) =>
     mode.kind === "review"

@@ -12,7 +12,7 @@ import * as Option from "effect/Option";
 
 import { TokenIcon } from "@/components/token-icon";
 
-import { amountLabel, assetCode } from "./money";
+import { amountLabel } from "./money";
 
 const amountPattern = ({ decimals }: AssetPrecision) =>
   new RegExp(`^(0|[1-9][0-9]*)?(\\.[0-9]{0,${decimals}})?$`);
@@ -82,7 +82,7 @@ export function AmountPad({
             className="font-display text-h1 text-muted-foreground"
           >
             <span className="sr-only">Monto en </span>
-            {assetCode(asset)}
+            {asset.code}
           </label>
         </div>
         {Option.isSome(problem) ? (
@@ -92,7 +92,7 @@ export function AmountPad({
       <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
         <TokenIcon asset={asset} />
         <div className="flex flex-1 flex-col">
-          <span className="text-label-lg">{assetCode(asset)}</span>
+          <span className="text-label-lg">{asset.code}</span>
           <span className="text-body text-muted-foreground">
             {amountLabel(available, asset)} disponibles
           </span>

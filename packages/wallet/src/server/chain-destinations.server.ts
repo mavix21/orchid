@@ -1,16 +1,15 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import {
   type AccountAddress,
   type Asset,
   type DestinationAddress,
-  type IssuedAsset,
   type PositiveAmount,
   type RecipientCannotReceive,
-  assetKey,
+  sameAsset,
 } from "../contract";
+import { needsTrustline } from "../stellar/assets";
 import { baseAccountOf, isMuxed } from "../stellar/destination";
 import type { ChainUnreachable } from "./chain-errors.server";
 import type { KnownExchangeMemo } from "./exchange-memos.server";
@@ -48,10 +47,10 @@ const blockerFor = (
 ): Option.Option<ReceiveBlocker> => {
   if (Option.isNone(holdings)) return Option.some("no_account");
 
-  if (!Predicate.isTagged(asset, "Issued")) return Option.none();
+  if (!needsTrustline(asset)) return Option.none();
 
-  const line = holdings.value.lines.find(
-    (candidate) => assetKey(candidate.asset) === assetKey(asset),
+  const line = holdings.value.lines.find((candidate) =>
+    sameAsset(candidate.asset, asset),
   );
 
   if (line === undefined) return Option.some("no_trustline");
@@ -64,7 +63,7 @@ const blockerFor = (
 export const destinationChain = (
   holdings: (
     address: AccountAddress,
-    assets: ReadonlyArray<IssuedAsset>,
+    assets: ReadonlyArray<Asset>,
   ) => Effect.Effect<Option.Option<Holdings>, ChainUnreachable>,
   memoRequirement: (
     address: AccountAddress,
@@ -85,11 +84,8 @@ export const destinationChain = (
       ),
     );
   },
-  receiveBlocker: (account, asset, amount) => {
-    const issued = Predicate.isTagged(asset, "Issued") ? [asset] : [];
-
-    return holdings(account, issued).pipe(
+  receiveBlocker: (account, asset, amount) =>
+    holdings(account, [asset]).pipe(
       Effect.map((found) => blockerFor(found, asset, amount)),
-    );
-  },
+    ),
 });

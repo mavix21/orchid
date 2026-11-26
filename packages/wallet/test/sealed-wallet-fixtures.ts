@@ -3,7 +3,12 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import { PasskeyChallenge, Username } from "../src/contract";
+import {
+  PasskeyChallenge,
+  type PaymentLinkReceipt,
+  type TransferOrder,
+  Username,
+} from "../src/contract";
 import { PinnedCredential } from "../src/device/assertion";
 import { browserKeyStore } from "../src/device/browser-key-store";
 import {
@@ -40,7 +45,30 @@ export const relyingParty = {
 
 const dummyChallenge = Schema.decodeSync(PasskeyChallenge)("A".repeat(43));
 
+export const TaggedNative = Schema.TaggedStruct("Native", {});
+
+export const TaggedIssued = Schema.TaggedStruct("Issued", {
+  code: Schema.String,
+  issuer: Schema.String,
+});
+
+type TaggedStoredAsset = typeof TaggedNative.Type | typeof TaggedIssued.Type;
+
+type WithTaggedAsset<A> = Omit<A, "asset"> & {
+  readonly asset: TaggedStoredAsset;
+};
+
 export type RawStoredEntry =
+  | (Omit<typeof SealedDeviceWallet.Encoded, "public"> & {
+      readonly public: {
+        readonly address: string;
+        readonly username: string;
+        readonly transfer: WithTaggedAsset<typeof TransferOrder.Encoded>;
+        readonly linkReceipt: WithTaggedAsset<
+          typeof PaymentLinkReceipt.Encoded
+        >;
+      };
+    })
   | {
       readonly address: string;
       readonly username: string;

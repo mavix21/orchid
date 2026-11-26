@@ -1,7 +1,9 @@
 import * as Effect from "effect/Effect";
+import { flow } from "effect/Function";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { network } from "../stellar/network";
+import { identifyStoredWalletAssets } from "../stellar/stored-assets";
 import {
   CorruptDeviceWallet,
   type DeviceRecords,
@@ -25,7 +27,15 @@ const StoredVersion = Schema.Struct({
 });
 
 const isCurrentVersion = Schema.is(StoredVersion);
-const decodeStoredWallet = Schema.decodeUnknownOption(SealedDeviceWallet);
+
+const decodeStoredWallet = flow(
+  Schema.encodeUnknownOption(Schema.fromJsonString(Schema.Unknown)),
+  Option.flatMap(
+    Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Json)),
+  ),
+  Option.map(identifyStoredWalletAssets),
+  Option.flatMap(Schema.decodeUnknownOption(SealedDeviceWallet)),
+);
 
 const decodeStoredEntries = Schema.decodeUnknownOption(
   Schema.Array(Schema.Unknown),

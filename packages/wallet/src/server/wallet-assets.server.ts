@@ -20,12 +20,11 @@ import {
   TrustlineLimitReached,
   TrustlineNotEmpty,
   Unchanged,
-  assetKey,
+  baseAsset,
+  sameAsset,
 } from "../contract";
 import { type AssetPlan, ClaimPlan } from "../stellar/asset-plans";
-import { fromStellarAsset } from "../stellar/assets";
 import { maxSponsoredTrustlines } from "../policy";
-import { usdc } from "../stellar/network";
 import {
   AssetOrders,
   AssetAuthorized,
@@ -124,6 +123,17 @@ export const assetFlow = Effect.gen(function* () {
   ): Effect.fn.Return<AssetStep, StoreFailure | ChainUnreachable> {
     if (!chain.validAddress(order.wallet))
       return new InvalidAddress({ address: order.wallet });
+
+    if (
+      Predicate.isTagged(order.action, "OpenTrustline") ||
+      Predicate.isTagged(order.action, "CloseTrustline")
+    ) {
+      if (!chain.validAsset(order.action.asset))
+        return new AssetUnsupported({ reason: "issuer_missing" });
+
+      if (!chain.needsTrustline(order.action.asset)) return new Unchanged();
+    }
+
     const row = yield* directory.byAddress(order.wallet);
 
     const opening =
@@ -196,7 +206,7 @@ export const assetFlow = Effect.gen(function* () {
 
       plan = ClaimPlan.make({ balance: action.balance });
 
-      if (Predicate.isTagged(entry.asset, "Issued")) {
+      if (chain.needsTrustline(entry.asset)) {
         const blocker = yield* chain.receiveBlocker(
           order.wallet,
           entry.asset,
@@ -227,7 +237,7 @@ export const assetFlow = Effect.gen(function* () {
       : plan.asset;
 
     if (asset) {
-      if (asset.issuer === order.wallet)
+      if (chain.issuedBy(asset, order.wallet))
         return new AssetUnsupported({ reason: "self_issued" });
       const state = yield* chain.holdings(order.wallet, [asset]);
 
@@ -235,7 +245,7 @@ export const assetFlow = Effect.gen(function* () {
       const line = state.value.lines[0];
 
       if (Predicate.isTagged(plan, "CloseTrustline")) {
-        if (assetKey(asset) === assetKey(fromStellarAsset(usdc)))
+        if (sameAsset(asset, baseAsset))
           return new AssetUnsupported({ reason: "base_asset" });
 
         if (!line) return new Unchanged();

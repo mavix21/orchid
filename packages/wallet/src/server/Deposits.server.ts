@@ -13,6 +13,7 @@ import {
   baseAsset,
   precisionOf,
 } from "../contract";
+import { trustlineColumns } from "../stellar/assets";
 import { depositContract, epochAt, network } from "../stellar/network";
 import { AssetEvent } from "./chain-deposits.server";
 import { StoreFailure } from "./Directory.server";
@@ -151,8 +152,7 @@ export class Deposits extends Context.Service<
                             testnetEpoch: epoch,
                             eventId: payment.eventId,
                             wallet: payment.to,
-                            code: baseAsset.code,
-                            issuer: baseAsset.issuer,
+                            ...trustlineColumns(baseAsset),
                             amount: amount.value,
                             sender: sender.value,
                             hash: payment.hash,

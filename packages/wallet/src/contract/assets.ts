@@ -1,7 +1,5 @@
-import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { AccountAddress } from "./identity";
 
 export const AssetCode = Schema.String.check(
   Schema.isPattern(/^[a-zA-Z0-9]{1,12}$/u),
@@ -9,34 +7,28 @@ export const AssetCode = Schema.String.check(
 
 export type AssetCode = typeof AssetCode.Type;
 
-export const NativeAsset = Schema.TaggedStruct("Native", {});
+export const AssetId = Schema.NonEmptyString.pipe(Schema.brand("AssetId"));
 
-export type NativeAsset = typeof NativeAsset.Type;
+export type AssetId = typeof AssetId.Type;
 
-export const IssuedAsset = Schema.TaggedStruct("Issued", {
-  code: AssetCode,
-  issuer: AccountAddress,
-});
-
-export type IssuedAsset = typeof IssuedAsset.Type;
-
-export const baseAsset = IssuedAsset.make({
-  code: Schema.decodeSync(AssetCode)("USDC"),
-  issuer: Schema.decodeSync(AccountAddress)(
-    "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-  ),
-});
-
-export const Asset = Schema.Union([NativeAsset, IssuedAsset]);
+export const Asset = Schema.Struct({ id: AssetId, code: AssetCode });
 
 export type Asset = typeof Asset.Type;
 
-export function assetKey(asset: Asset): string {
-  return Match.valueTags(asset, {
-    Native: () => "native",
-    Issued: ({ code, issuer }) => `${code}:${issuer}`,
-  });
-}
+export const nativeAsset = Asset.make({
+  id: Schema.decodeSync(AssetId)("native"),
+  code: Schema.decodeSync(AssetCode)("XLM"),
+});
+
+export const baseAsset = Asset.make({
+  id: Schema.decodeSync(AssetId)(
+    "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+  ),
+  code: Schema.decodeSync(AssetCode)("USDC"),
+});
+
+export const sameAsset = (left: Asset, right: Asset) =>
+  left.id === right.id && left.code === right.code;
 
 export interface AssetPrecision {
   readonly decimals: number;
@@ -48,12 +40,8 @@ const sevenDecimals: AssetPrecision = {
   maximum: 9223372036854775807n,
 };
 
-export function precisionOf(asset: Asset): AssetPrecision {
-  return Match.valueTags(asset, {
-    Native: () => sevenDecimals,
-    Issued: () => sevenDecimals,
-  });
-}
+export const precisionOf: (asset: Asset) => AssetPrecision = () =>
+  sevenDecimals;
 
 export const Amount = Schema.BigIntFromString.check(
   Schema.isGreaterThanOrEqualToBigInt(0n),

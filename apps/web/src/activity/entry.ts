@@ -15,7 +15,7 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 
 import { formattingLocale } from "@/locale/format";
-import { amountLabel, assetCode, shortAddress } from "@/send/money";
+import { amountLabel, shortAddress } from "@/send/money";
 
 export type Party = Profile | ExternalRecipient;
 
@@ -297,7 +297,7 @@ export const shownEntry = (entry: ActivityEntry): ShownEntry =>
       }),
     AwaitingAcceptanceActivity: (awaiting) =>
       receivedEntry(awaiting, {
-        subtitle: `Te envió ${assetCode(awaiting.asset)}`,
+        subtitle: `Te envió ${awaiting.asset.code}`,
         badge: Option.some(awaitingAcceptance),
         direction: "unchanged",
         detail: "Llega a tu saldo cuando lo recibas con tu passkey.",

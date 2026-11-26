@@ -1,7 +1,7 @@
 import type { PaymentReview } from "@workspace/wallet";
 import { formatAmount, precisionOf } from "@workspace/wallet";
 
-import { assetCode, shortAddress } from "./money";
+import { shortAddress } from "./money";
 
 export function ReviewRow({
   label,
@@ -46,7 +46,7 @@ export function PaymentReviewCard({ review }: { review: PaymentReview }) {
             </span>
           )}
         </ReviewRow>
-        <ReviewRow label="Activo">{assetCode(review.asset)}</ReviewRow>
+        <ReviewRow label="Activo">{review.asset.code}</ReviewRow>
         <ReviewRow label="Monto">
           {formatAmount(review.amount, precisionOf(review.asset))}
         </ReviewRow>

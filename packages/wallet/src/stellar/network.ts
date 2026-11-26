@@ -1,5 +1,6 @@
-import { Asset, Networks } from "@stellar/stellar-sdk";
+import { Networks } from "@stellar/stellar-sdk";
 import { baseAsset } from "../contract";
+import { toStellarAsset } from "./assets";
 
 export const networkPassphrase = Networks.TESTNET;
 
@@ -11,7 +12,7 @@ export function epochAt(time: number): string {
   return time < testnetReset ? "before-2026-12-16" : "2026-12-16";
 }
 
-export const usdc = new Asset(baseAsset.code, baseAsset.issuer);
+export const usdc = toStellarAsset(baseAsset);
 
 export const depositContract = usdc.contractId(networkPassphrase);
 

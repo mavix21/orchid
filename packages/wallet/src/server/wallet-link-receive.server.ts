@@ -31,7 +31,7 @@ import {
   type ReceiveLink,
   RecipientCannotReceive,
   type SigningRequest,
-  assetKey,
+  sameAsset,
   baseAsset,
 } from "../contract";
 import {
@@ -118,7 +118,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
         (entry) =>
           entry.balance === funded.balance &&
           entry.address === link &&
-          assetKey(entry.asset) === assetKey(funded.asset) &&
+          sameAsset(entry.asset, funded.asset) &&
           entry.amount === funded.amount,
       );
 
@@ -297,15 +297,14 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       if (order.wallet === action.link)
         return new LinkUnclaimable({ reason: "destination_is_link" });
 
-      if (Predicate.isTagged(asset, "Issued") && asset.issuer === order.wallet)
+      if (chain.issuedBy(asset, order.wallet))
         return new LinkUnclaimable({ reason: "destination_is_issuer" });
 
       const blocker = yield* chain.receiveBlocker(order.wallet, asset, amount);
 
       const openedByOpening =
         walletOpening &&
-        (Predicate.isTagged(asset, "Native") ||
-          assetKey(asset) === assetKey(baseAsset));
+        (!chain.needsTrustline(asset) || sameAsset(asset, baseAsset));
 
       if (Option.isSome(blocker)) {
         if (blocker.value !== "no_account")
