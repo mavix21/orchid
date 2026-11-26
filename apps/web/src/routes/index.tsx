@@ -1,11 +1,14 @@
+import { LockIcon } from "lucide-react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
+import { useCallback, useState } from "react";
 
 import { BrandLogo } from "@/components/brand-logo";
-import { OrchidBloom } from "@/components/orchid-bloom";
-import { Screen, ScreenActions } from "@/components/screen";
 import { useHomeForSavedWallet } from "@/wallet/use-home-for-saved-wallet";
 import { deviceHoldsWallet } from "@/wallet/wallet-cookie";
+import { type CashOut, cashOutAt } from "@/welcome/cash-out-methods";
+import { PaymentLinkGlobe } from "@/welcome/payment-link-globe";
+import { RotatingCashOutMethod } from "@/welcome/rotating-cash-out-method";
 
 export const Route = createFileRoute("/")({
   beforeLoad: () => {
@@ -17,47 +20,70 @@ export const Route = createFileRoute("/")({
 function Welcome() {
   useHomeForSavedWallet();
 
+  const [cashedOut, setCashedOut] = useState({
+    turn: 0,
+    method: cashOutAt(0).method,
+  });
+
+  const onCashOut = useCallback(
+    (turn: number, cashOut: CashOut) =>
+      setCashedOut({ turn, method: cashOut.method }),
+    [],
+  );
+
   return (
-    <Screen>
-      <main className="flex flex-1 flex-col gap-2 px-5 pt-2 pb-6 md:px-8 md:pt-8">
-        <div className="md:hidden">
-          <BrandLogo />
+    <div className="flex min-h-dvh flex-col overflow-x-hidden bg-background pt-safe text-foreground">
+      <header className="px-5 pt-2 md:px-10 md:pt-8">
+        <BrandLogo />
+      </header>
+      <main className="mx-auto grid w-full max-w-md flex-1 gap-2 px-5 pb-6 md:max-w-6xl md:grid-cols-2 md:content-center md:items-center md:gap-x-10 md:gap-y-12 md:px-10">
+        <div className="flex flex-col gap-4 pt-4 md:pt-0">
+          <h1 className="font-display text-display md:text-8xl">
+            <span className="welcome-rise block">Manda dólares</span>
+            <span className="welcome-rise welcome-delay-1 block">
+              con un link.
+            </span>
+          </h1>
+          <p className="welcome-rise welcome-delay-2 flex flex-col gap-1 font-display text-h1 md:gap-2 md:text-5xl">
+            <span>Cobran en</span>
+            <span>
+              <RotatingCashOutMethod
+                turn={cashedOut.turn}
+                method={cashedOut.method}
+                previousMethod={
+                  cashedOut.turn > 0
+                    ? cashOutAt(cashedOut.turn - 1).method
+                    : undefined
+                }
+              />
+            </span>
+          </p>
         </div>
-        <div className="flex-1 md:hidden" />
-        <div className="hidden flex-1 items-center justify-center py-6 md:flex">
-          <div className="relative">
-            <div
-              aria-hidden="true"
-              className="orchid-glow absolute -inset-1/4 rounded-full opacity-50"
-            />
-            <OrchidBloom motion="breathe" className="relative size-36" />
-          </div>
+        <div className="welcome-rise welcome-delay-3 mx-auto w-4/5 md:row-span-2 md:w-full">
+          <PaymentLinkGlobe onCashOut={onCashOut} />
         </div>
-        <h1 className="font-display text-display">Tu plata, sin bancos.</h1>
-        <p className="text-body-lg text-muted-foreground">
-          Envía y cobra dólares con un link.
-        </p>
+        <div className="welcome-rise welcome-delay-5 flex flex-col items-center gap-2 md:max-w-sm">
+          <Button
+            className="w-full"
+            nativeButton={false}
+            render={<Link to="/create-account" data-testid="start-create" />}
+          >
+            Crear cuenta
+          </Button>
+          <Button
+            className="w-full"
+            variant="ghost"
+            nativeButton={false}
+            render={<Link to="/restore" data-testid="start-restore" />}
+          >
+            Ya tengo una cuenta
+          </Button>
+          <p className="flex items-center gap-1.5 text-caption text-muted-foreground">
+            <LockIcon className="size-3.5" />
+            Tu llave se queda en tu teléfono.
+          </p>
+        </div>
       </main>
-      <ScreenActions>
-        <Button
-          className="w-full"
-          nativeButton={false}
-          render={<Link to="/create-account" data-testid="start-create" />}
-        >
-          Crear cuenta
-        </Button>
-        <Button
-          className="w-full"
-          variant="ghost"
-          nativeButton={false}
-          render={<Link to="/restore" data-testid="start-restore" />}
-        >
-          Ya tengo una cuenta
-        </Button>
-        <p className="text-caption text-muted-foreground">
-          Tu llave se queda en tu teléfono.
-        </p>
-      </ScreenActions>
-    </Screen>
+    </div>
   );
 }
