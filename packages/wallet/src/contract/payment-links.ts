@@ -1,10 +1,10 @@
 import * as Schema from "effect/Schema";
-import { stellarAddressFormat } from "../stellar/address-format";
+import { addressRules } from "../address-rules";
 import { Asset, BalanceId, PositiveAmount, withinAssetMaximum } from "./assets";
 import { AccountAddress, Profile } from "./identity";
 
 export const LinkSecret = Schema.String.check(
-  Schema.makeFilter(stellarAddressFormat.isLinkSecret),
+  Schema.makeFilter(addressRules.isLinkSecret),
 ).pipe(Schema.brand("LinkSecret"));
 
 export type LinkSecret = typeof LinkSecret.Type;

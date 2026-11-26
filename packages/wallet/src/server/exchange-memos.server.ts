@@ -1,7 +1,8 @@
-import { Keypair, StrKey, xdr } from "@stellar/stellar-sdk";
+import { Keypair, xdr } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { addressRules } from "../address-rules";
 import { AccountAddress } from "../contract";
 import { network } from "../stellar/network";
 import type { StellarRpc } from "./ledger.server";
@@ -11,7 +12,7 @@ export class KnownExchangeMemo extends Schema.Class<KnownExchangeMemo>(
 )({
   network: Schema.Literal(network),
   address: AccountAddress.check(
-    Schema.makeFilter(StrKey.isValidEd25519PublicKey),
+    Schema.makeFilter(addressRules.hasValidChecksum),
   ),
   exchange: Schema.NonEmptyString,
   source: Schema.String.check(

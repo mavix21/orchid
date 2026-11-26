@@ -1,6 +1,6 @@
 import { base32nopad } from "@scure/base";
 import * as Option from "effect/Option";
-import type { AddressFormat } from "../contract/address-format";
+import type { AddressRules } from "../address-rules";
 
 const account = { pattern: /^G[A-Z2-7]{55}$/u, version: 6 << 3 };
 
@@ -10,7 +10,7 @@ const linkSecretPattern = /^S[A-Z2-7]{55}$/u;
 
 const isAccountAddress = (text: string) => account.pattern.test(text);
 
-const isMuxedAddress = (text: string) => muxedAccount.pattern.test(text);
+export const isMuxedAddress = (text: string) => muxedAccount.pattern.test(text);
 
 const decodeBase32 = Option.liftThrowable(base32nopad.decode);
 
@@ -38,7 +38,7 @@ const hasValidChecksum = (text: string) =>
       }),
   );
 
-export const stellarAddressFormat: AddressFormat = {
+export const stellarAddressRules: AddressRules = {
   isAccountAddress,
   isDestinationAddress: (text) =>
     isAccountAddress(text) || isMuxedAddress(text),

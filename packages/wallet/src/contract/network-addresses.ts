@@ -4,9 +4,14 @@ import { keccak_256 } from "@noble/hashes/sha3.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { base58, bech32, bech32m, createBase58check } from "@scure/base";
 import * as Option from "effect/Option";
-import { stellarAddressFormat } from "../stellar/address-format";
+import { addressNetwork, addressRules } from "../address-rules";
 
-export type AddressNetwork = "stellar" | "evm" | "solana" | "tron" | "bitcoin";
+export type AddressNetwork =
+  | typeof addressNetwork
+  | "evm"
+  | "solana"
+  | "tron"
+  | "bitcoin";
 
 const decodeBase58 = Option.liftThrowable(base58.decode);
 
@@ -94,7 +99,7 @@ const isSegwitBitcoin = (address: string) =>
 const recognisers: ReadonlyArray<
   readonly [AddressNetwork, (address: string) => boolean]
 > = [
-  ["stellar", stellarAddressFormat.hasValidChecksum],
+  [addressNetwork, addressRules.hasValidChecksum],
   ["evm", isEvm],
   ["solana", isSolana],
   ["tron", isTron],

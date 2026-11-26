@@ -6,9 +6,6 @@ import {
 import * as Schema from "effect/Schema";
 import { AccountAddress, type DestinationAddress } from "../contract";
 
-export const isMuxed = (destination: DestinationAddress) =>
-  !Schema.is(AccountAddress)(destination);
-
 export const baseAccountOf = (destination: DestinationAddress) =>
   Schema.decodeSync(AccountAddress)(extractBaseAddress(destination));
 
