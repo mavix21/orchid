@@ -39,18 +39,18 @@ Gather before round 1:
 
 ## 2. Select and start the reviewer
 
-Call `orchestrator_capabilities` once to identify the implementer (`inheritedModel`) and available providers. If T3 delegation tools are absent, report that cross-review is unavailable outside T3 Code and stop rather than falling back to same-model review.
+Call `orchestrator_capabilities` once to read `inheritedModel`, `inheritedProviderInstanceId`, and the live provider catalog. Treat `orchestrator_capabilities` as the source of truth for model IDs and options.
 
-Select the single allowed reviewer from a different family:
+Select one reviewer from a **different model family** on a provider with `canRunChildTask: true` and `canRunCrossProviderChildTask: true`:
 
-| Implementer (`inheritedModel`) | Reviewer model | Provider (`providerInstanceId`) | Option |
-| --- | --- | --- | --- |
-| `gpt-6.2-astra` | `gemini-4-neon` | `antigravity` (never `cursor`) | `thought_level: "high"` |
-| Any other model (Codex/OpenAI other than Astra, Claude, or Gemini) | `gpt-6.2-astra` | `codex` | `reasoningEffort: "high"` |
+1. **User-specified:** if the user requested a specific cross-family model or provider, resolve it from the catalog.
+2. **Default cross-family pair:** pick the top frontier model listed on an enabled native provider from another family — typically `codex` (OpenAI) when the implementer is Gemini or Claude, and `antigravity` (Gemini) when the implementer is OpenAI/Codex, or another enabled frontier family (such as `claudeAgent`) if the preferred one is unavailable. Prefer native first-party providers (`codex`, `antigravity`, `claudeAgent`) over multi-provider aggregators (`cursor`).
+3. **Reasoning option:** set the model's reasoning/thinking option exposed in the catalog (e.g., `reasoningEffort`, `thought_level`, or `effort`) to `"high"` when supported.
+4. **Blocker:** if T3 delegation tools are absent or no enabled provider from a different model family is available, report the blocker and stop rather than reviewing within the same family.
 
-Resolve the exact `providerInstanceId`, `model`, and `options` from `orchestrator_capabilities` and confirm child tasks are enabled on that provider. If the required reviewer or provider is unavailable, report the blocker and stop rather than substituting another model.
+Keep the same reviewer across every round unless the user asks to switch.
 
-Start the reviewer with `delegate_task` (`role: "review"`, `mode: "async"`, fresh `clientRequestId` per round) and save `taskId`. Wait for the completion notice; avoid polling `task_status`, `t3_thread_send`, `create_threads`, or `t3_thread_launch`. Leave all scoped files untouched while the review runs.
+Start the reviewer with `delegate_task` (`role: "review"`, `mode: "async"`, fresh `clientRequestId` per round) and save `taskId`. Wait for the completion notice and leave all scoped files untouched while the review runs.
 
 Treat a timeout, error, or empty reply as a failed round, never as approval: call `task_cancel`, verify stop, and restart the round with the ledger and a new `clientRequestId`.
 
@@ -107,7 +107,7 @@ Commit accepted fixes, re-run affected checks (`bun lint` after every change plu
 
 Start a new round only when budget remains AND at least one holds: a `blocker` or `should` stays open, behavior code changed, or prior approval no longer covers `HEAD`.
 
-Start a fresh `delegate_task` with a new `clientRequestId` (`role: "review"`, `mode: "async"`). Send:
+Start a fresh `delegate_task` (`role: "review"`, `mode: "async"`, new `clientRequestId`) with the same reviewer. Send:
 
 - All Round 1 context fields (updated checks and updated test-vs-code line delta).
 - The full ledger (`R<k>-<n> [severity] fixed|disagree|declined: <evidence/reason>`).
@@ -118,7 +118,7 @@ Start a fresh `delegate_task` with a new `clientRequestId` (`role: "review"`, `m
 
 ## 5. Stop and ship
 
-Keep pushes out of the loop. Push only once the loop terminates:
+Push only once the loop terminates:
 
 - **Approved:** run pre-commit verification (`bun lint`, `bun run typecheck`, `bun run fmt:check`, `bun run build`), push the branch, and open or update the PR.
 - **Stuck:** push the branch, keep the PR in draft (or mark it as needing a human decision), and show both sides of each disputed or open item in 2–3 lines for the user to decide.
