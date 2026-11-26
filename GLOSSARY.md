@@ -77,7 +77,7 @@ _Avoid_: Payment or transfer when the money did not go through Orchid.
 
 ## Names in the app
 
-The app is localized in Spanish and English. These product names are translated:
+Product names in English:
 
 | Spanish      | English      |
 | ------------ | ------------ |
