@@ -5,7 +5,7 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import type { AccountAddress, OpeningDraft, SigningRequest } from "../contract";
 import { readEnvelope } from "../stellar/envelopes";
-import { approvalMargin, paymentLifetime } from "../stellar/network";
+import { approvalMargin, paymentLifetime } from "../policy";
 import type { PublicDeviceWallet } from "./key-store";
 import { OpeningReview } from "./outcomes";
 import { clockAllowance } from "./transfer-drafts";

@@ -18,12 +18,8 @@ import {
   IssuedAsset,
   SigningRequest,
 } from "../contract";
-import {
-  approvalMargin,
-  epochAt,
-  maxSponsoredTrustlines,
-  network,
-} from "../stellar/network";
+import { approvalMargin, maxSponsoredTrustlines } from "../policy";
+import { epochAt, network } from "../stellar/network";
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import {

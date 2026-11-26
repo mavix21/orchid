@@ -34,13 +34,8 @@ import {
 import { signingKey } from "../src/device/signing";
 import { Wallet } from "../src/server/Wallet.server";
 import { draftOpening, signingPayload } from "../src/stellar/envelopes";
-import {
-  approvalMargin,
-  baseFee,
-  networkPassphrase,
-  paymentLifetime,
-  usdc,
-} from "../src/stellar/network";
+import { approvalMargin, paymentLifetime } from "../src/policy";
+import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 import {
   addressOf,
   enrolledDeviceWallet,

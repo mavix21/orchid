@@ -10,7 +10,7 @@ import {
   depositLedgerScan,
   depositPageLimit,
   depositTimeBudget,
-} from "../stellar/network";
+} from "../policy";
 import { Chain } from "./Chain.server";
 import { EventsStart } from "./chain-deposits.server";
 import { Deposits } from "./Deposits.server";

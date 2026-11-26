@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { AssetOrderId, TransferId } from "../contract";
-import { workFirstDelay, workRetryCeiling } from "../stellar/network";
+import { workFirstDelay, workRetryCeiling } from "../policy";
 
 export class ReconcileTransfer extends Schema.TaggedClass<ReconcileTransfer>()(
   "ReconcileTransfer",

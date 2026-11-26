@@ -18,7 +18,7 @@ import {
   baseAsset,
 } from "../contract";
 import { baseAccountOf } from "../stellar/destination";
-import { claimableQuota } from "../stellar/network";
+import { claimableQuota } from "../policy";
 import { Chain } from "./Chain.server";
 import { type QuotaCheck, claimableQuotaFlow } from "./claimable-quota.server";
 import { Directory } from "./Directory.server";

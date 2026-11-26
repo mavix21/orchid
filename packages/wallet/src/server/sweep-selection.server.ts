@@ -1,7 +1,7 @@
 import { type SQL, isNull, lt, or } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import * as DateTime from "effect/DateTime";
-import { sweepStuckAge } from "../stellar/network";
+import { sweepStuckAge } from "../policy";
 
 export const notCheckedSince = (
   checkedAt: PgColumn,

@@ -10,7 +10,7 @@ import {
 } from "./AssetOrders.server";
 import { Chain, type ChainUnreachable } from "./Chain.server";
 import { Directory, type StoreFailure } from "./Directory.server";
-import { sweepTimeBudget } from "../stellar/network";
+import { sweepTimeBudget } from "../policy";
 import { rpcReadConcurrency } from "./settings.server";
 import { type Authorized, Transfers } from "./Transfers.server";
 

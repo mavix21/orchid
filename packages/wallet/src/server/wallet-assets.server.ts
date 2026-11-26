@@ -28,7 +28,8 @@ import {
   plannedSequence,
 } from "../stellar/asset-plans";
 import { fromStellarAsset } from "../stellar/assets";
-import { maxSponsoredTrustlines, usdc } from "../stellar/network";
+import { maxSponsoredTrustlines } from "../policy";
+import { usdc } from "../stellar/network";
 import {
   AssetOrders,
   AssetAuthorized,

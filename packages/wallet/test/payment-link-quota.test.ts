@@ -10,7 +10,7 @@ import {
 import { Wallet } from "../src/server/Wallet.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { readEnvelope } from "../src/stellar/envelopes";
-import { sweepBatchSize } from "../src/stellar/network";
+import { sweepBatchSize } from "../src/policy";
 import { linkAmount } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {

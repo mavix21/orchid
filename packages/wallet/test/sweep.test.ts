@@ -13,7 +13,7 @@ import {
 } from "../src/contract";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Wallet } from "../src/server/Wallet.server";
-import { sweepBatchSize } from "../src/stellar/network";
+import { sweepBatchSize } from "../src/policy";
 import { assertTagged } from "./tagged";
 import {
   accountState,

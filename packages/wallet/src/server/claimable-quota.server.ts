@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import type { AccountAddress, BalanceId } from "../contract";
-import { claimableQuota } from "../stellar/network";
+import { claimableQuota } from "../policy";
 import { Chain, type ChainUnreachable } from "./Chain.server";
 import type { StoreFailure } from "./Directory.server";
 import { rpcReadConcurrency } from "./settings.server";

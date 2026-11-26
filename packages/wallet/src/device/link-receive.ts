@@ -21,7 +21,8 @@ import {
   assetKey,
 } from "../contract";
 import { readEnvelope } from "../stellar/envelopes";
-import { approvalMargin, network } from "../stellar/network";
+import { approvalMargin } from "../policy";
+import { network } from "../stellar/network";
 import {
   type ClaimKind,
   type ClaimReviews,

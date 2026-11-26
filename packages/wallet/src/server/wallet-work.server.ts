@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
-import { workSettlementGrace } from "../stellar/network";
+import { workSettlementGrace } from "../policy";
 import type { AssetOrderId, TransferId } from "../contract";
 import {
   type AssetAuthorized,

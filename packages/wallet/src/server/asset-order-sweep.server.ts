@@ -3,7 +3,7 @@ import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
-import { sweepBatchSize } from "../stellar/network";
+import { sweepBatchSize } from "../policy";
 import { StoreFailure } from "./Directory.server";
 import {
   type AssetAuthorized,
