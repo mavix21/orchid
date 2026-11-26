@@ -8,9 +8,9 @@ import type {
   PaymentMemo,
   PositiveAmount,
   SigningRequest,
-} from "../contract";
-import { stellarDeviceNetwork } from "../stellar/device-network";
-import type { SigningScheme } from "./signing-scheme";
+} from "./contract";
+import type { SigningScheme } from "./device/signing-scheme";
+import { stellarDeviceNetwork } from "./stellar/device-network";
 
 interface Expiring {
   readonly maxTime: number;

@@ -32,7 +32,7 @@ import type {
   KeyStoreUnavailable,
   PublicDeviceWallet,
 } from "./key-store";
-import { isIssuedBy, network, readDraft } from "./network";
+import { isIssuedBy, network, readDraft } from "../device-network";
 import {
   type ConfirmLinkReceiveOutcome,
   type LinkReceiveTarget,

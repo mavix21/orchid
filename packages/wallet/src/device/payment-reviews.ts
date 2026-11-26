@@ -11,7 +11,7 @@ import {
   type PaymentFacts,
   type PaymentLinkFacts,
   network,
-} from "./network";
+} from "../device-network";
 import { PaymentReview } from "./outcomes";
 import {
   approvalOutstanding,

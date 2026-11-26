@@ -5,7 +5,7 @@ import { base58 } from "@scure/base";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type { AccountAddress, LinkSecret } from "../contract";
-import { signingScheme } from "./network";
+import { signingScheme } from "../device-network";
 import type { SigningScheme } from "./signing-scheme";
 
 const linkCodeVersion = 1;

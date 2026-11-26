@@ -19,7 +19,12 @@ import {
 import type { ClaimIssue } from "./claim-reviews";
 import { linkKeyOf, type LinkCode } from "./link-code";
 import { OpenedLink, linkSecretFor, openLink } from "./link-receive";
-import { baseAccountOf, isIssuedBy, network, readDraft } from "./network";
+import {
+  baseAccountOf,
+  isIssuedBy,
+  network,
+  readDraft,
+} from "../device-network";
 import {
   type ConfirmExternalLinkOutcome,
   DraftRejected,

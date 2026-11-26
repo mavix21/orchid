@@ -1,6 +1,6 @@
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
-import type { DeviceNetwork, DraftFacts } from "../device/network";
+import type { DeviceNetwork, DraftFacts } from "../device-network";
 import { isIssuedBy } from "./assets";
 import { baseAccountOf } from "./destination";
 import { type EnvelopeFacts, readEnvelope } from "./envelopes";

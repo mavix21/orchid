@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
-import { network } from "./network";
+import { network } from "../device-network";
 import type {
   EnrollWalletOutcome,
   PendingEnrollmentStorage,

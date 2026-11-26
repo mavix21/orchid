@@ -13,7 +13,7 @@ import {
   type WalletUnavailable,
   TransferIntent,
 } from "../contract";
-import { network } from "./network";
+import { network } from "../device-network";
 import {
   AssertionIntent,
   AssertionRejected,

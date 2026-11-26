@@ -6,7 +6,7 @@ import * as Schema from "effect/Schema";
 import type { AccountAddress, OpeningDraft, SigningRequest } from "../contract";
 import { approvalMargin, paymentLifetime } from "../policy";
 import type { PublicDeviceWallet } from "./key-store";
-import { readDraft } from "./network";
+import { readDraft } from "../device-network";
 import { OpeningReview } from "./outcomes";
 import { clockAllowance } from "./transfer-drafts";
 

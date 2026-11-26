@@ -3,7 +3,7 @@ import { mnemonicToSeedSync } from "@scure/bip39";
 import type * as Arr from "effect/Array";
 import { HDKey } from "micro-key-producer/slip10.js";
 import { Approval, type LinkSecret, type SigningRequest } from "../contract";
-import { signingScheme } from "./network";
+import { signingScheme } from "../device-network";
 import type { SecretPhrase } from "./secret-phrase";
 import type { SigningScheme } from "./signing-scheme";
 

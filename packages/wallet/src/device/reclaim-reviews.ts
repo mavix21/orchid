@@ -3,7 +3,7 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import { type AssetDraft, type AssetOrder, sameAsset } from "../contract";
 import type { PublicDeviceWallet } from "./key-store";
-import { network, readDraft } from "./network";
+import { network, readDraft } from "../device-network";
 import { type PaymentLinkTarget, ReclaimReview } from "./outcomes";
 
 export const reviewJson = Schema.encodeSync(

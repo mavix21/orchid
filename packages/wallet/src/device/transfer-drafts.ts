@@ -14,7 +14,7 @@ import {
   type TransferIntent,
 } from "../contract";
 import { type PublicDeviceWallet, receiptJson } from "./key-store";
-import { type PaymentLinkFacts, network, readDraft } from "./network";
+import { type PaymentLinkFacts, network, readDraft } from "../device-network";
 
 export const clockAllowance = 60;
 
