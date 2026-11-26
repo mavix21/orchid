@@ -67,11 +67,12 @@ const themeName = (theme: Theme) =>
     Match.exhaustive,
   );
 
-const languageChoices = locales.map((locale): Choice<Locale> => ({
-  value: locale,
-  label: languageName(locale),
-  lang: locale,
-}));
+const languageChoices = () =>
+  locales.map((locale): Choice<Locale> => ({
+    value: locale,
+    label: languageName(locale),
+    lang: locale,
+  }));
 
 const themeChoices = () =>
   themes.map((theme): Choice<Theme> => ({
@@ -118,7 +119,7 @@ function SettingsScreen() {
         onClose={() => setOpen("none")}
         title={m.settings_language()}
         description={m.settings_language_explanation()}
-        choices={languageChoices}
+        choices={languageChoices()}
         selected={locale}
         onChoose={(chosen) => {
           if (chosen !== locale) setLocale(chosen);
