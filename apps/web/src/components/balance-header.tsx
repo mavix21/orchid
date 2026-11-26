@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
+import { formattingLocale } from "@/locale/format";
 import { ActionTile } from "@/components/action-tile";
 import { FlowerAvatar } from "@/components/flower-avatar";
 
@@ -20,7 +21,7 @@ export function BalanceHeader({
   username: string;
   dollars: bigint;
 }) {
-  const whole = (dollars / unitsPerDollar).toLocaleString("es-PE");
+  const whole = (dollars / unitsPerDollar).toLocaleString(formattingLocale());
 
   const cents = ((dollars % unitsPerDollar) / unitsPerCent)
     .toString()

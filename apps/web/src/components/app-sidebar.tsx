@@ -3,10 +3,10 @@ import {
   ClockIcon,
   HouseIcon,
   MoonIcon,
+  SettingsIcon,
   SunIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { Avatar } from "@workspace/ui/components/avatar";
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -21,44 +21,12 @@ import {
 } from "@workspace/ui/components/sidebar";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 
 import { BrandLogo } from "@/components/brand-logo";
 import { useTheme } from "@/components/theme-provider";
 import { FlowerAvatar } from "@/components/flower-avatar";
-import { useWalletTask } from "@/send/use-wallet-task";
-import { walletEffects } from "@/wallet";
-
-type SavedUsername = {
-  readonly read: boolean;
-  readonly username: Option.Option<string>;
-};
-
-function useSavedUsername() {
-  const task = useWalletTask();
-
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
-  });
-
-  const [saved, setSaved] = useState<SavedUsername>({
-    read: false,
-    username: Option.none(),
-  });
-
-  useEffect(() => {
-    task.run(walletEffects.saved(), (answer) =>
-      setSaved({
-        read: true,
-        username: Predicate.isTagged(answer, "SavedWallet")
-          ? Option.some(answer.username)
-          : Option.none(),
-      }),
-    );
-  }, [pathname]);
-
-  return saved;
-}
+import { m } from "@/paraglide/messages";
+import { useSavedUsername } from "@/wallet/use-saved-username";
 
 function SidebarIdentity() {
   const { read, username } = useSavedUsername();
@@ -141,6 +109,12 @@ export function AppSidebar() {
                 <SidebarMenuButton render={<Link to="/activity" />}>
                   <ClockIcon />
                   <span>Actividad</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton render={<Link to="/settings" />}>
+                  <SettingsIcon />
+                  <span>{m.settings_title()}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

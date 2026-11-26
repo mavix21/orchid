@@ -8,6 +8,7 @@ import type { WalletClient } from "@workspace/wallet";
 import appCss from "@workspace/ui/globals.css?url";
 import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
 import { ThemeProvider } from "@/components/theme-provider";
+import { getLocale } from "@/paraglide/runtime";
 
 export const Route = createRootRouteWithContext<{
   walletClient: WalletClient;
@@ -48,7 +49,7 @@ export const Route = createRootRouteWithContext<{
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html lang={getLocale()} suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>

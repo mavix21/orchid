@@ -14,6 +14,7 @@ import * as DateTime from "effect/DateTime";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 
+import { formattingLocale } from "@/locale/format";
 import { amountLabel, assetCode, shortAddress } from "@/send/money";
 
 export type Party = Profile | ExternalRecipient;
@@ -63,7 +64,7 @@ export const partyName = (party: Party) =>
 export const closedOn = (closedAt: DateTime.Utc) => {
   const closed = DateTime.toDate(closedAt);
 
-  return closed.toLocaleDateString("es-PE", {
+  return closed.toLocaleDateString(formattingLocale(), {
     day: "numeric",
     month: "long",
     year:
@@ -342,7 +343,7 @@ export const createdWhen = (createdAt: DateTime.Utc) => {
     today.getDate() - 1,
   );
 
-  const time = created.toLocaleTimeString("es-PE", {
+  const time = created.toLocaleTimeString(formattingLocale(), {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
@@ -353,7 +354,7 @@ export const createdWhen = (createdAt: DateTime.Utc) => {
   if (created.toDateString() === yesterday.toDateString())
     return `Ayer, ${time}`;
 
-  return created.toLocaleDateString("es-PE", {
+  return created.toLocaleDateString(formattingLocale(), {
     day: "numeric",
     month: "short",
     year: created.getFullYear() === today.getFullYear() ? undefined : "numeric",
@@ -361,7 +362,7 @@ export const createdWhen = (createdAt: DateTime.Utc) => {
 };
 
 export const createdAtLabel = (createdAt: DateTime.Utc) =>
-  DateTime.toDate(createdAt).toLocaleString("es-PE", {
+  DateTime.toDate(createdAt).toLocaleString(formattingLocale(), {
     day: "numeric",
     month: "long",
     year: "numeric",

@@ -2,9 +2,11 @@ import {
   ArrowLeftRightIcon,
   ClockIcon,
   HouseIcon,
-  UserRoundIcon,
+  SettingsIcon,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+
+import { m } from "@/paraglide/messages";
 
 const itemClass =
   "flex h-12 w-16 items-center justify-center rounded-full text-icon-muted outline-none focus-visible:ring-3 focus-visible:ring-ring/50 aria-[current=page]:bg-accent aria-[current=page]:text-icon-accent [&_svg]:size-6";
@@ -24,9 +26,13 @@ export function TabBar() {
       <Link to="/activity" aria-label="Actividad" className={itemClass}>
         <ClockIcon />
       </Link>
-      <button type="button" aria-label="Perfil" className={itemClass}>
-        <UserRoundIcon />
-      </button>
+      <Link
+        to="/settings"
+        aria-label={m.settings_title()}
+        className={itemClass}
+      >
+        <SettingsIcon />
+      </Link>
     </nav>
   );
 }

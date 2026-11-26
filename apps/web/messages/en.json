@@ -1,0 +1,15 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "settings_title": "Settings",
+  "settings_language": "Language",
+  "settings_language_explanation": "The first time you open Orchid, we use your browser's language.",
+  "language_name_es": "Español",
+  "language_name_en": "English",
+  "settings_preferences": "Preferences",
+  "settings_appearance": "Appearance",
+  "theme_system": "Automatic",
+  "theme_system_explanation": "Follows your device's mode.",
+  "theme_light": "Light",
+  "theme_dark": "Dark",
+  "settings_loading_username": "Loading your username"
+}
