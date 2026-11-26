@@ -1,8 +1,4 @@
-import type {
-  ClaimableBalance,
-  DeviceOverview,
-  Profile,
-} from "@workspace/wallet";
+import type { HeldFunds, DeviceOverview, Profile } from "@workspace/wallet";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -12,15 +8,15 @@ import { amountLabel } from "@/send/money";
 export interface Arrival {
   readonly opening: boolean;
   readonly username: string;
-  readonly payment: ClaimableBalance;
+  readonly payment: HeldFunds;
 }
 
 const arrivalFor = (
   profile: Profile,
-  claimable: ReadonlyArray<ClaimableBalance>,
+  waiting: ReadonlyArray<HeldFunds>,
   opening: boolean,
 ): Option.Option<Arrival> =>
-  Arr.findLast(claimable, (entry) => entry.to.address === profile.address).pipe(
+  Arr.findLast(waiting, (entry) => entry.to.address === profile.address).pipe(
     Option.map((payment) => ({
       opening,
       username: profile.username,
@@ -30,11 +26,11 @@ const arrivalFor = (
 
 export const arrivalOf = (overview: DeviceOverview): Option.Option<Arrival> => {
   if (Predicate.isTagged(overview, "Holding"))
-    return arrivalFor(overview.profile, overview.claimable, false);
+    return arrivalFor(overview.profile, overview.heldFunds, false);
 
   if (Predicate.isTagged(overview, "NotOpened"))
     return Option.flatMap(overview.profile, (profile) =>
-      arrivalFor(profile, overview.claimable, true),
+      arrivalFor(profile, overview.heldFunds, true),
     );
 
   return Option.none();

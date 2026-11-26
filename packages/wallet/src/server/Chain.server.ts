@@ -23,7 +23,7 @@ import {
   DestinationAddress,
   Approval,
   type Asset,
-  type BalanceId,
+  type HeldFundsId,
   OpeningDraft,
   PaymentMemo,
   PositiveAmount,
@@ -123,7 +123,7 @@ export class Chain extends Context.Service<
       ): Effect.Effect<boolean, ChainUnreachable>;
       draftOpening(
         address: AccountAddress,
-        claim?: BalanceId,
+        claim?: HeldFundsId,
       ): Effect.Effect<OpeningDraft, ChainUnreachable | StoreFailure>;
       draftPayment(
         from: AccountAddress,
@@ -210,7 +210,7 @@ export class Chain extends Context.Service<
 
       const draftOpen = Effect.fn("Chain.draftOpening")(function* (
         address: AccountAddress,
-        claim?: BalanceId,
+        claim?: HeldFundsId,
       ) {
         const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
 

@@ -24,13 +24,15 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "a link receive redrafts a draft made before a third party funded the link account instead of sealing it",
       () =>
         Effect.gen(function* () {
-          const { wallet, link, balance } = yield* fundLink("prefundedfunder");
+          const { wallet, link, heldFunds } =
+            yield* fundLink("prefundedfunder");
+
           const recipient = yield* fundedWallet("prefundedreceiver");
 
           const receive = new AssetOrder({
             id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
             wallet: addressOf(recipient),
-            action: ReceiveLink.make({ link: addressOf(link), balance }),
+            action: ReceiveLink.make({ link: addressOf(link), heldFunds }),
           });
 
           const created = yield* wallet.manage(receive, Option.none());

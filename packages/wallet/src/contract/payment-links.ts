@@ -1,13 +1,7 @@
 import * as Schema from "effect/Schema";
-import { addressRules } from "../address-rules";
-import { Asset, BalanceId, PositiveAmount, withinAssetMaximum } from "./assets";
+import { Asset, PositiveAmount, withinAssetMaximum } from "./assets";
+import { HeldFundsId } from "./held-funds";
 import { AccountAddress, Profile } from "./identity";
-
-export const LinkSecret = Schema.String.check(
-  Schema.makeFilter(addressRules.isLinkSecret),
-).pipe(Schema.brand("LinkSecret"));
-
-export type LinkSecret = typeof LinkSecret.Type;
 
 export const TransferId = Schema.String.check(Schema.isUUID(4)).pipe(
   Schema.brand("TransferId"),
@@ -23,8 +17,8 @@ export class PaymentLinkReceipt extends Schema.Class<PaymentLinkReceipt>(
     address: AccountAddress,
     asset: Asset,
     amount: PositiveAmount,
-    balance: BalanceId,
-    attempts: Schema.Array(BalanceId),
+    heldFunds: HeldFundsId,
+    attempts: Schema.Array(HeldFundsId),
   }).check(withinAssetMaximum),
 ) {}
 
@@ -32,7 +26,7 @@ export class OpenPaymentLink extends Schema.Class<OpenPaymentLink>(
   "@workspace/wallet/OpenPaymentLink",
 )({
   id: TransferId,
-  balance: BalanceId,
+  heldFunds: HeldFundsId,
   address: AccountAddress,
   asset: Asset,
   amount: PositiveAmount,
@@ -60,7 +54,7 @@ export class OpenPaymentLinks extends Schema.TaggedClass<OpenPaymentLinks>()(
 export class ResolvedPaymentLink extends Schema.TaggedClass<ResolvedPaymentLink>()(
   "ResolvedPaymentLink",
   {
-    balance: BalanceId,
+    heldFunds: HeldFundsId,
     address: AccountAddress,
     asset: Asset,
     amount: PositiveAmount,
@@ -82,7 +76,7 @@ export class PaymentLinkReceiptInvalid extends Schema.TaggedClass<PaymentLinkRec
 export class PaymentLinkOpen extends Schema.TaggedClass<PaymentLinkOpen>()(
   "PaymentLinkOpen",
   {
-    balance: BalanceId,
+    heldFunds: HeldFundsId,
     asset: Asset,
     amount: PositiveAmount,
     sender: Profile,

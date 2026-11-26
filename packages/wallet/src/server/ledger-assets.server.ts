@@ -10,7 +10,7 @@ import {
   AccountAddress,
   Amount,
   type Asset,
-  BalanceId,
+  HeldFundsId,
   PositiveAmount,
 } from "../contract";
 import {
@@ -53,8 +53,8 @@ export interface Issuer {
   readonly authRequired: boolean;
 }
 
-export interface ClaimableEntry {
-  readonly balance: BalanceId;
+export interface HeldFundsEntry {
+  readonly heldFunds: HeldFundsId;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
   readonly claimants: ReadonlyArray<StellarClaimant>;
@@ -76,10 +76,10 @@ export const lineKey = (address: AccountAddress, asset: StellarAsset) =>
     }),
   );
 
-export const balanceKey = (balance: BalanceId) =>
+export const heldFundsKey = (heldFunds: HeldFundsId) =>
   xdr.LedgerKey.claimableBalance(
     new xdr.LedgerKeyClaimableBalance({
-      balanceId: xdr.ClaimableBalanceId.fromXdr(balance, "hex"),
+      balanceId: xdr.ClaimableBalanceId.fromXdr(heldFunds, "hex"),
     }),
   );
 
@@ -193,15 +193,15 @@ export function issuerFromEntries(
   return Option.none();
 }
 
-export function claimablesFromEntries(
+export function heldFundsFromEntries(
   entries: ReadonlyArray<LedgerEntry>,
   sponsor: string,
-): ReadonlyArray<ClaimableEntry> {
+): ReadonlyArray<HeldFundsEntry> {
   return parse(entries).flatMap(({ raw, data }) =>
     data.type === "claimableBalance"
       ? [
           {
-            balance: Schema.decodeSync(BalanceId)(
+            heldFunds: Schema.decodeSync(HeldFundsId)(
               data.value.balanceId.toXdr("hex"),
             ),
             asset: fromStellarAsset(
@@ -251,7 +251,7 @@ export function opensAt(predicate: xdr.ClaimPredicate): Option.Option<bigint> {
 }
 
 export interface RecoverablePaymentLink {
-  readonly balance: BalanceId;
+  readonly heldFunds: HeldFundsId;
   readonly address: AccountAddress;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
@@ -285,7 +285,7 @@ export function paymentLinkAddressOf(
 }
 
 export function selectRecoverablePaymentLinks(
-  entries: ReadonlyArray<ClaimableEntry>,
+  entries: ReadonlyArray<HeldFundsEntry>,
   sender: AccountAddress,
 ): ReadonlyArray<RecoverablePaymentLink> {
   return entries.flatMap((entry) => {
@@ -296,7 +296,7 @@ export function selectRecoverablePaymentLinks(
     return Option.isSome(address)
       ? [
           {
-            balance: entry.balance,
+            heldFunds: entry.heldFunds,
             address: address.value,
             asset: entry.asset,
             amount: entry.amount,

@@ -5,7 +5,7 @@ import {
   AssetOrder,
   type AssetStep,
   Asset,
-  BalanceId,
+  HeldFundsId,
   DestinationAddress,
   ExternalLinkDraft,
   ExternalLinkOrder,
@@ -56,7 +56,7 @@ import type {
   WrongCredential,
 } from "./assertion";
 import { BackupState, type CorruptDeviceWallet } from "./key-store";
-import type { LinkSecretCorrupt } from "./link-seal";
+import type { SavedLinkCorrupt } from "./link-seal";
 import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";
 
 export class NoWallet extends Schema.TaggedClass<NoWallet>()("NoWallet", {}) {}
@@ -278,7 +278,7 @@ export class PaymentLinkIntent extends Schema.Class<PaymentLinkIntent>(
 }) {}
 
 export interface PaymentLinkTarget {
-  readonly balance: BalanceId;
+  readonly heldFunds: HeldFundsId;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
 }
@@ -293,7 +293,7 @@ export class PaymentLinkCreated extends Schema.TaggedClass<PaymentLinkCreated>()
     id: TransferId,
     address: AccountAddress,
     code: LinkCode,
-    balance: BalanceId,
+    heldFunds: HeldFundsId,
     asset: Asset,
     amount: PositiveAmount,
     network: Schema.String,
@@ -348,7 +348,7 @@ export type ActivityOutcome =
 export class LatestPaymentLink extends Schema.TaggedClass<LatestPaymentLink>()(
   "LatestPaymentLink",
   {
-    balance: BalanceId,
+    heldFunds: HeldFundsId,
     address: AccountAddress,
     asset: Asset,
     amount: PositiveAmount,
@@ -372,7 +372,7 @@ export class ReclaimReview extends Schema.TaggedClass<ReclaimReview>()(
     draft: AssetDraft,
     redrafted: Schema.Boolean,
     network: Schema.String,
-    balance: BalanceId,
+    heldFunds: HeldFundsId,
     asset: Asset,
     amount: PositiveAmount,
     opensTrustline: Schema.optional(Asset),
@@ -397,8 +397,8 @@ export type ConfirmReclaimOutcome =
   | PrfOutputMissing
   | CorruptDeviceWallet;
 
-export class LinkSecretMissing extends Schema.TaggedClass<LinkSecretMissing>()(
-  "LinkSecretMissing",
+export class SavedLinkMissing extends Schema.TaggedClass<SavedLinkMissing>()(
+  "SavedLinkMissing",
   {},
 ) {}
 
@@ -408,7 +408,7 @@ export class PaymentLinkRevealed extends Schema.TaggedClass<PaymentLinkRevealed>
     address: AccountAddress,
     code: LinkCode,
     path: Schema.String,
-    balance: BalanceId,
+    heldFunds: HeldFundsId,
     asset: Asset,
     amount: PositiveAmount,
   },
@@ -416,8 +416,8 @@ export class PaymentLinkRevealed extends Schema.TaggedClass<PaymentLinkRevealed>
 
 export type RevealPaymentLinkOutcome =
   | PaymentLinkRevealed
-  | LinkSecretMissing
-  | LinkSecretCorrupt
+  | SavedLinkMissing
+  | SavedLinkCorrupt
   | PrfOutputMissing
   | PasskeyCancelled
   | PasskeyFailed
@@ -428,14 +428,14 @@ export type RevealPaymentLinkOutcome =
   | CorruptDeviceWallet
   | WalletUnavailable;
 
-export class LinkSecretMismatch extends Schema.TaggedClass<LinkSecretMismatch>()(
-  "LinkSecretMismatch",
+export class LinkCodeMismatch extends Schema.TaggedClass<LinkCodeMismatch>()(
+  "LinkCodeMismatch",
   {},
 ) {}
 
 export interface LinkReceiveTarget {
   readonly link: AccountAddress;
-  readonly balance: BalanceId;
+  readonly heldFunds: HeldFundsId;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
   readonly sender: Profile;
@@ -449,7 +449,7 @@ export class LinkReceiveReview extends Schema.TaggedClass<LinkReceiveReview>()(
     redrafted: Schema.Boolean,
     network: Schema.String,
     link: AccountAddress,
-    balance: BalanceId,
+    heldFunds: HeldFundsId,
     asset: Asset,
     amount: PositiveAmount,
     sender: Profile,
@@ -458,7 +458,7 @@ export class LinkReceiveReview extends Schema.TaggedClass<LinkReceiveReview>()(
 
 export type PaymentLinkOutcome =
   | PaymentLinkStep
-  | LinkSecretMismatch
+  | LinkCodeMismatch
   | UnsupportedDevice
   | WalletUnavailable;
 
@@ -466,7 +466,7 @@ export type ReviewLinkReceiveOutcome =
   | LinkReceiveReview
   | ReclaimOutcome
   | Exclude<PaymentLinkStep, PaymentLinkOpen>
-  | LinkSecretMismatch;
+  | LinkCodeMismatch;
 
 export type ConfirmLinkReceiveOutcome =
   | ReviewLinkReceiveOutcome
@@ -492,7 +492,7 @@ export class ExternalLinkReview extends Schema.TaggedClass<ExternalLinkReview>()
     redrafted: Schema.Boolean,
     network: Schema.String,
     link: AccountAddress,
-    balance: BalanceId,
+    heldFunds: HeldFundsId,
     destination: DestinationAddress,
     asset: Asset,
     amount: PositiveAmount,
@@ -505,7 +505,7 @@ export class ExternalLinkReview extends Schema.TaggedClass<ExternalLinkReview>()
 export type ExternalLinkOutcome =
   | Exclude<ExternalLinkStep, ExternalLinkDraft>
   | Exclude<PaymentLinkStep, PaymentLinkOpen>
-  | LinkSecretMismatch
+  | LinkCodeMismatch
   | DraftRejected
   | WalletUnavailable;
 

@@ -1,12 +1,10 @@
-import { ed25519 } from "@noble/curves/ed25519.js";
-import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { base58 } from "@scure/base";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import type { AccountAddress, LinkSecret } from "../contract";
+import type { AccountAddress } from "../contract";
 import { signingScheme } from "../device-network";
-import type { SigningScheme } from "./signing-scheme";
+import type { LinkKey } from "./signing-scheme";
 
 const linkCodeVersion = 1;
 const linkCodeEntropyLength = 16;
@@ -51,39 +49,23 @@ export const LinkCode = Schema.String.check(
 
 export type LinkCode = typeof LinkCode.Type;
 
-const encoder = new TextEncoder();
-
-const linkKeySalt = encoder.encode("orchid-payment-link-code-v1");
-
-export interface LinkKey {
-  readonly address: AccountAddress;
-  readonly secret: LinkSecret;
-}
-
-const keyFromEntropy = (
-  scheme: SigningScheme,
-  entropy: Uint8Array,
-): LinkKey => {
-  const seed = hkdf(sha256, entropy, linkKeySalt, scheme.linkKeyInfo, 32);
-
-  try {
-    return {
-      address: scheme.address(ed25519.getPublicKey(seed)),
-      secret: scheme.linkSecret(seed),
-    };
-  } finally {
-    seed.fill(0);
-  }
-};
-
-export const linkKeyOf = (code: LinkCode): Option.Option<LinkKey> =>
+export const withLinkKey = <A>(
+  code: LinkCode,
+  use: (key: LinkKey) => A,
+): Option.Option<A> =>
   Option.map(linkCodeEntropy(code), (entropy) => {
     try {
-      return keyFromEntropy(signingScheme, entropy);
+      return signingScheme.withLinkKey(entropy, use);
     } finally {
       entropy.fill(0);
     }
   });
+
+export const linkAddressOf = (code: LinkCode) =>
+  withLinkKey(code, (key) => key.address);
+
+export const opensLink = (code: LinkCode, link: AccountAddress) =>
+  Option.contains(linkAddressOf(code), link);
 
 export const generateLinkCode = (): LinkCode => {
   const body = new Uint8Array(1 + linkCodeEntropyLength);
@@ -110,5 +92,5 @@ export interface ReadLinkCode {
 
 export const readLinkCode = (fragment: string): Option.Option<ReadLinkCode> =>
   Option.flatMap(Schema.decodeUnknownOption(LinkCode)(fragment), (code) =>
-    Option.map(linkKeyOf(code), (key) => ({ code, link: key.address })),
+    Option.map(linkAddressOf(code), (link) => ({ code, link })),
   );

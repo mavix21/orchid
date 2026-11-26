@@ -1,11 +1,9 @@
 import { expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
-import { LinkSecret, SigningRequest, UnsignedEnvelope } from "../src/contract";
-import {
-  approveWithLinkSecret,
-  approveWithPhrase,
-} from "../src/device/signing";
+import { SigningRequest, UnsignedEnvelope } from "../src/contract";
+import { LinkCode } from "../src/device/link-code";
+import { approveWithLinkCode, approveWithPhrase } from "../src/device/signing";
 import { knownPhrase } from "./device-fixtures";
 
 const request = new SigningRequest({
@@ -15,9 +13,7 @@ const request = new SigningRequest({
   expiresAt: DateTime.makeUnsafe(1_800_000_120_000),
 });
 
-const linkSecret = Schema.decodeSync(LinkSecret)(
-  "SDCY6327IVTWNBEP2WYIDS5GUCPXEP5CDWM4OSR7FQ2UBWTPJEWDBBCA",
-);
+const linkCode = Schema.decodeSync(LinkCode)("Bcru1zp9FViPqN8CJTvQuS2zg");
 
 it.each([
   {
@@ -27,8 +23,8 @@ it.each([
       "jdbYHMdba7EktVlcob9bf86HFfJe7TExWJndHzLXjzMevxJDN22bbM6kYgy4tXgbqfjvql169I+NPu7vGGqJBw==",
   },
   {
-    name: "a link secret",
-    approve: () => approveWithLinkSecret(linkSecret, [request]),
+    name: "a link key",
+    approve: () => approveWithLinkCode(linkCode, [request]),
     signature:
       "FXQhK6jUsvLpd2Wk34fPA87j5jmA1K3UeIUY4OjmGVH7J6jV5L3ACNj1Gsx5/QoH1ptBCEFLuhKo1CHAuwZuDg==",
   },

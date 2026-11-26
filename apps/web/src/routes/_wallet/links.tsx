@@ -160,7 +160,7 @@ const listedLinks = (links: ReadonlyArray<ListedPaymentLink>) =>
       link,
       links.some(
         (other) =>
-          other.balance !== link.balance &&
+          other.heldFunds !== link.heldFunds &&
           linkLabel(other) === linkLabel(link),
       ),
     ),
@@ -312,7 +312,7 @@ function LinkList({
 
   const listed = links.filter((link) =>
     Option.isNone(
-      Option.filter(latest, (shown) => shown.balance === link.balance),
+      Option.filter(latest, (shown) => shown.heldFunds === link.heldFunds),
     ),
   );
 
@@ -386,7 +386,7 @@ function LinkList({
         ) : (
           <div role="list" className="flex flex-col gap-3">
             {rows.map(({ link, created }) => (
-              <Item key={link.balance} variant="outline" role="listitem">
+              <Item key={link.heldFunds} variant="outline" role="listitem">
                 <ItemContent>
                   <ItemTitle className="whitespace-nowrap">
                     {amountLabel(link.amount, link.asset)}

@@ -146,7 +146,7 @@ function Home({
         <BalanceHeader username={holding.profile.username} dollars={dollars} />
         {Option.isSome(arrival) ? (
           <WaitingPayment
-            key={arrival.value.payment.balance}
+            key={arrival.value.payment.id}
             arrival={arrival.value}
             onReceived={() => router.invalidate()}
           />

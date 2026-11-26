@@ -30,12 +30,12 @@ import {
 } from "./key-store";
 import {
   generateLinkCode,
-  linkKeyOf,
+  linkAddressOf,
   linkPath,
   type LinkCode,
 } from "./link-code";
 import {
-  LinkSecretCorrupt,
+  SavedLinkCorrupt,
   LinkCodeOpened,
   type SealedLinkCode,
   linkPrfInput,
@@ -49,7 +49,7 @@ import {
   DraftRejected,
   LatestPaymentLink,
   LinkOutputMissing,
-  LinkSecretMissing,
+  SavedLinkMissing,
   ListedPaymentLink,
   ListedPaymentLinks,
   NoWallet,
@@ -134,11 +134,11 @@ export function devicePaymentLinks(
     WalletUnavailable | KeyStoreUnavailable
   > {
     const code = generateLinkCode();
-    const key = linkKeyOf(code);
+    const derived = linkAddressOf(code);
 
-    if (Option.isNone(key)) return new DraftRejected();
+    if (Option.isNone(derived)) return new DraftRejected();
 
-    const { address } = key.value;
+    const address = derived.value;
 
     const reviewed = yield* transfers.reviewLinkFunding(
       new TransferIntent({
@@ -181,7 +181,7 @@ export function devicePaymentLinks(
 
     if (!Predicate.isTagged(outcome, "Settled")) return outcome;
 
-    if (outcome.claimable === undefined) return new DraftRejected();
+    if (outcome.heldFunds === undefined) return new DraftRejected();
 
     const { address, code, saveOnDevice } = link.value;
 
@@ -195,7 +195,7 @@ export function devicePaymentLinks(
       id: outcome.id,
       address,
       code,
-      balance: outcome.claimable,
+      heldFunds: outcome.heldFunds,
       asset: outcome.asset,
       amount: outcome.amount,
       network,
@@ -287,13 +287,13 @@ export function devicePaymentLinks(
                 links,
                 current.address,
                 resolved.address,
-                resolved.balance,
+                resolved.heldFunds,
               ),
             }),
         );
 
         return new LatestPaymentLink({
-          balance: resolved.balance,
+          heldFunds: resolved.heldFunds,
           address: resolved.address,
           asset: resolved.asset,
           amount: resolved.amount,
@@ -344,11 +344,11 @@ export function devicePaymentLinks(
 
     const saved = Option.filter(
       savedLinkFor(yield* device.store.readLinks(), wallet, target.address),
-      ({ fundedBalance }) =>
-        fundedBalance === undefined || fundedBalance === target.balance,
+      ({ heldFunds }) =>
+        heldFunds === undefined || heldFunds === target.heldFunds,
     );
 
-    if (Option.isNone(saved)) return new LinkSecretMissing();
+    if (Option.isNone(saved)) return new SavedLinkMissing();
 
     const context = {
       network,
@@ -358,7 +358,7 @@ export function devicePaymentLinks(
     };
 
     if (!matchesLinkContext(saved.value, context))
-      return new LinkSecretCorrupt();
+      return new SavedLinkCorrupt();
 
     const verified = yield* verifyPinnedAssertion(
       device.ceremony,
@@ -398,7 +398,7 @@ export function devicePaymentLinks(
       address: target.address,
       code,
       path: linkPath(code),
-      balance: target.balance,
+      heldFunds: target.heldFunds,
       asset: target.asset,
       amount: target.amount,
     });

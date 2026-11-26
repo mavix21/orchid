@@ -16,7 +16,7 @@ import {
   type Approval,
   AssetCode,
   AssetDraft,
-  BalanceId,
+  HeldFundsId,
   LinkRecipient,
   PaymentLinkOpen,
   PositiveAmount,
@@ -108,7 +108,7 @@ const tamperedDrafts: ReadonlyArray<
       at: number,
     ) => {
       readonly envelope: UnsignedEnvelope;
-      readonly claimable?: BalanceId;
+      readonly heldFunds?: HeldFundsId;
     },
   ]
 > = [
@@ -164,14 +164,14 @@ const tamperedDrafts: ReadonlyArray<
     }),
   ],
   [
-    "mismatched draft balance ID",
+    "mismatched held funds id",
     (order, at) => ({
       envelope: actors.paymentLink({
         to: linkTarget(order),
         amount: linkAmount,
         at,
       }),
-      claimable: Schema.decodeSync(BalanceId)(`00000000${"f".repeat(64)}`),
+      heldFunds: Schema.decodeSync(HeldFundsId)(`00000000${"f".repeat(64)}`),
     }),
   ],
   [
@@ -205,7 +205,7 @@ it.live.each(tamperedDrafts)(
               }),
               120,
               at,
-              built.claimable,
+              built.heldFunds,
             );
           }),
       });
@@ -227,26 +227,28 @@ it.live.each(tamperedDrafts)(
     }),
 );
 
-it("recovery selects only sponsored balances with two unconditional claimants", () => {
+it("recovery selects only sponsored held funds with two unconditional claimants", () => {
   const sender = addressOf(Keypair.random());
   const linkKey = addressOf(Keypair.random());
   const recipient = addressOf(Keypair.random());
   const stranger = addressOf(Keypair.random());
 
-  const linkBalance = Schema.decodeSync(BalanceId)(`00000000${"1".repeat(64)}`);
+  const linkBalance = Schema.decodeSync(HeldFundsId)(
+    `00000000${"1".repeat(64)}`,
+  );
 
-  const usernameBalance = Schema.decodeSync(BalanceId)(
+  const usernameBalance = Schema.decodeSync(HeldFundsId)(
     `00000000${"2".repeat(64)}`,
   );
 
-  const strangerBalance = Schema.decodeSync(BalanceId)(
+  const strangerBalance = Schema.decodeSync(HeldFundsId)(
     `00000000${"3".repeat(64)}`,
   );
 
   const selected = selectRecoverablePaymentLinks(
     [
       {
-        balance: linkBalance,
+        heldFunds: linkBalance,
         asset: baseAsset,
         amount: linkAmount,
         sponsored: true,
@@ -256,7 +258,7 @@ it("recovery selects only sponsored balances with two unconditional claimants", 
         ],
       },
       {
-        balance: usernameBalance,
+        heldFunds: usernameBalance,
         asset: baseAsset,
         amount: linkAmount,
         sponsored: true,
@@ -269,7 +271,7 @@ it("recovery selects only sponsored balances with two unconditional claimants", 
         ],
       },
       {
-        balance: strangerBalance,
+        heldFunds: strangerBalance,
         asset: baseAsset,
         amount: linkAmount,
         sponsored: false,
@@ -284,7 +286,7 @@ it("recovery selects only sponsored balances with two unconditional claimants", 
 
   expect(selected).toEqual([
     {
-      balance: linkBalance,
+      heldFunds: linkBalance,
       address: linkKey,
       asset: baseAsset,
       amount: linkAmount,
@@ -299,9 +301,13 @@ const substitutedCode = {
   code: Schema.decodeSync(AssetCode)("EURC"),
 };
 
-const cancelBalance = Schema.decodeSync(BalanceId)(`00000000${"e".repeat(64)}`);
+const cancelBalance = Schema.decodeSync(HeldFundsId)(
+  `00000000${"e".repeat(64)}`,
+);
 
-const otherBalance = Schema.decodeSync(BalanceId)(`00000000${"f".repeat(64)}`);
+const otherBalance = Schema.decodeSync(HeldFundsId)(
+  `00000000${"f".repeat(64)}`,
+);
 
 it.live.each([
   [
@@ -317,7 +323,7 @@ it.live.each([
     cancelBalance,
   ],
   ["trustline repair on native link", nativeAsset, baseAsset, cancelBalance],
-  ["draft for another balance", baseAsset, undefined, otherBalance],
+  ["draft for other held funds", baseAsset, undefined, otherBalance],
 ] as const)(
   "reclaim review rejects %s",
   ([, targetAsset, openedAsset, drafted]) =>
@@ -334,7 +340,7 @@ it.live.each([
 
             const envelope = draftClaim({
               source: new Account(actors.sender, "100"),
-              balance: drafted,
+              heldFunds: drafted,
               opens:
                 openedAsset === undefined
                   ? undefined
@@ -357,7 +363,7 @@ it.live.each([
         store,
         passkeys,
       ).reviewReclaim({
-        balance: cancelBalance,
+        heldFunds: cancelBalance,
         asset: targetAsset,
         amount: linkAmount,
       });
@@ -376,7 +382,7 @@ const receiveDraft = (overrides: Partial<LinkReceiveInput>, at: number) =>
     reserveSponsor: actors.sponsor,
     createsLinkAccount: true,
     destination: actors.wallet.address,
-    balance: cancelBalance,
+    heldFunds: cancelBalance,
     asset: baseAsset,
     amount: linkAmount,
     minTime: at,
@@ -420,8 +426,8 @@ const tamperedReceives: ReadonlyArray<
     (at) => receiveDraft({ link: actors.stranger }, at),
   ],
   [
-    "claiming another balance",
-    (at) => receiveDraft({ balance: otherBalance }, at),
+    "claiming other held funds",
+    (at) => receiveDraft({ heldFunds: otherBalance }, at),
   ],
   ["paying another amount", (at) => receiveDraft({ amount: otherAmount }, at)],
   ["paying another asset", (at) => receiveDraft({ asset: nativeAsset }, at)],
@@ -450,7 +456,7 @@ it.live.each(tamperedReceives)(
         paymentLink: () =>
           Effect.succeed(
             new PaymentLinkOpen({
-              balance: cancelBalance,
+              heldFunds: cancelBalance,
               asset: baseAsset,
               amount: linkAmount,
               sender: actors.pedroProfile,

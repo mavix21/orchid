@@ -7,8 +7,8 @@ import {
   type ActivityPage,
   AssetOrder,
   AssetOrderId,
-  type BalanceId,
-  ClaimBalance,
+  type HeldFundsId,
+  ClaimHeldFunds,
   type DestinationAddress,
   ExternalLinkOrder,
   PositiveAmount,
@@ -50,13 +50,13 @@ export const activityOf = Effect.fn(function* (
   return page;
 });
 
-export const settleSubmitted = (balance?: BalanceId) =>
+export const settleSubmitted = (heldFunds?: HeldFundsId) =>
   Effect.sync(() => {
     settleHash(
       Option.getOrThrow(Option.fromNullishOr(world.submitted.at(-1))).hash,
     );
 
-    if (balance) world.claimables.delete(balance);
+    if (heldFunds) world.claimables.delete(heldFunds);
   });
 
 export const payUsername = Effect.fn(function* (
@@ -83,14 +83,14 @@ export const payUsername = Effect.fn(function* (
 export const receiveInto = Effect.fn(function* (
   wallet: WalletPort,
   claimer: Keypair,
-  funded: { readonly link: Keypair; readonly balance: BalanceId },
+  funded: { readonly link: Keypair; readonly heldFunds: HeldFundsId },
 ) {
   const order = new AssetOrder({
     id: assetOrderId(),
     wallet: addressOf(claimer),
     action: ReceiveLink.make({
       link: addressOf(funded.link),
-      balance: funded.balance,
+      heldFunds: funded.heldFunds,
     }),
   });
 
@@ -101,7 +101,7 @@ export const receiveInto = Effect.fn(function* (
     yield* wallet.manage(order, approve(draft.request, funded.link)),
     "AssetPending",
   );
-  yield* settleSubmitted(funded.balance);
+  yield* settleSubmitted(funded.heldFunds);
   assertTagged(yield* wallet.manage(order, Option.none()), "AssetSettled");
 
   return order;
@@ -110,12 +110,12 @@ export const receiveInto = Effect.fn(function* (
 export const claimBalance = Effect.fn(function* (
   wallet: WalletPort,
   owner: Keypair,
-  balance: BalanceId,
+  heldFunds: HeldFundsId,
 ) {
   const order = new AssetOrder({
     id: assetOrderId(),
     wallet: addressOf(owner),
-    action: ClaimBalance.make({ balance }),
+    action: ClaimHeldFunds.make({ heldFunds }),
   });
 
   const draft = yield* wallet.manage(order, Option.none());
@@ -125,13 +125,13 @@ export const claimBalance = Effect.fn(function* (
     yield* wallet.manage(order, approve(draft.request, owner)),
     "AssetPending",
   );
-  yield* settleSubmitted(balance);
+  yield* settleSubmitted(heldFunds);
   assertTagged(yield* wallet.manage(order, Option.none()), "AssetSettled");
 });
 
 export const claimExternally = Effect.fn(function* (
   wallet: WalletPort,
-  funded: { readonly link: Keypair; readonly balance: BalanceId },
+  funded: { readonly link: Keypair; readonly heldFunds: HeldFundsId },
   destination: DestinationAddress,
 ) {
   world.accounts.set(addressOf(funded.link), accountState());
@@ -139,7 +139,7 @@ export const claimExternally = Effect.fn(function* (
   const order = new ExternalLinkOrder({
     id: assetOrderId(),
     link: addressOf(funded.link),
-    balance: funded.balance,
+    heldFunds: funded.heldFunds,
     destination,
   });
 
@@ -150,7 +150,7 @@ export const claimExternally = Effect.fn(function* (
     yield* wallet.claimPaymentLink(order, approve(draft.request, funded.link)),
     "ExternalLinkPending",
   );
-  yield* settleSubmitted(funded.balance);
+  yield* settleSubmitted(funded.heldFunds);
   assertTagged(
     yield* wallet.claimPaymentLink(order, Option.none()),
     "ExternalLinkSettled",
@@ -166,11 +166,11 @@ export const entryFor = (page: ActivityPage, id: string) => {
 };
 
 export const withClaimants = (
-  balance: BalanceId,
+  heldFunds: HeldFundsId,
   holders: ReadonlyArray<AccountAddress>,
 ) =>
-  world.claimables.set(balance, {
-    balance,
+  world.claimables.set(heldFunds, {
+    heldFunds,
     asset: euro,
     amount: Schema.decodeSync(PositiveAmount)("10000000"),
     sponsored: true,
@@ -196,7 +196,7 @@ export const payWithoutTrustline = Effect.fn(function* (
   });
 
   const { settled } = yield* payUsername(sender, recipient, order);
-  const balance = Option.getOrThrow(Option.fromNullishOr(settled.claimable));
+  const heldFunds = Option.getOrThrow(Option.fromNullishOr(settled.heldFunds));
 
-  return { order, balance };
+  return { order, heldFunds };
 });

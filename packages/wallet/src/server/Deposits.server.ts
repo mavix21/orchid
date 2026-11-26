@@ -88,7 +88,10 @@ export class Deposits extends Context.Service<
                 Effect.gen(function* () {
                   const epoch = epochAt(now);
                   const payments = events.filter(AssetEvent.$is("Payment"));
-                  const claims = events.filter(AssetEvent.$is("BalanceClaim"));
+
+                  const claims = events.filter(
+                    AssetEvent.$is("HeldFundsClaim"),
+                  );
 
                   const recipients = [
                     ...new Set(payments.map((payment) => payment.to)),
@@ -179,7 +182,7 @@ export class Deposits extends Context.Service<
                     claims.length === 0
                       ? []
                       : yield* tx
-                          .select({ balance: transfers.balanceId })
+                          .select({ heldFunds: transfers.balanceId })
                           .from(transfers)
                           .where(
                             and(
@@ -189,14 +192,14 @@ export class Deposits extends Context.Service<
                               isNull(transfers.balanceClosedAt),
                               inArray(
                                 transfers.balanceId,
-                                claims.map((claim) => claim.balance),
+                                claims.map((claim) => claim.heldFunds),
                               ),
                             ),
                           );
 
                   yield* Effect.forEach(
                     claims.filter((claim) =>
-                      open.some((entry) => entry.balance === claim.balance),
+                      open.some((entry) => entry.heldFunds === claim.heldFunds),
                     ),
                     (claim) =>
                       tx
@@ -208,7 +211,7 @@ export class Deposits extends Context.Service<
                           and(
                             eq(transfers.network, network),
                             eq(transfers.testnetEpoch, epoch),
-                            eq(transfers.balanceId, claim.balance),
+                            eq(transfers.balanceId, claim.heldFunds),
                             isNull(transfers.balanceClosedAt),
                           ),
                         ),

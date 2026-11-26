@@ -24,7 +24,7 @@ import {
   CheckedRecipient,
   RecipientStep,
   AssetBusy,
-  ClaimableLimitReached,
+  HeldFundsLimitReached,
   Approval,
   Holding,
   InvalidAddress,
@@ -113,7 +113,7 @@ export class Wallet extends Context.Service<
       const { quotaFull } = yield* claimableQuotaFlow;
       const links = yield* paymentLinksFlow;
       const history = yield* activityFlow;
-      const { portfolio, claimablesFor } = yield* portfolioFlow;
+      const { portfolio, heldFundsFor } = yield* portfolioFlow;
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.catchCause(concealFailure));
@@ -138,7 +138,7 @@ export class Wallet extends Context.Service<
           request: proposed.request,
           recipient: proposed.recipient,
           memoRequired: Predicate.isTagged(requirement, "MemoRequired"),
-          claimable: proposed.claimable,
+          heldFunds: proposed.heldFunds,
         });
       };
 
@@ -212,7 +212,7 @@ export class Wallet extends Context.Service<
               );
 
               return full
-                ? new ClaimableLimitReached({ limit })
+                ? new HeldFundsLimitReached({ limit })
                 : yield* retried();
             }),
           SlotOccupied: () =>
@@ -338,16 +338,16 @@ export class Wallet extends Context.Service<
         );
 
         if (Option.isSome(unopened) && !opened) {
-          const claimable = yield* claimablesFor(address);
+          const heldFunds = yield* heldFundsFor(address);
 
           return Option.exists(
             resumed,
             (step) =>
               Predicate.isTagged(step, "OpeningPending") &&
-              claimable.length === 0,
+              heldFunds.length === 0,
           )
             ? new NeedsReopening({ profile: unopened.value })
-            : new NotOpened({ profile: unopened, claimable });
+            : new NotOpened({ profile: unopened, heldFunds });
         }
 
         const row = opened ? yield* directory.byAddress(address) : found;
@@ -394,7 +394,7 @@ export class Wallet extends Context.Service<
 
       const sweep = yield* sweepFlow({
         ...records,
-        closeGoneBalance: links.closeGoneBalance,
+        closeGoneHeldFunds: links.closeGoneHeldFunds,
       });
 
       const { ingest } = yield* depositFlow;

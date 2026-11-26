@@ -17,8 +17,8 @@ import {
   sameAsset,
 } from "../contract";
 import type { ClaimIssue } from "./claim-reviews";
-import { linkKeyOf, type LinkCode } from "./link-code";
-import { OpenedLink, linkSecretFor, openLink } from "./link-receive";
+import { type LinkCode, linkAddressOf, opensLink } from "./link-code";
+import { OpenedLink, openLink } from "./link-receive";
 import {
   baseAccountOf,
   isIssuedBy,
@@ -32,12 +32,12 @@ import {
   type ExternalLinkOutcome,
   ExternalLinkReview,
   type LinkReceiveTarget,
-  LinkSecretMismatch,
+  LinkCodeMismatch,
   type ReviewExternalLinkOutcome,
 } from "./outcomes";
 import { type DraftTiming, draftTiming } from "./payment-reviews";
 import { pendingSteps, pollSchedule } from "./polling";
-import { approveWithLinkSecret } from "./signing";
+import { approveWithLinkCode } from "./signing";
 import { sameMemo } from "./transfer-drafts";
 
 const externalReviewJson = Schema.encodeSync(
@@ -68,8 +68,8 @@ export const externalReviewOf = (
   if (
     receive.link !== order.link ||
     order.link !== target.link ||
-    receive.balance !== order.balance ||
-    order.balance !== target.balance ||
+    receive.heldFunds !== order.heldFunds ||
+    order.heldFunds !== target.heldFunds ||
     receive.destination !== order.destination ||
     baseDestination === receive.link ||
     receive.channel === receive.link ||
@@ -91,7 +91,7 @@ export const externalReviewOf = (
       redrafted,
       network,
       link: target.link,
-      balance: target.balance,
+      heldFunds: target.heldFunds,
       destination: receive.destination,
       asset: target.asset,
       amount: target.amount,
@@ -279,7 +279,7 @@ export function deviceExternalLinkClaim(
     code: LinkCode,
     intent: ExternalLinkIntent,
   ): Effect.fn.Return<ReviewExternalLinkOutcome, WalletUnavailable> {
-    if (Option.isNone(linkKeyOf(code))) return new LinkSecretMismatch();
+    if (Option.isNone(linkAddressOf(code))) return new LinkCodeMismatch();
 
     if (forbidsMemo(intent.destination) && intent.memo !== undefined)
       return new MemoNotAllowed({ reason: "muxed" });
@@ -291,7 +291,7 @@ export function deviceExternalLinkClaim(
     const order = new ExternalLinkOrder({
       id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
       link: target.link,
-      balance: target.balance,
+      heldFunds: target.heldFunds,
       destination: intent.destination,
       memo: intent.memo,
     });
@@ -305,9 +305,7 @@ export function deviceExternalLinkClaim(
     shown: ExternalLinkReview,
     code: LinkCode,
   ): Effect.fn.Return<ConfirmExternalLinkOutcome, WalletUnavailable> {
-    const secret = linkSecretFor(shown.link, code);
-
-    if (Option.isNone(secret)) return new LinkSecretMismatch();
+    if (!opensLink(code, shown.link)) return new LinkCodeMismatch();
 
     const { issued: snapshot } = yield* Ref.get(state);
 
@@ -324,9 +322,7 @@ export function deviceExternalLinkClaim(
 
     if (!(yield* consume(snapshot.value))) return new DraftRejected();
 
-    const [approval] = approveWithLinkSecret(secret.value, [
-      presented.draft.request,
-    ]);
+    const [approval] = approveWithLinkCode(code, [presented.draft.request]);
 
     return yield* advance(presented.order, afterRelease, Option.some(approval));
   });

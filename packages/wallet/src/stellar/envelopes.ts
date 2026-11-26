@@ -10,7 +10,7 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   Asset,
-  BalanceId,
+  HeldFundsId,
   DestinationAddress,
   PaymentMemo,
   PositiveAmount,
@@ -40,7 +40,7 @@ export class OpeningFacts extends Schema.TaggedClass<OpeningFacts>()(
     address: AccountAddress,
     reserveSponsor: AccountAddress,
     createAccount: Schema.Boolean,
-    claim: Schema.optional(BalanceId),
+    claim: Schema.optional(HeldFundsId),
   },
 ) {}
 
@@ -63,7 +63,7 @@ export interface OpeningInput {
   readonly minTime: number;
   readonly maxTime: number;
   readonly createAccount: boolean;
-  readonly claim?: BalanceId;
+  readonly claim?: HeldFundsId;
 }
 
 export interface PaymentInput {
@@ -177,7 +177,7 @@ export function readEnvelope(
 
       const claim =
         last?.type === "claimClaimableBalance"
-          ? Schema.decodeSync(BalanceId)(last.balanceId)
+          ? Schema.decodeSync(HeldFundsId)(last.balanceId)
           : undefined;
 
       if (
@@ -246,7 +246,7 @@ export function readEnvelope(
 export function claimedByOpening(
   envelope: string,
   address: AccountAddress,
-): Option.Option<BalanceId> {
+): Option.Option<HeldFundsId> {
   try {
     const outer = TransactionBuilder.fromXDR(envelope, networkPassphrase);
 
@@ -260,7 +260,7 @@ export function claimedByOpening(
       first.sponsoredId === address &&
       last?.type === "claimClaimableBalance" &&
       last.source === address
-      ? Option.some(Schema.decodeSync(BalanceId)(last.balanceId))
+      ? Option.some(Schema.decodeSync(HeldFundsId)(last.balanceId))
       : Option.none();
   } catch {
     return Option.none();

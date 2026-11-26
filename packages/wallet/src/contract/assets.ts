@@ -104,9 +104,3 @@ export function formatAmount(
 
   return `${amount / scale}${fraction ? `.${fraction}` : ""}`;
 }
-
-export const BalanceId = Schema.String.check(
-  Schema.isPattern(/^00000000[0-9a-f]{64}$/u),
-).pipe(Schema.brand("BalanceId"));
-
-export type BalanceId = typeof BalanceId.Type;

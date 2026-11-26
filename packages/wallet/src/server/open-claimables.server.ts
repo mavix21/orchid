@@ -19,7 +19,7 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
-  BalanceId,
+  HeldFundsId,
   Profile,
   ReceivedPaymentLink,
   Username,
@@ -32,7 +32,7 @@ import { assetOrders, transfers, usernames } from "./tables.server";
 import {
   type ClaimableKind,
   FundedLink,
-  OpenBalance,
+  OpenHeldFunds,
   OpenLinkRecord,
   OrderJson,
   RecipientJson,
@@ -77,24 +77,24 @@ export const openClaimableCountFrom = Effect.fn("Transfers.openClaimables")(
   },
 );
 
-export const settledOpenBalanceIdsFrom = Effect.fn(
-  "Transfers.settledOpenBalanceIds",
+export const settledOpenHeldFundsFrom = Effect.fn(
+  "Transfers.settledOpenHeldFunds",
 )(function* (sender: AccountAddress, kind: ClaimableKind) {
   const db = yield* Database;
   const now = yield* Clock.currentTimeMillis;
 
   const rows = yield* db
-    .select({ balance: transfers.balanceId })
+    .select({ heldFunds: transfers.balanceId })
     .from(transfers)
     .where(and(openFromAt(sender, kind, now), eq(transfers.status, "settled")))
     .limit(claimableReadLimit);
 
   return rows.flatMap((row) =>
-    row.balance ? [Schema.decodeSync(BalanceId)(row.balance)] : [],
+    row.heldFunds ? [Schema.decodeSync(HeldFundsId)(row.heldFunds)] : [],
   );
 });
 
-export const openBalancesFor = Effect.fn("Transfers.openBalances")(function* (
+export const openHeldFundsFor = Effect.fn("Transfers.openHeldFunds")(function* (
   address: AccountAddress,
 ) {
   const db = yield* Database;
@@ -102,7 +102,7 @@ export const openBalancesFor = Effect.fn("Transfers.openBalances")(function* (
 
   const rows = yield* db
     .select({
-      balance: transfers.balanceId,
+      heldFunds: transfers.balanceId,
       sender: transfers.sender,
       username: usernames.username,
       resolvedRecipient: transfers.resolvedRecipient,
@@ -130,8 +130,8 @@ export const openBalancesFor = Effect.fn("Transfers.openBalances")(function* (
 
         return to instanceof Profile
           ? [
-              new OpenBalance({
-                balance: Schema.decodeUnknownSync(BalanceId)(row.balance),
+              new OpenHeldFunds({
+                id: Schema.decodeUnknownSync(HeldFundsId)(row.heldFunds),
                 from: new Profile({
                   address: Schema.decodeSync(AccountAddress)(row.sender),
                   username: Schema.decodeSync(Username)(row.username),
@@ -145,13 +145,13 @@ export const openBalancesFor = Effect.fn("Transfers.openBalances")(function* (
   });
 });
 
-export const waitingBalancesFor = Effect.fn("Transfers.waitingBalances")(
+export const waitingHeldFundsFor = Effect.fn("Transfers.waitingHeldFunds")(
   function* (address: AccountAddress) {
     const db = yield* Database;
     const now = yield* Clock.currentTimeMillis;
 
     const rows = yield* db
-      .select({ balance: transfers.balanceId })
+      .select({ heldFunds: transfers.balanceId })
       .from(transfers)
       .where(
         and(
@@ -170,9 +170,9 @@ export const waitingBalancesFor = Effect.fn("Transfers.waitingBalances")(
     return yield* Effect.try({
       try: () =>
         rows.flatMap((row) =>
-          row.balance === null
+          row.heldFunds === null
             ? []
-            : [Schema.decodeUnknownSync(BalanceId)(row.balance)],
+            : [Schema.decodeUnknownSync(HeldFundsId)(row.heldFunds)],
         ),
       catch: (cause) => new StoreFailure({ cause }),
     });
@@ -186,7 +186,7 @@ export const openPaymentLinksFor = Effect.fn("Transfers.openPaymentLinks")(
 
     const rows = yield* db
       .select({
-        balance: transfers.balanceId,
+        heldFunds: transfers.balanceId,
         order: transfers.order,
         createdAt: transfers.createdAt,
       })
@@ -208,11 +208,11 @@ export const openPaymentLinksFor = Effect.fn("Transfers.openPaymentLinks")(
           const order = Schema.decodeSync(OrderJson)(row.order);
 
           return Predicate.isTagged(order.to, "PaymentLink") &&
-            row.balance !== null
+            row.heldFunds !== null
             ? [
                 new OpenLinkRecord({
                   id: order.id,
-                  balance: Schema.decodeSync(BalanceId)(row.balance),
+                  heldFunds: Schema.decodeSync(HeldFundsId)(row.heldFunds),
                   address: order.to.value,
                   asset: order.asset,
                   amount: order.amount,
@@ -234,7 +234,7 @@ export const fundedLinkAt = Effect.fn("Transfers.fundedLink")(function* (
 
   const rows = yield* db
     .select({
-      balance: transfers.balanceId,
+      heldFunds: transfers.balanceId,
       order: transfers.order,
       sender: transfers.sender,
       username: usernames.username,
@@ -262,10 +262,10 @@ export const fundedLinkAt = Effect.fn("Transfers.fundedLink")(function* (
 
           return Predicate.isTagged(order.to, "PaymentLink") &&
             order.to.value === link &&
-            row.balance !== null
+            row.heldFunds !== null
             ? Option.some(
                 new FundedLink({
-                  balance: Schema.decodeSync(BalanceId)(row.balance),
+                  heldFunds: Schema.decodeSync(HeldFundsId)(row.heldFunds),
                   sender: new Profile({
                     address: Schema.decodeSync(AccountAddress)(row.sender),
                     username: Schema.decodeSync(Username)(row.username),

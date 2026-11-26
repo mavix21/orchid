@@ -10,8 +10,8 @@ import {
   Approval,
   AssetOrder,
   AssetOrderId,
-  BalanceId,
-  ClaimBalance,
+  HeldFundsId,
+  ClaimHeldFunds,
   CredentialId,
   ReceiveLink,
 } from "../src/contract";
@@ -35,7 +35,7 @@ import {
 } from "./wallet-harness";
 
 const credentialId = Schema.decodeSync(CredentialId)("Y3JlZGVudGlhbA");
-const balance = Schema.decodeSync(BalanceId)(`00000000${"a".repeat(64)}`);
+const heldFunds = Schema.decodeSync(HeldFundsId)(`00000000${"a".repeat(64)}`);
 
 const tokenFor = (address: AccountAddress, secret = "session-secret") =>
   sealToken(
@@ -92,7 +92,7 @@ const order = (wallet: AccountAddress, action: AssetOrder["action"]) =>
   });
 
 const receiving = (wallet: AccountAddress) =>
-  order(wallet, ReceiveLink.make({ link: wallet, balance }));
+  order(wallet, ReceiveLink.make({ link: wallet, heldFunds }));
 
 const signed = Option.some(
   new Approval({ signature: Keypair.random().sign(Buffer.from("approval")) }),
@@ -176,7 +176,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           assertTagged(
             Option.getOrThrow(
               yield* refusalOf(
-                order(wallet, ClaimBalance.make({ balance })),
+                order(wallet, ClaimHeldFunds.make({ heldFunds })),
                 Option.none(),
               ),
             ),

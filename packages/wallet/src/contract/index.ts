@@ -11,20 +11,14 @@ import {
   AssetPending,
   AssetSettled,
   AssetUnsupported,
-  BalanceGone,
+  HeldFundsGone,
   LinkUnclaimable,
   NotClaimable,
   TrustlineLimitReached,
   TrustlineNotEmpty,
   Unchanged,
 } from "./asset-orders";
-import {
-  Amount,
-  Asset,
-  BalanceId,
-  PositiveAmount,
-  withinAssetMaximum,
-} from "./assets";
+import { Amount, Asset, PositiveAmount, withinAssetMaximum } from "./assets";
 import {
   type BackupEnrollment,
   ChallengeIssued,
@@ -35,6 +29,7 @@ import {
   type RestoreStep,
   type SessionStep,
 } from "./backup";
+import { HeldFundsId } from "./held-funds";
 import { HumanCheckRefused, type HumanCheckToken } from "./human-check";
 import {
   AccountAddress,
@@ -63,6 +58,8 @@ export * from "./asset-orders";
 export * from "./assets";
 
 export * from "./backup";
+
+export * from "./held-funds";
 
 export * from "./human-check";
 
@@ -278,7 +275,7 @@ const transferFields = {
   amount: PositiveAmount,
   memo: Schema.optional(PaymentMemo),
 
-  claimable: Schema.optional(BalanceId),
+  heldFunds: Schema.optional(HeldFundsId),
 };
 
 export class Pending extends Schema.TaggedClass<Pending>()("Pending", {
@@ -330,14 +327,14 @@ export class TransferDraft extends Schema.TaggedClass<TransferDraft>()(
     recipient: ResolvedRecipient,
     memoRequired: Schema.Boolean,
 
-    claimable: Schema.optional(BalanceId),
+    heldFunds: Schema.optional(HeldFundsId),
   },
 ) {}
 
-export class ClaimableBalance extends Schema.Class<ClaimableBalance>(
-  "@workspace/wallet/ClaimableBalance",
+export class HeldFunds extends Schema.Class<HeldFunds>(
+  "@workspace/wallet/HeldFunds",
 )({
-  balance: BalanceId,
+  id: HeldFundsId,
   asset: Asset,
   amount: PositiveAmount,
   from: Profile,
@@ -350,7 +347,7 @@ export class NotOpened extends Schema.TaggedClass<NotOpened>()("NotOpened", {
     Schema.withDecodingDefault(Effect.succeed(null)),
     Schema.withConstructorDefault(Effect.succeed(Option.none())),
   ),
-  claimable: Schema.Array(ClaimableBalance).pipe(
+  heldFunds: Schema.Array(HeldFunds).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
     Schema.withConstructorDefault(Effect.succeed([])),
   ),
@@ -391,7 +388,7 @@ export class ReceivedActivity extends Schema.TaggedClass<ReceivedActivity>()(
 
 export class AwaitingAcceptanceActivity extends Schema.TaggedClass<AwaitingAcceptanceActivity>()(
   "AwaitingAcceptanceActivity",
-  { ...receivedActivityFields, balance: BalanceId },
+  { ...receivedActivityFields, heldFunds: HeldFundsId },
 ) {}
 
 export class TakenBackActivity extends Schema.TaggedClass<TakenBackActivity>()(
@@ -480,8 +477,8 @@ export class RecipientCannotReceive extends Schema.TaggedClass<RecipientCannotRe
   },
 ) {}
 
-export class ClaimableLimitReached extends Schema.TaggedClass<ClaimableLimitReached>()(
-  "ClaimableLimitReached",
+export class HeldFundsLimitReached extends Schema.TaggedClass<HeldFundsLimitReached>()(
+  "HeldFundsLimitReached",
   { limit: Schema.Number },
 ) {}
 
@@ -503,7 +500,7 @@ export const TransferStep = Schema.Union([
   ExternalMemoRequired,
   MemoNotAllowed,
   RecipientCannotReceive,
-  ClaimableLimitReached,
+  HeldFundsLimitReached,
   AssetUnsupported,
   AssetBusy,
 ]);
@@ -556,7 +553,7 @@ export const AssessmentStep = Schema.Union([
   ExternalMemoRequired,
   MemoNotAllowed,
   RecipientCannotReceive,
-  ClaimableLimitReached,
+  HeldFundsLimitReached,
   AssetUnsupported,
 ]);
 
@@ -577,7 +574,7 @@ export const AssetStep = Schema.Union([
   AssetUnsupported,
   RecipientCannotReceive,
   NotClaimable,
-  BalanceGone,
+  HeldFundsGone,
   LinkUnclaimable,
 ]);
 
@@ -625,7 +622,7 @@ export class ExternalLinkOrder extends Schema.Class<ExternalLinkOrder>(
 )({
   id: AssetOrderId,
   link: AccountAddress,
-  balance: BalanceId,
+  heldFunds: HeldFundsId,
   destination: DestinationAddress,
   memo: Schema.optional(PaymentMemo),
 }) {}
@@ -672,7 +669,7 @@ export const ExternalLinkStep = Schema.Union([
   MemoNotAllowed,
   RecipientCannotReceive,
   NotClaimable,
-  BalanceGone,
+  HeldFundsGone,
   LinkUnclaimable,
   PaymentLinkChecking,
 ]);
@@ -693,7 +690,7 @@ export class Holding extends Schema.TaggedClass<Holding>()("Holding", {
   ),
 
   balances: Schema.Array(Balance),
-  claimable: Schema.Array(ClaimableBalance),
+  heldFunds: Schema.Array(HeldFunds),
   latest: Schema.OptionFromNullOr(Receipt),
 }) {}
 

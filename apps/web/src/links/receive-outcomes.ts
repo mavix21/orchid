@@ -72,7 +72,8 @@ export const receiveScreen = (
         "La operación no se completó. Revisa el link para saber si el dinero sigue ahí.",
         "check",
       ),
-    BalanceGone: ({ status }) => (status === "unresolved" ? unresolved : used),
+    HeldFundsGone: ({ status }) =>
+      status === "unresolved" ? unresolved : used,
     PaymentLinkUsed: () => used,
     PaymentLinkUnresolved: () => unresolved,
     PaymentLinkUnrecognized: () => unrecognized,
@@ -82,7 +83,7 @@ export const receiveScreen = (
         "Revisa que lo hayas abierto completo desde el mensaje que te enviaron.",
         "done",
       ),
-    LinkSecretMismatch: () =>
+    LinkCodeMismatch: () =>
       new LinkScreen<ReceiveAction>(
         "Este link está incompleto",
         "Ábrelo de nuevo desde el mensaje que te enviaron.",

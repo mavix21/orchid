@@ -13,7 +13,7 @@ import {
   Username,
   WalletClaim,
 } from "../contract";
-import { type LinkCode } from "./link-code";
+import { type LinkCode, opensLink } from "./link-code";
 import { network } from "../device-network";
 import {
   AssertionIntent,
@@ -60,13 +60,13 @@ import {
   localPhrasePrfInput,
   sealLocalEnvelope,
 } from "./local-envelope";
-import { linkSecretFor, receiveReviewJson } from "./link-receive";
+import { receiveReviewJson } from "./link-receive";
 import { reviewJson } from "./opening-drafts";
 import {
   BackupUnsupported,
   DraftRejected,
   InvalidUsername,
-  LinkSecretMismatch,
+  LinkCodeMismatch,
   NoWallet,
   OpeningReview,
   UnsupportedDevice,
@@ -75,7 +75,7 @@ import {
 import { backupSalt, sealPhrase } from "./phrase-seal";
 import { generateSecretPhrase } from "./secret-phrase";
 import {
-  approveWithLinkSecret,
+  approveWithLinkCode,
   approveWithPhrase,
   phraseAddress,
 } from "./signing";
@@ -333,13 +333,9 @@ export function makeEnrollmentEffects(
     if ((yield* standingOfReview(sealed, review)) !== "current")
       return yield* refreshReview(sealed, true);
 
-    const secret =
-      receive === undefined
-        ? Option.none()
-        : linkSecretFor(receive.review.link, receive.code);
-
     if (receive !== undefined) {
-      if (Option.isNone(secret)) return new LinkSecretMismatch();
+      if (!opensLink(receive.code, receive.review.link))
+        return new LinkCodeMismatch();
 
       if ((yield* receiveStanding(sealed, receive.review)) !== "current")
         return yield* refreshReceive(sealed, receive.review);
@@ -350,14 +346,14 @@ export function makeEnrollmentEffects(
     ]);
 
     const heldReceive =
-      receive !== undefined && Option.isSome(secret)
-        ? new HeldReceive({
+      receive === undefined
+        ? undefined
+        : new HeldReceive({
             order: receive.review.order,
-            approval: approveWithLinkSecret(secret.value, [
+            approval: approveWithLinkCode(receive.code, [
               receive.review.draft.request,
             ])[0],
-          })
-        : undefined;
+          });
 
     const written = yield* storage
       .write(
@@ -466,8 +462,8 @@ export function makeEnrollmentEffects(
       )
         return pendingNotice(current);
 
-      if (Option.isNone(linkSecretFor(receive.review.link, receive.code)))
-        return new LinkSecretMismatch();
+      if (!opensLink(receive.code, receive.review.link))
+        return new LinkCodeMismatch();
 
       if ((yield* receiveStanding(current, receive.review)) !== "current")
         return yield* refreshReceive(current, receive.review);

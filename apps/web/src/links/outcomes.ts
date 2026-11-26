@@ -52,10 +52,10 @@ export class LinkScreen<Action extends string> {
 export type RecoverableLink = PaymentLinkTarget;
 
 export const recoverable = ({
-  balance,
+  heldFunds,
   asset,
   amount,
-}: RecoverableLink): RecoverableLink => ({ balance, asset, amount });
+}: RecoverableLink): RecoverableLink => ({ heldFunds, asset, amount });
 
 export const lostLinkMessage =
   "Este link no se guardó en este dispositivo, así que ya no se puede compartir. Tu dinero sigue a salvo: recupéralo y crea uno nuevo.";
@@ -200,7 +200,7 @@ export const createLinkResult = (
         `Tienes ${amountLabel(available, asset)} disponibles. ${untouched}`,
         "edit",
       ),
-    ClaimableLimitReached: ({ limit }) =>
+    HeldFundsLimitReached: ({ limit }) =>
       new LinkScreen(
         `Ya tienes ${limit} links abiertos`,
         `Puedes tener hasta ${limit} a la vez. Recupera el dinero de uno para crear otro. ${untouched}`,
@@ -373,7 +373,7 @@ export const reclaimResult = (
         "La operación no se completó. Inténtalo de nuevo para saber si el dinero sigue en el link.",
         "again",
       ),
-    BalanceGone: ({ status }) =>
+    HeldFundsGone: ({ status }) =>
       Match.value(status).pipe(
         Match.when(
           "reclaimed",
@@ -544,9 +544,9 @@ export const revealResult = (
       ),
     PrfOutputMissing: () =>
       cannotOpen("Tu passkey no puede abrir el link en este dispositivo."),
-    LinkSecretMissing: () =>
+    SavedLinkMissing: () =>
       cannotOpen("Este link no está guardado en este dispositivo."),
-    LinkSecretCorrupt: () =>
+    SavedLinkCorrupt: () =>
       cannotOpen("El link guardado en este dispositivo está dañado."),
     CorruptDeviceWallet: () =>
       cannotOpen("Los datos guardados en este navegador están dañados."),

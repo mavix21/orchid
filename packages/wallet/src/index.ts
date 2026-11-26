@@ -10,7 +10,7 @@ export * from "./device/assertion";
 
 export * from "./device/local-envelope";
 
-export { LinkSecretCorrupt, SealedLinkCode } from "./device/link-seal";
+export { SavedLinkCorrupt, SealedLinkCode } from "./device/link-seal";
 
 export * from "./device/enrollment";
 

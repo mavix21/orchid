@@ -4,9 +4,9 @@ import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 import {
   type AccountAddress,
-  type BalanceId,
+  type HeldFundsId,
   Balance,
-  ClaimableBalance,
+  HeldFunds,
   baseAsset,
   nativeAsset,
   sameAsset,
@@ -79,27 +79,27 @@ export const portfolioFlow = Effect.gen(function* () {
       };
     });
 
-  const loadClaimables = (
+  const loadHeldFunds = (
     address: AccountAddress,
     permits: Semaphore.Semaphore,
   ) =>
     Effect.gen(function* () {
-      const pending = yield* transfers.openBalances(address);
+      const pending = yield* transfers.openHeldFunds(address);
 
       const entries = yield* permits.withPermit(
-        chain.claimable(pending.map((item) => item.balance)),
+        chain.heldFunds(pending.map((item) => item.id)),
       );
 
-      const claimable: ClaimableBalance[] = [];
-      const missing: BalanceId[] = [];
+      const waiting: HeldFunds[] = [];
+      const missing: HeldFundsId[] = [];
 
       for (const item of pending) {
         const entry = entries.find(
-          (candidate) => candidate.balance === item.balance,
+          (candidate) => candidate.heldFunds === item.id,
         );
 
         if (!entry) {
-          missing.push(item.balance);
+          missing.push(item.id);
           continue;
         }
 
@@ -107,8 +107,8 @@ export const portfolioFlow = Effect.gen(function* () {
           (candidate) => candidate.destination === address,
         );
 
-        claimable.push(
-          new ClaimableBalance({
+        waiting.push(
+          new HeldFunds({
             ...item,
             asset: entry.asset,
             amount: entry.amount,
@@ -123,20 +123,20 @@ export const portfolioFlow = Effect.gen(function* () {
 
       yield* Effect.forEach(
         missing,
-        (balance) =>
+        (id) =>
           permits
-            .withPermit(chain.claimable([balance]))
+            .withPermit(chain.heldFunds([id]))
             .pipe(
               Effect.flatMap((confirmed) =>
                 confirmed.length === 0
-                  ? transfers.closeBalance(balance)
+                  ? transfers.closeHeldFunds(id)
                   : Effect.void,
               ),
             ),
         { concurrency: rpcReadConcurrency, discard: true },
       );
 
-      return claimable;
+      return waiting;
     });
 
   const portfolio = Effect.fn("Wallet.portfolio")(function* (
@@ -144,24 +144,24 @@ export const portfolioFlow = Effect.gen(function* () {
   ) {
     const permits = yield* Semaphore.make(rpcReadConcurrency);
 
-    const [holdings, claimable] = yield* Effect.all(
-      [loadHoldings(address, permits), loadClaimables(address, permits)],
+    const [holdings, heldFunds] = yield* Effect.all(
+      [loadHoldings(address, permits), loadHeldFunds(address, permits)],
       { concurrency: rpcReadConcurrency },
     );
 
     return {
       ...holdings,
-      claimable,
+      heldFunds,
     };
   });
 
-  const claimablesFor = Effect.fn("Wallet.claimablesFor")(function* (
+  const heldFundsFor = Effect.fn("Wallet.heldFundsFor")(function* (
     address: AccountAddress,
   ) {
     const permits = yield* Semaphore.make(rpcReadConcurrency);
 
-    return yield* loadClaimables(address, permits);
+    return yield* loadHeldFunds(address, permits);
   });
 
-  return { portfolio, claimablesFor };
+  return { portfolio, heldFundsFor };
 });

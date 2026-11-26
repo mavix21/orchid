@@ -6,7 +6,7 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   Asset,
-  BalanceId,
+  HeldFundsId,
   Failed,
   Pending,
   PositiveAmount,
@@ -28,18 +28,18 @@ export class Proposed extends Schema.TaggedClass<Proposed>()("Proposed", {
   order: TransferOrder,
   recipient: ResolvedRecipient,
   request: SigningRequest,
-  claimable: Schema.optional(BalanceId),
+  heldFunds: Schema.optional(HeldFundsId),
   claimableKind: Schema.optional(ClaimableKind),
-  attemptBalances: Schema.Array(BalanceId),
+  attemptHeldFunds: Schema.Array(HeldFundsId),
 }) {}
 
 export class Authorized extends Schema.TaggedClass<Authorized>()("Authorized", {
   order: TransferOrder,
   recipient: ResolvedRecipient,
   sealed: Sealed,
-  claimable: Schema.optional(BalanceId),
+  heldFunds: Schema.optional(HeldFundsId),
   claimableKind: Schema.optional(ClaimableKind),
-  attemptBalances: Schema.Array(BalanceId),
+  attemptHeldFunds: Schema.Array(HeldFundsId),
 }) {}
 
 export class Concluded extends Schema.TaggedClass<Concluded>()("Concluded", {
@@ -57,17 +57,19 @@ export class ClaimablesFull extends Schema.TaggedClass<ClaimablesFull>()(
   { limit: Schema.Number },
 ) {}
 
-export class OpenBalance extends Schema.Class<OpenBalance>("OpenBalance")({
-  balance: BalanceId,
-  from: Profile,
-  to: Profile,
-}) {}
+export class OpenHeldFunds extends Schema.Class<OpenHeldFunds>("OpenHeldFunds")(
+  {
+    id: HeldFundsId,
+    from: Profile,
+    to: Profile,
+  },
+) {}
 
 export class OpenLinkRecord extends Schema.Class<OpenLinkRecord>(
   "OpenLinkRecord",
 )({
   id: TransferId,
-  balance: BalanceId,
+  heldFunds: HeldFundsId,
   address: AccountAddress,
   asset: Asset,
   amount: PositiveAmount,
@@ -75,7 +77,7 @@ export class OpenLinkRecord extends Schema.Class<OpenLinkRecord>(
 }) {}
 
 export class FundedLink extends Schema.Class<FundedLink>("FundedLink")({
-  balance: BalanceId,
+  heldFunds: HeldFundsId,
   sender: Profile,
   asset: Asset,
   amount: PositiveAmount,
@@ -93,23 +95,23 @@ export interface ConclusionColumns {
 
 export const OrderJson = Schema.fromJsonString(TransferOrder);
 export const RecipientJson = Schema.fromJsonString(ResolvedRecipient);
-export const AttemptsJson = Schema.fromJsonString(Schema.Array(BalanceId));
+export const AttemptsJson = Schema.fromJsonString(Schema.Array(HeldFundsId));
 
 export const claimableKindOf = (
   order: TransferOrder,
-  balance: Option.Option<BalanceId>,
+  heldFunds: Option.Option<HeldFundsId>,
 ): ClaimableKind | null =>
-  Option.isNone(balance)
+  Option.isNone(heldFunds)
     ? null
     : Predicate.isTagged(order.to, "PaymentLink")
       ? "paymentLink"
       : "username";
 
 export const appendAttempt = (
-  existing: ReadonlyArray<BalanceId>,
-  balance: Option.Option<BalanceId>,
-): ReadonlyArray<BalanceId> =>
-  Option.match(balance, {
+  existing: ReadonlyArray<HeldFundsId>,
+  heldFunds: Option.Option<HeldFundsId>,
+): ReadonlyArray<HeldFundsId> =>
+  Option.match(heldFunds, {
     onNone: () => existing,
     onSome: (id) => (existing.includes(id) ? existing : [...existing, id]),
   });
@@ -118,7 +120,7 @@ export function pending(transfer: Authorized): Pending {
   return new Pending({
     ...transfer.order,
     recipient: transfer.recipient,
-    claimable: transfer.claimable,
+    heldFunds: transfer.heldFunds,
     expiresAt: transfer.sealed.expiresAt,
   });
 }
@@ -128,33 +130,33 @@ export function readTransferRow(row: TransferRow): Transfer {
   const recipient = Schema.decodeSync(RecipientJson)(row.resolvedRecipient);
   const expiresAt = DateTime.makeUnsafe(row.expiresAt);
 
-  const claimable =
+  const heldFunds =
     row.balanceId === null
       ? undefined
-      : Schema.decodeSync(BalanceId)(row.balanceId);
+      : Schema.decodeSync(HeldFundsId)(row.balanceId);
 
   const claimableKind =
     row.claimableKind === null
-      ? claimable === undefined
+      ? heldFunds === undefined
         ? undefined
         : Predicate.isTagged(order.to, "PaymentLink")
           ? "paymentLink"
           : "username"
       : Schema.decodeSync(ClaimableKind)(row.claimableKind);
 
-  const attemptBalances =
+  const attemptHeldFunds =
     row.attemptBalanceIds === null
-      ? claimable === undefined
+      ? heldFunds === undefined
         ? []
-        : [claimable]
+        : [heldFunds]
       : Schema.decodeSync(AttemptsJson)(row.attemptBalanceIds);
 
   const fields = {
     order,
     recipient,
-    claimable,
+    heldFunds,
     claimableKind,
-    attemptBalances,
+    attemptHeldFunds,
   };
 
   return Match.value(row.status).pipe(
@@ -193,7 +195,7 @@ export function readTransferRow(row: TransferRow): Transfer {
         receipt: new Settled({
           ...order,
           recipient,
-          claimable,
+          heldFunds,
           settledAt: DateTime.makeUnsafe(row.concludedAt),
         }),
       });
@@ -207,7 +209,7 @@ export function readTransferRow(row: TransferRow): Transfer {
         receipt: new Failed({
           ...order,
           recipient,
-          claimable,
+          heldFunds,
           reason: row.failure,
         }),
       });

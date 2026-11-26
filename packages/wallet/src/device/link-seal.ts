@@ -3,9 +3,9 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import { AccountAddress, BalanceId, CredentialId } from "../contract";
+import { AccountAddress, HeldFundsId, CredentialId } from "../contract";
 import { canonicalTuple, sha256 } from "./canonical-digest";
-import { LinkCode, linkKeyOf } from "./link-code";
+import { LinkCode, linkAddressOf } from "./link-code";
 import { aesGcmTagLength, envelopeIvLength } from "./local-envelope";
 
 export const linkSealVersion = 2;
@@ -25,15 +25,15 @@ export class SealedLinkCode extends Schema.Class<SealedLinkCode>(
   credentialId: CredentialId,
   iv: Schema.Uint8ArrayFromBase64,
   ciphertext: Schema.Uint8ArrayFromBase64,
-  fundedBalance: Schema.optional(BalanceId),
+  heldFunds: Schema.optional(HeldFundsId),
 }) {}
 
 export class LinkCodeOpened extends Data.TaggedClass("LinkCodeOpened")<{
   readonly code: Redacted.Redacted<LinkCode>;
 }> {}
 
-export class LinkSecretCorrupt extends Schema.TaggedClass<LinkSecretCorrupt>()(
-  "LinkSecretCorrupt",
+export class SavedLinkCorrupt extends Schema.TaggedClass<SavedLinkCorrupt>()(
+  "SavedLinkCorrupt",
   {},
 ) {}
 
@@ -85,9 +85,6 @@ const linkKey = (
       rawPrf.fill(0);
     }
   }).pipe(Effect.option);
-
-const linkAddressOf = (code: LinkCode) =>
-  Option.map(linkKeyOf(code), (key) => key.address);
 
 export const sealLinkCode = Effect.fn("Device.sealLinkCode")(function* (
   context: LinkSealContext,
@@ -153,16 +150,16 @@ export const openLinkCode = Effect.fn("Device.openLinkCode")(function* (
   sealed: SealedLinkCode,
   expected: LinkSealContext,
   prf: Redacted.Redacted<Uint8Array<ArrayBuffer>>,
-): Effect.fn.Return<LinkCodeOpened | LinkSecretCorrupt> {
+): Effect.fn.Return<LinkCodeOpened | SavedLinkCorrupt> {
   if (
     !matchesLinkContext(sealed, expected) ||
     Redacted.value(prf).byteLength === 0
   )
-    return new LinkSecretCorrupt();
+    return new SavedLinkCorrupt();
 
   const key = yield* linkKey(prf, "decrypt");
 
-  if (Option.isNone(key)) return new LinkSecretCorrupt();
+  if (Option.isNone(key)) return new SavedLinkCorrupt();
 
   const text = yield* Effect.tryPromise(async () => {
     const plaintext = new Uint8Array(
@@ -190,7 +187,7 @@ export const openLinkCode = Effect.fn("Device.openLinkCode")(function* (
     Option.isNone(code) ||
     !Option.contains(linkAddressOf(code.value), expected.address)
   )
-    return new LinkSecretCorrupt();
+    return new SavedLinkCorrupt();
 
   return new LinkCodeOpened({ code: Redacted.make(code.value) });
 });

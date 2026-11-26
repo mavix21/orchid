@@ -148,7 +148,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             new TransferIntent({ ...toPedro, asset: euro }),
           );
 
-          expect(sent instanceof Settled && sent.claimable !== undefined).toBe(
+          expect(sent instanceof Settled && sent.heldFunds !== undefined).toBe(
             true,
           );
         }),

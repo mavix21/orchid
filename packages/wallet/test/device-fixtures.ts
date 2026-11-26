@@ -1,3 +1,6 @@
+import { hkdf } from "@noble/hashes/hkdf.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { base58 } from "@scure/base";
 import { mnemonicToSeedSync } from "@scure/bip39";
 import { Account, Keypair, MuxedAccount } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
@@ -9,7 +12,7 @@ import { HDKey } from "micro-key-producer/slip10.js";
 import {
   AccountAddress,
   type Asset,
-  type BalanceId,
+  type HeldFundsId,
   DestinationAddress,
   type ExternalRecipient,
   type LinkRecipient,
@@ -32,21 +35,32 @@ import {
   SecretPhrase,
   generateSecretPhrase,
 } from "../src/device/secret-phrase";
-import { generateLinkCode, linkKeyOf } from "../src/device/link-code";
+import { type LinkCode, generateLinkCode } from "../src/device/link-code";
 import {
   draftClaimable,
   draftPaymentLink,
 } from "../src/stellar/asset-envelopes";
 import { draftPayment } from "../src/stellar/envelopes";
+import { networkPassphrase } from "../src/stellar/network";
 import { stellarSigningScheme } from "../src/stellar/signing-scheme";
+
+export const linkKeypairOf = (code: LinkCode) =>
+  Keypair.fromRawEd25519Seed(
+    Buffer.from(
+      hkdf(
+        sha256,
+        base58.decode(code).slice(1, 17),
+        new TextEncoder().encode("orchid-payment-link-code-v1"),
+        new TextEncoder().encode(networkPassphrase),
+        32,
+      ),
+    ),
+  );
 
 export const linkFixture = () => {
   const code = generateLinkCode();
 
-  return {
-    code,
-    keypair: Keypair.fromSecret(Option.getOrThrow(linkKeyOf(code)).secret),
-  };
+  return { code, keypair: linkKeypairOf(code) };
 };
 
 export const addressOf = (key: Keypair) =>
@@ -272,7 +286,7 @@ export const transferDraftOf = (
   recipient: Profile | LinkRecipient | ExternalRecipient,
   lifetime = 120,
   at = nowSeconds(),
-  claimable?: BalanceId,
+  heldFunds?: HeldFundsId,
 ) =>
   new TransferDraft({
     request: new SigningRequest({
@@ -281,5 +295,5 @@ export const transferDraftOf = (
     }),
     recipient,
     memoRequired: false,
-    claimable,
+    heldFunds,
   });

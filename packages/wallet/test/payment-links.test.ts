@@ -10,7 +10,7 @@ import {
   AddressRecipient,
   type Approval,
   AssetUnsupported,
-  BalanceId,
+  HeldFundsId,
   OpenPaymentLink,
   OpenPaymentLinks,
   PaymentLinkRecipient,
@@ -29,12 +29,12 @@ import {
   makeWalletEffects,
 } from "../src/device/client";
 import type { PublicDeviceWallet } from "../src/device/key-store";
-import { linkKeyOf } from "../src/device/link-code";
+import { linkAddressOf } from "../src/device/link-code";
 import { SealedLinkCode, linkPrfInput } from "../src/device/link-seal";
 import { holdingsFromEntries } from "../src/server/ledger-assets.server";
 import { transfers } from "../src/server/tables.server";
 import { network, usdc } from "../src/stellar/network";
-import { memoryKeyStore } from "./device-fixtures";
+import { linkKeypairOf, memoryKeyStore } from "./device-fixtures";
 import {
   approvingDevice,
   installSealedWallet,
@@ -172,9 +172,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(created, "PaymentLinkCreated");
           expect(created.path).toBe(`/r#${created.code}`);
-          expect(
-            Option.map(linkKeyOf(created.code), ({ address }) => address),
-          ).toEqual(Option.some(created.address));
+          expect(linkAddressOf(created.code)).toEqual(
+            Option.some(created.address),
+          );
           expect(created.savedOnDevice).toBe(true);
 
           const linkInput = yield* linkPrfInput({
@@ -192,21 +192,21 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             released.map(({ wallet: state, links }) => ({
               approved: state.approvedUntil !== undefined,
               link: state.linkReceipt?.address,
-              balance: state.linkReceipt?.balance,
+              heldFunds: state.linkReceipt?.heldFunds,
               saved: links.map((link) => link.address),
             })),
           ).toEqual([
             {
               approved: true,
               link: created.address,
-              balance: created.balance,
+              heldFunds: created.heldFunds,
               saved: [created.address],
             },
           ]);
 
           const [savedLink] = yield* browserKeyStore.readLinks();
 
-          expect(savedLink?.fundedBalance).toBe(created.balance);
+          expect(savedLink?.heldFunds).toBe(created.heldFunds);
 
           const ciphertext = Schema.encodeSync(SealedLinkCode)(
             Option.getOrThrow(Option.fromNullishOr(savedLink)),
@@ -214,7 +214,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const target = {
             address: created.address,
-            balance: created.balance,
+            heldFunds: created.heldFunds,
             asset: created.asset,
             amount: created.amount,
           };
@@ -244,7 +244,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             }),
             new OpenPaymentLink({
               id: created.id,
-              balance: Schema.decodeSync(BalanceId)(
+              heldFunds: Schema.decodeSync(HeldFundsId)(
                 `00000000${"7".repeat(64)}`,
               ),
               address: addressOf(Keypair.random()),
@@ -284,7 +284,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             serializedRows,
           ].join("\n");
 
-          const linkSecret = Option.getOrThrow(linkKeyOf(created.code)).secret;
+          const linkSecret = linkKeypairOf(created.code).secret();
 
           expect(exposed).not.toContain(created.code);
           expect(exposed).not.toContain(linkSecret);

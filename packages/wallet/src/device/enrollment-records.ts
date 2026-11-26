@@ -36,7 +36,7 @@ import type {
   BackupUnsupported,
   DraftRejected,
   InvalidUsername,
-  LinkSecretMismatch,
+  LinkCodeMismatch,
   NoWallet,
   ReviewLinkReceiveOutcome,
   UnsupportedDevice,
@@ -148,7 +148,7 @@ export type EnrollWalletOutcome =
   | ChallengeRefused
   | RegistrationRefused
   | UnsupportedDevice
-  | LinkSecretMismatch
+  | LinkCodeMismatch
   | WalletUnavailable;
 
 export type ReviewEnrollmentReceiveOutcome =

@@ -61,8 +61,8 @@ export const entering = (problem: Option.Option<string> = Option.none()) =>
 export const lost = (link: RecoverableLink) =>
   LinkStep.Lost({ link: recoverable(link) });
 
-export const saved = ({ address, balance, asset, amount }: SavedLinkTarget) =>
-  LinkStep.Saved({ link: { address, balance, asset, amount } });
+export const saved = ({ address, heldFunds, asset, amount }: SavedLinkTarget) =>
+  LinkStep.Saved({ link: { address, heldFunds, asset, amount } });
 
 const keptReceipt = (link: PaymentLinkCreated, delivery: Delivery) => {
   if (delivered(delivery))

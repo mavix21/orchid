@@ -3,12 +3,12 @@ import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { BalanceId } from "../contract";
+import { HeldFundsId } from "../contract";
 import { sweepBatchSize } from "../policy";
 import { epochAt, network } from "../stellar/network";
 import { transfers } from "./tables.server";
 
-export const balancesToCheck = Effect.gen(function* () {
+export const heldFundsToCheck = Effect.gen(function* () {
   const db = yield* Database;
   const now = yield* DateTime.now;
 
@@ -40,9 +40,9 @@ export const balancesToCheck = Effect.gen(function* () {
         ),
       ),
     )
-    .returning({ balance: transfers.balanceId });
+    .returning({ heldFunds: transfers.balanceId });
 
   return rows.flatMap((row) =>
-    row.balance ? [Schema.decodeSync(BalanceId)(row.balance)] : [],
+    row.heldFunds ? [Schema.decodeSync(HeldFundsId)(row.heldFunds)] : [],
   );
 });

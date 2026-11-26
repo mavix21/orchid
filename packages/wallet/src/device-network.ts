@@ -3,7 +3,7 @@ import type * as Option from "effect/Option";
 import type {
   AccountAddress,
   Asset,
-  BalanceId,
+  HeldFundsId,
   DestinationAddress,
   PaymentMemo,
   PositiveAmount,
@@ -25,7 +25,7 @@ interface Movement extends Expiring {
 interface HeldMovement extends Movement {
   readonly to: AccountAddress;
   readonly reserveSponsor: AccountAddress;
-  readonly balance: BalanceId;
+  readonly heldFunds: HeldFundsId;
 }
 
 export type DraftFacts = Data.TaggedEnum<{
@@ -42,7 +42,7 @@ export type DraftFacts = Data.TaggedEnum<{
   PaymentLinkFacts: HeldMovement;
   ClaimFacts: Expiring & {
     readonly address: AccountAddress;
-    readonly balance: BalanceId;
+    readonly heldFunds: HeldFundsId;
     readonly opens?: Asset | undefined;
     readonly reserveSponsor?: AccountAddress | undefined;
   };
@@ -51,7 +51,7 @@ export type DraftFacts = Data.TaggedEnum<{
     readonly link: AccountAddress;
     readonly reserveSponsor: AccountAddress;
     readonly destination: DestinationAddress;
-    readonly balance: BalanceId;
+    readonly heldFunds: HeldFundsId;
     readonly asset: Asset;
     readonly amount: PositiveAmount;
     readonly memo?: PaymentMemo | undefined;

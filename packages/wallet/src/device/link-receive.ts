@@ -12,7 +12,6 @@ import {
   AssetOrder,
   type AssetStep,
   AssetOrderId,
-  type LinkSecret,
   type PaymentLinkOpen,
   type PaymentLinkStep,
   ReceiveLink,
@@ -37,14 +36,14 @@ import {
   type ConfirmLinkReceiveOutcome,
   type LinkReceiveTarget,
   LinkReceiveReview,
-  LinkSecretMismatch,
+  LinkCodeMismatch,
   NoWallet,
   type PaymentLinkOutcome,
   type ReviewLinkReceiveOutcome,
 } from "./outcomes";
 import { pendingSteps, pollSchedule } from "./polling";
-import { linkKeyOf, type LinkCode } from "./link-code";
-import { approveWithLinkSecret } from "./signing";
+import { type LinkCode, linkAddressOf, opensLink } from "./link-code";
+import { approveWithLinkCode } from "./signing";
 
 export const receiveCurrentUntil = (review: LinkReceiveReview) =>
   DateTime.toEpochMillis(review.draft.request.expiresAt) -
@@ -57,15 +56,6 @@ export const receiveReviewJson = Schema.encodeSync(
 export const receiveReviewFromJson = Schema.decodeSync(
   Schema.fromJsonString(LinkReceiveReview),
 );
-
-export const linkSecretFor = (
-  link: AccountAddress,
-  code: LinkCode,
-): Option.Option<LinkSecret> =>
-  linkKeyOf(code).pipe(
-    Option.filter((key) => key.address === link),
-    Option.map((key) => key.secret),
-  );
 
 export const receiveReviewOf = (
   wallet: PublicDeviceWallet,
@@ -97,8 +87,8 @@ export const receiveReviewOf = (
     receive.link === wallet.address ||
     receive.channel === receive.link ||
     receive.channel === wallet.address ||
-    receive.balance !== action.balance ||
-    action.balance !== target.balance ||
+    receive.heldFunds !== action.heldFunds ||
+    action.heldFunds !== target.heldFunds ||
     !sameAsset(receive.asset, target.asset) ||
     receive.amount !== target.amount ||
     isIssuedBy(receive.asset, wallet.address)
@@ -113,7 +103,7 @@ export const receiveReviewOf = (
       redrafted,
       network,
       link: target.link,
-      balance: target.balance,
+      heldFunds: target.heldFunds,
       asset: target.asset,
       amount: target.amount,
       sender: target.sender,
@@ -137,7 +127,10 @@ export const receiveOrder = (
   new AssetOrder({
     id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
     wallet,
-    action: ReceiveLink.make({ link: target.link, balance: target.balance }),
+    action: ReceiveLink.make({
+      link: target.link,
+      heldFunds: target.heldFunds,
+    }),
   });
 
 export class OpenedLink extends Data.TaggedClass(
@@ -148,21 +141,21 @@ export const openLink = Effect.fn("Device.openLink")(function* (
   port: Pick<WalletPort, "paymentLink">,
   code: LinkCode,
 ): Effect.fn.Return<
-  OpenedLink | Exclude<PaymentLinkStep, PaymentLinkOpen> | LinkSecretMismatch,
+  OpenedLink | Exclude<PaymentLinkStep, PaymentLinkOpen> | LinkCodeMismatch,
   WalletUnavailable
 > {
-  const key = linkKeyOf(code);
+  const address = linkAddressOf(code);
 
-  if (Option.isNone(key)) return new LinkSecretMismatch();
+  if (Option.isNone(address)) return new LinkCodeMismatch();
 
-  const link = key.value.address;
+  const link = address.value;
 
   const status = yield* port.paymentLink(link);
 
   return Predicate.isTagged(status, "PaymentLinkOpen")
     ? new OpenedLink({
         link,
-        balance: status.balance,
+        heldFunds: status.heldFunds,
         asset: status.asset,
         amount: status.amount,
         sender: status.sender,
@@ -197,11 +190,11 @@ export function deviceLinkReceive(
   const status = Effect.fn("Device.paymentLink")(function* (
     code: LinkCode,
   ): Effect.fn.Return<PaymentLinkOutcome, WalletUnavailable> {
-    const key = linkKeyOf(code);
+    const address = linkAddressOf(code);
 
-    if (Option.isNone(key)) return new LinkSecretMismatch();
+    if (Option.isNone(address)) return new LinkCodeMismatch();
 
-    return yield* port.paymentLink(key.value.address);
+    return yield* port.paymentLink(address.value);
   });
 
   const review = Effect.fn("Device.reviewLinkReceive")(function* (
@@ -232,12 +225,10 @@ export function deviceLinkReceive(
     ConfirmLinkReceiveOutcome,
     WalletUnavailable | KeyStoreUnavailable | CorruptDeviceWallet
   > {
-    const secret = linkSecretFor(shown.link, code);
-
-    if (Option.isNone(secret)) return new LinkSecretMismatch();
+    if (!opensLink(code, shown.link)) return new LinkCodeMismatch();
 
     return yield* claims.confirm(shown, (requests) =>
-      approveWithLinkSecret(secret.value, requests),
+      approveWithLinkCode(code, requests),
     );
   });
 

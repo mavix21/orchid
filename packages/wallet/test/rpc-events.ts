@@ -1,7 +1,7 @@
 import { Address, xdr } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import type { BalanceId } from "../src/contract";
+import type { HeldFundsId } from "../src/contract";
 import { depositContract, usdc } from "../src/stellar/network";
 import {
   bodyText,
@@ -158,7 +158,7 @@ export const muxedPaymentEvent = (
   );
 
 export const claimEvent = (
-  balance: BalanceId,
+  heldFunds: HeldFundsId,
   to: string,
   amount: bigint,
   options: EventOptions = {},
@@ -169,7 +169,7 @@ export const claimEvent = (
       encoded(xdr.ScVal.scvSymbol("transfer")),
       encoded(
         Address.claimableBalance(
-          Uint8Array.from(Buffer.from(balance.slice(6), "hex")),
+          Uint8Array.from(Buffer.from(heldFunds.slice(6), "hex")),
         ).toScVal(),
       ),
       addressTopic(to),

@@ -6,8 +6,8 @@ import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
   type Approval,
-  type BalanceGone,
-  type BalanceId,
+  type HeldFundsGone,
+  type HeldFundsId,
   ExternalLinkDraft,
   type ExternalLinkFailed,
   type ExternalLinkOrder,
@@ -54,16 +54,16 @@ export interface LinkReceiveShared {
     { readonly matched: boolean; readonly present: boolean },
     ChainUnreachable
   >;
-  readonly settleOnBalance: (balance: BalanceId) => Effect.Effect<
+  readonly settleOnHeldFunds: (heldFunds: HeldFundsId) => Effect.Effect<
     {
       readonly checking: boolean;
       readonly current: ReadonlyArray<StoredAssetOrder>;
     },
     StoreFailure | ChainUnreachable
   >;
-  readonly balanceGone: (
-    balance: BalanceId,
-  ) => Effect.Effect<BalanceGone, StoreFailure | ChainUnreachable>;
+  readonly heldFundsGone: (
+    heldFunds: HeldFundsId,
+  ) => Effect.Effect<HeldFundsGone, StoreFailure | ChainUnreachable>;
   readonly settled: (
     stored: AssetAuthorized,
   ) => Effect.Effect<
@@ -146,10 +146,10 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
 
       const funded = yield* transfers.fundedLink(order.link);
 
-      if (Option.isNone(funded) || funded.value.balance !== order.balance)
+      if (Option.isNone(funded) || funded.value.heldFunds !== order.heldFunds)
         return new NotClaimable({ claimableAt: Option.none() });
 
-      const { checking } = yield* shared.settleOnBalance(order.balance);
+      const { checking } = yield* shared.settleOnHeldFunds(order.heldFunds);
 
       if (checking) return new PaymentLinkChecking();
 
@@ -161,7 +161,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
       if (!matched)
         return present
           ? new NotClaimable({ claimableAt: Option.none() })
-          : yield* shared.balanceGone(order.balance);
+          : yield* shared.heldFundsGone(order.heldFunds);
 
       const { asset, amount } = funded.value;
       const receivingAccount = chain.receivingAccount(order.destination);
@@ -199,7 +199,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
       const terms: LinkReceive = {
         link: order.link,
         destination: order.destination,
-        balance: order.balance,
+        heldFunds: order.heldFunds,
         asset,
         amount,
         memo: order.memo,

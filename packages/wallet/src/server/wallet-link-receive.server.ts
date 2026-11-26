@@ -6,14 +6,14 @@ import {
   type AccountAddress,
   type Approval,
   AssetOrder,
-  type BalanceId,
+  type HeldFundsId,
   AssetDraft,
   type AssetPending,
   type AssetSettled,
   type AssetFailed,
   type AssetStep,
-  BalanceGone,
-  type BalanceGoneStatus,
+  HeldFundsGone,
+  type HeldFundsGoneStatus,
   type ExternalLinkFailed,
   type ExternalLinkPending,
   type ExternalLinkSettled,
@@ -110,14 +110,14 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       link: AccountAddress,
       funded: FundedLink,
     ) {
-      const entries = yield* chain.claimable([funded.balance]);
+      const entries = yield* chain.heldFunds([funded.heldFunds]);
 
       const matched = selectRecoverablePaymentLinks(
         entries,
         funded.sender.address,
       ).some(
         (entry) =>
-          entry.balance === funded.balance &&
+          entry.heldFunds === funded.heldFunds &&
           entry.address === link &&
           sameAsset(entry.asset, funded.asset) &&
           entry.amount === funded.amount,
@@ -171,7 +171,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
     const goneStatus = (
       stored: ReadonlyArray<StoredAssetOrder>,
       claimer: Option.Option<AccountAddress>,
-    ): BalanceGoneStatus => {
+    ): HeldFundsGoneStatus => {
       const claims = stored
         .filter(settledHere)
         .filter((entry) => !receiving(entry));
@@ -191,10 +191,10 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       return stored.some(settledHere) ? "claimed" : "unresolved";
     };
 
-    const settleOnBalance = Effect.fn("Wallet.settleOnBalance")(function* (
-      balance: BalanceId,
+    const settleOnHeldFunds = Effect.fn("Wallet.settleOnHeldFunds")(function* (
+      heldFunds: HeldFundsId,
     ) {
-      const recorded = yield* orders.onBalance(balance);
+      const recorded = yield* orders.onHeldFunds(heldFunds);
 
       const authorized = recorded.filter((stored): stored is AssetAuthorized =>
         Predicate.isTagged(stored, "AssetAuthorized"),
@@ -213,18 +213,20 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       return {
         checking: receivePending.some(Boolean),
         current:
-          authorized.length === 0 ? recorded : yield* orders.onBalance(balance),
+          authorized.length === 0
+            ? recorded
+            : yield* orders.onHeldFunds(heldFunds),
       };
     });
 
-    const balanceGone = (
-      balance: BalanceId,
+    const heldFundsGone = (
+      heldFunds: HeldFundsId,
       claimer: Option.Option<AccountAddress> = Option.none(),
     ) =>
       Effect.map(
-        settleOnBalance(balance),
+        settleOnHeldFunds(heldFunds),
         ({ current }) =>
-          new BalanceGone({ status: goneStatus(current, claimer) }),
+          new HeldFundsGone({ status: goneStatus(current, claimer) }),
       );
 
     const paymentLink = Effect.fn("Wallet.paymentLink")(function* (
@@ -237,8 +239,8 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
       if (Option.isNone(funded)) return new PaymentLinkNotFound();
 
-      const { checking, current } = yield* settleOnBalance(
-        funded.value.balance,
+      const { checking, current } = yield* settleOnHeldFunds(
+        funded.value.heldFunds,
       );
 
       if (checking) return new PaymentLinkChecking();
@@ -247,7 +249,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
       if (matched)
         return new PaymentLinkOpen({
-          balance: funded.value.balance,
+          heldFunds: funded.value.heldFunds,
           asset: funded.value.asset,
           amount: funded.value.amount,
           sender: funded.value.sender,
@@ -283,7 +285,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
       const funded = yield* transfers.fundedLink(action.link);
 
-      if (Option.isNone(funded) || funded.value.balance !== action.balance)
+      if (Option.isNone(funded) || funded.value.heldFunds !== action.heldFunds)
         return new NotClaimable({ claimableAt: Option.none() });
 
       const { matched, present } = yield* liveLink(action.link, funded.value);
@@ -291,7 +293,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       if (!matched)
         return present
           ? new NotClaimable({ claimableAt: Option.none() })
-          : yield* balanceGone(action.balance);
+          : yield* heldFundsGone(action.heldFunds);
 
       const { asset, amount } = funded.value;
 
@@ -320,7 +322,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       const terms: LinkReceive = {
         link: action.link,
         destination: order.wallet,
-        balance: action.balance,
+        heldFunds: action.heldFunds,
         asset,
         amount,
       };
@@ -390,8 +392,8 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
     const claimExternal = yield* externalLinkClaimFlow({
       liveLink,
-      settleOnBalance,
-      balanceGone,
+      settleOnHeldFunds,
+      heldFundsGone,
       settled,
     });
 
@@ -400,7 +402,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       claimExternal,
       paymentLink,
       settled,
-      balanceGone,
+      heldFundsGone,
       cleanUpReceived: cleanUp,
     };
   });
