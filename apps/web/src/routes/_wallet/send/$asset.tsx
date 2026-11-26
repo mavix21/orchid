@@ -5,7 +5,7 @@ import {
   notFound,
   useNavigate,
 } from "@tanstack/react-router";
-import { TransferId, assetKey } from "@workspace/wallet";
+import { TransferId } from "@workspace/wallet";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -13,7 +13,6 @@ import * as Schema from "effect/Schema";
 
 import { Screen } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
-import { assetCode } from "@/send/money";
 import { SendFlow } from "@/send/send-flow";
 import {
   SendUnavailable,
@@ -34,7 +33,7 @@ export const Route = createFileRoute("/_wallet/send/$asset")({
       return { overview, balance: undefined };
 
     const balance = overview.balances.find(
-      (held) => assetKey(held.asset) === params.asset,
+      (held) => held.asset.id === params.asset,
     );
 
     if (!balance) throw notFound();
@@ -51,7 +50,7 @@ function SendAsset() {
 
   const nav = (locked: boolean, edit?: () => void) => (
     <TopNav
-      title={balance ? `Enviar ${assetCode(balance.asset)}` : "Enviar"}
+      title={balance ? `Enviar ${balance.asset.code}` : "Enviar"}
       label="Atrás"
       icon={<ChevronLeftIcon absoluteStrokeWidth />}
       link={

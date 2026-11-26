@@ -1,7 +1,7 @@
 import type { PaymentReview } from "@workspace/wallet";
 import { formatAmount, precisionOf } from "@workspace/wallet";
 
-import { assetCode, shortAddress } from "./money";
+import { shortAddress } from "./money";
 
 export function ReviewRow({
   label,
@@ -20,7 +20,7 @@ export function ReviewRow({
 
 export function PaymentReviewCard({ review }: { review: PaymentReview }) {
   const address = shortAddress(review.to);
-  const asset = assetCode(review.asset);
+  const asset = review.asset.code;
   const amount = formatAmount(review.amount, precisionOf(review.asset));
 
   return (

@@ -10,7 +10,7 @@ import {
   AddressRecipient,
   ExternalRecipient,
   Holding,
-  NativeAsset,
+  nativeAsset,
   Offline,
   Profile,
   Settled,
@@ -102,7 +102,7 @@ const mismatches: ReadonlyArray<
   ],
   [
     "a payment of another asset",
-    new TransferIntent({ ...toExchange, asset: NativeAsset.make({}) }),
+    new TransferIntent({ ...toExchange, asset: nativeAsset }),
     () => payment(),
   ],
   [

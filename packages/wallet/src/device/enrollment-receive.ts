@@ -7,8 +7,9 @@ import {
   type AssetOrder,
   RecipientCannotReceive,
   type WalletPort,
-  assetKey,
   baseAsset,
+  needsTrustline,
+  sameAsset,
 } from "../contract";
 import { type LinkCode } from "./link-code";
 import { claimStanding } from "./claim-reviews";
@@ -121,10 +122,7 @@ export const enrollmentReceive = (
 
     if (!(target instanceof OpenedLink)) return target;
 
-    if (
-      Predicate.isTagged(target.asset, "Issued") &&
-      assetKey(target.asset) !== assetKey(baseAsset)
-    )
+    if (needsTrustline(target.asset) && !sameAsset(target.asset, baseAsset))
       return new RecipientCannotReceive({
         address: addressOf(current),
         reason: "no_trustline",

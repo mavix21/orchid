@@ -13,7 +13,6 @@ import {
   AccountAddress,
   Asset,
   BalanceId,
-  IssuedAsset,
   PositiveAmount,
   UnsignedEnvelope,
   formatAmount,
@@ -31,7 +30,7 @@ export class TrustlineFacts extends Schema.TaggedClass<TrustlineFacts>()(
     ...bounds,
     address: AccountAddress,
     reserveSponsor: AccountAddress,
-    asset: IssuedAsset,
+    asset: Asset,
   },
 ) {}
 
@@ -40,7 +39,7 @@ export class TrustlineRemovalFacts extends Schema.TaggedClass<TrustlineRemovalFa
   {
     ...bounds,
     address: AccountAddress,
-    asset: IssuedAsset,
+    asset: Asset,
   },
 ) {}
 
@@ -74,7 +73,7 @@ export class ClaimFacts extends Schema.TaggedClass<ClaimFacts>()("ClaimFacts", {
   ...bounds,
   address: AccountAddress,
   balance: BalanceId,
-  opens: Schema.optional(IssuedAsset),
+  opens: Schema.optional(Asset),
   reserveSponsor: Schema.optional(AccountAddress),
 }) {}
 
@@ -93,11 +92,11 @@ interface Drafting {
 
 export interface TrustlineInput extends Drafting {
   readonly reserveSponsor: AccountAddress;
-  readonly asset: IssuedAsset;
+  readonly asset: Asset;
 }
 
 export interface TrustlineRemovalInput extends Drafting {
-  readonly asset: IssuedAsset;
+  readonly asset: Asset;
 }
 
 export interface ClaimableInput extends Drafting {
@@ -108,7 +107,7 @@ export interface ClaimableInput extends Drafting {
 }
 
 export interface SponsoredTrustline {
-  readonly asset: IssuedAsset;
+  readonly asset: Asset;
   readonly reserveSponsor: AccountAddress;
 }
 
@@ -257,14 +256,15 @@ export function readAssetEnvelope(
 
   const [first, second, , fourth] = tx.operations;
 
-  const issued = (line: StellarAsset) =>
-    Schema.decodeUnknownSync(IssuedAsset)(fromStellarAsset(line));
-
   if (first?.type === "beginSponsoringFutureReserves" && first.source) {
     const reserveSponsor = Schema.decodeSync(AccountAddress)(first.source);
 
-    if (second?.type === "changeTrust" && second.line instanceof StellarAsset) {
-      const asset = issued(second.line);
+    if (
+      second?.type === "changeTrust" &&
+      second.line instanceof StellarAsset &&
+      !second.line.isNative()
+    ) {
+      const asset = fromStellarAsset(second.line);
 
       if (
         fourth?.type === "claimClaimableBalance" &&
@@ -346,8 +346,12 @@ export function readAssetEnvelope(
     }
   }
 
-  if (first?.type === "changeTrust" && first.line instanceof StellarAsset) {
-    const asset = issued(first.line);
+  if (
+    first?.type === "changeTrust" &&
+    first.line instanceof StellarAsset &&
+    !first.line.isNative()
+  ) {
+    const asset = fromStellarAsset(first.line);
 
     if (draftTrustlineRemoval({ ...drafting(), asset }) === envelope)
       return Option.some(

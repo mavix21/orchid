@@ -23,7 +23,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 
 import { formattingLocale } from "@/locale/format";
-import { amountLabel, assetCode } from "@/send/money";
+import { amountLabel } from "@/send/money";
 import type { DeviceFailure } from "@/send/use-wallet-task";
 import { unavailableMessage } from "@/wallet/unavailable";
 
@@ -196,7 +196,7 @@ export const createLinkResult = (
       ),
     InsufficientBalance: ({ available }) =>
       new LinkScreen(
-        `No tienes suficiente ${assetCode(asset)}`,
+        `No tienes suficiente ${asset.code}`,
         `Tienes ${amountLabel(available, asset)} disponibles. ${untouched}`,
         "edit",
       ),
@@ -206,8 +206,7 @@ export const createLinkResult = (
         `Puedes tener hasta ${limit} a la vez. Recupera el dinero de uno para crear otro. ${untouched}`,
         "links",
       ),
-    AssetUnsupported: ({ reason }) =>
-      unsupportedScreen(reason, assetCode(asset)),
+    AssetUnsupported: ({ reason }) => unsupportedScreen(reason, asset.code),
     SenderBusy: () => busyCreating,
     AssetBusy: () => busyCreating,
     NotOpened: () =>
@@ -350,7 +349,7 @@ export const reclaimResult = (
   outcome: ReclaimConclusion,
   link: RecoverableLink,
 ): LinkScreen<RecoverAction> => {
-  const code = assetCode(link.asset);
+  const code = link.asset.code;
   const amount = amountLabel(link.amount, link.asset);
 
   return Match.valueTags(outcome, {

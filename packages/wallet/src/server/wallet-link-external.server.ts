@@ -170,10 +170,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
       if (baseDestination === order.link)
         return new LinkUnclaimable({ reason: "destination_is_link" });
 
-      if (
-        Predicate.isTagged(asset, "Issued") &&
-        asset.issuer === baseDestination
-      )
+      if (chain.issuedBy(asset, baseDestination))
         return new LinkUnclaimable({ reason: "destination_is_issuer" });
 
       const rule = yield* chain.memoRule(order.destination);

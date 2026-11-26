@@ -20,10 +20,10 @@ import {
   SealedDeviceWallet,
   type SealedKeyStore,
   type SealedLinkCode,
-  assetKey,
   baseAsset,
   makeEnrollmentEffects,
   makeWalletClient,
+  sameAsset,
 } from "@workspace/wallet";
 import { Wallet } from "../src/server/Wallet.server";
 import { networkPassphrase, usdc } from "../src/stellar/network";
@@ -175,9 +175,8 @@ const usdcOf = async (client: ReturnType<typeof makeWalletClient>) => {
   );
 
   return (
-    overview.balances.find(
-      (balance) => assetKey(balance.asset) === assetKey(baseAsset),
-    )?.amount ?? 0n
+    overview.balances.find((balance) => sameAsset(balance.asset, baseAsset))
+      ?.amount ?? 0n
   );
 };
 

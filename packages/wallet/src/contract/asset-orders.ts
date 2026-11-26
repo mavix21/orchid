@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import { SigningRequest } from "./approval";
-import { Amount, BalanceId, IssuedAsset } from "./assets";
+import { Amount, BalanceId, TrustlineAsset } from "./assets";
 import { AccountAddress } from "./identity";
 
 export const AssetOrderId = Schema.String.check(Schema.isUUID(4)).pipe(
@@ -10,11 +10,11 @@ export const AssetOrderId = Schema.String.check(Schema.isUUID(4)).pipe(
 export type AssetOrderId = typeof AssetOrderId.Type;
 
 export const OpenTrustline = Schema.TaggedStruct("OpenTrustline", {
-  asset: IssuedAsset,
+  asset: TrustlineAsset,
 });
 
 export const CloseTrustline = Schema.TaggedStruct("CloseTrustline", {
-  asset: IssuedAsset,
+  asset: TrustlineAsset,
 });
 
 export const ClaimBalance = Schema.TaggedStruct("ClaimBalance", {

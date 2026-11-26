@@ -10,7 +10,7 @@ import {
 } from "@workspace/wallet";
 import * as Match from "effect/Match";
 
-import { amountLabel, assetCode, shortAddress } from "./money";
+import { amountLabel, shortAddress } from "./money";
 import { FieldProblem } from "./intent";
 
 export type NextAction = "done" | "home" | "retry" | "wait" | "check";
@@ -115,16 +115,15 @@ export const sendResult = (
           Match.when("no_account", () => "Esa cuenta no existe en Stellar"),
           Match.when(
             "no_trustline",
-            () => `Esa cuenta no acepta ${assetCode(asset)} todavía`,
+            () => `Esa cuenta no acepta ${asset.code} todavía`,
           ),
           Match.when(
             "not_authorized",
-            () => `El emisor de ${assetCode(asset)} no autoriza esa cuenta`,
+            () => `El emisor de ${asset.code} no autoriza esa cuenta`,
           ),
           Match.when(
             "no_capacity",
-            () =>
-              `Esa cuenta no puede recibir tanto ${assetCode(asset)} por ahora`,
+            () => `Esa cuenta no puede recibir tanto ${asset.code} por ahora`,
           ),
           Match.exhaustive,
         ),
@@ -227,7 +226,7 @@ export const sendResult = (
   });
 
 export const outstandingLabel = (order: TransferOrder) =>
-  `${formatAmount(order.amount, precisionOf(order.asset))} ${assetCode(order.asset)} a ${Match.valueTags(
+  `${formatAmount(order.amount, precisionOf(order.asset))} ${order.asset.code} a ${Match.valueTags(
     order.to,
     {
       Username: ({ value }) => `@${value}`,

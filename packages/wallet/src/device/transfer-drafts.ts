@@ -10,7 +10,7 @@ import {
   Profile,
   type TransferDraft,
   TransferOrder,
-  assetKey,
+  sameAsset,
   type TransferIntent,
 } from "../contract";
 import type { PaymentLinkFacts } from "../stellar/asset-envelopes";
@@ -83,7 +83,7 @@ export const nextLinkReceipt = (
     current !== undefined &&
     current.network === network &&
     current.address === facts.to &&
-    assetKey(current.asset) === assetKey(facts.asset) &&
+    sameAsset(current.asset, facts.asset) &&
     current.amount === facts.amount;
 
   const prior = sameOrder ? current.attempts : [];
@@ -126,7 +126,7 @@ export const orderedFacts = (
   const moves =
     drafted.from === wallet.address &&
     drafted.to === to.value &&
-    assetKey(drafted.asset) === assetKey(order.asset) &&
+    sameAsset(drafted.asset, order.asset) &&
     drafted.amount === order.amount;
 
   const matches = Predicate.isTagged(drafted, "PaymentLinkFacts")

@@ -7,10 +7,10 @@ import {
   type AccountAddress,
   BalanceId,
   type CloseTrustline,
-  IssuedAsset,
+  Asset,
   type OpenTrustline,
   type UnsignedEnvelope,
-  assetKey,
+  sameAsset,
 } from "../contract";
 import {
   draftClaim,
@@ -21,7 +21,7 @@ import { readEnvelope } from "./envelopes";
 
 export const ClaimPlan = Schema.TaggedStruct("ClaimPlan", {
   balance: BalanceId,
-  opens: Schema.optional(IssuedAsset),
+  opens: Schema.optional(Asset),
 });
 
 export type AssetPlan =
@@ -55,6 +55,9 @@ export function draftPlan(plan: AssetPlan, input: PlanInput): UnsignedEnvelope {
   });
 }
 
+const sameOpening = (drafted?: Asset, planned?: Asset) =>
+  drafted && planned ? sameAsset(drafted, planned) : drafted === planned;
+
 export function plannedSequence(
   envelope: UnsignedEnvelope,
   plan: AssetPlan,
@@ -64,15 +67,14 @@ export function plannedSequence(
       Match.valueTags(plan, {
         OpenTrustline: ({ asset }) =>
           Predicate.isTagged(facts, "TrustlineFacts") &&
-          assetKey(facts.asset) === assetKey(asset),
+          sameAsset(facts.asset, asset),
         CloseTrustline: ({ asset }) =>
           Predicate.isTagged(facts, "TrustlineRemovalFacts") &&
-          assetKey(facts.asset) === assetKey(asset),
+          sameAsset(facts.asset, asset),
         ClaimPlan: ({ balance, opens }) =>
           Predicate.isTagged(facts, "ClaimFacts") &&
           facts.balance === balance &&
-          (facts.opens ? assetKey(facts.opens) : undefined) ===
-            (opens ? assetKey(opens) : undefined),
+          sameOpening(facts.opens, opens),
       }),
     ),
     Option.map((facts) => facts.sequence),

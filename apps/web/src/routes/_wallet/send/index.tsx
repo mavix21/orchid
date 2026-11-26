@@ -2,14 +2,14 @@ import { XIcon } from "lucide-react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import { Skeleton } from "@workspace/ui/components/skeleton";
-import { type Holding, assetKey } from "@workspace/wallet";
+import { type Holding } from "@workspace/wallet";
 import * as Match from "effect/Match";
 
 import { OptionRow } from "@/components/option-row";
 import { Screen, ScreenActions } from "@/components/screen";
 import { TokenIcon } from "@/components/token-icon";
 import { TopNav } from "@/components/top-nav";
-import { amountLabel, assetCode } from "@/send/money";
+import { amountLabel } from "@/send/money";
 import { SendUnavailable } from "@/send/send-unavailable";
 import { shownOverview } from "@/wallet/shown-overview";
 
@@ -109,16 +109,16 @@ function AssetChoices({ holding }: { holding: Holding }) {
           <div className="flex flex-col gap-3">
             {held.map((balance) => (
               <OptionRow
-                key={assetKey(balance.asset)}
-                title={assetCode(balance.asset)}
+                key={balance.asset.id}
+                title={balance.asset.code}
                 description={amountLabel(balance.amount, balance.asset)}
                 media={<TokenIcon asset={balance.asset} />}
                 mediaVariant="muted"
                 render={
                   <Link
-                    data-testid={`send-asset-${assetKey(balance.asset)}`}
+                    data-testid={`send-asset-${balance.asset.id}`}
                     to="/send/$asset"
-                    params={{ asset: assetKey(balance.asset) }}
+                    params={{ asset: balance.asset.id }}
                   />
                 }
               />

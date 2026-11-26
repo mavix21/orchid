@@ -9,7 +9,6 @@ import {
   type SavedBackup,
   type SavedOutcome,
   type WalletUnavailable,
-  assetKey,
   baseAsset,
 } from "@workspace/wallet";
 import * as Match from "effect/Match";
@@ -138,9 +137,8 @@ function Home({
   const router = useRouter();
 
   const dollars =
-    holding.balances.find(
-      (balance) => assetKey(balance.asset) === assetKey(baseAsset),
-    )?.amount ?? Amount.make(0n);
+    holding.balances.find((balance) => balance.asset.id === baseAsset.id)
+      ?.amount ?? Amount.make(0n);
 
   return (
     <Screen>

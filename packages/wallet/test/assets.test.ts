@@ -10,12 +10,13 @@ import {
   AssetOrder,
   AddressRecipient,
   AssetOrderId,
+  AssetUnsupported,
   baseAsset,
   ClaimBalance,
   CloseTrustline,
   ClaimableLimitReached,
   InsufficientBalance,
-  NativeAsset,
+  nativeAsset,
   OpenTrustline,
   PositiveAmount,
   RecipientCannotReceive,
@@ -487,6 +488,50 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
+      "an inconsistent asset is refused and never stored, and a trustline order for XLM does not decode",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet("relabeller");
+          const destinationKey = Keypair.random();
+          const relabelled = { ...baseAsset, code: euro.code };
+
+          fundHolder(destinationKey);
+
+          const order = orderFor(
+            key,
+            AddressRecipient.make({ value: addressOf(destinationKey) }),
+          );
+
+          const unsupported = new AssetUnsupported({
+            reason: "issuer_missing",
+          });
+
+          expect(
+            yield* send(new TransferOrder({ ...order, asset: relabelled })),
+          ).toEqual(unsupported);
+
+          assertTagged(yield* send(order), "TransferDraft");
+
+          expect(
+            yield* manage(
+              assetOrder(key, OpenTrustline.make({ asset: relabelled })),
+            ),
+          ).toEqual(unsupported);
+
+          const opening = Schema.encodeSync(AssetOrder)(
+            assetOrder(key, OpenTrustline.make({ asset: euro })),
+          );
+
+          expect(
+            Schema.decodeUnknownOption(AssetOrder)({
+              ...opening,
+              action: { ...opening.action, asset: nativeAsset },
+            }),
+          ).toEqual(Option.none());
+        }),
+    );
+
+    it.effect(
       "native sends spend only available XLM and empty trustline removal stays holder signed",
       () =>
         Effect.gen(function* () {
@@ -508,7 +553,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 value: Schema.decodeSync(Username)("nativeowner"),
               }),
             ),
-            asset: NativeAsset.make({}),
+            asset: nativeAsset,
           });
 
           expect(yield* send(native)).toEqual(
@@ -528,7 +573,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           assertTagged(draft, "TransferDraft");
           expect(
             Option.getOrThrow(readEnvelope(draft.request.envelope)),
-          ).toMatchObject({ asset: NativeAsset.make({}) });
+          ).toMatchObject({ asset: nativeAsset });
 
           const close = assetOrder(key, CloseTrustline.make({ asset: euro }));
           const removal = yield* manage(close);

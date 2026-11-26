@@ -7,13 +7,18 @@ import {
   type AccountAddress,
   type Asset,
   type BalanceId,
-  type IssuedAsset,
   type PositiveAmount,
   SigningRequest,
+  needsTrustline,
 } from "../contract";
 import { draftClaimable, draftPaymentLink } from "../stellar/asset-envelopes";
 import { type AssetPlan, draftPlan } from "../stellar/asset-plans";
-import { toStellarAsset } from "../stellar/assets";
+import {
+  isIssuedBy,
+  issuerAccountKey,
+  toStellarAsset,
+  validAsset,
+} from "../stellar/assets";
 import { usdc } from "../stellar/network";
 import { paymentLifetime } from "../policy";
 import { ChainUnreachable } from "./chain-errors.server";
@@ -31,13 +36,13 @@ import {
 import type { LedgerResult, StellarRpc } from "./ledger.server";
 
 export interface AssetChain {
+  validAsset(asset: Asset): boolean;
+  issuedBy(asset: Asset, account: AccountAddress): boolean;
   holdings(
     address: AccountAddress,
-    assets: ReadonlyArray<IssuedAsset>,
+    assets: ReadonlyArray<Asset>,
   ): Effect.Effect<Option.Option<Holdings>, ChainUnreachable>;
-  issuer(
-    asset: IssuedAsset,
-  ): Effect.Effect<Option.Option<Issuer>, ChainUnreachable>;
+  issuer(asset: Asset): Effect.Effect<Option.Option<Issuer>, ChainUnreachable>;
 
   claimable(
     balances: ReadonlyArray<BalanceId>,
@@ -82,24 +87,29 @@ export const assetChain = (
   });
 
   return {
-    holdings: (address, assets) =>
-      read(
+    validAsset,
+    issuedBy: isIssuedBy,
+    holdings: (address, assets) => {
+      const trusted = assets.filter(needsTrustline);
+
+      return read(
         [
           accountKey(address),
           lineKey(address, usdc),
-          ...assets.map((asset) => lineKey(address, toStellarAsset(asset))),
+          ...trusted.map((asset) => lineKey(address, toStellarAsset(asset))),
         ],
         (result) =>
           holdingsFromEntries(
             result.entries ?? [],
             reserveSponsor,
             address,
-            assets,
+            trusted,
           ),
-      ),
+      );
+    },
     issuer: (asset) =>
-      read([accountKey(asset.issuer)], (result) =>
-        issuerFromEntries(result.entries ?? [], asset.issuer),
+      read([issuerAccountKey(asset)], (result) =>
+        issuerFromEntries(result.entries ?? [], asset),
       ),
     claimable: (balances) =>
       balances.length === 0

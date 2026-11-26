@@ -13,8 +13,9 @@ import {
   MemoNotAllowed,
   type WalletPort,
   type WalletUnavailable,
-  assetKey,
+  sameAsset,
 } from "../contract";
+import { isIssuedBy } from "../stellar/assets";
 import { baseAccountOf, isMuxed } from "../stellar/destination";
 import { readEnvelope } from "../stellar/envelopes";
 import { sameMemo } from "../stellar/memo";
@@ -70,10 +71,9 @@ export const externalReviewOf = (
     baseDestination === receive.link ||
     receive.channel === receive.link ||
     receive.reserveSponsor === receive.link ||
-    assetKey(receive.asset) !== assetKey(target.asset) ||
+    !sameAsset(receive.asset, target.asset) ||
     receive.amount !== target.amount ||
-    (Predicate.isTagged(receive.asset, "Issued") &&
-      receive.asset.issuer === baseDestination) ||
+    isIssuedBy(receive.asset, baseDestination) ||
     (isMuxed(receive.destination) && receive.memo !== undefined) ||
     !sameMemo(receive.memo, order.memo) ||
     (draft.memoRequired && receive.memo === undefined)

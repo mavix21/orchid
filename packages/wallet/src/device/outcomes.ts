@@ -10,7 +10,6 @@ import {
   ExternalLinkDraft,
   ExternalLinkOrder,
   type ExternalLinkStep,
-  IssuedAsset,
   OpenPaymentLink,
   type ActivityStep,
   type OpenPaymentLinks,
@@ -376,7 +375,7 @@ export class ReclaimReview extends Schema.TaggedClass<ReclaimReview>()(
     balance: BalanceId,
     asset: Asset,
     amount: PositiveAmount,
-    opensTrustline: Schema.optional(IssuedAsset),
+    opensTrustline: Schema.optional(Asset),
   },
 ) {}
 

@@ -6,7 +6,7 @@ import * as Predicate from "effect/Predicate";
 import {
   type AccountAddress,
   type SigningRequest,
-  assetKey,
+  sameAsset,
 } from "../contract";
 import { type AssetPlan, plannedSequence } from "../stellar/asset-plans";
 import { readEnvelope } from "../stellar/envelopes";
@@ -95,7 +95,7 @@ export const draftChain = (
         facts.value.balance === receive.balance &&
         facts.value.destination === receive.destination &&
         sameMemo(facts.value.memo, receive.memo) &&
-        assetKey(facts.value.asset) === assetKey(receive.asset) &&
+        sameAsset(facts.value.asset, receive.asset) &&
         facts.value.amount === receive.amount &&
         follows(channel, facts.value.sequence)
       );

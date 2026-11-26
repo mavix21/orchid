@@ -1,14 +1,12 @@
 import { Keypair } from "@stellar/stellar-sdk";
 import * as Schema from "effect/Schema";
-import { Amount, AssetCode, IssuedAsset } from "../src/contract";
+import { Amount } from "../src/contract";
+import { issuedAsset } from "../src/stellar/assets";
 import { addressOf } from "./device-fixtures";
 
 const amount = (value: string) => Schema.decodeSync(Amount)(value);
 
-export const euro = IssuedAsset.make({
-  code: Schema.decodeSync(AssetCode)("EUR"),
-  issuer: addressOf(Keypair.random()),
-});
+export const euro = issuedAsset("EUR", addressOf(Keypair.random()));
 
 export const euroLine = (
   balance: string,

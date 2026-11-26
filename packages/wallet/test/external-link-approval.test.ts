@@ -15,7 +15,7 @@ import {
   ExternalLinkDraft,
   ExternalLinkSettled,
   MemoNotAllowed,
-  NativeAsset,
+  nativeAsset,
   PaymentLinkOpen,
   PaymentMemo,
   PositiveAmount,
@@ -168,7 +168,7 @@ const tamperedExternalDrafts: ReadonlyArray<
   ],
   [
     "paying another asset",
-    (at) => externalDraft({ asset: NativeAsset.make({}) }, at),
+    (at) => externalDraft({ asset: nativeAsset }, at),
     {},
   ],
   [
