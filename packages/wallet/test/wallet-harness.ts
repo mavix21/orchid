@@ -59,7 +59,7 @@ import {
   exchangeMemoFor,
 } from "../src/server/exchange-memos.server";
 import type {
-  ClaimableEntry,
+  HeldFundsEntry,
   Holdings,
 } from "../src/server/ledger-assets.server";
 import type { AccountState } from "../src/server/ledger.server";
@@ -122,7 +122,7 @@ export const world = {
   unreadable: new Set<string>(),
   claimablesDown: false,
   holdings: new Map<AccountAddress, Holdings>(),
-  claimables: new Map<string, ClaimableEntry>(),
+  claimables: new Map<string, HeldFundsEntry>(),
   issuers: new Map<AssetId, { readonly authRequired: boolean }>(),
 };
 
@@ -279,7 +279,7 @@ export const fakeChain = Layer.effect(
       ...draftChain(account),
       ...links,
       holdings,
-      claimable: (ids) =>
+      heldFunds: (ids) =>
         world.claimablesDown
           ? rpcDown()
           : Effect.succeed(

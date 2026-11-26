@@ -68,8 +68,8 @@ export const externalReviewOf = (
   if (
     receive.link !== order.link ||
     order.link !== target.link ||
-    receive.balance !== order.balance ||
-    order.balance !== target.balance ||
+    receive.heldFunds !== order.heldFunds ||
+    order.heldFunds !== target.heldFunds ||
     receive.destination !== order.destination ||
     baseDestination === receive.link ||
     receive.channel === receive.link ||
@@ -91,7 +91,7 @@ export const externalReviewOf = (
       redrafted,
       network,
       link: target.link,
-      balance: target.balance,
+      heldFunds: target.heldFunds,
       destination: receive.destination,
       asset: target.asset,
       amount: target.amount,
@@ -291,7 +291,7 @@ export function deviceExternalLinkClaim(
     const order = new ExternalLinkOrder({
       id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
       link: target.link,
-      balance: target.balance,
+      heldFunds: target.heldFunds,
       destination: intent.destination,
       memo: intent.memo,
     });

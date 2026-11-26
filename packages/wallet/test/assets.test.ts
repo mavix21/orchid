@@ -12,9 +12,9 @@ import {
   AssetOrderId,
   AssetUnsupported,
   baseAsset,
-  ClaimBalance,
+  ClaimHeldFunds,
   CloseTrustline,
-  ClaimableLimitReached,
+  HeldFundsLimitReached,
   InsufficientBalance,
   nativeAsset,
   OpenTrustline,
@@ -319,8 +319,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           ).toBe("Pending");
           yield* sweep;
 
-          world.claimables.set(facts.balance, {
-            balance: facts.balance,
+          world.claimables.set(facts.heldFunds, {
+            heldFunds: facts.heldFunds,
             asset: euro,
             amount: Schema.decodeSync(PositiveAmount)("10000000"),
             sponsored: true,
@@ -334,7 +334,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const claimOrder = assetOrder(
             recipient,
-            ClaimBalance.make({ balance: facts.balance }),
+            ClaimHeldFunds.make({ heldFunds: facts.heldFunds }),
           );
 
           const claimDraft = yield* manage(claimOrder);
@@ -404,8 +404,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             if (!submitted) throw new Error("Expected submission");
 
             assertTagged(facts, "ClaimableFacts");
-            world.claimables.set(facts.balance, {
-              balance: facts.balance,
+            world.claimables.set(facts.heldFunds, {
+              heldFunds: facts.heldFunds,
               asset: euro,
               amount: Schema.decodeSync(PositiveAmount)("10000000"),
               sponsored: true,
@@ -437,7 +437,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(
             yield* send(third, approve(thirdDraft.request, sender)),
-          ).toEqual(new ClaimableLimitReached({ limit: 2 }));
+          ).toEqual(new HeldFundsLimitReached({ limit: 2 }));
 
           world.claimables.clear();
           assertTagged(

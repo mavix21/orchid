@@ -5,8 +5,8 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
-  type BalanceId,
-  ClaimableLimitReached,
+  type HeldFundsId,
+  HeldFundsLimitReached,
   PositiveAmount,
   RecipientCannotReceive,
   TransferOrder,
@@ -45,9 +45,9 @@ import {
   world,
 } from "./wallet-harness";
 
-const waiting = (balance: BalanceId, holder: AccountAddress) =>
-  world.claimables.set(balance, {
-    balance,
+const waiting = (heldFunds: HeldFundsId, holder: AccountAddress) =>
+  world.claimables.set(heldFunds, {
+    heldFunds,
     asset: baseAsset,
     amount: Schema.decodeSync(PositiveAmount)("10000000"),
     sponsored: true,
@@ -79,7 +79,7 @@ const refill = (payer: Keypair) => {
 
 const openingClaim = (
   draft: Parameters<typeof approveOpening>[1],
-): BalanceId | undefined => {
+): HeldFundsId | undefined => {
   const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
 
   assertTagged(facts, "OpeningFacts");
@@ -92,27 +92,27 @@ useDisposableDatabase();
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect(
-      "a payment to an unopened wallet settles as a claimable balance within the sender's limit, and the recipient's overview lists it",
+      "a payment to an unopened wallet settles as held funds within the sender's limit, and the recipient's overview lists it",
       () =>
         Effect.gen(function* () {
           const sender = yield* fundedWallet("payer");
           const { claim } = yield* unopenedWallet("newbie");
           const paid = yield* payUsername(sender, "newbie");
 
-          const balance = Option.getOrThrow(
-            Option.fromNullishOr(paid.settled.claimable),
+          const heldFunds = Option.getOrThrow(
+            Option.fromNullishOr(paid.settled.heldFunds),
           );
 
-          waiting(balance, claim.address);
+          waiting(heldFunds, claim.address);
 
           const overview = yield* overviewOf(claim.address);
 
           assertTagged(overview, "NotOpened");
-          expect(overview.claimable.map((entry) => entry.balance)).toEqual([
-            balance,
+          expect(overview.heldFunds.map((entry) => entry.id)).toEqual([
+            heldFunds,
           ]);
           expect(
-            overview.claimable.map((entry) => entry.from.username),
+            overview.heldFunds.map((entry) => entry.from.username),
           ).toEqual([username("payer")]);
 
           refill(sender);
@@ -120,7 +120,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const second = yield* payUsername(sender, "newbie");
 
           waiting(
-            Option.getOrThrow(Option.fromNullishOr(second.settled.claimable)),
+            Option.getOrThrow(Option.fromNullishOr(second.settled.heldFunds)),
             claim.address,
           );
 
@@ -132,7 +132,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           refill(sender);
 
           expect(yield* send(third)).toEqual(
-            new ClaimableLimitReached({ limit: 2 }),
+            new HeldFundsLimitReached({ limit: 2 }),
           );
         }),
     );
@@ -194,7 +194,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "opening an unopened wallet claims its oldest waiting balance in the same transaction and resumes after approval",
+      "opening an unopened wallet claims its oldest waiting held funds in the same transaction and resumes after approval",
       () =>
         Effect.gen(function* () {
           const first = yield* fundedWallet("firstpayer");
@@ -209,7 +209,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const earlier = yield* payUsername(first, "arrival");
 
           const oldest = Option.getOrThrow(
-            Option.fromNullishOr(earlier.settled.claimable),
+            Option.fromNullishOr(earlier.settled.heldFunds),
           );
 
           waiting(oldest, claim.address);
@@ -222,7 +222,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const later = yield* payUsername(second, "arrival");
 
           const newest = Option.getOrThrow(
-            Option.fromNullishOr(later.settled.claimable),
+            Option.fromNullishOr(later.settled.heldFunds),
           );
 
           waiting(newest, claim.address);
@@ -249,9 +249,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               expect.objectContaining({ username: username("arrival") }),
             ),
           );
-          expect(inFlight.claimable.map((entry) => entry.balance)).toEqual([
-            newest,
-          ]);
+          expect(inFlight.heldFunds.map((entry) => entry.id)).toEqual([newest]);
           assertTagged(
             yield* checkRecipient(
               UsernameRecipient.make({ value: username("arrival") }),

@@ -266,7 +266,7 @@ export const activityFor = Effect.fn("Transfers.activity")(function* ({
   const ordered = [...candidates].sort(newestFirst);
   const page = ordered.slice(0, activityPageSize);
 
-  const balances = page.flatMap((candidate) =>
+  const closedIds = page.flatMap((candidate) =>
     Candidate.$match(candidate, {
       Sent: ({ row }) => (isClosed(row) ? [row.balanceId] : []),
       Received: ({ row }) => (isClosed(row) ? [row.balanceId] : []),
@@ -276,11 +276,11 @@ export const activityFor = Effect.fn("Transfers.activity")(function* ({
   );
 
   const closing =
-    balances.length === 0
+    closedIds.length === 0
       ? []
       : yield* db
           .select({
-            balance: assetOrders.balanceId,
+            heldFunds: assetOrders.balanceId,
             order: assetOrders.order,
           })
           .from(assetOrders)
@@ -289,26 +289,26 @@ export const activityFor = Effect.fn("Transfers.activity")(function* ({
               eq(assetOrders.network, network),
               eq(assetOrders.testnetEpoch, epoch),
               eq(assetOrders.status, "settled"),
-              inArray(assetOrders.balanceId, balances),
+              inArray(assetOrders.balanceId, closedIds),
             ),
           )
           .orderBy(desc(assetOrders.concludedAt));
 
   const closers = yield* Effect.try({
     try: (): Closers => {
-      const byBalance = new Map<
+      const byHeldFunds = new Map<
         string,
         Schema.Schema.Type<typeof StoredOrderJson>
       >();
 
       for (const entry of closing)
-        if (entry.balance !== null && !byBalance.has(entry.balance))
-          byBalance.set(
-            entry.balance,
+        if (entry.heldFunds !== null && !byHeldFunds.has(entry.heldFunds))
+          byHeldFunds.set(
+            entry.heldFunds,
             Schema.decodeSync(StoredOrderJson)(entry.order),
           );
 
-      return byBalance;
+      return byHeldFunds;
     },
     catch: (cause) => new StoreFailure({ cause }),
   });

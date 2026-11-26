@@ -8,7 +8,7 @@ import {
   AddressBound,
   type Approval,
   type Approvals,
-  type BalanceId,
+  type HeldFundsId,
   HumanCheckRefused,
   type HumanCheckToken,
   InvalidAddress,
@@ -52,21 +52,21 @@ export const openingFlow = Effect.gen(function* () {
   const waitingClaim = Effect.fn("Wallet.waitingClaim")(function* (
     address: AccountAddress,
   ): Effect.fn.Return<
-    Option.Option<BalanceId>,
+    Option.Option<HeldFundsId>,
     StoreFailure | ChainUnreachable
   > {
-    const waiting = yield* transfers.waitingBalances(address);
+    const waiting = yield* transfers.waitingHeldFunds(address);
 
     if (waiting.length === 0) return Option.none();
 
-    const entries = yield* chain.claimable(waiting);
+    const entries = yield* chain.heldFunds(waiting);
     const now = BigInt(Math.floor((yield* Clock.currentTimeMillis) / 1000));
 
     return Option.fromNullishOr(
-      waiting.find((balance) =>
+      waiting.find((heldFunds) =>
         entries.some(
           (entry) =>
-            entry.balance === balance &&
+            entry.heldFunds === heldFunds &&
             sameAsset(entry.asset, baseAsset) &&
             entry.claimants.some(
               (claimant) =>
@@ -78,7 +78,10 @@ export const openingFlow = Effect.gen(function* () {
     );
   });
 
-  const carriesClaim = (draft: OpeningDraft, claim: Option.Option<BalanceId>) =>
+  const carriesClaim = (
+    draft: OpeningDraft,
+    claim: Option.Option<HeldFundsId>,
+  ) =>
     Option.exists(
       readEnvelope(draft.request.envelope),
       (facts) =>
@@ -149,7 +152,7 @@ export const openingFlow = Effect.gen(function* () {
     )
       yield* Option.match(
         claimedByOpening(sealed.value.envelope, claim.address),
-        { onNone: () => Effect.void, onSome: transfers.closeBalance },
+        { onNone: () => Effect.void, onSome: transfers.closeHeldFunds },
       );
 
     return step;

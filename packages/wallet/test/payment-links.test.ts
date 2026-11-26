@@ -10,7 +10,7 @@ import {
   AddressRecipient,
   type Approval,
   AssetUnsupported,
-  BalanceId,
+  HeldFundsId,
   OpenPaymentLink,
   OpenPaymentLinks,
   PaymentLinkRecipient,
@@ -192,21 +192,21 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             released.map(({ wallet: state, links }) => ({
               approved: state.approvedUntil !== undefined,
               link: state.linkReceipt?.address,
-              balance: state.linkReceipt?.balance,
+              heldFunds: state.linkReceipt?.heldFunds,
               saved: links.map((link) => link.address),
             })),
           ).toEqual([
             {
               approved: true,
               link: created.address,
-              balance: created.balance,
+              heldFunds: created.heldFunds,
               saved: [created.address],
             },
           ]);
 
           const [savedLink] = yield* browserKeyStore.readLinks();
 
-          expect(savedLink?.fundedBalance).toBe(created.balance);
+          expect(savedLink?.heldFunds).toBe(created.heldFunds);
 
           const ciphertext = Schema.encodeSync(SealedLinkCode)(
             Option.getOrThrow(Option.fromNullishOr(savedLink)),
@@ -214,7 +214,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const target = {
             address: created.address,
-            balance: created.balance,
+            heldFunds: created.heldFunds,
             asset: created.asset,
             amount: created.amount,
           };
@@ -244,7 +244,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             }),
             new OpenPaymentLink({
               id: created.id,
-              balance: Schema.decodeSync(BalanceId)(
+              heldFunds: Schema.decodeSync(HeldFundsId)(
                 `00000000${"7".repeat(64)}`,
               ),
               address: addressOf(Keypair.random()),

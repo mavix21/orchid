@@ -11,7 +11,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   type Approval,
-  BalanceId,
+  HeldFundsId,
   ExternalLinkDraft,
   ExternalLinkSettled,
   MemoNotAllowed,
@@ -50,8 +50,11 @@ const passkeys = new SoftwareAuthenticator("https://orchid.example").passkeys;
 const { code: linkCode, keypair: link } = linkFixture();
 const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");
 const otherAmount = Schema.decodeSync(PositiveAmount)("20000000");
-const linkBalance = Schema.decodeSync(BalanceId)(`00000000${"e".repeat(64)}`);
-const otherBalance = Schema.decodeSync(BalanceId)(`00000000${"f".repeat(64)}`);
+const linkBalance = Schema.decodeSync(HeldFundsId)(`00000000${"e".repeat(64)}`);
+
+const otherBalance = Schema.decodeSync(HeldFundsId)(
+  `00000000${"f".repeat(64)}`,
+);
 
 const textMemo = Schema.decodeSync(PaymentMemo)({
   type: "text",
@@ -70,7 +73,7 @@ const externalDraft = (overrides: Partial<LinkReceiveInput>, at: number) =>
     reserveSponsor: actors.sponsor,
     createsLinkAccount: true,
     destination: actors.stranger,
-    balance: linkBalance,
+    heldFunds: linkBalance,
     asset: baseAsset,
     amount: linkAmount,
     memo: textMemo,
@@ -157,8 +160,8 @@ const tamperedExternalDrafts: ReadonlyArray<
     {},
   ],
   [
-    "claiming another balance",
-    (at) => externalDraft({ balance: otherBalance }, at),
+    "claiming other held funds",
+    (at) => externalDraft({ heldFunds: otherBalance }, at),
     {},
   ],
   [
@@ -189,7 +192,7 @@ it.live.each(tamperedExternalDrafts)(
         paymentLink: () =>
           Effect.succeed(
             new PaymentLinkOpen({
-              balance: linkBalance,
+              heldFunds: linkBalance,
               asset: baseAsset,
               amount: linkAmount,
               sender: actors.pedroProfile,
@@ -238,7 +241,7 @@ it.live(
         paymentLink: () =>
           Effect.succeed(
             new PaymentLinkOpen({
-              balance: linkBalance,
+              heldFunds: linkBalance,
               asset: baseAsset,
               amount: linkAmount,
               sender: actors.pedroProfile,

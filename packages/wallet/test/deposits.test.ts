@@ -264,7 +264,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const claimHash = lastSubmittedHash();
 
-          claimEvent(funded.balance, addressOf(funded.link), 10_000_000n, {
+          claimEvent(funded.heldFunds, addressOf(funded.link), 10_000_000n, {
             hash: claimHash,
           });
           paymentEvent(
@@ -287,7 +287,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "closes the balance of a claim made outside Orchid whoever received it and lists no deposit for the claim",
+      "closes the held funds of a claim made outside Orchid whoever received it and lists no deposit for the claim",
       () =>
         Effect.gen(function* () {
           const { wallet, sender } = yield* openSender(
@@ -313,11 +313,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           const accepted = Option.getOrThrow(
-            Option.fromNullishOr(settled.claimable),
+            Option.fromNullishOr(settled.heldFunds),
           );
 
-          claimEvent(toOutsider.balance, outsider(), 10_000_000n);
-          claimEvent(toWallet.balance, claimer, 10_000_000n);
+          claimEvent(toOutsider.heldFunds, outsider(), 10_000_000n);
+          claimEvent(toWallet.heldFunds, claimer, 10_000_000n);
           claimEvent(accepted, recipientAddress, order.amount);
           yield* ingest;
 
@@ -431,10 +431,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "still sweeps in a scheduled run whose deposit ingest fails",
       () =>
         Effect.gen(function* () {
-          const { wallet, sender, balance, transferId } =
+          const { wallet, sender, heldFunds, transferId } =
             yield* fundLink("sweepowner");
 
-          world.claimables.delete(balance);
+          world.claimables.delete(heldFunds);
           ledgers.down = true;
 
           const scheduled = yield* Effect.exit(

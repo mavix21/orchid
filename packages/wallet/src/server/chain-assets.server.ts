@@ -6,7 +6,7 @@ import type * as Option from "effect/Option";
 import {
   type AccountAddress,
   type Asset,
-  type BalanceId,
+  type HeldFundsId,
   type PositiveAmount,
   SigningRequest,
   needsTrustline,
@@ -23,12 +23,12 @@ import { usdc } from "../stellar/network";
 import { paymentLifetime } from "../policy";
 import { ChainUnreachable } from "./chain-errors.server";
 import {
-  type ClaimableEntry,
+  type HeldFundsEntry,
   type Holdings,
   type Issuer,
   accountKey,
-  balanceKey,
-  claimablesFromEntries,
+  heldFundsKey,
+  heldFundsFromEntries,
   holdingsFromEntries,
   issuerFromEntries,
   lineKey,
@@ -44,9 +44,9 @@ export interface AssetChain {
   ): Effect.Effect<Option.Option<Holdings>, ChainUnreachable>;
   issuer(asset: Asset): Effect.Effect<Option.Option<Issuer>, ChainUnreachable>;
 
-  claimable(
-    balances: ReadonlyArray<BalanceId>,
-  ): Effect.Effect<ReadonlyArray<ClaimableEntry>, ChainUnreachable>;
+  heldFunds(
+    ids: ReadonlyArray<HeldFundsId>,
+  ): Effect.Effect<ReadonlyArray<HeldFundsEntry>, ChainUnreachable>;
   draftClaimable(
     from: AccountAddress,
     to: AccountAddress,
@@ -111,11 +111,11 @@ export const assetChain = (
       read([issuerAccountKey(asset)], (result) =>
         issuerFromEntries(result.entries ?? [], asset),
       ),
-    claimable: (balances) =>
-      balances.length === 0
+    heldFunds: (ids) =>
+      ids.length === 0
         ? Effect.succeed([])
-        : read(balances.map(balanceKey), (result) =>
-            claimablesFromEntries(result.entries ?? [], reserveSponsor),
+        : read(ids.map(heldFundsKey), (result) =>
+            heldFundsFromEntries(result.entries ?? [], reserveSponsor),
           ),
     draftClaimable: Effect.fn("Chain.draftClaimable")(function* (
       from: AccountAddress,

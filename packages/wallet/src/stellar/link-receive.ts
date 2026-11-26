@@ -9,7 +9,7 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   Asset,
-  BalanceId,
+  HeldFundsId,
   DestinationAddress,
   PaymentMemo,
   PositiveAmount,
@@ -34,7 +34,7 @@ export class LinkReceiveFacts extends Schema.TaggedClass<LinkReceiveFacts>()(
     reserveSponsor: AccountAddress,
     createsLinkAccount: Schema.Boolean,
     destination: DestinationAddress,
-    balance: BalanceId,
+    heldFunds: HeldFundsId,
     asset: Asset,
     amount: PositiveAmount,
     memo: Schema.optional(PaymentMemo),
@@ -47,7 +47,7 @@ export interface LinkReceiveInput {
   readonly reserveSponsor: AccountAddress;
   readonly createsLinkAccount: boolean;
   readonly destination: DestinationAddress;
-  readonly balance: BalanceId;
+  readonly heldFunds: HeldFundsId;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
   readonly memo?: PaymentMemo;
@@ -89,7 +89,7 @@ export function draftLinkReceive(input: LinkReceiveInput): UnsignedEnvelope {
     .addOperation(
       Operation.claimClaimableBalance({
         source: input.link,
-        balanceId: input.balance,
+        balanceId: input.heldFunds,
       }),
     )
     .addOperation(
@@ -180,7 +180,7 @@ export function readLinkReceive(
     reserveSponsor: Schema.decodeSync(AccountAddress)(sponsoring.source),
     createsLinkAccount,
     destination,
-    balance: Schema.decodeSync(BalanceId)(claim.balanceId),
+    heldFunds: Schema.decodeSync(HeldFundsId)(claim.balanceId),
     asset: received,
     amount: amount.value,
     memo,

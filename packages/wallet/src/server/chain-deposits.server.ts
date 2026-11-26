@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { type AccountAddress, BalanceId } from "../contract";
+import { type AccountAddress, HeldFundsId } from "../contract";
 import { depositLedgerScan } from "../policy";
 import { depositContract } from "../stellar/network";
 import type { ChainUnreachable } from "./chain-errors.server";
@@ -21,9 +21,9 @@ export type AssetEvent = Data.TaggedEnum<{
     readonly ledger: number;
     readonly closedAt: DateTime.Utc;
   };
-  BalanceClaim: {
+  HeldFundsClaim: {
     readonly eventId: string;
-    readonly balance: BalanceId;
+    readonly heldFunds: HeldFundsId;
     readonly closedAt: DateTime.Utc;
   };
 }>;
@@ -135,8 +135,8 @@ const amountOf = (value: xdr.ScVal): Option.Option<bigint> => {
 const hex = (bytes: Uint8Array) =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
-const balanceOf = (address: Address) =>
-  Schema.decodeOption(BalanceId)(`000000${hex(address.toBuffer())}`);
+const heldFundsOf = (address: Address) =>
+  Schema.decodeOption(HeldFundsId)(`000000${hex(address.toBuffer())}`);
 
 const assetEventOf = (raw: RawAssetEvent): Option.Option<AssetEvent> => {
   const topics = raw.topic.map((topic) => xdr.ScVal.fromXDR(topic, "base64"));
@@ -173,10 +173,10 @@ const assetEventOf = (raw: RawAssetEvent): Option.Option<AssetEvent> => {
 
   return Option.flatMap(sender, ({ from, to }): Option.Option<AssetEvent> =>
     from.type === "claimableBalance"
-      ? Option.map(balanceOf(from), (balance): AssetEvent =>
-          AssetEvent.BalanceClaim({
+      ? Option.map(heldFundsOf(from), (heldFunds): AssetEvent =>
+          AssetEvent.HeldFundsClaim({
             eventId: raw.id,
-            balance,
+            heldFunds,
             closedAt: raw.ledgerClosedAt,
           }),
         )

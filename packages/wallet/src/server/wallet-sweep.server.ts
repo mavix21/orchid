@@ -2,7 +2,7 @@ import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import type { BalanceId } from "../contract";
+import type { HeldFundsId } from "../contract";
 import {
   type AssetAuthorized,
   type AssetConcluded,
@@ -21,8 +21,8 @@ export const sweepFlow = (actions: {
   readonly reconcileAsset: (
     entry: AssetAuthorized,
   ) => Effect.Effect<boolean, StoreFailure | ChainUnreachable>;
-  readonly closeGoneBalance: (
-    id: BalanceId,
+  readonly closeGoneHeldFunds: (
+    id: HeldFundsId,
   ) => Effect.Effect<void, StoreFailure | ChainUnreachable>;
   readonly cleanUpReceivedLink: (
     concluded: AssetConcluded,
@@ -34,12 +34,12 @@ export const sweepFlow = (actions: {
     const transfers = yield* Transfers;
     const assets = yield* AssetOrders;
 
-    const goneBalanceIds = Effect.gen(function* () {
-      const balanceIds = yield* transfers.balancesToCheck;
-      const entries = yield* chain.claimable(balanceIds);
+    const goneHeldFunds = Effect.gen(function* () {
+      const ids = yield* transfers.heldFundsToCheck;
+      const entries = yield* chain.heldFunds(ids);
 
-      return balanceIds.filter(
-        (id) => !entries.some((entry) => entry.balance === id),
+      return ids.filter(
+        (id) => !entries.some((entry) => entry.heldFunds === id),
       );
     });
 
@@ -111,11 +111,11 @@ export const sweepFlow = (actions: {
         (prune) => prune.pipe(Effect.exit),
       );
 
-      const balanceExits = yield* goneBalanceIds.pipe(
+      const heldFundsExits = yield* goneHeldFunds.pipe(
         Effect.flatMap((ids) =>
           Effect.forEach(
             ids,
-            (id) => actions.closeGoneBalance(id).pipe(Effect.exit),
+            (id) => actions.closeGoneHeldFunds(id).pipe(Effect.exit),
             { concurrency: rpcReadConcurrency },
           ),
         ),
@@ -126,9 +126,9 @@ export const sweepFlow = (actions: {
 
       const failed = [
         ...pruned.flatMap((exit) => (Exit.isFailure(exit) ? [exit.cause] : [])),
-        ...(Exit.isFailure(balanceExits)
-          ? [balanceExits.cause]
-          : balanceExits.value.flatMap((exit) =>
+        ...(Exit.isFailure(heldFundsExits)
+          ? [heldFundsExits.cause]
+          : heldFundsExits.value.flatMap((exit) =>
               Exit.isFailure(exit) ? [exit.cause] : [],
             )),
         ...(Exit.isFailure(drained) ? [drained.cause] : drained.value),

@@ -3,7 +3,7 @@ import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import type { AssetOrderId, BalanceId } from "../contract";
+import type { AssetOrderId, HeldFundsId } from "../contract";
 import { approvalMargin, sweepBatchSize } from "../policy";
 import { epochAt, network } from "../stellar/network";
 import type { Sealed } from "./Chain.server";
@@ -26,22 +26,21 @@ export const scopeAt = (now: number) =>
     eq(assetOrders.testnetEpoch, epochAt(now)),
   );
 
-export const ordersOnBalance = Effect.fn("AssetOrders.onBalance")(function* (
-  balance: BalanceId,
-  decode: Decode,
-) {
-  const db = yield* Database;
-  const now = yield* Clock.currentTimeMillis;
+export const ordersOnHeldFunds = Effect.fn("AssetOrders.onHeldFunds")(
+  function* (heldFunds: HeldFundsId, decode: Decode) {
+    const db = yield* Database;
+    const now = yield* Clock.currentTimeMillis;
 
-  const rows = yield* db
-    .select()
-    .from(assetOrders)
-    .where(and(scopeAt(now), eq(assetOrders.balanceId, balance)))
-    .orderBy(desc(assetOrders.createdAt))
-    .limit(sweepBatchSize * 4);
+    const rows = yield* db
+      .select()
+      .from(assetOrders)
+      .where(and(scopeAt(now), eq(assetOrders.balanceId, heldFunds)))
+      .orderBy(desc(assetOrders.createdAt))
+      .limit(sweepBatchSize * 4);
 
-  return yield* Effect.forEach(rows, decode);
-});
+    return yield* Effect.forEach(rows, decode);
+  },
+);
 
 export const linkCleaned = Effect.fn("AssetOrders.linkCleaned")(function* (
   id: AssetOrderId,
@@ -89,7 +88,7 @@ export const authorizeExternalOrder = (
           .where(
             and(
               scope,
-              eq(assetOrders.balanceId, action.balance),
+              eq(assetOrders.balanceId, action.heldFunds),
               eq(assetOrders.status, "authorized"),
             ),
           );

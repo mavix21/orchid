@@ -1,15 +1,15 @@
 import { activityFor } from "./activity-reads.server";
-import { balancesToCheck } from "./balance-sweep.server";
+import { heldFundsToCheck } from "./balance-sweep.server";
 import {
   fundedLinkAt,
-  openBalancesFor,
+  openHeldFundsFor,
   openClaimableCountFrom,
   openFromAt,
   openPaymentLinksFor,
   receivedPaymentLinksFor,
-  settledOpenBalanceIdsFrom,
+  settledOpenHeldFundsFrom,
   unclaimedAt,
-  waitingBalancesFor,
+  waitingHeldFundsFor,
 } from "./open-claimables.server";
 import { Database } from "@workspace/db";
 import { and, count, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
@@ -26,7 +26,7 @@ import {
   type AccountAddress,
   type ActivityCursor,
   type ActivityPage,
-  BalanceId,
+  HeldFundsId,
   Profile,
   type ReceivedPaymentLink,
   type ResolvedRecipient,
@@ -54,7 +54,7 @@ import {
   type Concluded,
   type ConclusionColumns,
   type FundedLink,
-  OpenBalance,
+  OpenHeldFunds,
   OpenLinkRecord,
   OrderJson,
   type Proposed,
@@ -73,7 +73,7 @@ export {
   ClaimablesFull,
   Concluded,
   FundedLink,
-  OpenBalance,
+  OpenHeldFunds,
   OpenLinkRecord,
   OrderJson,
   Proposed,
@@ -114,8 +114,8 @@ export class Transfers extends Context.Service<
     ): Effect.Effect<ReadonlyArray<Authorized>, StoreFailure>;
     readonly pruneExpiredDrafts: Effect.Effect<void, StoreFailure>;
 
-    readonly balancesToCheck: Effect.Effect<
-      ReadonlyArray<BalanceId>,
+    readonly heldFundsToCheck: Effect.Effect<
+      ReadonlyArray<HeldFundsId>,
       StoreFailure
     >;
     openClaimables(
@@ -123,18 +123,18 @@ export class Transfers extends Context.Service<
       kind?: ClaimableKind,
     ): Effect.Effect<number, StoreFailure>;
 
-    settledOpenBalanceIds(
+    settledOpenHeldFunds(
       sender: AccountAddress,
       kind: ClaimableKind,
-    ): Effect.Effect<ReadonlyArray<BalanceId>, StoreFailure>;
+    ): Effect.Effect<ReadonlyArray<HeldFundsId>, StoreFailure>;
 
-    openBalances(
+    openHeldFunds(
       address: AccountAddress,
-    ): Effect.Effect<ReadonlyArray<OpenBalance>, StoreFailure>;
+    ): Effect.Effect<ReadonlyArray<OpenHeldFunds>, StoreFailure>;
 
-    waitingBalances(
+    waitingHeldFunds(
       address: AccountAddress,
-    ): Effect.Effect<ReadonlyArray<BalanceId>, StoreFailure>;
+    ): Effect.Effect<ReadonlyArray<HeldFundsId>, StoreFailure>;
 
     openPaymentLinks(
       sender: AccountAddress,
@@ -154,7 +154,7 @@ export class Transfers extends Context.Service<
       before?: ActivityCursor,
     ): Effect.Effect<ActivityPage, StoreFailure>;
 
-    closeBalance(balance: BalanceId): Effect.Effect<void, StoreFailure>;
+    closeHeldFunds(heldFunds: HeldFundsId): Effect.Effect<void, StoreFailure>;
   }
 >()("@workspace/wallet/server/Transfers") {
   static readonly layer = Layer.effect(
@@ -215,11 +215,11 @@ export class Transfers extends Context.Service<
         request: SigningRequest,
       ) {
         const now = yield* Clock.currentTimeMillis;
-        const balance = claimableBalanceOf(request.envelope);
-        const balanceId = Option.getOrNull(balance);
-        const claimableKind = claimableKindOf(order, balance);
+        const heldFunds = claimableBalanceOf(request.envelope);
+        const balanceId = Option.getOrNull(heldFunds);
+        const claimableKind = claimableKindOf(order, heldFunds);
 
-        const singleAttempt = Option.map(balance, (id) =>
+        const singleAttempt = Option.map(heldFunds, (id) =>
           Schema.encodeSync(AttemptsJson)([id]),
         );
 
@@ -287,16 +287,16 @@ export class Transfers extends Context.Service<
         request: SigningRequest,
       ) {
         const now = yield* Clock.currentTimeMillis;
-        const balance = claimableBalanceOf(request.envelope);
-        const attempts = appendAttempt(proposed.attemptBalances, balance);
+        const heldFunds = claimableBalanceOf(request.envelope);
+        const attempts = appendAttempt(proposed.attemptHeldFunds, heldFunds);
 
         const rows = yield* db
           .update(transfers)
           .set({
             envelope: request.envelope,
             expiresAt: DateTime.toDateUtc(request.expiresAt),
-            balanceId: Option.getOrNull(balance),
-            claimableKind: claimableKindOf(proposed.order, balance),
+            balanceId: Option.getOrNull(heldFunds),
+            claimableKind: claimableKindOf(proposed.order, heldFunds),
             attemptBalanceIds:
               attempts.length > 0
                 ? Schema.encodeSync(AttemptsJson)(attempts)
@@ -379,7 +379,7 @@ export class Transfers extends Context.Service<
 
             if (elsewhere[0]) return new SlotOccupied();
 
-            if (proposed.claimable) {
+            if (proposed.heldFunds) {
               const kind = proposed.claimableKind ?? "username";
               const limit = claimableQuota[kind];
 
@@ -521,8 +521,8 @@ export class Transfers extends Context.Service<
             Effect.provideService(Database, db),
           ),
         ),
-        balancesToCheck: wrap(
-          balancesToCheck.pipe(Effect.provideService(Database, db)),
+        heldFundsToCheck: wrap(
+          heldFundsToCheck.pipe(Effect.provideService(Database, db)),
         ),
         openClaimables: (sender, kind = "username") =>
           wrap(
@@ -530,19 +530,19 @@ export class Transfers extends Context.Service<
               Effect.provideService(Database, db),
             ),
           ),
-        settledOpenBalanceIds: (sender, kind) =>
+        settledOpenHeldFunds: (sender, kind) =>
           wrap(
-            settledOpenBalanceIdsFrom(sender, kind).pipe(
+            settledOpenHeldFundsFrom(sender, kind).pipe(
               Effect.provideService(Database, db),
             ),
           ),
-        openBalances: (address) =>
+        openHeldFunds: (address) =>
           wrap(
-            openBalancesFor(address).pipe(Effect.provideService(Database, db)),
+            openHeldFundsFor(address).pipe(Effect.provideService(Database, db)),
           ),
-        waitingBalances: (address) =>
+        waitingHeldFunds: (address) =>
           wrap(
-            waitingBalancesFor(address).pipe(
+            waitingHeldFundsFor(address).pipe(
               Effect.provideService(Database, db),
             ),
           ),
@@ -575,7 +575,7 @@ export class Transfers extends Context.Service<
               Effect.provideService(Database, db),
             ),
           ),
-        closeBalance: (balance) =>
+        closeHeldFunds: (heldFunds) =>
           wrap(
             DateTime.now.pipe(
               Effect.flatMap((now) =>
@@ -586,7 +586,7 @@ export class Transfers extends Context.Service<
                     and(
                       unclaimedAt(DateTime.toEpochMillis(now)),
                       eq(transfers.status, "settled"),
-                      eq(transfers.balanceId, balance),
+                      eq(transfers.balanceId, heldFunds),
                     ),
                   ),
               ),

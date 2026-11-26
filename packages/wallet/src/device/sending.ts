@@ -223,7 +223,7 @@ export function sendTransfer(
             Effect.succeed({ done: Option.some(outcome), pause: false }),
           RecipientCannotReceive: (outcome) =>
             Effect.succeed({ done: Option.some(outcome), pause: false }),
-          ClaimableLimitReached: (outcome) =>
+          HeldFundsLimitReached: (outcome) =>
             Effect.succeed({ done: Option.some(outcome), pause: false }),
           AssetUnsupported: (outcome) =>
             Effect.succeed({ done: Option.some(outcome), pause: false }),

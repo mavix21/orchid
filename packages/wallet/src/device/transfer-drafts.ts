@@ -86,16 +86,16 @@ export const nextLinkReceipt = (
 
   const prior = sameOrder ? current.attempts : [];
 
-  const attempts = prior.includes(facts.balance)
+  const attempts = prior.includes(facts.heldFunds)
     ? prior
-    : [...prior, facts.balance];
+    : [...prior, facts.heldFunds];
 
   return new PaymentLinkReceipt({
     network,
     address: facts.to,
     asset: facts.asset,
     amount: facts.amount,
-    balance: facts.balance,
+    heldFunds: facts.heldFunds,
     attempts,
   });
 };
@@ -135,7 +135,7 @@ export const orderedFacts = (
       draft.recipient.address === drafted.to &&
       wallet.reserveSponsor !== undefined &&
       drafted.reserveSponsor === wallet.reserveSponsor &&
-      (draft.claimable === undefined || draft.claimable === drafted.balance)
+      (draft.heldFunds === undefined || draft.heldFunds === drafted.heldFunds)
     : Predicate.isTagged(order.to, "PaymentLink")
       ? false
       : Predicate.isTagged(drafted, "PaymentFacts")
@@ -145,8 +145,8 @@ export const orderedFacts = (
           draft.recipient instanceof Profile &&
           wallet.reserveSponsor !== undefined &&
           drafted.reserveSponsor === wallet.reserveSponsor &&
-          (draft.claimable === undefined ||
-            draft.claimable === drafted.balance);
+          (draft.heldFunds === undefined ||
+            draft.heldFunds === drafted.heldFunds);
 
   return matches ? Option.some(drafted) : Option.none();
 };

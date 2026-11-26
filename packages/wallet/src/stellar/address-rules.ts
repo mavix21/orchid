@@ -6,6 +6,8 @@ const account = { pattern: /^G[A-Z2-7]{55}$/u, version: 6 << 3 };
 
 const muxedAccount = { pattern: /^M[A-Z2-7]{68}$/u, version: 12 << 3 };
 
+const claimableBalanceIdPattern = /^00000000[0-9a-f]{64}$/u;
+
 const isAccountAddress = (text: string) => account.pattern.test(text);
 
 export const isMuxedAddress = (text: string) => muxedAccount.pattern.test(text);
@@ -41,5 +43,6 @@ export const stellarAddressRules: AddressRules = {
   isDestinationAddress: (text) =>
     isAccountAddress(text) || isMuxedAddress(text),
   forbidsMemo: isMuxedAddress,
+  isHeldFundsId: (text) => claimableBalanceIdPattern.test(text),
   hasValidChecksum,
 };

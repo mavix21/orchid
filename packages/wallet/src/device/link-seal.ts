@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import { AccountAddress, BalanceId, CredentialId } from "../contract";
+import { AccountAddress, HeldFundsId, CredentialId } from "../contract";
 import { canonicalTuple, sha256 } from "./canonical-digest";
 import { LinkCode, linkKeyOf } from "./link-code";
 import { aesGcmTagLength, envelopeIvLength } from "./local-envelope";
@@ -25,7 +25,7 @@ export class SealedLinkCode extends Schema.Class<SealedLinkCode>(
   credentialId: CredentialId,
   iv: Schema.Uint8ArrayFromBase64,
   ciphertext: Schema.Uint8ArrayFromBase64,
-  fundedBalance: Schema.optional(BalanceId),
+  heldFunds: Schema.optional(HeldFundsId),
 }) {}
 
 export class LinkCodeOpened extends Data.TaggedClass("LinkCodeOpened")<{

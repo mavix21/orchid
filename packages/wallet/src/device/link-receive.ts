@@ -94,8 +94,8 @@ export const receiveReviewOf = (
     receive.link === wallet.address ||
     receive.channel === receive.link ||
     receive.channel === wallet.address ||
-    receive.balance !== action.balance ||
-    action.balance !== target.balance ||
+    receive.heldFunds !== action.heldFunds ||
+    action.heldFunds !== target.heldFunds ||
     !sameAsset(receive.asset, target.asset) ||
     receive.amount !== target.amount ||
     isIssuedBy(receive.asset, wallet.address)
@@ -110,7 +110,7 @@ export const receiveReviewOf = (
       redrafted,
       network,
       link: target.link,
-      balance: target.balance,
+      heldFunds: target.heldFunds,
       asset: target.asset,
       amount: target.amount,
       sender: target.sender,
@@ -134,7 +134,10 @@ export const receiveOrder = (
   new AssetOrder({
     id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
     wallet,
-    action: ReceiveLink.make({ link: target.link, balance: target.balance }),
+    action: ReceiveLink.make({
+      link: target.link,
+      heldFunds: target.heldFunds,
+    }),
   });
 
 export class OpenedLink extends Data.TaggedClass(
@@ -159,7 +162,7 @@ export const openLink = Effect.fn("Device.openLink")(function* (
   return Predicate.isTagged(status, "PaymentLinkOpen")
     ? new OpenedLink({
         link,
-        balance: status.balance,
+        heldFunds: status.heldFunds,
         asset: status.asset,
         amount: status.amount,
         sender: status.sender,

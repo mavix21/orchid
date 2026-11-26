@@ -183,13 +183,13 @@ export const assetFlow = Effect.gen(function* () {
     if (Predicate.isTagged(action, "ReceiveLink"))
       return yield* links.receive(order, action, approval, existing, opening);
 
-    if (Predicate.isTagged(action, "ClaimBalance")) {
-      const entries = yield* chain.claimable([action.balance]);
+    if (Predicate.isTagged(action, "ClaimHeldFunds")) {
+      const entries = yield* chain.heldFunds([action.heldFunds]);
       const entry = entries[0];
 
       if (!entry)
-        return yield* links.balanceGone(
-          action.balance,
+        return yield* links.heldFundsGone(
+          action.heldFunds,
           Option.some(order.wallet),
         );
 
@@ -202,7 +202,7 @@ export const assetFlow = Effect.gen(function* () {
       if (!claimant || !claimableAt(claimant.predicate, BigInt(now)))
         return new NotClaimable({ claimableAt: Option.none() });
 
-      plan = ClaimPlan.make({ balance: action.balance });
+      plan = ClaimPlan.make({ heldFunds: action.heldFunds });
 
       if (needsTrustline(entry.asset)) {
         const blocker = yield* chain.receiveBlocker(
@@ -221,7 +221,7 @@ export const assetFlow = Effect.gen(function* () {
             });
 
           plan = ClaimPlan.make({
-            balance: action.balance,
+            heldFunds: action.heldFunds,
             opens: entry.asset,
           });
         }

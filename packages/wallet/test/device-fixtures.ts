@@ -10,7 +10,7 @@ import { HDKey } from "micro-key-producer/slip10.js";
 import {
   AccountAddress,
   type Asset,
-  type BalanceId,
+  type HeldFundsId,
   DestinationAddress,
   type ExternalRecipient,
   type LinkRecipient,
@@ -278,7 +278,7 @@ export const transferDraftOf = (
   recipient: Profile | LinkRecipient | ExternalRecipient,
   lifetime = 120,
   at = nowSeconds(),
-  claimable?: BalanceId,
+  heldFunds?: HeldFundsId,
 ) =>
   new TransferDraft({
     request: new SigningRequest({
@@ -287,5 +287,5 @@ export const transferDraftOf = (
     }),
     recipient,
     memoRequired: false,
-    claimable,
+    heldFunds,
   });
