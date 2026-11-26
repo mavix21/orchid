@@ -46,7 +46,7 @@ _Avoid_: Transaction when referring to the user's instruction rather than its ne
 **Transfer intent**: What the user entered to send (recipient, asset, amount and optional payment memo) before the device turns it into a transfer order.
 _Avoid_: Order when referring to the entry before it has an id.
 
-**Held funds**: An asset amount that has left its sender without reaching a wallet, which the network holds for a **Payment link**, or for a payment to an **Unopened wallet**, until it is claimed; claiming it back is how the sender takes it back. An identifier, which only the network can interpret, tells it apart from all other held funds.
+**Held funds**: An asset amount that has left its sender and that the network holds until someone claims it, because no wallet can receive it yet: a **Payment link** holds one, and so does a payment to an **Unopened wallet** or to a wallet that cannot hold the **Asset** yet. The sender takes it back by claiming it. An identifier, which only the network can interpret, tells it apart from all other held funds.
 _Avoid_: Claimable balance; escrow, because nobody has custody of the funds; balance, which is what a wallet holds.
 
 **Payment link**: A URL that carries the **Link code** for **Held funds**, so whoever opens it can receive them or send them to another address.
