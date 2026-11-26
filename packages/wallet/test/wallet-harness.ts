@@ -155,7 +155,7 @@ const settings = settingsFor();
 const realChain = Chain.layer.pipe(
   Layer.provide(settings),
   Layer.provide(ledgersHttp),
-  Layer.provide(Layer.fresh(dbLayer)),
+  Layer.provide(dbLayer),
 );
 
 export const amount = (value: string) => Schema.decodeSync(Amount)(value);
