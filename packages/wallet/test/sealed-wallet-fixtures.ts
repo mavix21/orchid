@@ -23,12 +23,12 @@ import {
   type SecretPhrase,
   generateSecretPhrase,
 } from "../src/device/secret-phrase";
-import { signingKey } from "../src/device/signing";
 import { network } from "../src/stellar/network";
 import {
   type DeviceWallet,
   addressOf,
   publicWalletOf,
+  signingKey,
 } from "./device-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";

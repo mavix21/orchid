@@ -13,7 +13,6 @@ import {
   UsernameRecipient,
   baseAsset,
 } from "../src/contract";
-import { signingKey } from "../src/device/signing";
 import { Wallet } from "../src/server/Wallet.server";
 import { depositCursors, deposits } from "../src/server/tables.server";
 import { depositContract, epochAt, network } from "../src/stellar/network";
@@ -24,7 +23,7 @@ import {
   receiveInto,
   username,
 } from "./activity-fixtures";
-import { memoryKeyStore } from "./device-fixtures";
+import { memoryKeyStore, signingKey } from "./device-fixtures";
 import { fundLink, fundLinkFrom } from "./link-fixtures";
 import {
   claimEvent,

@@ -15,7 +15,6 @@ import {
   OpenPaymentLinks,
   Profile,
 } from "../src/contract";
-import { signingKey } from "../src/device/signing";
 import { wallets } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
 import {
@@ -29,7 +28,7 @@ import {
   username,
   withClaimants,
 } from "./activity-fixtures";
-import { memoryKeyStore } from "./device-fixtures";
+import { memoryKeyStore, signingKey } from "./device-fixtures";
 import { fundLink, fundLinkFrom, linkAmount } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {

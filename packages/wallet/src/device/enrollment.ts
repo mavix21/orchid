@@ -7,7 +7,6 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import {
-  AccountAddress,
   BackupEnrollment,
   ChallengeIssued,
   RegistrationRefused,
@@ -78,7 +77,7 @@ import { generateSecretPhrase } from "./secret-phrase";
 import {
   approveWithLinkSecret,
   approveWithPhrase,
-  signingKey,
+  phraseAddress,
 } from "./signing";
 
 import { enrollmentChallenge } from "./enrollment-challenge";
@@ -494,9 +493,7 @@ export function makeEnrollmentEffects(
 
     const phrase = generateSecretPhrase();
 
-    const address = Schema.decodeSync(AccountAddress)(
-      signingKey(phrase).publicKey(),
-    );
+    const address = phraseAddress(phrase);
 
     const step = yield* enrollmentChallenge(
       deps.port,
