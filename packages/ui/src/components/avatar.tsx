@@ -6,16 +6,9 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@workspace/ui/lib/utils";
 
 const avatarVariants = cva(
-  "group/avatar relative flex shrink-0 overflow-hidden rounded-full select-none",
+  "group/avatar relative flex shrink-0 overflow-hidden rounded-full bg-muted text-foreground select-none",
   {
     variants: {
-      tone: {
-        neutral: "bg-muted text-foreground",
-        orchid: "bg-avatar-orchid text-avatar-orchid-foreground",
-        lila: "bg-avatar-lila text-avatar-lila-foreground",
-        rosa: "bg-avatar-rosa text-avatar-rosa-foreground",
-        durazno: "bg-avatar-durazno text-avatar-durazno-foreground",
-      },
       size: {
         sm: "size-6",
         default: "size-10",
@@ -23,7 +16,6 @@ const avatarVariants = cva(
       },
     },
     defaultVariants: {
-      tone: "neutral",
       size: "default",
     },
   },
@@ -32,14 +24,13 @@ const avatarVariants = cva(
 function Avatar({
   className,
   size = "default",
-  tone = "neutral",
   ...props
 }: AvatarPrimitive.Root.Props & VariantProps<typeof avatarVariants>) {
   return (
     <AvatarPrimitive.Root
       data-slot="avatar"
       data-size={size}
-      className={cn(avatarVariants({ tone, size, className }))}
+      className={cn(avatarVariants({ size, className }))}
       {...props}
     />
   );

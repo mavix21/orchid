@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
+import { Avatar } from "@workspace/ui/components/avatar";
 import { Button } from "@workspace/ui/components/button";
 import {
   Sidebar,
@@ -24,8 +25,7 @@ import * as Predicate from "effect/Predicate";
 
 import { BrandLogo } from "@/components/brand-logo";
 import { useTheme } from "@/components/theme-provider";
-import { UserAvatar } from "@/components/user-avatar";
-import { me } from "@/fixtures/account";
+import { FlowerAvatar } from "@/components/flower-avatar";
 import { useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
 
@@ -64,11 +64,26 @@ function SidebarIdentity() {
   const { read, username } = useSavedUsername();
 
   if (!read)
-    return <Skeleton aria-label="Cargando tu usuario" className="h-4 w-24" />;
+    return (
+      <>
+        <Skeleton variant="avatar" className="size-10" />
+        <Skeleton aria-label="Cargando tu usuario" className="h-4 w-24" />
+      </>
+    );
 
   return Option.match(username, {
-    onNone: () => <span>Perfil</span>,
-    onSome: (name) => <span data-testid="sidebar-username">@{name}</span>,
+    onNone: () => (
+      <>
+        <Avatar />
+        <span>Perfil</span>
+      </>
+    ),
+    onSome: (name) => (
+      <>
+        <FlowerAvatar username={name} />
+        <span data-testid="sidebar-username">@{name}</span>
+      </>
+    ),
   });
 }
 
@@ -137,7 +152,6 @@ export function AppSidebar() {
           <SidebarMenu className="min-w-0 flex-1">
             <SidebarMenuItem>
               <SidebarMenuButton size="lg">
-                <UserAvatar profile={me} />
                 <SidebarIdentity />
               </SidebarMenuButton>
             </SidebarMenuItem>

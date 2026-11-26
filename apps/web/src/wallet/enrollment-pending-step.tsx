@@ -3,8 +3,7 @@ import type { ReadLinkCode } from "@workspace/wallet";
 import * as Option from "effect/Option";
 
 import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
-import { UserAvatar } from "@/components/user-avatar";
-import { me } from "@/fixtures/account";
+import { FlowerAvatar } from "@/components/flower-avatar";
 import { amountLabel } from "@/send/money";
 import { type Activating, receiveFor } from "@/wallet/enrollment-machine";
 
@@ -26,7 +25,7 @@ function AccountMedia({
         onSome: (label) => <StepLabel>{label}</StepLabel>,
       })}
       <div className="flex flex-col items-center gap-2">
-        <UserAvatar profile={me} size="xl" />
+        <FlowerAvatar username={username} size="xl" />
         <p className="text-label-lg">@{username}</p>
       </div>
     </div>

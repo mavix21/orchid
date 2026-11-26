@@ -8,8 +8,7 @@ import {
 import { Link } from "@tanstack/react-router";
 
 import { ActionTile } from "@/components/action-tile";
-import { UserAvatar } from "@/components/user-avatar";
-import { me } from "@/fixtures/account";
+import { FlowerAvatar } from "@/components/flower-avatar";
 
 const unitsPerDollar = 10_000_000n;
 const unitsPerCent = 100_000n;
@@ -30,7 +29,7 @@ export function BalanceHeader({
   return (
     <section className="flex flex-col gap-6">
       <div className="flex items-center gap-3">
-        <UserAvatar profile={me} />
+        <FlowerAvatar username={username} />
         <p className="flex-1 truncate text-label-lg">@{username}</p>
         <button
           type="button"
