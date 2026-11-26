@@ -3,14 +3,13 @@ import { Button } from "@workspace/ui/components/button";
 import {
   type Amount,
   type Asset,
-  MuxedAddress,
+  forbidsMemo,
   type TransferIntent,
   parseAmount,
   precisionOf,
 } from "@workspace/wallet";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
-import * as Schema from "effect/Schema";
 
 import { ScreenActions } from "@/components/screen";
 
@@ -107,8 +106,7 @@ export function AmountStep({
         </main>
         <ScreenActions>
           <div className="flex w-full gap-2">
-            {destination === "address" &&
-            !Schema.is(MuxedAddress)(recipient) ? (
+            {destination === "address" && !forbidsMemo(recipient) ? (
               <Button
                 type="button"
                 variant="secondary"

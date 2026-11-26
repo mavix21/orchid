@@ -1,5 +1,6 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { stellarAddressFormat } from "../stellar/address-format";
 
 export const usernameMinLength = 3;
 export const usernameMaxLength = 20;
@@ -56,21 +57,20 @@ export function usernameIssue(text: string): Option.Option<UsernameIssue> {
   return Option.none();
 }
 
-export const AccountAddress = Schema.String.check(
-  Schema.isPattern(/^G[A-Z2-7]{55}$/u),
+export const DestinationAddress = Schema.String.check(
+  Schema.makeFilter(stellarAddressFormat.isDestinationAddress),
+).pipe(Schema.brand("DestinationAddress"));
+
+export type DestinationAddress = typeof DestinationAddress.Type;
+
+export const AccountAddress = DestinationAddress.check(
+  Schema.makeFilter(stellarAddressFormat.isAccountAddress),
 ).pipe(Schema.brand("AccountAddress"));
 
 export type AccountAddress = typeof AccountAddress.Type;
 
-export const MuxedAddress = Schema.String.check(
-  Schema.isPattern(/^M[A-Z2-7]{68}$/u),
-).pipe(Schema.brand("MuxedAddress"));
-
-export type MuxedAddress = typeof MuxedAddress.Type;
-
-export const DestinationAddress = Schema.Union([AccountAddress, MuxedAddress]);
-
-export type DestinationAddress = typeof DestinationAddress.Type;
+export const forbidsMemo = (address: string) =>
+  stellarAddressFormat.forbidsMemo(address);
 
 export class Profile extends Schema.Class<Profile>("@workspace/wallet/Profile")(
   {

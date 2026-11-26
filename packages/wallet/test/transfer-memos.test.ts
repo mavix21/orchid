@@ -10,7 +10,7 @@ import {
   ExternalRecipient,
   LedgerUnreachable,
   MemoNotAllowed,
-  MuxedAddress,
+  DestinationAddress,
   NativeAsset,
   PaymentMemo,
   TransferOrder,
@@ -91,7 +91,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           registerExchange(base);
 
-          const muxed = Schema.decodeSync(MuxedAddress)(
+          const muxed = Schema.decodeSync(DestinationAddress)(
             new MuxedAccount(new Account(base, "0"), "42").accountId(),
           );
 
@@ -119,7 +119,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
           expect(Option.isNone(yield* findTransfer(withMemo.id))).toBe(true);
 
-          const missing = Schema.decodeSync(MuxedAddress)(
+          const missing = Schema.decodeSync(DestinationAddress)(
             new MuxedAccount(
               new Account(addressOf(Keypair.random()), "0"),
               "42",

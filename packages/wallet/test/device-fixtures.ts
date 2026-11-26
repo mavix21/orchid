@@ -10,10 +10,9 @@ import {
   AccountAddress,
   type Asset,
   type BalanceId,
-  type DestinationAddress,
+  DestinationAddress,
   type ExternalRecipient,
   type LinkRecipient,
-  MuxedAddress,
   type PaymentMemo,
   PositiveAmount,
   Profile,
@@ -195,7 +194,7 @@ export const sendActors = () => {
     stranger,
     pedroProfile,
     muxed: (id: string) =>
-      Schema.decodeSync(MuxedAddress)(
+      Schema.decodeSync(DestinationAddress)(
         new MuxedAccount(new Account(exchange, "0"), id).accountId(),
       ),
     payment: (opts: {

@@ -3,8 +3,8 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { base58, bech32, bech32m, createBase58check } from "@scure/base";
-import { StrKey } from "@stellar/stellar-sdk";
 import * as Option from "effect/Option";
+import { stellarAddressFormat } from "../stellar/address-format";
 
 export type AddressNetwork = "stellar" | "evm" | "solana" | "tron" | "bitcoin";
 
@@ -21,10 +21,6 @@ const decodeBech32m = Option.liftThrowable(bech32m.decode);
 const wordsToBytes = Option.liftThrowable(bech32.fromWords);
 
 const decodeCurvePoint = Option.liftThrowable(ed25519.Point.fromBytes);
-
-const isStellar = (address: string) =>
-  StrKey.isValidEd25519PublicKey(address) ||
-  StrKey.isValidMed25519PublicKey(address);
 
 const isEvm = (address: string) => {
   if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return false;
@@ -98,7 +94,7 @@ const isSegwitBitcoin = (address: string) =>
 const recognisers: ReadonlyArray<
   readonly [AddressNetwork, (address: string) => boolean]
 > = [
-  ["stellar", isStellar],
+  ["stellar", stellarAddressFormat.hasValidChecksum],
   ["evm", isEvm],
   ["solana", isSolana],
   ["tron", isTron],

@@ -19,10 +19,9 @@ import {
   Approval,
   type Approvals,
   DepositActivity,
-  type DestinationAddress,
+  DestinationAddress,
   ExternalMemoRequired,
   MemoNotAllowed,
-  MuxedAddress,
   NativeAsset,
   PaymentMemo,
   PositiveAmount,
@@ -589,7 +588,7 @@ console.log(
   "PASS a payment with a memo to the test exchange drafts with memoRequired and settles.",
 );
 
-const muxedExchange = Schema.decodeSync(MuxedAddress)(
+const muxedExchange = Schema.decodeSync(DestinationAddress)(
   new MuxedAccount(new Account(exchange, "0"), "1234567890").accountId(),
 );
 
