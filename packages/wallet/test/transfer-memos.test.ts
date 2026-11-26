@@ -11,7 +11,7 @@ import {
   LedgerUnreachable,
   MemoNotAllowed,
   DestinationAddress,
-  NativeAsset,
+  nativeAsset,
   PaymentMemo,
   TransferOrder,
 } from "../src/contract";
@@ -189,7 +189,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               key,
               AddressRecipient.make({ value: addressOf(destKey) }),
             ),
-            asset: NativeAsset.make({}),
+            asset: nativeAsset,
           });
 
           world.ledgerDown = true;

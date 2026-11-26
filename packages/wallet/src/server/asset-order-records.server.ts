@@ -16,7 +16,7 @@ import {
   type ExternalLinkOrder,
   ExternalLinkPending,
   ExternalLinkSettled,
-  IssuedAsset,
+  Asset,
   PaymentMemo,
   SigningRequest,
 } from "../contract";
@@ -98,7 +98,7 @@ export interface ConclusionColumns {
 
 export const AssetOrderJson = Schema.fromJsonString(AssetOrder);
 export const StoredOrderJson = Schema.fromJsonString(StoredOrder);
-export const OpensJson = Schema.fromJsonString(IssuedAsset);
+export const OpensJson = Schema.fromJsonString(Asset);
 
 export function assetPending(
   order: AssetAuthorized & { readonly order: AssetOrder },

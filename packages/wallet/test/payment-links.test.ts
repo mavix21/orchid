@@ -429,7 +429,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             senderAddr,
             holdingsFor(senderAddr, { lines: [euroLine("50000000")] }),
           );
-          world.issuers.set(euro.issuer, { authRequired: true });
+          world.issuers.set(euro.id, { authRequired: true });
 
           const authRefusal = yield* send(
             new TransferOrder({
@@ -501,7 +501,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const senderAddr = addressOf(sender);
           const destination = addressOf(Keypair.random());
 
-          world.issuers.set(euro.issuer, { authRequired });
+          world.issuers.set(euro.id, { authRequired });
           world.holdings.set(
             senderAddr,
             holdingsFor(senderAddr, {

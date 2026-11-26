@@ -9,6 +9,7 @@ import {
   Amount,
   type AddressRecipient,
   type AssessmentStep,
+  AssetUnsupported,
   type CheckedRecipient,
   type DestinationAddress,
   ExternalRecipient,
@@ -27,7 +28,8 @@ import {
   TransferAssessment,
   UnknownRecipient,
   type UsernameRecipient,
-  assetKey,
+  sameAsset,
+  needsTrustline,
 } from "../contract";
 import { Chain, type ChainUnreachable, MemoRule } from "./Chain.server";
 import { type QuotaCheck, claimableQuotaFlow } from "./claimable-quota.server";
@@ -76,9 +78,12 @@ export const transferCheckFlow = Effect.gen(function* () {
 
   const malformed = (
     terms: TransferTerms,
-  ): Option.Option<InvalidAddress | PhoneNotSupported> => {
+  ): Option.Option<InvalidAddress | AssetUnsupported | PhoneNotSupported> => {
     if (!chain.validAddress(terms.from))
       return Option.some(new InvalidAddress({ address: terms.from }));
+
+    if (!chain.validAsset(terms.asset))
+      return Option.some(new AssetUnsupported({ reason: "issuer_missing" }));
 
     const invalidRecipient = Match.valueTags(terms.to, {
       Address: ({ value }) =>
@@ -198,13 +203,7 @@ export const transferCheckFlow = Effect.gen(function* () {
 
     if (Option.isSome(refusal)) return refusal.value;
 
-    const state = yield* chain.holdings(
-      terms.from,
-      Match.valueTags(terms.asset, {
-        Native: () => [],
-        Issued: (asset) => [asset],
-      }),
-    );
+    const state = yield* chain.holdings(terms.from, [terms.asset]);
 
     if (Option.isNone(state)) {
       yield* effects.recover(sender.value);
@@ -218,13 +217,11 @@ export const transferCheckFlow = Effect.gen(function* () {
       if (Option.isSome(linkRefusal)) return linkRefusal.value;
     }
 
-    const balance = Match.valueTags(terms.asset, {
-      Native: () => state.value.native,
-      Issued: (asset) =>
-        state.value.lines.find(
-          (line) => assetKey(line.asset) === assetKey(asset) && line.authorized,
-        )?.spendable ?? Schema.decodeSync(Amount)("0"),
-    });
+    const balance = needsTrustline(terms.asset)
+      ? (state.value.lines.find(
+          (line) => sameAsset(line.asset, terms.asset) && line.authorized,
+        )?.spendable ?? Schema.decodeSync(Amount)("0"))
+      : state.value.native;
 
     if (balance < terms.amount)
       return new InsufficientBalance({ available: balance });

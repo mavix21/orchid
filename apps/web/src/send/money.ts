@@ -4,16 +4,9 @@ import {
   formatAmount,
   precisionOf,
 } from "@workspace/wallet";
-import * as Match from "effect/Match";
-
-export const assetCode = (asset: Asset) =>
-  Match.valueTags(asset, {
-    Native: () => "XLM",
-    Issued: ({ code }) => code,
-  });
 
 export const amountLabel = (amount: Amount, asset: Asset) =>
-  `${formatAmount(amount, precisionOf(asset))} ${assetCode(asset)}`;
+  `${formatAmount(amount, precisionOf(asset))} ${asset.code}`;
 
 export const shortAddress = (address: string) =>
   `${address.slice(0, 4)}…${address.slice(-4)}`;

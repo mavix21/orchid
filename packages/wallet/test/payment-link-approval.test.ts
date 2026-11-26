@@ -17,16 +17,16 @@ import {
   AssetCode,
   AssetDraft,
   BalanceId,
-  IssuedAsset,
   LinkRecipient,
-  NativeAsset,
   PaymentLinkOpen,
   PositiveAmount,
   SigningRequest,
   type TransferOrder,
   UnsignedEnvelope,
   baseAsset,
+  nativeAsset,
 } from "../src/contract";
+import { issuedAsset } from "../src/stellar/assets";
 import {
   DraftRejected,
   PaymentLinkIntent,
@@ -127,7 +127,7 @@ const tamperedDrafts: ReadonlyArray<
     (order, at) => ({
       envelope: actors.paymentLink({
         to: linkTarget(order),
-        asset: NativeAsset.make({}),
+        asset: nativeAsset,
         amount: linkAmount,
         at,
       }),
@@ -292,10 +292,12 @@ it("recovery selects only sponsored balances with two unconditional claimants", 
   ]);
 });
 
-const substitutedIssuer = IssuedAsset.make({
-  code: Schema.decodeSync(AssetCode)("USDC"),
-  issuer: actors.stranger,
-});
+const substitutedIssuer = issuedAsset("USDC", actors.stranger);
+
+const substitutedCode = {
+  ...baseAsset,
+  code: Schema.decodeSync(AssetCode)("EURC"),
+};
 
 const cancelBalance = Schema.decodeSync(BalanceId)(`00000000${"e".repeat(64)}`);
 
@@ -309,11 +311,12 @@ it.live.each([
     cancelBalance,
   ],
   [
-    "trustline repair on native link",
-    NativeAsset.make({}),
+    "substituted code on issued link",
+    substitutedCode,
     baseAsset,
     cancelBalance,
   ],
+  ["trustline repair on native link", nativeAsset, baseAsset, cancelBalance],
   ["draft for another balance", baseAsset, undefined, otherBalance],
 ] as const)(
   "reclaim review rejects %s",
@@ -421,10 +424,7 @@ const tamperedReceives: ReadonlyArray<
     (at) => receiveDraft({ balance: otherBalance }, at),
   ],
   ["paying another amount", (at) => receiveDraft({ amount: otherAmount }, at)],
-  [
-    "paying another asset",
-    (at) => receiveDraft({ asset: NativeAsset.make({}) }, at),
-  ],
+  ["paying another asset", (at) => receiveDraft({ asset: nativeAsset }, at)],
   [
     "handing cleanup to another sponsor",
     (at) => receiveDraft({ reserveSponsor: actors.stranger }, at),

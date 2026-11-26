@@ -11,15 +11,18 @@ import {
   Amount,
   type Asset,
   BalanceId,
-  type IssuedAsset,
   PositiveAmount,
 } from "../contract";
-import { fromStellarAsset, toStellarAsset } from "../stellar/assets";
+import {
+  fromStellarAsset,
+  isIssuerAccount,
+  toStellarAsset,
+} from "../stellar/assets";
 import { baseReserve } from "../stellar/network";
 import { type LedgerEntry, sponsorOf, sponsoredBy } from "./ledger.server";
 
 export interface Line {
-  readonly asset: IssuedAsset;
+  readonly asset: Asset;
   readonly balance: Amount;
 
   readonly spendable: Amount;
@@ -110,7 +113,7 @@ export function holdingsFromEntries(
   entries: ReadonlyArray<LedgerEntry>,
   sponsor: string,
   address: AccountAddress,
-  assets: ReadonlyArray<IssuedAsset>,
+  assets: ReadonlyArray<Asset>,
 ): Option.Option<Holdings> {
   const own = parse(entries).filter(
     ({ data }) =>
@@ -178,10 +181,10 @@ export function holdingsFromEntries(
 
 export function issuerFromEntries(
   entries: ReadonlyArray<LedgerEntry>,
-  issuer: AccountAddress,
+  asset: Asset,
 ): Option.Option<Issuer> {
   for (const { data } of parse(entries))
-    if (data.type === "account" && owns(issuer, data.value.accountId))
+    if (data.type === "account" && isIssuerAccount(asset, data.value.accountId))
       return Option.some({
         authRequired:
           (data.value.flags & xdr.AccountFlags.authRequiredFlag.value) !== 0,

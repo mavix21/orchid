@@ -20,7 +20,7 @@ import {
   Profile,
   UsernameTaken,
   WalletClaim,
-  assetKey,
+  sameAsset,
   baseAsset,
 } from "../contract";
 import { claimedByOpening, readEnvelope } from "../stellar/envelopes";
@@ -67,7 +67,7 @@ export const openingFlow = Effect.gen(function* () {
         entries.some(
           (entry) =>
             entry.balance === balance &&
-            assetKey(entry.asset) === assetKey(baseAsset) &&
+            sameAsset(entry.asset, baseAsset) &&
             entry.claimants.some(
               (claimant) =>
                 claimant.destination === address &&

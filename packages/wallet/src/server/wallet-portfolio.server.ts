@@ -7,9 +7,9 @@ import {
   type BalanceId,
   Balance,
   ClaimableBalance,
-  NativeAsset,
-  assetKey,
   baseAsset,
+  nativeAsset,
+  sameAsset,
 } from "../contract";
 import { AssetOrders } from "./AssetOrders.server";
 import { Chain } from "./Chain.server";
@@ -44,16 +44,14 @@ export const portfolioFlow = Effect.gen(function* () {
         if (state.value.nativeTotal > 0n)
           balances.push(
             new Balance({
-              asset: NativeAsset.make({}),
+              asset: nativeAsset,
               amount: state.value.nativeTotal,
             }),
           );
 
         const missing = tracked.filter(
           (asset) =>
-            !state.value.lines.some(
-              (line) => assetKey(line.asset) === assetKey(asset),
-            ),
+            !state.value.lines.some((line) => sameAsset(line.asset, asset)),
         );
 
         yield* Effect.forEach(

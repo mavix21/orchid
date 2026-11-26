@@ -2,7 +2,6 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import {
   type AccountAddress,
   AssetUnsupported,
@@ -14,8 +13,9 @@ import {
   RecipientCannotReceive,
   type ResolvedRecipient,
   type TransferOrder,
-  assetKey,
   baseAsset,
+  sameAsset,
+  needsTrustline,
 } from "../contract";
 import { baseAccountOf } from "../stellar/destination";
 import { claimableQuota } from "../policy";
@@ -57,24 +57,23 @@ export const paymentLinkAssetRefusal = Effect.gen(function* () {
     order: TransferTerms,
     senderHoldings?: Holdings,
   ) {
-    if (!Predicate.isTagged(order.asset, "Issued"))
-      return Option.none<AssetUnsupported>();
+    const { asset } = order;
 
-    const issued = order.asset;
+    if (!needsTrustline(asset)) return Option.none<AssetUnsupported>();
 
     const [holdings, issuer] = yield* Effect.all(
       [
         senderHoldings === undefined
-          ? chain.holdings(order.from, [issued])
+          ? chain.holdings(order.from, [asset])
           : Effect.succeed(Option.some(senderHoldings)),
-        chain.issuer(issued),
+        chain.issuer(asset),
       ],
       { concurrency: rpcReadConcurrency },
     );
 
     const sourceLine = Option.flatMap(holdings, (state) =>
       Option.fromNullishOr(
-        state.lines.find((line) => assetKey(line.asset) === assetKey(issued)),
+        state.lines.find((line) => sameAsset(line.asset, asset)),
       ),
     );
 
@@ -103,10 +102,7 @@ export const deliveryFlow = Effect.gen(function* () {
     terms: TransferTerms,
     recipient: ResolvedRecipient,
   ) {
-    if (
-      !(recipient instanceof Profile) ||
-      assetKey(terms.asset) !== assetKey(baseAsset)
-    )
+    if (!(recipient instanceof Profile) || !sameAsset(terms.asset, baseAsset))
       return false;
 
     const row = yield* directory.byAddress(recipient.address);

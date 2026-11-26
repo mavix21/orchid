@@ -50,14 +50,16 @@ test("pays a username in USDC, resumes after a reload and refuses an unpayable a
 
   await review(page);
 
-  const summary = page.getByRole("definition");
-
   await expect(page.getByTestId("confirm-payment")).toBeVisible({
     timeout: 30_000,
   });
-  await expect(summary.filter({ hasText: `@${recipient}` })).toBeVisible();
-  await expect(summary.filter({ hasText: /^USDC$/ })).toBeVisible();
-  await expect(summary.filter({ hasText: /^0\.5$/ })).toBeVisible();
+
+  const summary = page.getByTestId("payment-summary");
+
+  await expect(summary).toBeVisible();
+  await expect(summary).toHaveAttribute("data-username", recipient);
+  await expect(summary).toHaveAttribute("data-asset", usdc.getCode());
+  await expect(summary).toHaveAttribute("data-amount", "0.5");
 
   const approved = page.waitForResponse(
     (response) =>
@@ -137,7 +139,9 @@ test("pays a username in USDC, resumes after a reload and refuses an unpayable a
   await review(page);
 
   await page.getByTestId("offer-link").click({ timeout: 30_000 });
-  await expect(
-    page.getByTestId("link-review").filter({ hasText: "0.1" }),
-  ).toBeVisible({ timeout: 30_000 });
+
+  const linkReview = page.getByTestId("link-review");
+
+  await expect(linkReview).toBeVisible({ timeout: 30_000 });
+  await expect(linkReview).toHaveAttribute("data-amount", "0.1");
 });

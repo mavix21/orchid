@@ -22,7 +22,7 @@ import {
   DestinationAddress,
   ExternalMemoRequired,
   MemoNotAllowed,
-  NativeAsset,
+  nativeAsset,
   PaymentMemo,
   PositiveAmount,
   Settled,
@@ -495,7 +495,7 @@ const toExchange = (
     id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
     from: second.address,
     to: AddressRecipient.make({ value: destination }),
-    asset: NativeAsset.make({}),
+    asset: nativeAsset,
     amount: Schema.decodeSync(PositiveAmount)("10000000"),
     memo,
   });

@@ -27,7 +27,7 @@ import { KnownExchangeMemo } from "../src/server/exchange-memos.server";
 import { CleanUpReceivedLink } from "../src/server/work-queue.server";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { draftLinkReceive } from "../src/stellar/link-receive";
-import { network } from "../src/stellar/network";
+import { network, usdc } from "../src/stellar/network";
 import { fundLink, linkAmount } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {
@@ -537,7 +537,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       [
         "destination equal to asset issuer",
         () => ({
-          destination: baseAsset.issuer,
+          destination: Schema.decodeUnknownSync(AccountAddress)(usdc.issuer),
           expected: new LinkUnclaimable({ reason: "destination_is_issuer" }),
         }),
       ],

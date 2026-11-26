@@ -15,7 +15,12 @@ import {
 } from "../src/contract";
 import { Wallet } from "../src/server/Wallet.server";
 import { depositCursors, deposits } from "../src/server/tables.server";
-import { depositContract, epochAt, network } from "../src/stellar/network";
+import {
+  depositContract,
+  epochAt,
+  network,
+  usdc,
+} from "../src/stellar/network";
 import {
   activityOf,
   entryFor,
@@ -152,7 +157,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const [listed] = yield* listedDeposits(alice);
 
-          expect(listed?.from.address).toBe(baseAsset.issuer);
+          expect(listed?.from.address).toBe(usdc.issuer);
         }),
     );
 

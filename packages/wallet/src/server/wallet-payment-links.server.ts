@@ -15,7 +15,7 @@ import {
   type PaymentLinksStep,
   type ResolveReceiptStep,
   ResolvedPaymentLink,
-  assetKey,
+  sameAsset,
 } from "../contract";
 import { network } from "../stellar/network";
 import { Applied, Chain, type ChainUnreachable } from "./Chain.server";
@@ -112,7 +112,7 @@ export const paymentLinksFlow = Effect.gen(function* () {
       (entry) =>
         entry.balance === authorized.claimable &&
         entry.address === expectedAddress &&
-        assetKey(entry.asset) === assetKey(authorized.order.asset) &&
+        sameAsset(entry.asset, authorized.order.asset) &&
         entry.amount === authorized.order.amount,
     );
 
@@ -137,7 +137,7 @@ export const paymentLinksFlow = Effect.gen(function* () {
     const matches = selectRecoverablePaymentLinks(entries, sender).filter(
       (entry) =>
         entry.address === receipt.address &&
-        assetKey(entry.asset) === assetKey(receipt.asset) &&
+        sameAsset(entry.asset, receipt.asset) &&
         entry.amount === receipt.amount,
     );
 
@@ -158,7 +158,7 @@ export const paymentLinksFlow = Effect.gen(function* () {
       latest.value.claimable === match.balance &&
       Predicate.isTagged(latest.value.order.to, "PaymentLink") &&
       latest.value.order.to.value === match.address &&
-      assetKey(latest.value.order.asset) === assetKey(match.asset) &&
+      sameAsset(latest.value.order.asset, match.asset) &&
       latest.value.order.amount === match.amount
     )
       yield* transfers.conclude(

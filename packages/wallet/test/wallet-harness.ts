@@ -21,6 +21,7 @@ import {
   Amount,
   Approval,
   type Approvals,
+  type AssetId,
   HumanCheckRefused,
   OpeningDraft,
   PositiveAmount,
@@ -32,6 +33,7 @@ import {
   Username,
   WalletClaim,
   baseAsset,
+  sameAsset,
 } from "../src/contract";
 import { AssetOrders } from "../src/server/AssetOrders.server";
 import { Backups } from "../src/server/Backups.server";
@@ -121,7 +123,7 @@ export const world = {
   claimablesDown: false,
   holdings: new Map<AccountAddress, Holdings>(),
   claimables: new Map<string, ClaimableEntry>(),
-  issuers: new Map<AccountAddress, { readonly authRequired: boolean }>(),
+  issuers: new Map<AssetId, { readonly authRequired: boolean }>(),
 };
 
 const recordingQueue = Layer.succeed(WorkQueue, {
@@ -239,9 +241,7 @@ export const fakeChain = Layer.effect(
                   native: amount(s.nativeBalance.toString()),
                   reserves: { subentries: 1, sponsored: 3, sponsoring: 0 },
                   lines: assets.flatMap((a) =>
-                    a.code === baseAsset.code &&
-                    a.issuer === baseAsset.issuer &&
-                    Option.isSome(s.balance)
+                    sameAsset(a, baseAsset) && Option.isSome(s.balance)
                       ? [
                           {
                             asset: a,
@@ -291,9 +291,7 @@ export const fakeChain = Layer.effect(
             ),
       issuer: (asset) =>
         Effect.succeed(
-          Option.some(
-            world.issuers.get(asset.issuer) ?? { authRequired: false },
-          ),
+          Option.some(world.issuers.get(asset.id) ?? { authRequired: false }),
         ),
       draftAsset: (addr, plan) =>
         draftWith((w) =>

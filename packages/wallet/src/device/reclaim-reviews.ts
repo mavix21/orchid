@@ -1,7 +1,7 @@
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import { type AssetDraft, type AssetOrder, assetKey } from "../contract";
+import { type AssetDraft, type AssetOrder, sameAsset } from "../contract";
 import { readEnvelope } from "../stellar/envelopes";
 import { network } from "../stellar/network";
 import type { PublicDeviceWallet } from "./key-store";
@@ -36,8 +36,7 @@ export const reviewOf = (
   const opensExactly =
     claim.opens === undefined
       ? claim.reserveSponsor === undefined
-      : Predicate.isTagged(asset, "Issued") &&
-        assetKey(claim.opens) === assetKey(asset) &&
+      : sameAsset(claim.opens, asset) &&
         wallet.reserveSponsor !== undefined &&
         claim.reserveSponsor === wallet.reserveSponsor;
 

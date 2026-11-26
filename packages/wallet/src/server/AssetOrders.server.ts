@@ -10,14 +10,14 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
-  AccountAddress,
-  AssetCode,
+  type AccountAddress,
+  type Asset,
   AssetOrder,
   AssetOrderId,
   type BalanceId,
-  IssuedAsset,
-  SigningRequest,
+  type SigningRequest,
 } from "../contract";
+import { issuedAsset, trustlineColumns } from "../stellar/assets";
 import { approvalMargin, maxSponsoredTrustlines } from "../policy";
 import { epochAt, network } from "../stellar/network";
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
@@ -115,11 +115,11 @@ export class AssetOrders extends Context.Service<
 
     tracked(
       wallet: AccountAddress,
-    ): Effect.Effect<ReadonlyArray<IssuedAsset>, StoreFailure>;
+    ): Effect.Effect<ReadonlyArray<Asset>, StoreFailure>;
 
     forget(
       wallet: AccountAddress,
-      asset: IssuedAsset,
+      asset: Asset,
     ): Effect.Effect<void, StoreFailure>;
 
     onBalance(
@@ -388,22 +388,17 @@ export class AssetOrders extends Context.Service<
           }),
         );
 
-      const line = (
-        wallet: AccountAddress,
-        asset: IssuedAsset,
-        now: number,
-      ) => ({
+      const line = (wallet: AccountAddress, asset: Asset, now: number) => ({
         address: wallet,
         network,
         testnetEpoch: epochAt(now),
-        code: asset.code,
-        issuer: asset.issuer,
+        ...trustlineColumns(asset),
       });
 
       const track = (
         tx: Transaction,
         wallet: AccountAddress,
-        asset: IssuedAsset,
+        asset: Asset,
         now: number,
       ) =>
         tx
@@ -414,20 +409,23 @@ export class AssetOrders extends Context.Service<
       const untrack = (
         executor: typeof db | Transaction,
         wallet: AccountAddress,
-        asset: IssuedAsset,
+        asset: Asset,
         now: number,
-      ) =>
-        executor
+      ) => {
+        const { code, issuer } = trustlineColumns(asset);
+
+        return executor
           .delete(trustlines)
           .where(
             and(
               eq(trustlines.address, wallet),
               eq(trustlines.network, network),
               eq(trustlines.testnetEpoch, epochAt(now)),
-              eq(trustlines.code, asset.code),
-              eq(trustlines.issuer, asset.issuer),
+              eq(trustlines.code, code),
+              eq(trustlines.issuer, issuer),
             ),
           );
+      };
 
       const closeBalance = (
         tx: Transaction,
@@ -556,12 +554,7 @@ export class AssetOrders extends Context.Service<
           .orderBy(trustlines.openedAt, trustlines.code, trustlines.issuer)
           .limit(maxSponsoredTrustlines * 4);
 
-        return rows.map((row) =>
-          IssuedAsset.make({
-            code: Schema.decodeSync(AssetCode)(row.code),
-            issuer: Schema.decodeSync(AccountAddress)(row.issuer),
-          }),
-        );
+        return rows.map((row) => issuedAsset(row.code, row.issuer));
       });
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>

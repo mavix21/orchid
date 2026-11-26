@@ -5,7 +5,6 @@ import {
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
@@ -16,6 +15,7 @@ import {
   PositiveAmount,
   UnsignedEnvelope,
   formatAmount,
+  needsTrustline,
   parseAmount,
   precisionOf,
 } from "../contract";
@@ -58,7 +58,7 @@ export interface LinkReceiveInput {
 export function draftLinkReceive(input: LinkReceiveInput): UnsignedEnvelope {
   const asset = toStellarAsset(input.asset);
   const amount = formatAmount(input.amount, precisionOf(input.asset));
-  const issued = Predicate.isTagged(input.asset, "Issued");
+  const trusts = needsTrustline(input.asset);
 
   const builder = new TransactionBuilder(input.channel, {
     fee: baseFee,
@@ -80,7 +80,7 @@ export function draftLinkReceive(input: LinkReceiveInput): UnsignedEnvelope {
       }),
     );
 
-  if (issued)
+  if (trusts)
     builder.addOperation(
       Operation.changeTrust({ source: input.link, asset, limit: amount }),
     );
@@ -101,7 +101,7 @@ export function draftLinkReceive(input: LinkReceiveInput): UnsignedEnvelope {
       }),
     );
 
-  if (issued)
+  if (trusts)
     builder.addOperation(
       Operation.changeTrust({ source: input.link, asset, limit: "0" }),
     );

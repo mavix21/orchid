@@ -1,8 +1,8 @@
 import { Address, xdr } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { type BalanceId, baseAsset } from "../src/contract";
-import { depositContract } from "../src/stellar/network";
+import type { BalanceId } from "../src/contract";
+import { depositContract, usdc } from "../src/stellar/network";
 import {
   bodyText,
   httpClientAnswering,
@@ -47,9 +47,7 @@ const encoded = (value: xdr.ScVal) => value.toXDR("base64");
 const addressTopic = (address: string) =>
   encoded(new Address(address).toScVal());
 
-const assetTopic = encoded(
-  xdr.ScVal.scvString(`${baseAsset.code}:${baseAsset.issuer}`),
-);
+const assetTopic = encoded(xdr.ScVal.scvString(`${usdc.code}:${usdc.issuer}`));
 
 const amountValue = (amount: bigint) =>
   xdr.ScVal.scvI128(new xdr.Int128Parts({ hi: 0n, lo: amount }));
