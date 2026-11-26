@@ -18,7 +18,7 @@ import {
 } from "../contract";
 import type { ClaimIssue } from "./claim-reviews";
 import { linkKeyOf, type LinkCode } from "./link-code";
-import { OpenedLink, linkSecretFor, openLink } from "./link-receive";
+import { OpenedLink, linkKeyFor, openLink } from "./link-receive";
 import {
   baseAccountOf,
   isIssuedBy,
@@ -32,12 +32,12 @@ import {
   type ExternalLinkOutcome,
   ExternalLinkReview,
   type LinkReceiveTarget,
-  LinkSecretMismatch,
+  LinkCodeMismatch,
   type ReviewExternalLinkOutcome,
 } from "./outcomes";
 import { type DraftTiming, draftTiming } from "./payment-reviews";
 import { pendingSteps, pollSchedule } from "./polling";
-import { approveWithLinkSecret } from "./signing";
+import { approveWithLinkKey } from "./signing";
 import { sameMemo } from "./transfer-drafts";
 
 const externalReviewJson = Schema.encodeSync(
@@ -279,7 +279,7 @@ export function deviceExternalLinkClaim(
     code: LinkCode,
     intent: ExternalLinkIntent,
   ): Effect.fn.Return<ReviewExternalLinkOutcome, WalletUnavailable> {
-    if (Option.isNone(linkKeyOf(code))) return new LinkSecretMismatch();
+    if (Option.isNone(linkKeyOf(code))) return new LinkCodeMismatch();
 
     if (forbidsMemo(intent.destination) && intent.memo !== undefined)
       return new MemoNotAllowed({ reason: "muxed" });
@@ -305,9 +305,9 @@ export function deviceExternalLinkClaim(
     shown: ExternalLinkReview,
     code: LinkCode,
   ): Effect.fn.Return<ConfirmExternalLinkOutcome, WalletUnavailable> {
-    const secret = linkSecretFor(shown.link, code);
+    const key = linkKeyFor(shown.link, code);
 
-    if (Option.isNone(secret)) return new LinkSecretMismatch();
+    if (Option.isNone(key)) return new LinkCodeMismatch();
 
     const { issued: snapshot } = yield* Ref.get(state);
 
@@ -324,9 +324,7 @@ export function deviceExternalLinkClaim(
 
     if (!(yield* consume(snapshot.value))) return new DraftRejected();
 
-    const [approval] = approveWithLinkSecret(secret.value, [
-      presented.draft.request,
-    ]);
+    const [approval] = approveWithLinkKey(key.value, [presented.draft.request]);
 
     return yield* advance(presented.order, afterRelease, Option.some(approval));
   });

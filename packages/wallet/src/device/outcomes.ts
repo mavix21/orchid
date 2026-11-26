@@ -56,7 +56,7 @@ import type {
   WrongCredential,
 } from "./assertion";
 import { BackupState, type CorruptDeviceWallet } from "./key-store";
-import type { LinkSecretCorrupt } from "./link-seal";
+import type { SavedLinkCorrupt } from "./link-seal";
 import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";
 
 export class NoWallet extends Schema.TaggedClass<NoWallet>()("NoWallet", {}) {}
@@ -397,8 +397,8 @@ export type ConfirmReclaimOutcome =
   | PrfOutputMissing
   | CorruptDeviceWallet;
 
-export class LinkSecretMissing extends Schema.TaggedClass<LinkSecretMissing>()(
-  "LinkSecretMissing",
+export class SavedLinkMissing extends Schema.TaggedClass<SavedLinkMissing>()(
+  "SavedLinkMissing",
   {},
 ) {}
 
@@ -416,8 +416,8 @@ export class PaymentLinkRevealed extends Schema.TaggedClass<PaymentLinkRevealed>
 
 export type RevealPaymentLinkOutcome =
   | PaymentLinkRevealed
-  | LinkSecretMissing
-  | LinkSecretCorrupt
+  | SavedLinkMissing
+  | SavedLinkCorrupt
   | PrfOutputMissing
   | PasskeyCancelled
   | PasskeyFailed
@@ -428,8 +428,8 @@ export type RevealPaymentLinkOutcome =
   | CorruptDeviceWallet
   | WalletUnavailable;
 
-export class LinkSecretMismatch extends Schema.TaggedClass<LinkSecretMismatch>()(
-  "LinkSecretMismatch",
+export class LinkCodeMismatch extends Schema.TaggedClass<LinkCodeMismatch>()(
+  "LinkCodeMismatch",
   {},
 ) {}
 
@@ -458,7 +458,7 @@ export class LinkReceiveReview extends Schema.TaggedClass<LinkReceiveReview>()(
 
 export type PaymentLinkOutcome =
   | PaymentLinkStep
-  | LinkSecretMismatch
+  | LinkCodeMismatch
   | UnsupportedDevice
   | WalletUnavailable;
 
@@ -466,7 +466,7 @@ export type ReviewLinkReceiveOutcome =
   | LinkReceiveReview
   | ReclaimOutcome
   | Exclude<PaymentLinkStep, PaymentLinkOpen>
-  | LinkSecretMismatch;
+  | LinkCodeMismatch;
 
 export type ConfirmLinkReceiveOutcome =
   | ReviewLinkReceiveOutcome
@@ -505,7 +505,7 @@ export class ExternalLinkReview extends Schema.TaggedClass<ExternalLinkReview>()
 export type ExternalLinkOutcome =
   | Exclude<ExternalLinkStep, ExternalLinkDraft>
   | Exclude<PaymentLinkStep, PaymentLinkOpen>
-  | LinkSecretMismatch
+  | LinkCodeMismatch
   | DraftRejected
   | WalletUnavailable;
 

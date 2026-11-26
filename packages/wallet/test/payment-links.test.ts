@@ -34,7 +34,7 @@ import { SealedLinkCode, linkPrfInput } from "../src/device/link-seal";
 import { holdingsFromEntries } from "../src/server/ledger-assets.server";
 import { transfers } from "../src/server/tables.server";
 import { network, usdc } from "../src/stellar/network";
-import { memoryKeyStore } from "./device-fixtures";
+import { linkKeypairOf, memoryKeyStore } from "./device-fixtures";
 import {
   approvingDevice,
   installSealedWallet,
@@ -284,7 +284,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             serializedRows,
           ].join("\n");
 
-          const linkSecret = Option.getOrThrow(linkKeyOf(created.code)).secret;
+          const linkSecret = linkKeypairOf(created.code).secret();
 
           expect(exposed).not.toContain(created.code);
           expect(exposed).not.toContain(linkSecret);

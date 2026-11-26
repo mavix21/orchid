@@ -135,7 +135,7 @@ const mapResult = (
           "done",
         ),
       ),
-    LinkSecretMismatch: () =>
+    LinkCodeMismatch: () =>
       concluded(
         outcome,
         new LinkScreen<ExternalClaimAction>(

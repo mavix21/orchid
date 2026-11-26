@@ -1,10 +1,13 @@
-import type { AccountAddress, LinkSecret, UnsignedEnvelope } from "../contract";
+import type { AccountAddress, UnsignedEnvelope } from "../contract";
+
+export interface LinkKey {
+  readonly address: AccountAddress;
+  readonly sign: (payload: Uint8Array) => Uint8Array;
+}
 
 export interface SigningScheme {
   readonly derivationPath: string;
-  readonly linkKeyInfo: Uint8Array;
   readonly address: (publicKey: Uint8Array) => AccountAddress;
-  readonly linkSecret: (seed: Uint8Array) => LinkSecret;
-  readonly linkSecretSeed: (secret: LinkSecret) => Uint8Array;
+  readonly linkKey: (entropy: Uint8Array) => LinkKey;
   readonly signingPayload: (envelope: UnsignedEnvelope) => Uint8Array;
 }

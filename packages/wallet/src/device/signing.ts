@@ -1,11 +1,10 @@
-import { ed25519 } from "@noble/curves/ed25519.js";
 import { mnemonicToSeedSync } from "@scure/bip39";
 import type * as Arr from "effect/Array";
 import { HDKey } from "micro-key-producer/slip10.js";
-import { Approval, type LinkSecret, type SigningRequest } from "../contract";
+import { Approval, type SigningRequest } from "../contract";
 import { signingScheme } from "../device-network";
 import type { SecretPhrase } from "./secret-phrase";
-import type { SigningScheme } from "./signing-scheme";
+import type { LinkKey, SigningScheme } from "./signing-scheme";
 
 function signingWith(scheme: SigningScheme) {
   const withPhraseKey = <A>(phrase: SecretPhrase, use: (key: HDKey) => A) => {
@@ -45,20 +44,12 @@ function signingWith(scheme: SigningScheme) {
       withPhraseKey(phrase, (key) =>
         approveEach(requests, (payload) => key.sign(payload)),
       ),
-    approveWithLinkSecret: (
-      secret: LinkSecret,
+    approveWithLinkKey: (
+      key: LinkKey,
       requests: Arr.NonEmptyReadonlyArray<SigningRequest>,
-    ) => {
-      const seed = scheme.linkSecretSeed(secret);
-
-      try {
-        return approveEach(requests, (payload) => ed25519.sign(payload, seed));
-      } finally {
-        seed.fill(0);
-      }
-    },
+    ) => approveEach(requests, key.sign),
   };
 }
 
-export const { phraseAddress, approveWithPhrase, approveWithLinkSecret } =
+export const { phraseAddress, approveWithPhrase, approveWithLinkKey } =
   signingWith(signingScheme);

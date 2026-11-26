@@ -149,7 +149,7 @@ const refusalMessage = (refusal: Refusal, moment: Moment) =>
     RegistrationRefused: () =>
       "No pudimos registrar tu passkey. Vuelve a elegir tu @usuario.",
     UnsupportedDevice: () => unsupportedDeviceMessage,
-    LinkSecretMismatch: () =>
+    LinkCodeMismatch: () =>
       "Este link está incompleto. Ábrelo de nuevo desde el mensaje que te enviaron.",
     Offline: unavailableMessage,
     ServerUnreachable: unavailableMessage,

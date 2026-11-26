@@ -544,9 +544,9 @@ export const revealResult = (
       ),
     PrfOutputMissing: () =>
       cannotOpen("Tu passkey no puede abrir el link en este dispositivo."),
-    LinkSecretMissing: () =>
+    SavedLinkMissing: () =>
       cannotOpen("Este link no está guardado en este dispositivo."),
-    LinkSecretCorrupt: () =>
+    SavedLinkCorrupt: () =>
       cannotOpen("El link guardado en este dispositivo está dañado."),
     CorruptDeviceWallet: () =>
       cannotOpen("Los datos guardados en este navegador están dañados."),

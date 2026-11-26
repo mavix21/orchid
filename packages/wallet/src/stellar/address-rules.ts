@@ -6,8 +6,6 @@ const account = { pattern: /^G[A-Z2-7]{55}$/u, version: 6 << 3 };
 
 const muxedAccount = { pattern: /^M[A-Z2-7]{68}$/u, version: 12 << 3 };
 
-const linkSecretPattern = /^S[A-Z2-7]{55}$/u;
-
 const isAccountAddress = (text: string) => account.pattern.test(text);
 
 export const isMuxedAddress = (text: string) => muxedAccount.pattern.test(text);
@@ -42,7 +40,6 @@ export const stellarAddressRules: AddressRules = {
   isAccountAddress,
   isDestinationAddress: (text) =>
     isAccountAddress(text) || isMuxedAddress(text),
-  isLinkSecret: (text) => linkSecretPattern.test(text),
   forbidsMemo: isMuxedAddress,
   hasValidChecksum,
 };

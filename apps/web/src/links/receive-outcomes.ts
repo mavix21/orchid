@@ -82,7 +82,7 @@ export const receiveScreen = (
         "Revisa que lo hayas abierto completo desde el mensaje que te enviaron.",
         "done",
       ),
-    LinkSecretMismatch: () =>
+    LinkCodeMismatch: () =>
       new LinkScreen<ReceiveAction>(
         "Este link está incompleto",
         "Ábrelo de nuevo desde el mensaje que te enviaron.",

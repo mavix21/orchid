@@ -1,13 +1,6 @@
 import * as Schema from "effect/Schema";
-import { addressRules } from "../address-rules";
 import { Asset, BalanceId, PositiveAmount, withinAssetMaximum } from "./assets";
 import { AccountAddress, Profile } from "./identity";
-
-export const LinkSecret = Schema.String.check(
-  Schema.makeFilter(addressRules.isLinkSecret),
-).pipe(Schema.brand("LinkSecret"));
-
-export type LinkSecret = typeof LinkSecret.Type;
 
 export const TransferId = Schema.String.check(Schema.isUUID(4)).pipe(
   Schema.brand("TransferId"),

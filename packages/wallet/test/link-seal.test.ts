@@ -150,10 +150,10 @@ it.effect.each([
     output: prf,
     expected: context,
   },
-])("refuses $name as LinkSecretCorrupt", ({ tampered, output, expected }) =>
+])("refuses $name as SavedLinkCorrupt", ({ tampered, output, expected }) =>
   Effect.gen(function* () {
     const opened = yield* openLinkCode(yield* tampered, expected, output());
 
-    expect(opened._tag).toBe("LinkSecretCorrupt");
+    expect(opened._tag).toBe("SavedLinkCorrupt");
   }),
 );

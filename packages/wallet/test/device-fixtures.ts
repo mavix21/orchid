@@ -1,3 +1,4 @@
+import { base58 } from "@scure/base";
 import { mnemonicToSeedSync } from "@scure/bip39";
 import { Account, Keypair, MuxedAccount } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
@@ -32,21 +33,26 @@ import {
   SecretPhrase,
   generateSecretPhrase,
 } from "../src/device/secret-phrase";
-import { generateLinkCode, linkKeyOf } from "../src/device/link-code";
+import { type LinkCode, generateLinkCode } from "../src/device/link-code";
 import {
   draftClaimable,
   draftPaymentLink,
 } from "../src/stellar/asset-envelopes";
 import { draftPayment } from "../src/stellar/envelopes";
-import { stellarSigningScheme } from "../src/stellar/signing-scheme";
+import {
+  stellarLinkSeed,
+  stellarSigningScheme,
+} from "../src/stellar/signing-scheme";
+
+export const linkKeypairOf = (code: LinkCode) =>
+  Keypair.fromRawEd25519Seed(
+    Buffer.from(stellarLinkSeed(base58.decode(code).slice(1, 17))),
+  );
 
 export const linkFixture = () => {
   const code = generateLinkCode();
 
-  return {
-    code,
-    keypair: Keypair.fromSecret(Option.getOrThrow(linkKeyOf(code)).secret),
-  };
+  return { code, keypair: linkKeypairOf(code) };
 };
 
 export const addressOf = (key: Keypair) =>

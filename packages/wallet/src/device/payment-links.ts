@@ -35,7 +35,7 @@ import {
   type LinkCode,
 } from "./link-code";
 import {
-  LinkSecretCorrupt,
+  SavedLinkCorrupt,
   LinkCodeOpened,
   type SealedLinkCode,
   linkPrfInput,
@@ -49,7 +49,7 @@ import {
   DraftRejected,
   LatestPaymentLink,
   LinkOutputMissing,
-  LinkSecretMissing,
+  SavedLinkMissing,
   ListedPaymentLink,
   ListedPaymentLinks,
   NoWallet,
@@ -348,7 +348,7 @@ export function devicePaymentLinks(
         fundedBalance === undefined || fundedBalance === target.balance,
     );
 
-    if (Option.isNone(saved)) return new LinkSecretMissing();
+    if (Option.isNone(saved)) return new SavedLinkMissing();
 
     const context = {
       network,
@@ -358,7 +358,7 @@ export function devicePaymentLinks(
     };
 
     if (!matchesLinkContext(saved.value, context))
-      return new LinkSecretCorrupt();
+      return new SavedLinkCorrupt();
 
     const verified = yield* verifyPinnedAssertion(
       device.ceremony,

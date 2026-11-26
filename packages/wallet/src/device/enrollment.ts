@@ -60,13 +60,13 @@ import {
   localPhrasePrfInput,
   sealLocalEnvelope,
 } from "./local-envelope";
-import { linkSecretFor, receiveReviewJson } from "./link-receive";
+import { linkKeyFor, receiveReviewJson } from "./link-receive";
 import { reviewJson } from "./opening-drafts";
 import {
   BackupUnsupported,
   DraftRejected,
   InvalidUsername,
-  LinkSecretMismatch,
+  LinkCodeMismatch,
   NoWallet,
   OpeningReview,
   UnsupportedDevice,
@@ -75,7 +75,7 @@ import {
 import { backupSalt, sealPhrase } from "./phrase-seal";
 import { generateSecretPhrase } from "./secret-phrase";
 import {
-  approveWithLinkSecret,
+  approveWithLinkKey,
   approveWithPhrase,
   phraseAddress,
 } from "./signing";
@@ -333,13 +333,13 @@ export function makeEnrollmentEffects(
     if ((yield* standingOfReview(sealed, review)) !== "current")
       return yield* refreshReview(sealed, true);
 
-    const secret =
+    const linkKey =
       receive === undefined
         ? Option.none()
-        : linkSecretFor(receive.review.link, receive.code);
+        : linkKeyFor(receive.review.link, receive.code);
 
     if (receive !== undefined) {
-      if (Option.isNone(secret)) return new LinkSecretMismatch();
+      if (Option.isNone(linkKey)) return new LinkCodeMismatch();
 
       if ((yield* receiveStanding(sealed, receive.review)) !== "current")
         return yield* refreshReceive(sealed, receive.review);
@@ -350,10 +350,10 @@ export function makeEnrollmentEffects(
     ]);
 
     const heldReceive =
-      receive !== undefined && Option.isSome(secret)
+      receive !== undefined && Option.isSome(linkKey)
         ? new HeldReceive({
             order: receive.review.order,
-            approval: approveWithLinkSecret(secret.value, [
+            approval: approveWithLinkKey(linkKey.value, [
               receive.review.draft.request,
             ])[0],
           })
@@ -466,8 +466,8 @@ export function makeEnrollmentEffects(
       )
         return pendingNotice(current);
 
-      if (Option.isNone(linkSecretFor(receive.review.link, receive.code)))
-        return new LinkSecretMismatch();
+      if (Option.isNone(linkKeyFor(receive.review.link, receive.code)))
+        return new LinkCodeMismatch();
 
       if ((yield* receiveStanding(current, receive.review)) !== "current")
         return yield* refreshReceive(current, receive.review);

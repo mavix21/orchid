@@ -1,12 +1,10 @@
-import { ed25519 } from "@noble/curves/ed25519.js";
-import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { base58 } from "@scure/base";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import type { AccountAddress, LinkSecret } from "../contract";
+import type { AccountAddress } from "../contract";
 import { signingScheme } from "../device-network";
-import type { SigningScheme } from "./signing-scheme";
+import type { LinkKey } from "./signing-scheme";
 
 const linkCodeVersion = 1;
 const linkCodeEntropyLength = 16;
@@ -51,35 +49,10 @@ export const LinkCode = Schema.String.check(
 
 export type LinkCode = typeof LinkCode.Type;
 
-const encoder = new TextEncoder();
-
-const linkKeySalt = encoder.encode("orchid-payment-link-code-v1");
-
-export interface LinkKey {
-  readonly address: AccountAddress;
-  readonly secret: LinkSecret;
-}
-
-const keyFromEntropy = (
-  scheme: SigningScheme,
-  entropy: Uint8Array,
-): LinkKey => {
-  const seed = hkdf(sha256, entropy, linkKeySalt, scheme.linkKeyInfo, 32);
-
-  try {
-    return {
-      address: scheme.address(ed25519.getPublicKey(seed)),
-      secret: scheme.linkSecret(seed),
-    };
-  } finally {
-    seed.fill(0);
-  }
-};
-
 export const linkKeyOf = (code: LinkCode): Option.Option<LinkKey> =>
   Option.map(linkCodeEntropy(code), (entropy) => {
     try {
-      return keyFromEntropy(signingScheme, entropy);
+      return signingScheme.linkKey(entropy);
     } finally {
       entropy.fill(0);
     }
