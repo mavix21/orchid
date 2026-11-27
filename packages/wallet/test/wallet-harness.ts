@@ -57,12 +57,13 @@ import { transfers } from "../src/server/tables.server";
 import {
   type KnownExchangeMemo,
   exchangeMemoFor,
-} from "../src/server/exchange-memos.server";
-import type {
-  HeldFundsEntry,
-  Holdings,
-} from "../src/server/ledger-assets.server";
-import type { AccountState } from "../src/server/ledger.server";
+} from "../src/stellar/exchange-memos.server";
+import {
+  type ClaimableBalance,
+  unclaimedFundsEntry,
+} from "../src/stellar/ledger-assets.server";
+import type { Holdings } from "../src/server/holdings.server";
+import type { AccountState } from "../src/stellar/ledger.server";
 import {
   type PendingWork,
   QueueUnavailable,
@@ -122,7 +123,7 @@ export const world = {
   unreadable: new Set<string>(),
   claimablesDown: false,
   holdings: new Map<AccountAddress, Holdings>(),
-  claimables: new Map<string, HeldFundsEntry>(),
+  claimables: new Map<string, ClaimableBalance>(),
   issuers: new Map<AssetId, { readonly authRequired: boolean }>(),
 };
 
@@ -187,7 +188,7 @@ export const holdingsFor = (
   ),
   reserveSponsor: Option.none(),
   native: amount("0"),
-  reserves: { subentries: 2, sponsored: 4, sponsoring: 0 },
+  trustlineSlotsUsed: 2,
   lines: [],
   ...overrides,
 });
@@ -239,7 +240,7 @@ export const fakeChain = Layer.effect(
                     ? Option.some(reserveSponsor)
                     : Option.none(),
                   native: amount(s.nativeBalance.toString()),
-                  reserves: { subentries: 1, sponsored: 3, sponsoring: 0 },
+                  trustlineSlotsUsed: 1,
                   lines: assets.flatMap((a) =>
                     sameAsset(a, baseAsset) && Option.isSome(s.balance)
                       ? [
@@ -279,14 +280,14 @@ export const fakeChain = Layer.effect(
       ...draftChain(account),
       ...links,
       holdings,
-      heldFunds: (ids) =>
+      unclaimedFunds: (ids) =>
         world.claimablesDown
           ? rpcDown()
           : Effect.succeed(
               ids.flatMap((id) => {
                 const e = world.claimables.get(id);
 
-                return e ? [e] : [];
+                return e ? [unclaimedFundsEntry(e)] : [];
               }),
             ),
       issuer: (asset) =>

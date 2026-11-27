@@ -6,14 +6,14 @@ import {
   type AccountAddress,
   type Approval,
   AssetOrder,
-  type HeldFundsId,
+  type UnclaimedFundsId,
   AssetDraft,
   type AssetPending,
   type AssetSettled,
   type AssetFailed,
   type AssetStep,
-  HeldFundsGone,
-  type HeldFundsGoneStatus,
+  UnclaimedFundsGone,
+  type UnclaimedFundsGoneStatus,
   type ExternalLinkFailed,
   type ExternalLinkPending,
   type ExternalLinkSettled,
@@ -49,7 +49,7 @@ import {
   type LinkReceive,
 } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
-import { selectRecoverablePaymentLinks } from "./ledger-assets.server";
+import { recoverablePaymentLinks } from "./unclaimed-funds.server";
 import { type FundedLink, Transfers } from "./Transfers.server";
 import { externalLinkClaimFlow } from "./wallet-link-external.server";
 import { live } from "./wallet-reads.server";
@@ -110,14 +110,14 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       link: AccountAddress,
       funded: FundedLink,
     ) {
-      const entries = yield* chain.heldFunds([funded.heldFunds]);
+      const entries = yield* chain.unclaimedFunds([funded.unclaimedFunds]);
 
-      const matched = selectRecoverablePaymentLinks(
+      const matched = recoverablePaymentLinks(
         entries,
         funded.sender.address,
       ).some(
         (entry) =>
-          entry.heldFunds === funded.heldFunds &&
+          entry.unclaimedFunds === funded.unclaimedFunds &&
           entry.address === link &&
           sameAsset(entry.asset, funded.asset) &&
           entry.amount === funded.amount,
@@ -171,7 +171,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
     const goneStatus = (
       stored: ReadonlyArray<StoredAssetOrder>,
       claimer: Option.Option<AccountAddress>,
-    ): HeldFundsGoneStatus => {
+    ): UnclaimedFundsGoneStatus => {
       const claims = stored
         .filter(settledHere)
         .filter((entry) => !receiving(entry));
@@ -191,42 +191,43 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       return stored.some(settledHere) ? "claimed" : "unresolved";
     };
 
-    const settleOnHeldFunds = Effect.fn("Wallet.settleOnHeldFunds")(function* (
-      heldFunds: HeldFundsId,
-    ) {
-      const recorded = yield* orders.onHeldFunds(heldFunds);
+    const settleOnUnclaimedFunds = Effect.fn("Wallet.settleOnUnclaimedFunds")(
+      function* (unclaimedFunds: UnclaimedFundsId) {
+        const recorded = yield* orders.onUnclaimedFunds(unclaimedFunds);
 
-      const authorized = recorded.filter((stored): stored is AssetAuthorized =>
-        Predicate.isTagged(stored, "AssetAuthorized"),
-      );
+        const authorized = recorded.filter(
+          (stored): stored is AssetAuthorized =>
+            Predicate.isTagged(stored, "AssetAuthorized"),
+        );
 
-      const receivePending = yield* Effect.forEach(authorized, (stored) =>
-        Effect.map(
-          settled(stored),
-          (receipt) =>
-            receiving(stored) &&
-            (Predicate.isTagged(receipt, "AssetPending") ||
-              Predicate.isTagged(receipt, "ExternalLinkPending")),
-        ),
-      );
+        const receivePending = yield* Effect.forEach(authorized, (stored) =>
+          Effect.map(
+            settled(stored),
+            (receipt) =>
+              receiving(stored) &&
+              (Predicate.isTagged(receipt, "AssetPending") ||
+                Predicate.isTagged(receipt, "ExternalLinkPending")),
+          ),
+        );
 
-      return {
-        checking: receivePending.some(Boolean),
-        current:
-          authorized.length === 0
-            ? recorded
-            : yield* orders.onHeldFunds(heldFunds),
-      };
-    });
+        return {
+          checking: receivePending.some(Boolean),
+          current:
+            authorized.length === 0
+              ? recorded
+              : yield* orders.onUnclaimedFunds(unclaimedFunds),
+        };
+      },
+    );
 
-    const heldFundsGone = (
-      heldFunds: HeldFundsId,
+    const unclaimedFundsGone = (
+      unclaimedFunds: UnclaimedFundsId,
       claimer: Option.Option<AccountAddress> = Option.none(),
     ) =>
       Effect.map(
-        settleOnHeldFunds(heldFunds),
+        settleOnUnclaimedFunds(unclaimedFunds),
         ({ current }) =>
-          new HeldFundsGone({ status: goneStatus(current, claimer) }),
+          new UnclaimedFundsGone({ status: goneStatus(current, claimer) }),
       );
 
     const paymentLink = Effect.fn("Wallet.paymentLink")(function* (
@@ -239,8 +240,8 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
       if (Option.isNone(funded)) return new PaymentLinkNotFound();
 
-      const { checking, current } = yield* settleOnHeldFunds(
-        funded.value.heldFunds,
+      const { checking, current } = yield* settleOnUnclaimedFunds(
+        funded.value.unclaimedFunds,
       );
 
       if (checking) return new PaymentLinkChecking();
@@ -249,7 +250,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
       if (matched)
         return new PaymentLinkOpen({
-          heldFunds: funded.value.heldFunds,
+          unclaimedFunds: funded.value.unclaimedFunds,
           asset: funded.value.asset,
           amount: funded.value.amount,
           sender: funded.value.sender,
@@ -285,7 +286,10 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
       const funded = yield* transfers.fundedLink(action.link);
 
-      if (Option.isNone(funded) || funded.value.heldFunds !== action.heldFunds)
+      if (
+        Option.isNone(funded) ||
+        funded.value.unclaimedFunds !== action.unclaimedFunds
+      )
         return new NotClaimable({ claimableAt: Option.none() });
 
       const { matched, present } = yield* liveLink(action.link, funded.value);
@@ -293,7 +297,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       if (!matched)
         return present
           ? new NotClaimable({ claimableAt: Option.none() })
-          : yield* heldFundsGone(action.heldFunds);
+          : yield* unclaimedFundsGone(action.unclaimedFunds);
 
       const { asset, amount } = funded.value;
 
@@ -322,7 +326,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       const terms: LinkReceive = {
         link: action.link,
         destination: order.wallet,
-        heldFunds: action.heldFunds,
+        unclaimedFunds: action.unclaimedFunds,
         asset,
         amount,
       };
@@ -378,8 +382,8 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       const stored =
         Option.isSome(proposed) &&
         Predicate.isTagged(proposed.value, "AssetProposed")
-          ? yield* orders.redraft(proposed.value, request)
-          : yield* orders.propose(order, request);
+          ? yield* orders.redraft(proposed.value, request, Option.none())
+          : yield* orders.propose(order, request, Option.none());
 
       return yield* Match.valueTags(stored, {
         AssetAuthorized: (entry) =>
@@ -392,8 +396,8 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
 
     const claimExternal = yield* externalLinkClaimFlow({
       liveLink,
-      settleOnHeldFunds,
-      heldFundsGone,
+      settleOnUnclaimedFunds,
+      unclaimedFundsGone,
       settled,
     });
 
@@ -402,7 +406,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       claimExternal,
       paymentLink,
       settled,
-      heldFundsGone,
+      unclaimedFundsGone,
       cleanUpReceived: cleanUp,
     };
   });

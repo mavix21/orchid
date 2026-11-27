@@ -11,7 +11,7 @@ import * as Schema from "effect/Schema";
 import { AccountAddress } from "../contract";
 import { networkPassphrase } from "../stellar/network";
 import type { ChainUnreachable } from "./chain-errors.server";
-import type { AccountState } from "./ledger.server";
+import type { AccountState } from "../stellar/ledger.server";
 
 export class Sealed extends Schema.Class<Sealed>("Sealed")({
   envelope: Schema.String,

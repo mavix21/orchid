@@ -6,14 +6,18 @@ import * as Predicate from "effect/Predicate";
 import {
   type AccountAddress,
   type SigningRequest,
+  type UnclaimedFundsId,
   sameAsset,
 } from "../contract";
-import { type AssetPlan, plannedSequence } from "../stellar/asset-plans";
-import { readEnvelope } from "../stellar/envelopes";
+import { claimableBalanceOf } from "../stellar/asset-envelopes";
+import { plannedSequence } from "../stellar/asset-plans";
+import { claimedByOpening, readEnvelope } from "../stellar/envelopes";
+import type { AssetPlan } from "./asset-plan.server";
+import type { Sealed } from "./chain-settlement.server";
 import { sameMemo } from "../stellar/memo";
 import type { ChainUnreachable } from "./chain-errors.server";
 import type { PreparedLinkReceive } from "./chain-links.server";
-import type { AccountState } from "./ledger.server";
+import type { AccountState } from "../stellar/ledger.server";
 
 export type DraftPurpose = Data.TaggedEnum<{
   Transfer: { readonly from: AccountAddress };
@@ -31,6 +35,17 @@ export interface DraftChain {
     request: SigningRequest,
     purpose: DraftPurpose,
   ): Effect.Effect<boolean, ChainUnreachable>;
+  openingDraftClaims(
+    request: SigningRequest,
+    claim: Option.Option<UnclaimedFundsId>,
+  ): boolean;
+  claimedByOpening(
+    sealed: Sealed,
+    address: AccountAddress,
+  ): Option.Option<UnclaimedFundsId>;
+  unclaimedFundsCreatedBy(
+    request: SigningRequest,
+  ): Option.Option<UnclaimedFundsId>;
 }
 
 type SequenceNumber = ReturnType<Account["sequenceNumber"]>;
@@ -92,7 +107,7 @@ export const draftChain = (
       return (
         facts.value.createsLinkAccount === receive.createsLinkAccount &&
         facts.value.link === receive.link &&
-        facts.value.heldFunds === receive.heldFunds &&
+        facts.value.unclaimedFunds === receive.unclaimedFunds &&
         facts.value.destination === receive.destination &&
         sameMemo(facts.value.memo, receive.memo) &&
         sameAsset(facts.value.asset, receive.asset) &&
@@ -103,6 +118,16 @@ export const draftChain = (
   );
 
   return {
+    openingDraftClaims: (request, claim) =>
+      Option.exists(
+        readEnvelope(request.envelope),
+        (facts) =>
+          Predicate.isTagged(facts, "OpeningFacts") &&
+          facts.claim === Option.getOrUndefined(claim),
+      ),
+    claimedByOpening: (sealed, address) =>
+      claimedByOpening(sealed.envelope, address),
+    unclaimedFundsCreatedBy: (request) => claimableBalanceOf(request.envelope),
     draftCurrent: (request, purpose) =>
       DraftPurpose.$match(purpose, {
         Transfer: ({ from }) => transferCurrent(request, from),

@@ -280,7 +280,7 @@ export const activityFor = Effect.fn("Transfers.activity")(function* ({
       ? []
       : yield* db
           .select({
-            heldFunds: assetOrders.balanceId,
+            unclaimedFunds: assetOrders.balanceId,
             order: assetOrders.order,
           })
           .from(assetOrders)
@@ -296,19 +296,22 @@ export const activityFor = Effect.fn("Transfers.activity")(function* ({
 
   const closers = yield* Effect.try({
     try: (): Closers => {
-      const byHeldFunds = new Map<
+      const byUnclaimedFunds = new Map<
         string,
         Schema.Schema.Type<typeof StoredOrderJson>
       >();
 
       for (const entry of closing)
-        if (entry.heldFunds !== null && !byHeldFunds.has(entry.heldFunds))
-          byHeldFunds.set(
-            entry.heldFunds,
+        if (
+          entry.unclaimedFunds !== null &&
+          !byUnclaimedFunds.has(entry.unclaimedFunds)
+        )
+          byUnclaimedFunds.set(
+            entry.unclaimedFunds,
             Schema.decodeSync(StoredOrderJson)(entry.order),
           );
 
-      return byHeldFunds;
+      return byUnclaimedFunds;
     },
     catch: (cause) => new StoreFailure({ cause }),
   });

@@ -7,8 +7,8 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
-  HeldFundsGone,
-  HeldFundsId,
+  UnclaimedFundsGone,
+  UnclaimedFundsId,
   Offline,
   PaymentLinkNotFound,
   PaymentLinkReceipt,
@@ -94,7 +94,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         reconciled: "PaymentReview",
       },
     ])(
-      "a restarted creation records the held funds funded before an interrupted approval by $name and re-shares its link",
+      "a restarted creation records the unclaimed funds funded before an interrupted approval by $name and re-shares its link",
       ({ reconcile, reconciled }) =>
         Effect.gen(function* () {
           const store = memoryKeyStore();
@@ -143,9 +143,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(
             (yield* browserKeyStore.readLinks()).map((link) => ({
               address: link.address,
-              heldFunds: link.heldFunds,
+              unclaimedFunds: link.unclaimedFunds,
             })),
-          ).toEqual([{ address: funded.address, heldFunds: undefined }]);
+          ).toEqual([{ address: funded.address, unclaimedFunds: undefined }]);
 
           const restartedDevice = makeWalletEffects(
             wallet,
@@ -165,13 +165,15 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(
             (yield* browserKeyStore.readLinks()).map((link) => ({
               address: link.address,
-              heldFunds: link.heldFunds,
+              unclaimedFunds: link.unclaimedFunds,
             })),
-          ).toEqual([{ address: funded.address, heldFunds: funded.heldFunds }]);
+          ).toEqual([
+            { address: funded.address, unclaimedFunds: funded.unclaimedFunds },
+          ]);
 
           const revealed = yield* restartedDevice.revealPaymentLink({
             address: funded.address,
-            heldFunds: funded.heldFunds,
+            unclaimedFunds: funded.unclaimedFunds,
             asset: funded.asset,
             amount: funded.amount,
           });
@@ -189,8 +191,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               address: addressOf(Keypair.random()),
               asset: baseAsset,
               amount: linkAmount,
-              heldFunds: funded.heldFunds,
-              attempts: [funded.heldFunds],
+              unclaimedFunds: funded.unclaimedFunds,
+              attempts: [funded.unclaimedFunds],
             }),
           );
 
@@ -199,7 +201,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "restarted device resolves live held funds while transfer reconciliation stays Pending, and preserves Pending when absent",
+      "restarted device resolves live unclaimed funds while transfer reconciliation stays Pending, and preserves Pending when absent",
       () =>
         Effect.gen(function* () {
           const store = memoryKeyStore();
@@ -253,17 +255,17 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const savedFunding = Effect.map(
             browserKeyStore.readLinks(),
-            (links) => links.map((link) => link.heldFunds),
+            (links) => links.map((link) => link.unclaimedFunds),
           );
 
           assertTagged(yield* restarted.resolvePaymentLink(), "Pending");
           expect(yield* savedFunding).toEqual([undefined]);
           expect(
-            (yield* savedWallet(sealedKeyStore)).linkReceipt?.heldFunds,
-          ).toBe(receipt.heldFunds);
+            (yield* savedWallet(sealedKeyStore)).linkReceipt?.unclaimedFunds,
+          ).toBe(receipt.unclaimedFunds);
 
-          world.claimables.set(receipt.heldFunds, {
-            heldFunds: receipt.heldFunds,
+          world.claimables.set(receipt.unclaimedFunds, {
+            unclaimedFunds: receipt.unclaimedFunds,
             asset: baseAsset,
             amount: linkAmount,
             sponsored: true,
@@ -276,10 +278,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const resolved = yield* restarted.resolvePaymentLink();
 
           assertTagged(resolved, "LatestPaymentLink");
-          expect(resolved.heldFunds).toBe(receipt.heldFunds);
+          expect(resolved.unclaimedFunds).toBe(receipt.unclaimedFunds);
           expect(resolved.address).toBe(linkAddr);
           expect(resolved.savedOnDevice).toBe(true);
-          expect(yield* savedFunding).toEqual([receipt.heldFunds]);
+          expect(yield* savedFunding).toEqual([receipt.unclaimedFunds]);
 
           const cancelSettlingPort: WalletPort = {
             ...wallet,
@@ -291,7 +293,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
                     if (Option.isSome(approval) && sealed) {
                       settleHash(sealed.hash);
-                      world.claimables.delete(resolved.heldFunds);
+                      world.claimables.delete(resolved.unclaimedFunds);
                     }
                   }),
                 ),
@@ -333,12 +335,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(
             yield* reclaiming.reviewReclaim({
               ...resolved,
-              heldFunds: Schema.decodeSync(HeldFundsId)(
+              unclaimedFunds: Schema.decodeSync(UnclaimedFundsId)(
                 `00000000${"1".repeat(64)}`,
               ),
             }),
-          ).toEqual(new HeldFundsGone({ status: "unresolved" }));
-          expect(yield* savedFunding).toEqual([receipt.heldFunds]);
+          ).toEqual(new UnclaimedFundsGone({ status: "unresolved" }));
+          expect(yield* savedFunding).toEqual([receipt.unclaimedFunds]);
 
           yield* released.open;
 
@@ -356,7 +358,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
           expect(auth.requested).toHaveLength(fundingPrompts);
 
-          expect(yield* savedFunding).toEqual([receipt.heldFunds]);
+          expect(yield* savedFunding).toEqual([receipt.unclaimedFunds]);
           assertTagged(
             yield* reclaiming.confirmReclaim(current),
             "AssetSettled",
@@ -367,19 +369,19 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "reclaim review checks sender receive capacity, marks absent held funds unresolved, and never hides an unsettled link",
+      "reclaim review checks sender receive capacity, marks absent unclaimed funds unresolved, and never hides an unsettled link",
       () =>
         Effect.gen(function* () {
           const store = memoryKeyStore();
           const { wallet, sender } = yield* openSender(store, "cancelowner");
           const linkAddr = addressOf(Keypair.random());
 
-          const heldFunds = Schema.decodeSync(HeldFundsId)(
+          const unclaimedFunds = Schema.decodeSync(UnclaimedFundsId)(
             `00000000${"9".repeat(64)}`,
           );
 
-          world.claimables.set(heldFunds, {
-            heldFunds,
+          world.claimables.set(unclaimedFunds, {
+            unclaimedFunds,
             asset: euro,
             amount: linkAmount,
             sponsored: true,
@@ -400,7 +402,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(
             yield* client.reviewReclaim({
-              heldFunds,
+              unclaimedFunds,
               asset: euro,
               amount: linkAmount,
             }),
@@ -411,15 +413,15 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             }),
           );
 
-          world.claimables.delete(heldFunds);
+          world.claimables.delete(unclaimedFunds);
 
           expect(
             yield* client.reviewReclaim({
-              heldFunds,
+              unclaimedFunds,
               asset: euro,
               amount: linkAmount,
             }),
-          ).toEqual(new HeldFundsGone({ status: "unresolved" }));
+          ).toEqual(new UnclaimedFundsGone({ status: "unresolved" }));
 
           world.holdings.delete(sender.address);
 
@@ -438,16 +440,16 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           assertTagged(draft, "TransferDraft");
 
           const inflightBalance = Option.getOrThrow(
-            Option.fromNullishOr(draft.heldFunds),
+            Option.fromNullishOr(draft.unclaimedFunds),
           );
 
           expect(
             yield* client.reviewReclaim({
-              heldFunds: inflightBalance,
+              unclaimedFunds: inflightBalance,
               asset: baseAsset,
               amount: linkAmount,
             }),
-          ).toEqual(new HeldFundsGone({ status: "unresolved" }));
+          ).toEqual(new UnclaimedFundsGone({ status: "unresolved" }));
 
           const senderKey = signingKey(sender.phrase);
 
@@ -459,14 +461,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             "Pending",
           );
 
-          yield* Transfers.use((t) => t.closeHeldFunds(inflightBalance));
+          yield* Transfers.use((t) => t.closeUnclaimedFunds(inflightBalance));
 
           const submitted = Option.getOrThrow(
             Option.fromNullishOr(world.submitted.at(-1)),
           );
 
           world.claimables.set(inflightBalance, {
-            heldFunds: inflightBalance,
+            unclaimedFunds: inflightBalance,
             asset: baseAsset,
             amount: linkAmount,
             sponsored: true,
@@ -481,7 +483,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const open = yield* wallet.paymentLinks(sender.address);
 
           assertTagged(open, "OpenPaymentLinks");
-          expect(open.links.map((item) => item.heldFunds)).toEqual([
+          expect(open.links.map((item) => item.unclaimedFunds)).toEqual([
             inflightBalance,
           ]);
         }),
@@ -496,11 +498,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const linkA = addressOf(Keypair.random());
           const linkB = addressOf(Keypair.random());
 
-          const balanceA = Schema.decodeSync(HeldFundsId)(
+          const balanceA = Schema.decodeSync(UnclaimedFundsId)(
             `00000000${"a".repeat(64)}`,
           );
 
-          const balanceB = Schema.decodeSync(HeldFundsId)(
+          const balanceB = Schema.decodeSync(UnclaimedFundsId)(
             `00000000${"b".repeat(64)}`,
           );
 
@@ -525,7 +527,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             address: linkA,
             asset: baseAsset,
             amount: linkAmount,
-            heldFunds: balanceA,
+            unclaimedFunds: balanceA,
             attempts: [balanceA],
           });
 
@@ -534,12 +536,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             address: linkB,
             asset: baseAsset,
             amount: linkAmount,
-            heldFunds: balanceB,
+            unclaimedFunds: balanceB,
             attempts: [balanceB],
           });
 
           world.claimables.set(balanceA, {
-            heldFunds: balanceA,
+            unclaimedFunds: balanceA,
             asset: baseAsset,
             amount: linkAmount,
             sponsored: true,
@@ -549,7 +551,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ],
           });
           world.claimables.set(balanceB, {
-            heldFunds: balanceB,
+            unclaimedFunds: balanceB,
             asset: baseAsset,
             amount: linkAmount,
             sponsored: true,
@@ -604,12 +606,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const resolvedA = yield* Fiber.join(resolvingA);
 
           assertTagged(resolvedA, "LatestPaymentLink");
-          expect(resolvedA.heldFunds).toBe(balanceA);
+          expect(resolvedA.unclaimedFunds).toBe(balanceA);
 
           const storedAfterA = yield* savedWallet(store);
 
           expect(storedAfterA.transfer?.id).toBe(orderB.id);
-          expect(storedAfterA.linkReceipt?.heldFunds).toBe(balanceB);
+          expect(storedAfterA.linkReceipt?.unclaimedFunds).toBe(balanceB);
 
           const resolvedB = yield* makeWalletEffects(
             wallet,
@@ -618,7 +620,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           ).resolvePaymentLink();
 
           assertTagged(resolvedB, "LatestPaymentLink");
-          expect(resolvedB.heldFunds).toBe(balanceB);
+          expect(resolvedB.unclaimedFunds).toBe(balanceB);
           expect(resolvedB.address).toBe(linkB);
         }),
     );

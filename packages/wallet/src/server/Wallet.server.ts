@@ -24,7 +24,7 @@ import {
   CheckedRecipient,
   RecipientStep,
   AssetBusy,
-  HeldFundsLimitReached,
+  UnclaimedFundsLimitReached,
   Approval,
   Holding,
   InvalidAddress,
@@ -113,7 +113,7 @@ export class Wallet extends Context.Service<
       const { quotaFull } = yield* claimableQuotaFlow;
       const links = yield* paymentLinksFlow;
       const history = yield* activityFlow;
-      const { portfolio, heldFundsFor } = yield* portfolioFlow;
+      const { portfolio, unclaimedFundsFor } = yield* portfolioFlow;
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.catchCause(concealFailure));
@@ -138,7 +138,7 @@ export class Wallet extends Context.Service<
           request: proposed.request,
           recipient: proposed.recipient,
           memoRequired: Predicate.isTagged(requirement, "MemoRequired"),
-          heldFunds: proposed.heldFunds,
+          unclaimedFunds: proposed.unclaimedFunds,
         });
       };
 
@@ -165,7 +165,11 @@ export class Wallet extends Context.Service<
 
         return request instanceof SigningRequest
           ? yield* resumed(
-              yield* transfers.redraft(stored, request),
+              yield* transfers.redraft(
+                stored,
+                request,
+                chain.unclaimedFundsCreatedBy(request),
+              ),
               requirement,
             )
           : request;
@@ -212,7 +216,7 @@ export class Wallet extends Context.Service<
               );
 
               return full
-                ? new HeldFundsLimitReached({ limit })
+                ? new UnclaimedFundsLimitReached({ limit })
                 : yield* retried();
             }),
           SlotOccupied: () =>
@@ -306,6 +310,7 @@ export class Wallet extends Context.Service<
           order,
           examined.recipient,
           request,
+          chain.unclaimedFundsCreatedBy(request),
         );
 
         return yield* resumed(proposed, examined.requirement);
@@ -338,16 +343,16 @@ export class Wallet extends Context.Service<
         );
 
         if (Option.isSome(unopened) && !opened) {
-          const heldFunds = yield* heldFundsFor(address);
+          const unclaimedFunds = yield* unclaimedFundsFor(address);
 
           return Option.exists(
             resumed,
             (step) =>
               Predicate.isTagged(step, "OpeningPending") &&
-              heldFunds.length === 0,
+              unclaimedFunds.length === 0,
           )
             ? new NeedsReopening({ profile: unopened.value })
-            : new NotOpened({ profile: unopened, heldFunds });
+            : new NotOpened({ profile: unopened, unclaimedFunds });
         }
 
         const row = opened ? yield* directory.byAddress(address) : found;
@@ -394,7 +399,7 @@ export class Wallet extends Context.Service<
 
       const sweep = yield* sweepFlow({
         ...records,
-        closeGoneHeldFunds: links.closeGoneHeldFunds,
+        closeGoneUnclaimedFunds: links.closeGoneUnclaimedFunds,
       });
 
       const { ingest } = yield* depositFlow;

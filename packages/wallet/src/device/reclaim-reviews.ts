@@ -26,7 +26,7 @@ export const reviewOf = (
   if (
     Option.isNone(facts) ||
     !Predicate.isTagged(facts.value, "ClaimFacts") ||
-    !Predicate.isTagged(order.action, "ClaimHeldFunds")
+    !Predicate.isTagged(order.action, "ClaimUnclaimedFunds")
   )
     return Option.none();
 
@@ -42,7 +42,7 @@ export const reviewOf = (
   if (
     order.wallet !== wallet.address ||
     claim.address !== wallet.address ||
-    claim.heldFunds !== order.action.heldFunds ||
+    claim.unclaimedFunds !== order.action.unclaimedFunds ||
     !opensExactly
   )
     return Option.none();
@@ -54,7 +54,7 @@ export const reviewOf = (
       draft,
       redrafted,
       network,
-      heldFunds: claim.heldFunds,
+      unclaimedFunds: claim.unclaimedFunds,
       asset,
       amount,
       opensTrustline: claim.opens,

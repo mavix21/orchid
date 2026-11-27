@@ -4,7 +4,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { addressRules } from "../address-rules";
 import { AccountAddress } from "../contract";
-import { network } from "../stellar/network";
+import { network } from "./network";
 import type { StellarRpc } from "./ledger.server";
 
 export class KnownExchangeMemo extends Schema.Class<KnownExchangeMemo>(

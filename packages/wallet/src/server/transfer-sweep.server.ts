@@ -4,7 +4,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import { sweepBatchSize } from "../policy";
-import { epochAt, network } from "../stellar/network";
+import { epochAt, network } from "../record-network";
 import { StoreFailure } from "./Directory.server";
 import { notCheckedSince, stuckSince } from "./sweep-selection.server";
 import { transfers } from "./tables.server";

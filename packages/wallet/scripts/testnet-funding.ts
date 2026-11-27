@@ -6,7 +6,7 @@ import {
   Operation,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
-import { channelKeypairs } from "../src/server/channel-pool.server";
+import { channelKeypairs } from "../src/stellar/channel-pool.server";
 import { networkPassphrase, usdc } from "../src/stellar/network";
 
 export { usdc };

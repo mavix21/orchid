@@ -6,8 +6,8 @@ import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
   type Approval,
-  type HeldFundsGone,
-  type HeldFundsId,
+  type UnclaimedFundsGone,
+  type UnclaimedFundsId,
   ExternalLinkDraft,
   type ExternalLinkFailed,
   type ExternalLinkOrder,
@@ -54,16 +54,18 @@ export interface LinkReceiveShared {
     { readonly matched: boolean; readonly present: boolean },
     ChainUnreachable
   >;
-  readonly settleOnHeldFunds: (heldFunds: HeldFundsId) => Effect.Effect<
+  readonly settleOnUnclaimedFunds: (
+    unclaimedFunds: UnclaimedFundsId,
+  ) => Effect.Effect<
     {
       readonly checking: boolean;
       readonly current: ReadonlyArray<StoredAssetOrder>;
     },
     StoreFailure | ChainUnreachable
   >;
-  readonly heldFundsGone: (
-    heldFunds: HeldFundsId,
-  ) => Effect.Effect<HeldFundsGone, StoreFailure | ChainUnreachable>;
+  readonly unclaimedFundsGone: (
+    unclaimedFunds: UnclaimedFundsId,
+  ) => Effect.Effect<UnclaimedFundsGone, StoreFailure | ChainUnreachable>;
   readonly settled: (
     stored: AssetAuthorized,
   ) => Effect.Effect<
@@ -146,10 +148,15 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
 
       const funded = yield* transfers.fundedLink(order.link);
 
-      if (Option.isNone(funded) || funded.value.heldFunds !== order.heldFunds)
+      if (
+        Option.isNone(funded) ||
+        funded.value.unclaimedFunds !== order.unclaimedFunds
+      )
         return new NotClaimable({ claimableAt: Option.none() });
 
-      const { checking } = yield* shared.settleOnHeldFunds(order.heldFunds);
+      const { checking } = yield* shared.settleOnUnclaimedFunds(
+        order.unclaimedFunds,
+      );
 
       if (checking) return new PaymentLinkChecking();
 
@@ -161,7 +168,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
       if (!matched)
         return present
           ? new NotClaimable({ claimableAt: Option.none() })
-          : yield* shared.heldFundsGone(order.heldFunds);
+          : yield* shared.unclaimedFundsGone(order.unclaimedFunds);
 
       const { asset, amount } = funded.value;
       const receivingAccount = chain.receivingAccount(order.destination);
@@ -199,7 +206,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
       const terms: LinkReceive = {
         link: order.link,
         destination: order.destination,
-        heldFunds: order.heldFunds,
+        unclaimedFunds: order.unclaimedFunds,
         asset,
         amount,
         memo: order.memo,
@@ -264,8 +271,8 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
       const stored =
         Option.isSome(proposed) &&
         Predicate.isTagged(proposed.value, "AssetProposed")
-          ? yield* orders.redraft(proposed.value, request)
-          : yield* orders.propose(storedOrder, request);
+          ? yield* orders.redraft(proposed.value, request, Option.none())
+          : yield* orders.propose(storedOrder, request, Option.none());
 
       return yield* Match.valueTags(stored, {
         AssetAuthorized: reconcileExternal,

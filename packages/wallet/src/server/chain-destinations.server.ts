@@ -13,8 +13,8 @@ import {
 import { isMuxedAddress } from "../stellar/address-rules";
 import { baseAccountOf, muxedPrefixesOf } from "../stellar/destination";
 import type { ChainUnreachable } from "./chain-errors.server";
-import type { KnownExchangeMemo } from "./exchange-memos.server";
-import type { Holdings } from "./ledger-assets.server";
+import type { KnownExchangeMemo } from "../stellar/exchange-memos.server";
+import type { Holdings } from "./holdings.server";
 
 export type MemoRule = Data.TaggedEnum<{
   MemoForbidden: {};

@@ -1,7 +1,7 @@
 import { Keypair } from "@stellar/stellar-sdk";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
-import { channelKeypair } from "../src/server/channel-pool.server";
+import { channelKeypair } from "../src/stellar/channel-pool.server";
 import { WalletSettings } from "../src/server/settings.server";
 import { addressOf } from "./device-fixtures";
 

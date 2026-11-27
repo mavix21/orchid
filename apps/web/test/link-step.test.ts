@@ -1,7 +1,7 @@
 import { Keypair } from "@stellar/stellar-sdk";
 import {
   AccountAddress,
-  HeldFundsId,
+  UnclaimedFundsId,
   LinkCode,
   PaymentLinkCreated,
   PositiveAmount,
@@ -16,14 +16,18 @@ import { expect, it } from "vitest";
 import { type Delivery, LinkStep, concealedStep } from "../src/links/link-step";
 
 const code = Schema.decodeSync(LinkCode)("Bcru1zp9FViPqN8CJTvQuS2zg");
-const heldFunds = Schema.decodeSync(HeldFundsId)(`00000000${"ab".repeat(32)}`);
+
+const unclaimedFunds = Schema.decodeSync(UnclaimedFundsId)(
+  `00000000${"ab".repeat(32)}`,
+);
+
 const amount = Schema.decodeSync(PositiveAmount)("5000000");
 
 const created = new PaymentLinkCreated({
   id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
   address: Schema.decodeSync(AccountAddress)(Keypair.random().publicKey()),
   code,
-  heldFunds,
+  unclaimedFunds,
   asset: baseAsset,
   amount,
   network: "testnet",
@@ -32,7 +36,7 @@ const created = new PaymentLinkCreated({
   savedOnDevice: false,
 });
 
-const receipt = { heldFunds, asset: baseAsset, amount };
+const receipt = { unclaimedFunds, asset: baseAsset, amount };
 
 it.each([
   [

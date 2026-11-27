@@ -46,18 +46,18 @@ _Avoid_: Transaction when referring to the user's instruction rather than its ne
 **Transfer intent**: What the user entered to send (recipient, asset, amount and optional payment memo) before the device turns it into a transfer order.
 _Avoid_: Order when referring to the entry before it has an id.
 
-**Held funds**: An asset amount that has left its sender and that the network holds until someone claims it, because no wallet can receive it yet: a **Payment link** holds one, and so does a payment to an **Unopened wallet** or to a wallet that cannot hold the **Asset** yet. The sender takes it back by claiming it. An identifier, which only the network can interpret, tells it apart from all other held funds.
+**Unclaimed funds**: An asset amount that has left its sender and that the network holds until someone claims it, because no wallet can receive it yet: a **Payment link** holds one, and so does a payment to an **Unopened wallet** or to a wallet that cannot hold the **Asset** yet. The sender takes it back by claiming it. An identifier, which only the network can interpret, tells it apart from all other unclaimed funds.
 _Avoid_: Claimable balance; escrow, because nobody has custody of the funds; balance, which is what a wallet holds.
 
-**Payment link**: A URL that carries the **Link code** for **Held funds**, so whoever opens it can receive them or send them to another address.
+**Payment link**: A URL that carries the **Link code** for **Unclaimed funds**, so whoever opens it can receive them or send them to another address.
 
 **Link code**: The short checksummed code after the `#` in a payment link. The device derives the **Link key** from it; the server never receives it.
 _Avoid_: Link secret.
 
-**Link key**: The key that controls a payment link's own account, which can claim the link's **Held funds**. Only the network can interpret it, and it never leaves the device.
+**Link key**: The key that controls a payment link's own account, which can claim the link's **Unclaimed funds**. Only the network can interpret it, and it never leaves the device.
 _Avoid_: Link secret.
 
-**Asset order**: A uniquely identified instruction to open or close a trustline, or claim **Held funds**.
+**Asset order**: A uniquely identified instruction to open or close a trustline, or claim **Unclaimed funds**.
 
 **Draft**: An unsigned transaction offered for approval before its expiry.
 _Avoid_: Completed transfer.

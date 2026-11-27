@@ -9,8 +9,8 @@ import { ChainUnreachable } from "../src/server/chain-errors.server";
 import {
   KnownExchangeMemo,
   memoRequirementFor,
-} from "../src/server/exchange-memos.server";
-import { stellarRpc } from "../src/server/ledger.server";
+} from "../src/stellar/exchange-memos.server";
+import { stellarRpc } from "../src/stellar/ledger.server";
 import { defaultRpcTimeout } from "../src/server/settings.server";
 import { network } from "../src/stellar/network";
 import { rpcAnswering, rpcError, rpcOk, testRpcUrl } from "./rpc-answering";

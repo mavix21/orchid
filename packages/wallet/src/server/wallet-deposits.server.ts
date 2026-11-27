@@ -23,7 +23,8 @@ export const depositFlow = Effect.gen(function* () {
       seconds: depositTimeBudget,
     });
 
-    let start = yield* chain.resumeDeposits(deposits.cursor);
+    const feed = chain.depositFeed;
+    let start = yield* chain.resumeDeposits(deposits.cursor(feed));
 
     while (true) {
       const page = yield* chain.assetEvents({
@@ -34,7 +35,11 @@ export const depositFlow = Effect.gen(function* () {
 
       yield* deposits.store(
         page.events,
-        Option.some({ ...page.position, closedAt: page.cursorClosedAt }),
+        Option.some({
+          ...page.position,
+          feed,
+          closedAt: page.cursorClosedAt,
+        }),
       );
 
       if (page.drained) return;
@@ -52,7 +57,7 @@ export const depositFlow = Effect.gen(function* () {
   const catchUp = Effect.fn("Wallet.catchUpDeposits")(function* (
     address: AccountAddress,
   ) {
-    const stored = yield* deposits.cursor;
+    const stored = yield* deposits.cursor(chain.depositFeed);
     const now = yield* DateTime.now;
 
     const sinceCursor = Option.flatMap(stored, ({ closedAt }) => closedAt).pipe(

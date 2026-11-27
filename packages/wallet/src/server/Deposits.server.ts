@@ -13,8 +13,7 @@ import {
   baseAsset,
   precisionOf,
 } from "../contract";
-import { trustlineColumns } from "../stellar/assets";
-import { depositContract, epochAt, network } from "../stellar/network";
+import { assetColumns, epochAt, network } from "../record-network";
 import { AssetEvent } from "./chain-deposits.server";
 import { StoreFailure } from "./Directory.server";
 import {
@@ -26,6 +25,7 @@ import {
 } from "./tables.server";
 
 export interface DepositCursor {
+  readonly feed: string;
   readonly cursor: string;
   readonly ledger: number;
   readonly closedAt: Option.Option<DateTime.Utc>;
@@ -34,7 +34,9 @@ export interface DepositCursor {
 export class Deposits extends Context.Service<
   Deposits,
   {
-    readonly cursor: Effect.Effect<Option.Option<DepositCursor>, StoreFailure>;
+    cursor(
+      feed: string,
+    ): Effect.Effect<Option.Option<DepositCursor>, StoreFailure>;
     store(
       events: ReadonlyArray<AssetEvent>,
       advance: Option.Option<DepositCursor>,
@@ -49,33 +51,35 @@ export class Deposits extends Context.Service<
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.mapError((cause) => new StoreFailure({ cause })));
 
-      const cursor = wrap(
-        Clock.currentTimeMillis.pipe(
-          Effect.flatMap((now) =>
-            db
-              .select()
-              .from(depositCursors)
-              .where(
-                and(
-                  eq(depositCursors.network, network),
-                  eq(depositCursors.testnetEpoch, epochAt(now)),
-                  eq(depositCursors.contractId, depositContract),
+      const cursor = (feed: string) =>
+        wrap(
+          Clock.currentTimeMillis.pipe(
+            Effect.flatMap((now) =>
+              db
+                .select()
+                .from(depositCursors)
+                .where(
+                  and(
+                    eq(depositCursors.network, network),
+                    eq(depositCursors.testnetEpoch, epochAt(now)),
+                    eq(depositCursors.contractId, feed),
+                  ),
                 ),
+            ),
+            Effect.map((rows) =>
+              Option.fromUndefinedOr(rows[0]).pipe(
+                Option.map((row): DepositCursor => ({
+                  feed,
+                  cursor: row.cursor,
+                  ledger: row.ledger,
+                  closedAt: Option.fromNullishOr(row.closedAt).pipe(
+                    Option.map(DateTime.fromDateUnsafe),
+                  ),
+                })),
               ),
-          ),
-          Effect.map((rows) =>
-            Option.fromUndefinedOr(rows[0]).pipe(
-              Option.map((row): DepositCursor => ({
-                cursor: row.cursor,
-                ledger: row.ledger,
-                closedAt: Option.fromNullishOr(row.closedAt).pipe(
-                  Option.map(DateTime.fromDateUnsafe),
-                ),
-              })),
             ),
           ),
-        ),
-      );
+        );
 
       const store = (
         events: ReadonlyArray<AssetEvent>,
@@ -90,7 +94,7 @@ export class Deposits extends Context.Service<
                   const payments = events.filter(AssetEvent.$is("Payment"));
 
                   const claims = events.filter(
-                    AssetEvent.$is("HeldFundsClaim"),
+                    AssetEvent.$is("UnclaimedFundsClaim"),
                   );
 
                   const recipients = [
@@ -155,7 +159,7 @@ export class Deposits extends Context.Service<
                             testnetEpoch: epoch,
                             eventId: payment.eventId,
                             wallet: payment.to,
-                            ...trustlineColumns(baseAsset),
+                            ...assetColumns(baseAsset),
                             amount: amount.value,
                             sender: sender.value,
                             hash: payment.hash,
@@ -182,7 +186,7 @@ export class Deposits extends Context.Service<
                     claims.length === 0
                       ? []
                       : yield* tx
-                          .select({ heldFunds: transfers.balanceId })
+                          .select({ unclaimedFunds: transfers.balanceId })
                           .from(transfers)
                           .where(
                             and(
@@ -192,14 +196,17 @@ export class Deposits extends Context.Service<
                               isNull(transfers.balanceClosedAt),
                               inArray(
                                 transfers.balanceId,
-                                claims.map((claim) => claim.heldFunds),
+                                claims.map((claim) => claim.unclaimedFunds),
                               ),
                             ),
                           );
 
                   yield* Effect.forEach(
                     claims.filter((claim) =>
-                      open.some((entry) => entry.heldFunds === claim.heldFunds),
+                      open.some(
+                        (entry) =>
+                          entry.unclaimedFunds === claim.unclaimedFunds,
+                      ),
                     ),
                     (claim) =>
                       tx
@@ -211,7 +218,7 @@ export class Deposits extends Context.Service<
                           and(
                             eq(transfers.network, network),
                             eq(transfers.testnetEpoch, epoch),
-                            eq(transfers.balanceId, claim.heldFunds),
+                            eq(transfers.balanceId, claim.unclaimedFunds),
                             isNull(transfers.balanceClosedAt),
                           ),
                         ),
@@ -224,7 +231,7 @@ export class Deposits extends Context.Service<
                       .values({
                         network,
                         testnetEpoch: epoch,
-                        contractId: depositContract,
+                        contractId: advance.value.feed,
                         cursor: advance.value.cursor,
                         ledger: advance.value.ledger,
                         closedAt: Option.getOrNull(

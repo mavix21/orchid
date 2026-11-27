@@ -362,7 +362,7 @@ it.live(
                 }),
                 reserveSponsor: Option.some(actors.sponsor),
                 balances: [],
-                heldFunds: [],
+                unclaimedFunds: [],
                 latest: Option.none(),
               }),
             ),

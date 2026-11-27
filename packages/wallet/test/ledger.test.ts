@@ -19,7 +19,7 @@ import {
   SubmissionRejected,
 } from "../src/server/Chain.server";
 import { ChainUnreachable } from "../src/server/chain-errors.server";
-import { holdingsFromEntries } from "../src/server/ledger-assets.server";
+import { holdingsFromEntries } from "../src/stellar/ledger-assets.server";
 import { draftPayment, signingPayload } from "../src/stellar/envelopes";
 import { usdc } from "../src/stellar/network";
 import {

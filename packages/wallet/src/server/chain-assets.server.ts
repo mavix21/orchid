@@ -6,13 +6,16 @@ import type * as Option from "effect/Option";
 import {
   type AccountAddress,
   type Asset,
-  type HeldFundsId,
+  type UnclaimedFundsId,
   type PositiveAmount,
   SigningRequest,
   needsTrustline,
 } from "../contract";
 import { draftClaimable, draftPaymentLink } from "../stellar/asset-envelopes";
-import { type AssetPlan, draftPlan } from "../stellar/asset-plans";
+import { draftPlan } from "../stellar/asset-plans";
+import type { AssetPlan } from "./asset-plan.server";
+import type { Holdings, Issuer } from "./holdings.server";
+import type { UnclaimedFundsEntry } from "./unclaimed-funds.server";
 import {
   isIssuedBy,
   issuerAccountKey,
@@ -23,17 +26,14 @@ import { usdc } from "../stellar/network";
 import { paymentLifetime } from "../policy";
 import { ChainUnreachable } from "./chain-errors.server";
 import {
-  type HeldFundsEntry,
-  type Holdings,
-  type Issuer,
   accountKey,
-  heldFundsKey,
-  heldFundsFromEntries,
+  unclaimedFundsKey,
+  unclaimedFundsFromEntries,
   holdingsFromEntries,
   issuerFromEntries,
   lineKey,
-} from "./ledger-assets.server";
-import type { LedgerResult, StellarRpc } from "./ledger.server";
+} from "../stellar/ledger-assets.server";
+import type { LedgerResult, StellarRpc } from "../stellar/ledger.server";
 
 export interface AssetChain {
   validAsset(asset: Asset): boolean;
@@ -44,9 +44,9 @@ export interface AssetChain {
   ): Effect.Effect<Option.Option<Holdings>, ChainUnreachable>;
   issuer(asset: Asset): Effect.Effect<Option.Option<Issuer>, ChainUnreachable>;
 
-  heldFunds(
-    ids: ReadonlyArray<HeldFundsId>,
-  ): Effect.Effect<ReadonlyArray<HeldFundsEntry>, ChainUnreachable>;
+  unclaimedFunds(
+    ids: ReadonlyArray<UnclaimedFundsId>,
+  ): Effect.Effect<ReadonlyArray<UnclaimedFundsEntry>, ChainUnreachable>;
   draftClaimable(
     from: AccountAddress,
     to: AccountAddress,
@@ -111,11 +111,11 @@ export const assetChain = (
       read([issuerAccountKey(asset)], (result) =>
         issuerFromEntries(result.entries ?? [], asset),
       ),
-    heldFunds: (ids) =>
+    unclaimedFunds: (ids) =>
       ids.length === 0
         ? Effect.succeed([])
-        : read(ids.map(heldFundsKey), (result) =>
-            heldFundsFromEntries(result.entries ?? [], reserveSponsor),
+        : read(ids.map(unclaimedFundsKey), (result) =>
+            unclaimedFundsFromEntries(result.entries ?? [], reserveSponsor),
           ),
     draftClaimable: Effect.fn("Chain.draftClaimable")(function* (
       from: AccountAddress,

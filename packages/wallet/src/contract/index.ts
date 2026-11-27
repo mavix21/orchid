@@ -11,7 +11,7 @@ import {
   AssetPending,
   AssetSettled,
   AssetUnsupported,
-  HeldFundsGone,
+  UnclaimedFundsGone,
   LinkUnclaimable,
   NotClaimable,
   TrustlineLimitReached,
@@ -29,7 +29,7 @@ import {
   type RestoreStep,
   type SessionStep,
 } from "./backup";
-import { HeldFundsId } from "./held-funds";
+import { UnclaimedFundsId } from "./unclaimed-funds";
 import { HumanCheckRefused, type HumanCheckToken } from "./human-check";
 import {
   AccountAddress,
@@ -59,7 +59,7 @@ export * from "./assets";
 
 export * from "./backup";
 
-export * from "./held-funds";
+export * from "./unclaimed-funds";
 
 export * from "./human-check";
 
@@ -275,7 +275,7 @@ const transferFields = {
   amount: PositiveAmount,
   memo: Schema.optional(PaymentMemo),
 
-  heldFunds: Schema.optional(HeldFundsId),
+  unclaimedFunds: Schema.optional(UnclaimedFundsId),
 };
 
 export class Pending extends Schema.TaggedClass<Pending>()("Pending", {
@@ -327,14 +327,14 @@ export class TransferDraft extends Schema.TaggedClass<TransferDraft>()(
     recipient: ResolvedRecipient,
     memoRequired: Schema.Boolean,
 
-    heldFunds: Schema.optional(HeldFundsId),
+    unclaimedFunds: Schema.optional(UnclaimedFundsId),
   },
 ) {}
 
-export class HeldFunds extends Schema.Class<HeldFunds>(
-  "@workspace/wallet/HeldFunds",
+export class UnclaimedFunds extends Schema.Class<UnclaimedFunds>(
+  "@workspace/wallet/UnclaimedFunds",
 )({
-  id: HeldFundsId,
+  id: UnclaimedFundsId,
   asset: Asset,
   amount: PositiveAmount,
   from: Profile,
@@ -347,7 +347,7 @@ export class NotOpened extends Schema.TaggedClass<NotOpened>()("NotOpened", {
     Schema.withDecodingDefault(Effect.succeed(null)),
     Schema.withConstructorDefault(Effect.succeed(Option.none())),
   ),
-  heldFunds: Schema.Array(HeldFunds).pipe(
+  unclaimedFunds: Schema.Array(UnclaimedFunds).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
     Schema.withConstructorDefault(Effect.succeed([])),
   ),
@@ -388,7 +388,7 @@ export class ReceivedActivity extends Schema.TaggedClass<ReceivedActivity>()(
 
 export class AwaitingAcceptanceActivity extends Schema.TaggedClass<AwaitingAcceptanceActivity>()(
   "AwaitingAcceptanceActivity",
-  { ...receivedActivityFields, heldFunds: HeldFundsId },
+  { ...receivedActivityFields, unclaimedFunds: UnclaimedFundsId },
 ) {}
 
 export class TakenBackActivity extends Schema.TaggedClass<TakenBackActivity>()(
@@ -477,8 +477,8 @@ export class RecipientCannotReceive extends Schema.TaggedClass<RecipientCannotRe
   },
 ) {}
 
-export class HeldFundsLimitReached extends Schema.TaggedClass<HeldFundsLimitReached>()(
-  "HeldFundsLimitReached",
+export class UnclaimedFundsLimitReached extends Schema.TaggedClass<UnclaimedFundsLimitReached>()(
+  "UnclaimedFundsLimitReached",
   { limit: Schema.Number },
 ) {}
 
@@ -500,7 +500,7 @@ export const TransferStep = Schema.Union([
   ExternalMemoRequired,
   MemoNotAllowed,
   RecipientCannotReceive,
-  HeldFundsLimitReached,
+  UnclaimedFundsLimitReached,
   AssetUnsupported,
   AssetBusy,
 ]);
@@ -553,7 +553,7 @@ export const AssessmentStep = Schema.Union([
   ExternalMemoRequired,
   MemoNotAllowed,
   RecipientCannotReceive,
-  HeldFundsLimitReached,
+  UnclaimedFundsLimitReached,
   AssetUnsupported,
 ]);
 
@@ -574,7 +574,7 @@ export const AssetStep = Schema.Union([
   AssetUnsupported,
   RecipientCannotReceive,
   NotClaimable,
-  HeldFundsGone,
+  UnclaimedFundsGone,
   LinkUnclaimable,
 ]);
 
@@ -622,7 +622,7 @@ export class ExternalLinkOrder extends Schema.Class<ExternalLinkOrder>(
 )({
   id: AssetOrderId,
   link: AccountAddress,
-  heldFunds: HeldFundsId,
+  unclaimedFunds: UnclaimedFundsId,
   destination: DestinationAddress,
   memo: Schema.optional(PaymentMemo),
 }) {}
@@ -669,7 +669,7 @@ export const ExternalLinkStep = Schema.Union([
   MemoNotAllowed,
   RecipientCannotReceive,
   NotClaimable,
-  HeldFundsGone,
+  UnclaimedFundsGone,
   LinkUnclaimable,
   PaymentLinkChecking,
 ]);
@@ -690,7 +690,7 @@ export class Holding extends Schema.TaggedClass<Holding>()("Holding", {
   ),
 
   balances: Schema.Array(Balance),
-  heldFunds: Schema.Array(HeldFunds),
+  unclaimedFunds: Schema.Array(UnclaimedFunds),
   latest: Schema.OptionFromNullOr(Receipt),
 }) {}
 

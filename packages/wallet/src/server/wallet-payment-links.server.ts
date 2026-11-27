@@ -4,7 +4,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import {
   type AccountAddress,
-  type HeldFundsId,
+  type UnclaimedFundsId,
   InvalidAddress,
   NotOpened,
   OpenPaymentLink,
@@ -17,11 +17,11 @@ import {
   ResolvedPaymentLink,
   sameAsset,
 } from "../contract";
-import { network } from "../stellar/network";
+import { network } from "../record-network";
 import { Applied, Chain, type ChainUnreachable } from "./Chain.server";
 import { claimableQuotaFlow } from "./claimable-quota.server";
 import { Directory, type StoreFailure } from "./Directory.server";
-import { selectRecoverablePaymentLinks } from "./ledger-assets.server";
+import { recoverablePaymentLinks } from "./unclaimed-funds.server";
 import { rpcReadConcurrency } from "./settings.server";
 import { type Authorized, Transfers } from "./Transfers.server";
 
@@ -30,7 +30,7 @@ export const paymentLinksFlow = Effect.gen(function* () {
   const directory = yield* Directory;
   const transfers = yield* Transfers;
 
-  const { closeGoneHeldFunds } = yield* claimableQuotaFlow;
+  const { closeGoneUnclaimedFunds } = yield* claimableQuotaFlow;
 
   const paymentLinks = Effect.fn("Wallet.paymentLinks")(function* (
     address: AccountAddress,
@@ -48,24 +48,26 @@ export const paymentLinksFlow = Effect.gen(function* () {
 
     const pendingLinks = yield* transfers.openPaymentLinks(address);
 
-    const entries = yield* chain.heldFunds(
-      pendingLinks.map((item) => item.heldFunds),
+    const entries = yield* chain.unclaimedFunds(
+      pendingLinks.map((item) => item.unclaimedFunds),
     );
 
-    const liveLinks = selectRecoverablePaymentLinks(entries, address);
+    const liveLinks = recoverablePaymentLinks(entries, address);
     const links: OpenPaymentLink[] = [];
-    const missing: HeldFundsId[] = [];
+    const missing: UnclaimedFundsId[] = [];
 
     for (const item of pendingLinks) {
       const matched = liveLinks.find(
         (candidate) =>
-          candidate.heldFunds === item.heldFunds &&
+          candidate.unclaimedFunds === item.unclaimedFunds &&
           candidate.address === item.address,
       );
 
       if (!matched) {
-        if (!entries.some((entry) => entry.heldFunds === item.heldFunds))
-          missing.push(item.heldFunds);
+        if (
+          !entries.some((entry) => entry.unclaimedFunds === item.unclaimedFunds)
+        )
+          missing.push(item.unclaimedFunds);
 
         continue;
       }
@@ -73,7 +75,7 @@ export const paymentLinksFlow = Effect.gen(function* () {
       links.push(
         new OpenPaymentLink({
           id: item.id,
-          heldFunds: item.heldFunds,
+          unclaimedFunds: item.unclaimedFunds,
           address: item.address,
           asset: matched.asset,
           amount: matched.amount,
@@ -82,7 +84,7 @@ export const paymentLinksFlow = Effect.gen(function* () {
       );
     }
 
-    yield* Effect.forEach(missing, closeGoneHeldFunds, {
+    yield* Effect.forEach(missing, closeGoneUnclaimedFunds, {
       concurrency: rpcReadConcurrency,
       discard: true,
     });
@@ -97,20 +99,20 @@ export const paymentLinksFlow = Effect.gen(function* () {
     authorized: Authorized,
   ) {
     if (
-      authorized.heldFunds === undefined ||
+      authorized.unclaimedFunds === undefined ||
       !Predicate.isTagged(authorized.order.to, "PaymentLink")
     )
       return Option.none<Applied>();
 
     const expectedAddress = authorized.order.to.value;
-    const entries = yield* chain.heldFunds([authorized.heldFunds]);
+    const entries = yield* chain.unclaimedFunds([authorized.unclaimedFunds]);
 
-    const matched = selectRecoverablePaymentLinks(
+    const matched = recoverablePaymentLinks(
       entries,
       authorized.order.from,
     ).some(
       (entry) =>
-        entry.heldFunds === authorized.heldFunds &&
+        entry.unclaimedFunds === authorized.unclaimedFunds &&
         entry.address === expectedAddress &&
         sameAsset(entry.asset, authorized.order.asset) &&
         entry.amount === authorized.order.amount,
@@ -131,10 +133,13 @@ export const paymentLinksFlow = Effect.gen(function* () {
     if (receipt.network !== network)
       return new PaymentLinkReceiptInvalid({ reason: "wrong_network" });
 
-    const candidates = [...new Set([receipt.heldFunds, ...receipt.attempts])];
-    const entries = yield* chain.heldFunds(candidates);
+    const candidates = [
+      ...new Set([receipt.unclaimedFunds, ...receipt.attempts]),
+    ];
 
-    const matches = selectRecoverablePaymentLinks(entries, sender).filter(
+    const entries = yield* chain.unclaimedFunds(candidates);
+
+    const matches = recoverablePaymentLinks(entries, sender).filter(
       (entry) =>
         entry.address === receipt.address &&
         sameAsset(entry.asset, receipt.asset) &&
@@ -155,7 +160,7 @@ export const paymentLinksFlow = Effect.gen(function* () {
     if (
       Option.isSome(latest) &&
       Predicate.isTagged(latest.value, "Authorized") &&
-      latest.value.heldFunds === match.heldFunds &&
+      latest.value.unclaimedFunds === match.unclaimedFunds &&
       Predicate.isTagged(latest.value.order.to, "PaymentLink") &&
       latest.value.order.to.value === match.address &&
       sameAsset(latest.value.order.asset, match.asset) &&
@@ -167,7 +172,7 @@ export const paymentLinksFlow = Effect.gen(function* () {
       );
 
     return new ResolvedPaymentLink({
-      heldFunds: match.heldFunds,
+      unclaimedFunds: match.unclaimedFunds,
       address: match.address,
       asset: match.asset,
       amount: match.amount,
@@ -178,6 +183,6 @@ export const paymentLinksFlow = Effect.gen(function* () {
     paymentLinks,
     resolvePaymentLink,
     reconcileLiveLink,
-    closeGoneHeldFunds,
+    closeGoneUnclaimedFunds,
   };
 });

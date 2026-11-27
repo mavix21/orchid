@@ -7,7 +7,7 @@ import {
   AssetOrder,
   AssetOrderId,
   AwaitingAcceptanceActivity,
-  HeldFundsId,
+  UnclaimedFundsId,
   Claimed,
   ClaimedLinkActivity,
   DepositActivity,
@@ -26,7 +26,7 @@ import {
   TransferId,
   Username,
 } from "../contract";
-import { issuedAsset } from "../stellar/assets";
+import { assetFromColumns } from "../record-network";
 import { StoreFailure } from "./Directory.server";
 import type { deposits } from "./tables.server";
 import type { StoredOrder } from "./asset-order-records.server";
@@ -68,7 +68,7 @@ const closerOf = (row: TransferRow, closers: Closers) =>
 
 const isReclaimBy = (order: StoredOrder | undefined, wallet: string) =>
   order instanceof AssetOrder &&
-  Predicate.isTagged(order.action, "ClaimHeldFunds") &&
+  Predicate.isTagged(order.action, "ClaimUnclaimedFunds") &&
   order.wallet === wallet;
 
 const claimerOf = (order: StoredOrder, profiles: Profiles) =>
@@ -76,7 +76,7 @@ const claimerOf = (order: StoredOrder, profiles: Profiles) =>
     ? profiles.get(order.wallet)
     : new ExternalRecipient({ address: order.action.destination });
 
-const heldFundsReceipt = (
+const unclaimedFundsReceipt = (
   settled: Settled,
   row: TransferRow,
   closers: Closers,
@@ -89,7 +89,7 @@ const heldFundsReceipt = (
     asset: settled.asset,
     amount: settled.amount,
     memo: settled.memo,
-    heldFunds: settled.heldFunds,
+    unclaimedFunds: settled.unclaimedFunds,
   };
 
   const closed = closedAt(row);
@@ -122,8 +122,8 @@ export const sentEntry = (
       const receipt = Predicate.isTagged(transfer, "Authorized")
         ? pending(transfer)
         : Predicate.isTagged(transfer.receipt, "Settled") &&
-            transfer.receipt.heldFunds !== undefined
-          ? heldFundsReceipt(transfer.receipt, row, closers, profiles)
+            transfer.receipt.unclaimedFunds !== undefined
+          ? unclaimedFundsReceipt(transfer.receipt, row, closers, profiles)
           : transfer.receipt;
 
       return new SentActivity({
@@ -161,7 +161,7 @@ export const receivedEntry = (
       if (closed === undefined)
         return new AwaitingAcceptanceActivity({
           ...fields,
-          heldFunds: Schema.decodeSync(HeldFundsId)(row.balanceId),
+          unclaimedFunds: Schema.decodeSync(UnclaimedFundsId)(row.balanceId),
         });
 
       return isReclaimBy(closerOf(row, closers), row.sender)
@@ -199,7 +199,7 @@ export const depositEntry = (row: typeof deposits.$inferSelect) =>
         from: new ExternalRecipient({
           address: Schema.decodeSync(DestinationAddress)(row.sender),
         }),
-        asset: issuedAsset(row.code, row.issuer),
+        asset: assetFromColumns(row),
         amount: Schema.decodeSync(PositiveAmount)(row.amount.toString()),
       }),
     catch: (cause) => new StoreFailure({ cause }),

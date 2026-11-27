@@ -2,7 +2,7 @@ import { Database } from "@workspace/db";
 import { and, eq, exists, isNull, lte, not } from "drizzle-orm";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import { epochAt, network } from "../stellar/network";
+import { epochAt, network } from "../record-network";
 import { stuckSince } from "./sweep-selection.server";
 import {
   assetOrders,

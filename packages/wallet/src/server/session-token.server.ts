@@ -3,7 +3,7 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { AccountAddress, CredentialId } from "../contract";
-import { network } from "../stellar/network";
+import { network } from "../record-network";
 
 const day = 24 * 60 * 60 * 1000;
 

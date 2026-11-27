@@ -11,7 +11,7 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   type Asset,
-  type HeldFundsId,
+  type UnclaimedFundsId,
   type DestinationAddress,
   LinkUnclaimable,
   type PaymentMemo,
@@ -22,13 +22,13 @@ import { draftLinkCleanup, draftLinkReceive } from "../stellar/link-receive";
 import { paymentLifetime } from "../policy";
 import { baseFee, networkPassphrase } from "../stellar/network";
 import type { ChainUnreachable } from "./chain-errors.server";
-import type { AccountState } from "./ledger.server";
+import type { AccountState } from "../stellar/ledger.server";
 import type { StoreFailure } from "./store-failure.server";
 
 export interface LinkReceive {
   readonly link: AccountAddress;
   readonly destination: DestinationAddress;
-  readonly heldFunds: HeldFundsId;
+  readonly unclaimedFunds: UnclaimedFundsId;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
   readonly memo?: PaymentMemo;

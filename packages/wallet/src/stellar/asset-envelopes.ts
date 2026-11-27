@@ -12,7 +12,7 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   Asset,
-  HeldFundsId,
+  UnclaimedFundsId,
   PositiveAmount,
   UnsignedEnvelope,
   formatAmount,
@@ -52,7 +52,7 @@ export class ClaimableFacts extends Schema.TaggedClass<ClaimableFacts>()(
     asset: Asset,
     amount: PositiveAmount,
     reserveSponsor: AccountAddress,
-    heldFunds: HeldFundsId,
+    unclaimedFunds: UnclaimedFundsId,
   },
 ) {}
 
@@ -65,14 +65,14 @@ export class PaymentLinkFacts extends Schema.TaggedClass<PaymentLinkFacts>()(
     asset: Asset,
     amount: PositiveAmount,
     reserveSponsor: AccountAddress,
-    heldFunds: HeldFundsId,
+    unclaimedFunds: UnclaimedFundsId,
   },
 ) {}
 
 export class ClaimFacts extends Schema.TaggedClass<ClaimFacts>()("ClaimFacts", {
   ...bounds,
   address: AccountAddress,
-  heldFunds: HeldFundsId,
+  unclaimedFunds: UnclaimedFundsId,
   opens: Schema.optional(Asset),
   reserveSponsor: Schema.optional(AccountAddress),
 }) {}
@@ -112,7 +112,7 @@ export interface SponsoredTrustline {
 }
 
 export interface ClaimInput extends Drafting {
-  readonly heldFunds: HeldFundsId;
+  readonly unclaimedFunds: UnclaimedFundsId;
   readonly opens?: SponsoredTrustline;
 }
 
@@ -209,7 +209,9 @@ export function draftPaymentLink(input: ClaimableInput): UnsignedEnvelope {
 }
 
 export function draftClaim(input: ClaimInput): UnsignedEnvelope {
-  const claim = Operation.claimClaimableBalance({ balanceId: input.heldFunds });
+  const claim = Operation.claimClaimableBalance({
+    balanceId: input.unclaimedFunds,
+  });
 
   return finish(
     (input.opens
@@ -232,12 +234,14 @@ interface Pinned {
 
 export function claimableBalanceOf(
   envelope: UnsignedEnvelope,
-): Option.Option<HeldFundsId> {
+): Option.Option<UnclaimedFundsId> {
   const tx = TransactionBuilder.fromXDR(envelope, networkPassphrase);
 
   return tx instanceof Transaction &&
     tx.operations[1]?.type === "createClaimableBalance"
-    ? Option.some(Schema.decodeSync(HeldFundsId)(tx.getClaimableBalanceId(1)))
+    ? Option.some(
+        Schema.decodeSync(UnclaimedFundsId)(tx.getClaimableBalanceId(1)),
+      )
     : Option.none();
 }
 
@@ -270,7 +274,7 @@ export function readAssetEnvelope(
         fourth?.type === "claimClaimableBalance" &&
         draftClaim({
           ...drafting(),
-          heldFunds: Schema.decodeSync(HeldFundsId)(fourth.balanceId),
+          unclaimedFunds: Schema.decodeSync(UnclaimedFundsId)(fourth.balanceId),
           opens: { asset, reserveSponsor },
         }) === envelope
       )
@@ -278,7 +282,9 @@ export function readAssetEnvelope(
           new ClaimFacts({
             ...fields,
             address,
-            heldFunds: Schema.decodeSync(HeldFundsId)(fourth.balanceId),
+            unclaimedFunds: Schema.decodeSync(UnclaimedFundsId)(
+              fourth.balanceId,
+            ),
             opens: asset,
             reserveSponsor,
           }),
@@ -317,7 +323,7 @@ export function readAssetEnvelope(
             asset,
             amount: amount.value,
             reserveSponsor,
-            heldFunds: Schema.decodeSync(HeldFundsId)(
+            unclaimedFunds: Schema.decodeSync(UnclaimedFundsId)(
               tx.getClaimableBalanceId(1),
             ),
           }),
@@ -342,7 +348,7 @@ export function readAssetEnvelope(
             asset,
             amount: amount.value,
             reserveSponsor,
-            heldFunds: Schema.decodeSync(HeldFundsId)(
+            unclaimedFunds: Schema.decodeSync(UnclaimedFundsId)(
               tx.getClaimableBalanceId(1),
             ),
           }),
@@ -364,10 +370,12 @@ export function readAssetEnvelope(
   }
 
   if (first?.type === "claimClaimableBalance") {
-    const heldFunds = Schema.decodeSync(HeldFundsId)(first.balanceId);
+    const unclaimedFunds = Schema.decodeSync(UnclaimedFundsId)(first.balanceId);
 
-    if (draftClaim({ ...drafting(), heldFunds }) === envelope)
-      return Option.some(new ClaimFacts({ ...fields, address, heldFunds }));
+    if (draftClaim({ ...drafting(), unclaimedFunds }) === envelope)
+      return Option.some(
+        new ClaimFacts({ ...fields, address, unclaimedFunds }),
+      );
   }
 
   return Option.none();

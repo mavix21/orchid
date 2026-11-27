@@ -3,7 +3,7 @@ import { Claimant, Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import {
-  HeldFundsLimitReached,
+  UnclaimedFundsLimitReached,
   PaymentLinkRecipient,
   baseAsset,
 } from "../src/contract";
@@ -68,8 +68,8 @@ const linkSender = Effect.gen(function* () {
 
     if (!submitted) throw new Error("Expected submission");
 
-    world.claimables.set(facts.heldFunds, {
-      heldFunds: facts.heldFunds,
+    world.claimables.set(facts.unclaimedFunds, {
+      unclaimedFunds: facts.unclaimedFunds,
       asset: baseAsset,
       amount: linkAmount,
       sponsored: true,
@@ -81,7 +81,7 @@ const linkSender = Effect.gen(function* () {
     settleHash(submitted.hash);
     yield* sweep;
 
-    return facts.heldFunds;
+    return facts.unclaimedFunds;
   });
 
   return { sender, senderAddr, createLinkAt };
@@ -139,14 +139,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             ),
           );
 
-          expect(sixth).toEqual(new HeldFundsLimitReached({ limit: 5 }));
+          expect(sixth).toEqual(new UnclaimedFundsLimitReached({ limit: 5 }));
 
           const openLinks = yield* Wallet.use((w) =>
             w.paymentLinks(senderAddr),
           );
 
           assertTagged(openLinks, "OpenPaymentLinks");
-          expect(openLinks.links.map((l) => l.heldFunds).sort()).toEqual(
+          expect(openLinks.links.map((l) => l.unclaimedFunds).sort()).toEqual(
             [...createdBalances].sort(),
           );
 
@@ -185,7 +185,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           expect(yield* assess(sender, sixth)).toEqual(
-            new HeldFundsLimitReached({ limit: 5 }),
+            new UnclaimedFundsLimitReached({ limit: 5 }),
           );
           expect(
             yield* Transfers.use((transfers) =>

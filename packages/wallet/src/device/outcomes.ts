@@ -5,7 +5,7 @@ import {
   AssetOrder,
   type AssetStep,
   Asset,
-  HeldFundsId,
+  UnclaimedFundsId,
   DestinationAddress,
   ExternalLinkDraft,
   ExternalLinkOrder,
@@ -278,7 +278,7 @@ export class PaymentLinkIntent extends Schema.Class<PaymentLinkIntent>(
 }) {}
 
 export interface PaymentLinkTarget {
-  readonly heldFunds: HeldFundsId;
+  readonly unclaimedFunds: UnclaimedFundsId;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
 }
@@ -293,7 +293,7 @@ export class PaymentLinkCreated extends Schema.TaggedClass<PaymentLinkCreated>()
     id: TransferId,
     address: AccountAddress,
     code: LinkCode,
-    heldFunds: HeldFundsId,
+    unclaimedFunds: UnclaimedFundsId,
     asset: Asset,
     amount: PositiveAmount,
     network: Schema.String,
@@ -348,7 +348,7 @@ export type ActivityOutcome =
 export class LatestPaymentLink extends Schema.TaggedClass<LatestPaymentLink>()(
   "LatestPaymentLink",
   {
-    heldFunds: HeldFundsId,
+    unclaimedFunds: UnclaimedFundsId,
     address: AccountAddress,
     asset: Asset,
     amount: PositiveAmount,
@@ -372,7 +372,7 @@ export class ReclaimReview extends Schema.TaggedClass<ReclaimReview>()(
     draft: AssetDraft,
     redrafted: Schema.Boolean,
     network: Schema.String,
-    heldFunds: HeldFundsId,
+    unclaimedFunds: UnclaimedFundsId,
     asset: Asset,
     amount: PositiveAmount,
     opensTrustline: Schema.optional(Asset),
@@ -408,7 +408,7 @@ export class PaymentLinkRevealed extends Schema.TaggedClass<PaymentLinkRevealed>
     address: AccountAddress,
     code: LinkCode,
     path: Schema.String,
-    heldFunds: HeldFundsId,
+    unclaimedFunds: UnclaimedFundsId,
     asset: Asset,
     amount: PositiveAmount,
   },
@@ -435,7 +435,7 @@ export class LinkCodeMismatch extends Schema.TaggedClass<LinkCodeMismatch>()(
 
 export interface LinkReceiveTarget {
   readonly link: AccountAddress;
-  readonly heldFunds: HeldFundsId;
+  readonly unclaimedFunds: UnclaimedFundsId;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
   readonly sender: Profile;
@@ -449,7 +449,7 @@ export class LinkReceiveReview extends Schema.TaggedClass<LinkReceiveReview>()(
     redrafted: Schema.Boolean,
     network: Schema.String,
     link: AccountAddress,
-    heldFunds: HeldFundsId,
+    unclaimedFunds: UnclaimedFundsId,
     asset: Asset,
     amount: PositiveAmount,
     sender: Profile,
@@ -492,7 +492,7 @@ export class ExternalLinkReview extends Schema.TaggedClass<ExternalLinkReview>()
     redrafted: Schema.Boolean,
     network: Schema.String,
     link: AccountAddress,
-    heldFunds: HeldFundsId,
+    unclaimedFunds: UnclaimedFundsId,
     destination: DestinationAddress,
     asset: Asset,
     amount: PositiveAmount,

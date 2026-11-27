@@ -2,13 +2,9 @@ import * as Predicate from "effect/Predicate";
 import type { Account } from "@stellar/stellar-sdk";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
-  HeldFundsId,
-  type CloseTrustline,
-  Asset,
-  type OpenTrustline,
+  type Asset,
   type UnsignedEnvelope,
   sameAsset,
 } from "../contract";
@@ -17,17 +13,8 @@ import {
   draftTrustline,
   draftTrustlineRemoval,
 } from "./asset-envelopes";
+import type { AssetPlan } from "../server/asset-plan.server";
 import { readEnvelope } from "./envelopes";
-
-export const ClaimPlan = Schema.TaggedStruct("ClaimPlan", {
-  heldFunds: HeldFundsId,
-  opens: Schema.optional(Asset),
-});
-
-export type AssetPlan =
-  | typeof OpenTrustline.Type
-  | typeof CloseTrustline.Type
-  | typeof ClaimPlan.Type;
 
 export interface PlanInput {
   readonly source: Account;
@@ -44,14 +31,14 @@ export function draftPlan(plan: AssetPlan, input: PlanInput): UnsignedEnvelope {
       draftTrustline({ ...drafting, reserveSponsor, asset }),
     CloseTrustline: ({ asset }) =>
       draftTrustlineRemoval({ ...drafting, asset }),
-    ClaimPlan: ({ heldFunds, opens }) =>
+    ClaimPlan: ({ unclaimedFunds, opens }) =>
       opens
         ? draftClaim({
             ...drafting,
-            heldFunds,
+            unclaimedFunds,
             opens: { asset: opens, reserveSponsor },
           })
-        : draftClaim({ ...drafting, heldFunds }),
+        : draftClaim({ ...drafting, unclaimedFunds }),
   });
 }
 
@@ -71,9 +58,9 @@ export function plannedSequence(
         CloseTrustline: ({ asset }) =>
           Predicate.isTagged(facts, "TrustlineRemovalFacts") &&
           sameAsset(facts.asset, asset),
-        ClaimPlan: ({ heldFunds, opens }) =>
+        ClaimPlan: ({ unclaimedFunds, opens }) =>
           Predicate.isTagged(facts, "ClaimFacts") &&
-          facts.heldFunds === heldFunds &&
+          facts.unclaimedFunds === unclaimedFunds &&
           sameOpening(facts.opens, opens),
       }),
     ),

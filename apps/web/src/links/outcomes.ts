@@ -52,10 +52,10 @@ export class LinkScreen<Action extends string> {
 export type RecoverableLink = PaymentLinkTarget;
 
 export const recoverable = ({
-  heldFunds,
+  unclaimedFunds,
   asset,
   amount,
-}: RecoverableLink): RecoverableLink => ({ heldFunds, asset, amount });
+}: RecoverableLink): RecoverableLink => ({ unclaimedFunds, asset, amount });
 
 export const lostLinkMessage =
   "Este link no se guardó en este dispositivo, así que ya no se puede compartir. Tu dinero sigue a salvo: recupéralo y crea uno nuevo.";
@@ -200,7 +200,7 @@ export const createLinkResult = (
         `Tienes ${amountLabel(available, asset)} disponibles. ${untouched}`,
         "edit",
       ),
-    HeldFundsLimitReached: ({ limit }) =>
+    UnclaimedFundsLimitReached: ({ limit }) =>
       new LinkScreen(
         `Ya tienes ${limit} links abiertos`,
         `Puedes tener hasta ${limit} a la vez. Recupera el dinero de uno para crear otro. ${untouched}`,
@@ -373,7 +373,7 @@ export const reclaimResult = (
         "La operación no se completó. Inténtalo de nuevo para saber si el dinero sigue en el link.",
         "again",
       ),
-    HeldFundsGone: ({ status }) =>
+    UnclaimedFundsGone: ({ status }) =>
       Match.value(status).pipe(
         Match.when(
           "reclaimed",

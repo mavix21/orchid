@@ -43,7 +43,7 @@ export function WaitingPayment({
   const settle = (outcome: ConfirmReclaimOutcome | DeviceFailure) => {
     if (
       Predicate.isTagged(outcome, "AssetSettled") ||
-      Predicate.isTagged(outcome, "HeldFundsGone")
+      Predicate.isTagged(outcome, "UnclaimedFundsGone")
     )
       onReceived();
     else setStep(stopped(outcome));
@@ -57,7 +57,7 @@ export function WaitingPayment({
     setStep(WaitingStep.Claiming());
     task.run(
       walletEffects.reviewReclaim({
-        heldFunds: payment.id,
+        unclaimedFunds: payment.id,
         asset: payment.asset,
         amount: payment.amount,
       }),

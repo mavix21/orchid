@@ -10,7 +10,7 @@ import {
   AddressRecipient,
   type Approval,
   AssetUnsupported,
-  HeldFundsId,
+  UnclaimedFundsId,
   OpenPaymentLink,
   OpenPaymentLinks,
   PaymentLinkRecipient,
@@ -31,7 +31,7 @@ import {
 import type { PublicDeviceWallet } from "../src/device/key-store";
 import { linkAddressOf } from "../src/device/link-code";
 import { SealedLinkCode, linkPrfInput } from "../src/device/link-seal";
-import { holdingsFromEntries } from "../src/server/ledger-assets.server";
+import { holdingsFromEntries } from "../src/stellar/ledger-assets.server";
 import { transfers } from "../src/server/tables.server";
 import { network, usdc } from "../src/stellar/network";
 import { linkKeypairOf, memoryKeyStore } from "./device-fixtures";
@@ -192,21 +192,21 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             released.map(({ wallet: state, links }) => ({
               approved: state.approvedUntil !== undefined,
               link: state.linkReceipt?.address,
-              heldFunds: state.linkReceipt?.heldFunds,
+              unclaimedFunds: state.linkReceipt?.unclaimedFunds,
               saved: links.map((link) => link.address),
             })),
           ).toEqual([
             {
               approved: true,
               link: created.address,
-              heldFunds: created.heldFunds,
+              unclaimedFunds: created.unclaimedFunds,
               saved: [created.address],
             },
           ]);
 
           const [savedLink] = yield* browserKeyStore.readLinks();
 
-          expect(savedLink?.heldFunds).toBe(created.heldFunds);
+          expect(savedLink?.unclaimedFunds).toBe(created.unclaimedFunds);
 
           const ciphertext = Schema.encodeSync(SealedLinkCode)(
             Option.getOrThrow(Option.fromNullishOr(savedLink)),
@@ -214,7 +214,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const target = {
             address: created.address,
-            heldFunds: created.heldFunds,
+            unclaimedFunds: created.unclaimedFunds,
             asset: created.asset,
             amount: created.amount,
           };
@@ -244,7 +244,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             }),
             new OpenPaymentLink({
               id: created.id,
-              heldFunds: Schema.decodeSync(HeldFundsId)(
+              unclaimedFunds: Schema.decodeSync(UnclaimedFundsId)(
                 `00000000${"7".repeat(64)}`,
               ),
               address: addressOf(Keypair.random()),

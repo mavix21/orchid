@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import type { AccountAddress, HeldFundsId } from "../contract";
+import type { AccountAddress, UnclaimedFundsId } from "../contract";
 import { claimableQuota } from "../policy";
 import { Chain, type ChainUnreachable } from "./Chain.server";
 import type { StoreFailure } from "./Directory.server";
@@ -15,12 +15,14 @@ export const claimableQuotaFlow = Effect.gen(function* () {
   const chain = yield* Chain;
   const transfers = yield* Transfers;
 
-  const closeGoneHeldFunds = (id: HeldFundsId) =>
+  const closeGoneUnclaimedFunds = (id: UnclaimedFundsId) =>
     chain
-      .heldFunds([id])
+      .unclaimedFunds([id])
       .pipe(
         Effect.flatMap((confirmed) =>
-          confirmed.length === 0 ? transfers.closeHeldFunds(id) : Effect.void,
+          confirmed.length === 0
+            ? transfers.closeUnclaimedFunds(id)
+            : Effect.void,
         ),
       );
 
@@ -40,13 +42,13 @@ export const claimableQuotaFlow = Effect.gen(function* () {
     if (!(yield* quotaReached(sender, kind))) return false;
 
     yield* Effect.forEach(
-      yield* transfers.settledOpenHeldFunds(sender, kind),
-      closeGoneHeldFunds,
+      yield* transfers.settledOpenUnclaimedFunds(sender, kind),
+      closeGoneUnclaimedFunds,
       { concurrency: rpcReadConcurrency, discard: true },
     );
 
     return yield* quotaReached(sender, kind);
   });
 
-  return { closeGoneHeldFunds, quotaFull, quotaReached };
+  return { closeGoneUnclaimedFunds, quotaFull, quotaReached };
 });

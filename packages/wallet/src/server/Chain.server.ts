@@ -23,7 +23,7 @@ import {
   DestinationAddress,
   Approval,
   type Asset,
-  type HeldFundsId,
+  type UnclaimedFundsId,
   OpeningDraft,
   PaymentMemo,
   PositiveAmount,
@@ -41,11 +41,11 @@ import {
   destinationChain,
 } from "./chain-destinations.server";
 import { type DraftChain, draftChain } from "./chain-drafts.server";
-import { channelPool } from "./channel-pool.server";
+import { channelPool } from "../stellar/channel-pool.server";
 import { type LinkChain, linkChain } from "./chain-links.server";
 import { type DepositChain, depositChain } from "./chain-deposits.server";
 import { ChainUnreachable } from "./chain-errors.server";
-import { accountFromEntries, stellarRpc } from "./ledger.server";
+import { accountFromEntries, stellarRpc } from "../stellar/ledger.server";
 
 export { ChainUnreachable } from "./chain-errors.server";
 
@@ -57,7 +57,7 @@ export { DraftPurpose } from "./chain-drafts.server";
 
 export type { LinkReceive } from "./chain-links.server";
 
-import { memoRequirementFor } from "./exchange-memos.server";
+import { memoRequirementFor } from "../stellar/exchange-memos.server";
 import { validateRpcTimeout, validateRpcUrl } from "./rpc-settings.server";
 import { WalletSettings, rpcReadConcurrency } from "./settings.server";
 import type { StoreFailure } from "./store-failure.server";
@@ -123,7 +123,7 @@ export class Chain extends Context.Service<
       ): Effect.Effect<boolean, ChainUnreachable>;
       draftOpening(
         address: AccountAddress,
-        claim?: HeldFundsId,
+        claim?: UnclaimedFundsId,
       ): Effect.Effect<OpeningDraft, ChainUnreachable | StoreFailure>;
       draftPayment(
         from: AccountAddress,
@@ -210,7 +210,7 @@ export class Chain extends Context.Service<
 
       const draftOpen = Effect.fn("Chain.draftOpening")(function* (
         address: AccountAddress,
-        claim?: HeldFundsId,
+        claim?: UnclaimedFundsId,
       ) {
         const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
 

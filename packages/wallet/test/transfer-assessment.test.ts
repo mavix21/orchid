@@ -16,7 +16,7 @@ import {
   Username,
   UsernameRecipient,
 } from "../src/contract";
-import { KnownExchangeMemo } from "../src/server/exchange-memos.server";
+import { KnownExchangeMemo } from "../src/stellar/exchange-memos.server";
 import { Transfers } from "../src/server/Transfers.server";
 import { network } from "../src/stellar/network";
 import { assertTagged } from "./tagged";

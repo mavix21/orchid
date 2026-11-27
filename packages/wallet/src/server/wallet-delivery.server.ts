@@ -6,7 +6,7 @@ import {
   type AccountAddress,
   AssetUnsupported,
   type DestinationAddress,
-  HeldFundsLimitReached,
+  UnclaimedFundsLimitReached,
   ExternalRecipient,
   LinkRecipient,
   Profile,
@@ -21,7 +21,7 @@ import { claimableQuota } from "../policy";
 import { Chain } from "./Chain.server";
 import { type QuotaCheck, claimableQuotaFlow } from "./claimable-quota.server";
 import { Directory } from "./Directory.server";
-import type { Holdings } from "./ledger-assets.server";
+import type { Holdings } from "./holdings.server";
 import { rpcReadConcurrency } from "./settings.server";
 
 export type TransferTerms = Pick<
@@ -39,7 +39,7 @@ export const DeliveryRoute = Data.taggedEnum<DeliveryRoute>();
 
 export type DeliveryRefusal =
   | AssetUnsupported
-  | HeldFundsLimitReached
+  | UnclaimedFundsLimitReached
   | RecipientCannotReceive;
 
 export const isDeliveryRoute = (
@@ -123,7 +123,9 @@ export const deliveryFlow = Effect.gen(function* () {
       if (Option.isSome(refusal)) return refusal.value;
 
       if (yield* quota(terms.from, "paymentLink"))
-        return new HeldFundsLimitReached({ limit: claimableQuota.paymentLink });
+        return new UnclaimedFundsLimitReached({
+          limit: claimableQuota.paymentLink,
+        });
 
       return DeliveryRoute.PaymentLink({ address: recipient.address });
     }
@@ -156,7 +158,9 @@ export const deliveryFlow = Effect.gen(function* () {
       }
 
       if (yield* quota(terms.from, "username"))
-        return new HeldFundsLimitReached({ limit: claimableQuota.username });
+        return new UnclaimedFundsLimitReached({
+          limit: claimableQuota.username,
+        });
 
       return DeliveryRoute.Claimable({ address: recipient.address });
     }

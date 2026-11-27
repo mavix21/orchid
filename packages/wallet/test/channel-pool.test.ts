@@ -2,7 +2,7 @@ import { expect, layer } from "@effect/vitest";
 import { Account, Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { leaseChannel } from "../src/server/channel-pool.server";
+import { leaseChannel } from "../src/stellar/channel-pool.server";
 import { dbLayer, useDisposableDatabase } from "./wallet-harness";
 
 useDisposableDatabase();

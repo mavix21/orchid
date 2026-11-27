@@ -1,7 +1,6 @@
 import * as DateTime from "effect/DateTime";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
@@ -10,7 +9,7 @@ import {
   AssetOrderId,
   AssetPending,
   AssetSettled,
-  HeldFundsId,
+  UnclaimedFundsId,
   DestinationAddress,
   ExternalLinkFailed,
   type ExternalLinkOrder,
@@ -20,13 +19,12 @@ import {
   PaymentMemo,
   SigningRequest,
 } from "../contract";
-import { readEnvelope } from "../stellar/envelopes";
 import { Sealed } from "./Chain.server";
 import type { assetOrders } from "./tables.server";
 
 export const ReceiveLinkExternal = Schema.TaggedStruct("ReceiveLinkExternal", {
   link: AccountAddress,
-  heldFunds: HeldFundsId,
+  unclaimedFunds: UnclaimedFundsId,
   destination: DestinationAddress,
   memo: Schema.optional(PaymentMemo),
 });
@@ -47,7 +45,7 @@ export const toStoredExternalOrder = (order: ExternalLinkOrder) =>
     id: order.id,
     action: ReceiveLinkExternal.make({
       link: order.link,
-      heldFunds: order.heldFunds,
+      unclaimedFunds: order.unclaimedFunds,
       destination: order.destination,
       memo: order.memo,
     }),
@@ -196,12 +194,5 @@ export function readRow(row: AssetOrderRow): StoredAssetOrder {
   );
 }
 
-export function opensOf(request: SigningRequest): string | null {
-  const facts = readEnvelope(request.envelope);
-
-  return Option.isSome(facts) &&
-    Predicate.isTagged(facts.value, "ClaimFacts") &&
-    facts.value.opens
-    ? Schema.encodeSync(OpensJson)(facts.value.opens)
-    : null;
-}
+export const opensColumn = (opens: Option.Option<Asset>) =>
+  Option.getOrNull(Option.map(opens, Schema.encodeSync(OpensJson)));

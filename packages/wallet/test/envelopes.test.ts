@@ -20,7 +20,7 @@ import {
   AddressRecipient,
   Approval,
   type AssetPrecision,
-  HeldFundsId,
+  UnclaimedFundsId,
   DestinationAddress,
   PaymentMemo,
   PositiveAmount,
@@ -40,11 +40,11 @@ import {
   resolveSettlement,
   settlementFromResponse,
 } from "../src/server/Chain.server";
-import { channelKeypair } from "../src/server/channel-pool.server";
+import { channelKeypair } from "../src/stellar/channel-pool.server";
 import {
   type AccountState,
   accountFromEntries,
-} from "../src/server/ledger.server";
+} from "../src/stellar/ledger.server";
 import {
   OpeningFacts,
   PaymentFacts,
@@ -603,7 +603,9 @@ it.live(
         reserveSponsor,
         createsLinkAccount: true,
         destination: Schema.decodeSync(DestinationAddress)(to),
-        heldFunds: Schema.decodeSync(HeldFundsId)(`00000000${"ab".repeat(32)}`),
+        unclaimedFunds: Schema.decodeSync(UnclaimedFundsId)(
+          `00000000${"ab".repeat(32)}`,
+        ),
         asset: baseAsset,
         amount: Schema.decodeSync(PositiveAmount)("10000000"),
         minTime: now,

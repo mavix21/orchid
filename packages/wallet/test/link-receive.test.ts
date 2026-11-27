@@ -7,9 +7,9 @@ import {
   AccountAddress,
   AssetOrder,
   AssetOrderId,
-  HeldFundsGone,
-  HeldFundsId,
-  ClaimHeldFunds,
+  UnclaimedFundsGone,
+  UnclaimedFundsId,
+  ClaimUnclaimedFunds,
   DestinationAddress,
   ExternalLinkOrder,
   ExternalMemoRequired,
@@ -23,7 +23,7 @@ import {
   RecipientCannotReceive,
   baseAsset,
 } from "../src/contract";
-import { KnownExchangeMemo } from "../src/server/exchange-memos.server";
+import { KnownExchangeMemo } from "../src/stellar/exchange-memos.server";
 import { CleanUpReceivedLink } from "../src/server/work-queue.server";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { draftLinkReceive } from "../src/stellar/link-receive";
@@ -47,7 +47,7 @@ import {
   world,
 } from "./wallet-harness";
 
-const envelopeBalance = Schema.decodeSync(HeldFundsId)(
+const envelopeBalance = Schema.decodeSync(UnclaimedFundsId)(
   `00000000${"a".repeat(64)}`,
 );
 
@@ -65,7 +65,7 @@ it("link receive envelope reader rejects a muxed destination with a memo", () =>
     reserveSponsor: addressOf(Keypair.random()),
     createsLinkAccount: true,
     destination: muxed,
-    heldFunds: envelopeBalance,
+    unclaimedFunds: envelopeBalance,
     asset: baseAsset,
     amount: linkAmount,
     memo: Schema.decodeSync(PaymentMemo)({ type: "text", value: "12345" }),
@@ -92,13 +92,13 @@ const registerExchange = (address: AccountAddress) => {
 };
 
 const receivedLink = Effect.fn(function* (name: string) {
-  const { wallet, link, heldFunds } = yield* fundLink(name);
+  const { wallet, link, unclaimedFunds } = yield* fundLink(name);
   const recipient = yield* fundedWallet(`${name}rcv`);
 
   const receive = new AssetOrder({
     id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
     wallet: addressOf(recipient),
-    action: ReceiveLink.make({ link: addressOf(link), heldFunds }),
+    action: ReceiveLink.make({ link: addressOf(link), unclaimedFunds }),
   });
 
   const drafted = yield* wallet.manage(receive, Option.none());
@@ -115,7 +115,7 @@ const receivedLink = Effect.fn(function* (name: string) {
   for (const sealed of world.submitted.slice(fundingSubmissions))
     settleHash(sealed.hash);
 
-  world.claimables.delete(heldFunds);
+  world.claimables.delete(unclaimedFunds);
   assertTagged(yield* wallet.manage(receive, Option.none()), "AssetSettled");
 
   return { address: addressOf(link), receive };
@@ -171,7 +171,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "a link receive replayed after its approval pays once, cleans up its link account and shows the sender a received link",
       () =>
         Effect.gen(function* () {
-          const { wallet, sender, link, heldFunds } =
+          const { wallet, sender, link, unclaimedFunds } =
             yield* fundLink("linkfunder");
 
           const recipient = yield* fundedWallet("linkreceiver");
@@ -180,7 +180,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             new AssetOrder({
               id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
               wallet: addressOf(recipient),
-              action: ReceiveLink.make({ link: addressOf(link), heldFunds }),
+              action: ReceiveLink.make({
+                link: addressOf(link),
+                unclaimedFunds,
+              }),
             });
 
           const receive = receiveOrder();
@@ -206,13 +209,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           for (const hash of receipts) settleHash(hash);
 
-          world.claimables.delete(heldFunds);
+          world.claimables.delete(unclaimedFunds);
 
           expect((yield* wallet.manage(receive, Option.none()))._tag).toBe(
             "AssetSettled",
           );
           expect(yield* wallet.manage(receiveOrder(), Option.none())).toEqual(
-            new HeldFundsGone({ status: "claimed" }),
+            new UnclaimedFundsGone({ status: "claimed" }),
           );
           expect(yield* wallet.paymentLink(addressOf(link))).toEqual(
             new PaymentLinkUsed(),
@@ -233,7 +236,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "an external link claim with a digits text memo pays once across replay, cleans up, and marks the link claimed",
       () =>
         Effect.gen(function* () {
-          const { wallet, sender, link, heldFunds } =
+          const { wallet, sender, link, unclaimedFunds } =
             yield* fundLink("extfunder");
 
           const external = Keypair.random();
@@ -250,7 +253,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             new ExternalLinkOrder({
               id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
               link: addressOf(link),
-              heldFunds,
+              unclaimedFunds,
               destination: addressOf(external),
               memo,
             });
@@ -288,14 +291,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           for (const hash of hashes) settleHash(hash);
 
-          world.claimables.delete(heldFunds);
+          world.claimables.delete(unclaimedFunds);
 
           expect(
             (yield* wallet.claimPaymentLink(claim, Option.none()))._tag,
           ).toBe("ExternalLinkSettled");
           expect(
             yield* wallet.claimPaymentLink(claimOrder(), Option.none()),
-          ).toEqual(new HeldFundsGone({ status: "claimed" }));
+          ).toEqual(new UnclaimedFundsGone({ status: "claimed" }));
           expect(yield* wallet.paymentLink(addressOf(link))).toEqual(
             new PaymentLinkUsed(),
           );
@@ -304,11 +307,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const reclaim = new AssetOrder({
             id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
             wallet: sender.address,
-            action: ClaimHeldFunds.make({ heldFunds }),
+            action: ClaimUnclaimedFunds.make({ unclaimedFunds }),
           });
 
           expect(yield* wallet.manage(reclaim, Option.none())).toEqual(
-            new HeldFundsGone({ status: "claimed" }),
+            new UnclaimedFundsGone({ status: "claimed" }),
           );
 
           const listed = yield* wallet.paymentLinks(sender.address);
@@ -324,7 +327,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "an external claim to a muxed destination skips SEP-29 and drafts with no memo",
       () =>
         Effect.gen(function* () {
-          const { wallet, link, heldFunds } = yield* fundLink("muxedfunder");
+          const { wallet, link, unclaimedFunds } =
+            yield* fundLink("muxedfunder");
+
           const base = Keypair.random();
 
           fundHolder(base);
@@ -341,7 +346,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             new ExternalLinkOrder({
               id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
               link: addressOf(link),
-              heldFunds,
+              unclaimedFunds,
               destination: muxed,
             }),
             Option.none(),
@@ -560,10 +565,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     ];
 
     it.effect.each(refusalCases)(
-      "external claim refuses %s before signing and leaves the held funds reclaimable by sender",
+      "external claim refuses %s before signing and leaves the unclaimed funds reclaimable by sender",
       ([, setup]) =>
         Effect.gen(function* () {
-          const { wallet, sender, link, heldFunds } =
+          const { wallet, sender, link, unclaimedFunds } =
             yield* fundLink("refusalfunder");
 
           const { destination, memo, expected } = setup(addressOf(link));
@@ -572,7 +577,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const order = new ExternalLinkOrder({
             id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
             link: addressOf(link),
-            heldFunds,
+            unclaimedFunds,
             destination,
             memo,
           });
@@ -589,7 +594,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             new AssetOrder({
               id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
               wallet: sender.address,
-              action: ClaimHeldFunds.make({ heldFunds }),
+              action: ClaimUnclaimedFunds.make({ unclaimedFunds }),
             }),
             Option.none(),
           );

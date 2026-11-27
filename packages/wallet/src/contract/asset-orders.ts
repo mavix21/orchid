@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 import { SigningRequest } from "./approval";
 import { Amount, TrustlineAsset } from "./assets";
-import { HeldFundsId } from "./held-funds";
+import { UnclaimedFundsId } from "./unclaimed-funds";
 import { AccountAddress } from "./identity";
 
 export const AssetOrderId = Schema.String.check(Schema.isUUID(4)).pipe(
@@ -18,19 +18,19 @@ export const CloseTrustline = Schema.TaggedStruct("CloseTrustline", {
   asset: TrustlineAsset,
 });
 
-export const ClaimHeldFunds = Schema.TaggedStruct("ClaimHeldFunds", {
-  heldFunds: HeldFundsId,
+export const ClaimUnclaimedFunds = Schema.TaggedStruct("ClaimUnclaimedFunds", {
+  unclaimedFunds: UnclaimedFundsId,
 });
 
 export const ReceiveLink = Schema.TaggedStruct("ReceiveLink", {
   link: AccountAddress,
-  heldFunds: HeldFundsId,
+  unclaimedFunds: UnclaimedFundsId,
 });
 
 export const AssetAction = Schema.Union([
   OpenTrustline,
   CloseTrustline,
-  ClaimHeldFunds,
+  ClaimUnclaimedFunds,
   ReceiveLink,
 ]);
 
@@ -125,18 +125,18 @@ export class LinkUnclaimable extends Schema.TaggedClass<LinkUnclaimable>()(
   },
 ) {}
 
-export const HeldFundsGoneStatus = Schema.Literals([
+export const UnclaimedFundsGoneStatus = Schema.Literals([
   "reclaimed",
   "claimed",
   "clawed_back",
   "unresolved",
 ]);
 
-export type HeldFundsGoneStatus = typeof HeldFundsGoneStatus.Type;
+export type UnclaimedFundsGoneStatus = typeof UnclaimedFundsGoneStatus.Type;
 
-export class HeldFundsGone extends Schema.TaggedClass<HeldFundsGone>()(
-  "HeldFundsGone",
+export class UnclaimedFundsGone extends Schema.TaggedClass<UnclaimedFundsGone>()(
+  "UnclaimedFundsGone",
   {
-    status: HeldFundsGoneStatus,
+    status: UnclaimedFundsGoneStatus,
   },
 ) {}

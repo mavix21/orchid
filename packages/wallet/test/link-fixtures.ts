@@ -10,7 +10,7 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
-  HeldFundsId,
+  UnclaimedFundsId,
   PaymentLinkRecipient,
   PositiveAmount,
   TransferId,
@@ -63,12 +63,12 @@ export const settleOnSubmit =
             inner.operations[1]?.type === "createClaimableBalance" &&
             Predicate.isTagged(order.to, "PaymentLink")
           ) {
-            const heldFunds = Schema.decodeSync(HeldFundsId)(
+            const unclaimedFunds = Schema.decodeSync(UnclaimedFundsId)(
               inner.getClaimableBalanceId(1),
             );
 
-            world.claimables.set(heldFunds, {
-              heldFunds,
+            world.claimables.set(unclaimedFunds, {
+              unclaimedFunds,
               asset: order.asset,
               amount: order.amount,
               sponsored: true,
@@ -124,12 +124,14 @@ export const fundLinkFrom = (wallet: WalletPort, sender: DeviceWallet) =>
 
     assertTagged(funded, "Settled");
 
-    const heldFunds = Option.getOrThrow(Option.fromNullishOr(funded.heldFunds));
+    const unclaimedFunds = Option.getOrThrow(
+      Option.fromNullishOr(funded.unclaimedFunds),
+    );
 
     world.accounts.set(channel, accountState());
     advanceSequence(sender.address);
 
-    return { link, heldFunds, transferId: funding.id };
+    return { link, unclaimedFunds, transferId: funding.id };
   });
 
 export const fundLink = (username: string) =>

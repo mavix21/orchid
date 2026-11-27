@@ -12,9 +12,9 @@ import {
   AssetOrderId,
   AssetUnsupported,
   baseAsset,
-  ClaimHeldFunds,
+  ClaimUnclaimedFunds,
   CloseTrustline,
-  HeldFundsLimitReached,
+  UnclaimedFundsLimitReached,
   InsufficientBalance,
   nativeAsset,
   OpenTrustline,
@@ -263,7 +263,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           world.holdings.set(
             addr,
             holdingsFor(addr, {
-              reserves: { subentries: 6, sponsored: 8, sponsoring: 0 },
+              trustlineSlotsUsed: 6,
             }),
           );
           expect(
@@ -319,8 +319,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           ).toBe("Pending");
           yield* sweep;
 
-          world.claimables.set(facts.heldFunds, {
-            heldFunds: facts.heldFunds,
+          world.claimables.set(facts.unclaimedFunds, {
+            unclaimedFunds: facts.unclaimedFunds,
             asset: euro,
             amount: Schema.decodeSync(PositiveAmount)("10000000"),
             sponsored: true,
@@ -334,7 +334,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const claimOrder = assetOrder(
             recipient,
-            ClaimHeldFunds.make({ heldFunds: facts.heldFunds }),
+            ClaimUnclaimedFunds.make({ unclaimedFunds: facts.unclaimedFunds }),
           );
 
           const claimDraft = yield* manage(claimOrder);
@@ -404,8 +404,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             if (!submitted) throw new Error("Expected submission");
 
             assertTagged(facts, "ClaimableFacts");
-            world.claimables.set(facts.heldFunds, {
-              heldFunds: facts.heldFunds,
+            world.claimables.set(facts.unclaimedFunds, {
+              unclaimedFunds: facts.unclaimedFunds,
               asset: euro,
               amount: Schema.decodeSync(PositiveAmount)("10000000"),
               sponsored: true,
@@ -437,7 +437,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(
             yield* send(third, approve(thirdDraft.request, sender)),
-          ).toEqual(new HeldFundsLimitReached({ limit: 2 }));
+          ).toEqual(new UnclaimedFundsLimitReached({ limit: 2 }));
 
           world.claimables.clear();
           assertTagged(

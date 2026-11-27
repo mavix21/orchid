@@ -3,7 +3,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import type {
   AccountAddress,
-  HeldFundsId,
+  UnclaimedFundsId,
   Failed,
   Settled,
   TransferOrder,
@@ -55,13 +55,16 @@ const fundedLink = (
   links: SavedLinks,
   wallet: AccountAddress,
   address: AccountAddress,
-  heldFunds: HeldFundsId,
+  unclaimedFunds: UnclaimedFundsId,
 ): Option.Option<SavedLinks> =>
   Option.flatMap(savedLinkFor(links, wallet, address), (saved) =>
-    saved.heldFunds === heldFunds
+    saved.unclaimedFunds === unclaimedFunds
       ? Option.none()
       : Option.some(
-          withSavedLink(links, new SealedLinkCode({ ...saved, heldFunds })),
+          withSavedLink(
+            links,
+            new SealedLinkCode({ ...saved, unclaimedFunds }),
+          ),
         ),
   );
 
@@ -69,9 +72,12 @@ export const recordFunded = (
   links: SavedLinks,
   wallet: AccountAddress,
   address: AccountAddress,
-  heldFunds: HeldFundsId,
+  unclaimedFunds: UnclaimedFundsId,
 ): SavedLinks =>
-  Option.getOrElse(fundedLink(links, wallet, address, heldFunds), () => links);
+  Option.getOrElse(
+    fundedLink(links, wallet, address, unclaimedFunds),
+    () => links,
+  );
 
 const neverFunded = (
   links: SavedLinks,
@@ -81,7 +87,7 @@ const neverFunded = (
   Option.match(savedLinkFor(links, wallet, address), {
     onNone: () => links,
     onSome: (saved) =>
-      saved.heldFunds === undefined
+      saved.unclaimedFunds === undefined
         ? links.filter((kept) => kept !== saved)
         : links,
   });
@@ -97,22 +103,22 @@ export const concludedLink = (
   if (Predicate.isTagged(concluded, "Failed"))
     return neverFunded(links, wallet, order.to.value);
 
-  return concluded.heldFunds === undefined
+  return concluded.unclaimedFunds === undefined
     ? links
-    : recordFunded(links, wallet, order.to.value, concluded.heldFunds);
+    : recordFunded(links, wallet, order.to.value, concluded.unclaimedFunds);
 };
 
 export const withoutReclaimed = (
   links: SavedLinks,
   wallet: AccountAddress,
-  heldFunds: HeldFundsId,
+  unclaimedFunds: UnclaimedFundsId,
 ): SavedLinks => {
   const kept = links.filter(
     (saved) =>
       !(
         saved.network === network &&
         saved.wallet === wallet &&
-        saved.heldFunds === heldFunds
+        saved.unclaimedFunds === unclaimedFunds
       ),
   );
 
