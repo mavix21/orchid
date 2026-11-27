@@ -23,7 +23,7 @@ import {
   RecipientCannotReceive,
   baseAsset,
 } from "../src/contract";
-import { KnownExchangeMemo } from "../src/server/exchange-memos.server";
+import { KnownExchangeMemo } from "../src/stellar/exchange-memos.server";
 import { CleanUpReceivedLink } from "../src/server/work-queue.server";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { draftLinkReceive } from "../src/stellar/link-receive";

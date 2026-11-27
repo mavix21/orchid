@@ -40,11 +40,11 @@ import {
   resolveSettlement,
   settlementFromResponse,
 } from "../src/server/Chain.server";
-import { channelKeypair } from "../src/server/channel-pool.server";
+import { channelKeypair } from "../src/stellar/channel-pool.server";
 import {
   type AccountState,
   accountFromEntries,
-} from "../src/server/ledger.server";
+} from "../src/stellar/ledger.server";
 import {
   OpeningFacts,
   PaymentFacts,

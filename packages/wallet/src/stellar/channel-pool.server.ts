@@ -7,11 +7,11 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AccountAddress } from "../contract";
-import { ChainUnreachable } from "./chain-errors.server";
+import { ChainUnreachable } from "../server/chain-errors.server";
 import type { AccountState } from "./ledger.server";
-import { rpcReadConcurrency } from "./settings.server";
-import { StoreFailure } from "./store-failure.server";
-import { channelLeases } from "./tables.server";
+import { rpcReadConcurrency } from "../server/settings.server";
+import { StoreFailure } from "../server/store-failure.server";
+import { channelLeases } from "../server/tables.server";
 
 export const channelCount = 8;
 

@@ -4,6 +4,7 @@ import {
   Keypair,
   xdr,
 } from "@stellar/stellar-sdk";
+import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
@@ -13,47 +14,16 @@ import {
   UnclaimedFundsId,
   PositiveAmount,
 } from "../contract";
-import {
-  fromStellarAsset,
-  isIssuerAccount,
-  toStellarAsset,
-} from "../stellar/assets";
-import { baseReserve } from "../stellar/network";
+import { fromStellarAsset, isIssuerAccount, toStellarAsset } from "./assets";
+import { baseReserve } from "./network";
+import type { Holdings, Issuer } from "../server/holdings.server";
+import type {
+  Claim,
+  UnclaimedFundsEntry,
+} from "../server/unclaimed-funds.server";
 import { type LedgerEntry, sponsorOf, sponsoredBy } from "./ledger.server";
 
-export interface Line {
-  readonly asset: Asset;
-  readonly balance: Amount;
-
-  readonly spendable: Amount;
-  readonly capacity: Amount;
-  readonly authorized: boolean;
-  readonly clawbackEnabled: boolean;
-
-  readonly sponsored: boolean;
-}
-
-export interface Reserves {
-  readonly subentries: number;
-  readonly sponsored: number;
-  readonly sponsoring: number;
-}
-
-export interface Holdings {
-  readonly nativeTotal: Amount;
-  readonly reserveSponsor: Option.Option<AccountAddress>;
-
-  readonly native: Amount;
-  readonly reserves: Reserves;
-
-  readonly lines: ReadonlyArray<Line>;
-}
-
-export interface Issuer {
-  readonly authRequired: boolean;
-}
-
-export interface UnclaimedFundsEntry {
+export interface ClaimableBalance {
   readonly unclaimedFunds: UnclaimedFundsId;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
@@ -95,9 +65,7 @@ const owns = (address: AccountAddress, accountId: xdr.PublicKey) =>
 const amountOf = (value: bigint) =>
   Schema.decodeSync(Amount)((value < 0n ? 0n : value).toString());
 
-function reservesOf(account: xdr.AccountEntry): Reserves & {
-  readonly selling: bigint;
-} {
+function reservesOf(account: xdr.AccountEntry) {
   const v1 = account.ext.type === "v1" ? account.ext.v1 : undefined;
   const v2 = v1?.ext.type === "v2" ? v1.ext.v2 : undefined;
 
@@ -143,11 +111,7 @@ export function holdingsFromEntries(
     nativeTotal: amountOf(account.data.value.balance),
     reserveSponsor: sponsorOf(account.raw),
     native: amountOf(account.data.value.balance - locked),
-    reserves: {
-      subentries: reserves.subentries,
-      sponsored: reserves.sponsored,
-      sponsoring: reserves.sponsoring,
-    },
+    trustlineSlotsUsed: reserves.subentries,
     lines: assets.flatMap((asset) => {
       const line = lineOf(toStellarAsset(asset));
 
@@ -193,37 +157,7 @@ export function issuerFromEntries(
   return Option.none();
 }
 
-export function unclaimedFundsFromEntries(
-  entries: ReadonlyArray<LedgerEntry>,
-  sponsor: string,
-): ReadonlyArray<UnclaimedFundsEntry> {
-  return parse(entries).flatMap(({ raw, data }) =>
-    data.type === "claimableBalance"
-      ? [
-          {
-            unclaimedFunds: Schema.decodeSync(UnclaimedFundsId)(
-              data.value.balanceId.toXdr("hex"),
-            ),
-            asset: fromStellarAsset(
-              StellarAsset.fromOperation(data.value.asset),
-            ),
-            amount: Schema.decodeSync(PositiveAmount)(
-              data.value.amount.toString(),
-            ),
-            claimants: data.value.claimants.map((claimant) =>
-              StellarClaimant.fromXdr(claimant),
-            ),
-            sponsored: sponsoredBy(raw, sponsor),
-          },
-        ]
-      : [],
-  );
-}
-
-export function claimableAt(
-  predicate: xdr.ClaimPredicate,
-  at: bigint,
-): boolean {
+const claimableAt = (predicate: xdr.ClaimPredicate, at: bigint): boolean => {
   switch (predicate.type) {
     case "claimPredicateUnconditional":
       return true;
@@ -241,23 +175,26 @@ export function claimableAt(
     case "claimPredicateBeforeRelativeTime":
       return false;
   }
-}
+};
 
-export function opensAt(predicate: xdr.ClaimPredicate): Option.Option<bigint> {
-  return predicate.type === "claimPredicateNot" &&
-    predicate.notPredicate?.type === "claimPredicateBeforeAbsoluteTime"
-    ? Option.some(predicate.notPredicate.absBefore)
-    : Option.none();
-}
+const opensAt = (predicate: xdr.ClaimPredicate) =>
+  predicate.type === "claimPredicateNot" &&
+  predicate.notPredicate?.type === "claimPredicateBeforeAbsoluteTime"
+    ? Option.some(
+        DateTime.makeUnsafe(Number(predicate.notPredicate.absBefore) * 1000),
+      )
+    : Option.none<DateTime.Utc>();
 
-export interface RecoverablePaymentLink {
-  readonly unclaimedFunds: UnclaimedFundsId;
-  readonly address: AccountAddress;
-  readonly asset: Asset;
-  readonly amount: PositiveAmount;
-}
+const claimOf = ({ predicate }: StellarClaimant): Claim => ({
+  opensAt: opensAt(predicate),
+  claimableAt: (at) =>
+    claimableAt(
+      predicate,
+      BigInt(Math.floor(DateTime.toEpochMillis(at) / 1000)),
+    ),
+});
 
-export function paymentLinkAddressOf(
+function paymentLinkAddressOf(
   claimants: ReadonlyArray<StellarClaimant>,
   sender: AccountAddress,
 ): Option.Option<AccountAddress> {
@@ -284,24 +221,45 @@ export function paymentLinkAddressOf(
   return other ? Schema.decodeOption(AccountAddress)(other) : Option.none();
 }
 
-export function selectRecoverablePaymentLinks(
-  entries: ReadonlyArray<UnclaimedFundsEntry>,
-  sender: AccountAddress,
-): ReadonlyArray<RecoverablePaymentLink> {
-  return entries.flatMap((entry) => {
-    if (!entry.sponsored) return [];
+export const unclaimedFundsEntry = (
+  balance: ClaimableBalance,
+): UnclaimedFundsEntry => ({
+  unclaimedFunds: balance.unclaimedFunds,
+  asset: balance.asset,
+  amount: balance.amount,
+  claimOf: (account) =>
+    Option.fromUndefinedOr(
+      balance.claimants.find((claimant) => claimant.destination === account),
+    ).pipe(Option.map(claimOf)),
+  paymentLinkFrom: (sender) =>
+    balance.sponsored
+      ? paymentLinkAddressOf(balance.claimants, sender)
+      : Option.none(),
+});
 
-    const address = paymentLinkAddressOf(entry.claimants, sender);
-
-    return Option.isSome(address)
+export function unclaimedFundsFromEntries(
+  entries: ReadonlyArray<LedgerEntry>,
+  sponsor: string,
+): ReadonlyArray<UnclaimedFundsEntry> {
+  return parse(entries).flatMap(({ raw, data }) =>
+    data.type === "claimableBalance"
       ? [
-          {
-            unclaimedFunds: entry.unclaimedFunds,
-            address: address.value,
-            asset: entry.asset,
-            amount: entry.amount,
-          },
+          unclaimedFundsEntry({
+            unclaimedFunds: Schema.decodeSync(UnclaimedFundsId)(
+              data.value.balanceId.toXdr("hex"),
+            ),
+            asset: fromStellarAsset(
+              StellarAsset.fromOperation(data.value.asset),
+            ),
+            amount: Schema.decodeSync(PositiveAmount)(
+              data.value.amount.toString(),
+            ),
+            claimants: data.value.claimants.map((claimant) =>
+              StellarClaimant.fromXdr(claimant),
+            ),
+            sponsored: sponsoredBy(raw, sponsor),
+          }),
         ]
-      : [];
-  });
+      : [],
+  );
 }

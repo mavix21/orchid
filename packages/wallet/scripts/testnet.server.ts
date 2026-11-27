@@ -56,7 +56,7 @@ import {
   horizon,
   openChannels,
 } from "./testnet-funding";
-import { memoRequiredDataName } from "../src/server/exchange-memos.server";
+import { memoRequiredDataName } from "../src/stellar/exchange-memos.server";
 
 const sponsor = Keypair.random();
 const feePayer = Keypair.random();

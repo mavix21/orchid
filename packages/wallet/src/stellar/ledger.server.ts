@@ -8,7 +8,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { AccountAddress, Amount } from "../contract";
-import { ChainUnreachable } from "./chain-errors.server";
+import { ChainUnreachable } from "../server/chain-errors.server";
 
 export const LedgerEntry = Schema.Struct({
   xdr: Schema.String,

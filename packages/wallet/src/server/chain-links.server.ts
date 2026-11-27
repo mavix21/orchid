@@ -22,7 +22,7 @@ import { draftLinkCleanup, draftLinkReceive } from "../stellar/link-receive";
 import { paymentLifetime } from "../policy";
 import { baseFee, networkPassphrase } from "../stellar/network";
 import type { ChainUnreachable } from "./chain-errors.server";
-import type { AccountState } from "./ledger.server";
+import type { AccountState } from "../stellar/ledger.server";
 import type { StoreFailure } from "./store-failure.server";
 
 export interface LinkReceive {

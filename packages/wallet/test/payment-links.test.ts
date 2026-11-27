@@ -31,7 +31,7 @@ import {
 import type { PublicDeviceWallet } from "../src/device/key-store";
 import { linkAddressOf } from "../src/device/link-code";
 import { SealedLinkCode, linkPrfInput } from "../src/device/link-seal";
-import { holdingsFromEntries } from "../src/server/ledger-assets.server";
+import { holdingsFromEntries } from "../src/stellar/ledger-assets.server";
 import { transfers } from "../src/server/tables.server";
 import { network, usdc } from "../src/stellar/network";
 import { linkKeypairOf, memoryKeyStore } from "./device-fixtures";

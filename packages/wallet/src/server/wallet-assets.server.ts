@@ -1,5 +1,5 @@
 import { Transfers } from "./Transfers.server";
-import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
@@ -24,7 +24,7 @@ import {
   sameAsset,
   needsTrustline,
 } from "../contract";
-import { type AssetPlan, ClaimPlan } from "../stellar/asset-plans";
+import { type AssetPlan, ClaimPlan } from "./asset-plan.server";
 import { maxSponsoredTrustlines } from "../policy";
 import {
   AssetOrders,
@@ -43,7 +43,6 @@ import {
   type Rejected,
 } from "./Chain.server";
 import { Directory, StoreFailure } from "./Directory.server";
-import { claimableAt } from "./ledger-assets.server";
 import { linkReceiveFlow } from "./wallet-link-receive.server";
 import { transferReconcileFlow } from "./wallet-reconcile.server";
 import { live } from "./wallet-reads.server";
@@ -193,13 +192,10 @@ export const assetFlow = Effect.gen(function* () {
           Option.some(order.wallet),
         );
 
-      const claimant = entry.claimants.find(
-        (item) => item.destination === order.wallet,
-      );
+      const claim = entry.claimOf(order.wallet);
+      const now = yield* DateTime.now;
 
-      const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
-
-      if (!claimant || !claimableAt(claimant.predicate, BigInt(now)))
+      if (!Option.exists(claim, (item) => item.claimableAt(now)))
         return new NotClaimable({ claimableAt: Option.none() });
 
       plan = ClaimPlan.make({ unclaimedFunds: action.unclaimedFunds });
@@ -255,7 +251,7 @@ export const assetFlow = Effect.gen(function* () {
           return new Unchanged();
 
         if (!line) {
-          if (state.value.reserves.subentries >= maxSponsoredTrustlines)
+          if (state.value.trustlineSlotsUsed >= maxSponsoredTrustlines)
             return new TrustlineLimitReached({
               limit: maxSponsoredTrustlines,
             });
@@ -308,11 +304,15 @@ export const assetFlow = Effect.gen(function* () {
 
     const request = yield* chain.draftAsset(order.wallet, plan);
 
+    const opens = Predicate.isTagged(plan, "ClaimPlan")
+      ? Option.fromUndefinedOr(plan.opens)
+      : Option.none();
+
     const stored =
       Option.isSome(existing) &&
       Predicate.isTagged(existing.value, "AssetProposed")
-        ? yield* orders.redraft(existing.value, request)
-        : yield* orders.propose(order, request);
+        ? yield* orders.redraft(existing.value, request, opens)
+        : yield* orders.propose(order, request, opens);
 
     return yield* Match.valueTags(stored, {
       AssetAuthorized: reconcileWallet,

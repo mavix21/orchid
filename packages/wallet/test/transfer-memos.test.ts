@@ -15,7 +15,7 @@ import {
   PaymentMemo,
   TransferOrder,
 } from "../src/contract";
-import { KnownExchangeMemo } from "../src/server/exchange-memos.server";
+import { KnownExchangeMemo } from "../src/stellar/exchange-memos.server";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { network } from "../src/stellar/network";
 import { assertTagged } from "./tagged";

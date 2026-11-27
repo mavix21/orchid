@@ -1,7 +1,6 @@
 import * as DateTime from "effect/DateTime";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
@@ -20,7 +19,6 @@ import {
   PaymentMemo,
   SigningRequest,
 } from "../contract";
-import { readEnvelope } from "../stellar/envelopes";
 import { Sealed } from "./Chain.server";
 import type { assetOrders } from "./tables.server";
 
@@ -196,12 +194,5 @@ export function readRow(row: AssetOrderRow): StoredAssetOrder {
   );
 }
 
-export function opensOf(request: SigningRequest): string | null {
-  const facts = readEnvelope(request.envelope);
-
-  return Option.isSome(facts) &&
-    Predicate.isTagged(facts.value, "ClaimFacts") &&
-    facts.value.opens
-    ? Schema.encodeSync(OpensJson)(facts.value.opens)
-    : null;
-}
+export const opensColumn = (opens: Option.Option<Asset>) =>
+  Option.getOrNull(Option.map(opens, Schema.encodeSync(OpensJson)));

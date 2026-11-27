@@ -49,7 +49,7 @@ import {
   type LinkReceive,
 } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
-import { selectRecoverablePaymentLinks } from "./ledger-assets.server";
+import { recoverablePaymentLinks } from "./unclaimed-funds.server";
 import { type FundedLink, Transfers } from "./Transfers.server";
 import { externalLinkClaimFlow } from "./wallet-link-external.server";
 import { live } from "./wallet-reads.server";
@@ -112,7 +112,7 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
     ) {
       const entries = yield* chain.unclaimedFunds([funded.unclaimedFunds]);
 
-      const matched = selectRecoverablePaymentLinks(
+      const matched = recoverablePaymentLinks(
         entries,
         funded.sender.address,
       ).some(
@@ -382,8 +382,8 @@ export const linkReceiveFlow = (reconcile: Reconcile) =>
       const stored =
         Option.isSome(proposed) &&
         Predicate.isTagged(proposed.value, "AssetProposed")
-          ? yield* orders.redraft(proposed.value, request)
-          : yield* orders.propose(order, request);
+          ? yield* orders.redraft(proposed.value, request, Option.none())
+          : yield* orders.propose(order, request, Option.none());
 
       return yield* Match.valueTags(stored, {
         AssetAuthorized: (entry) =>

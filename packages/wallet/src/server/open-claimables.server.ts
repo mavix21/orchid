@@ -25,7 +25,7 @@ import {
   Username,
 } from "../contract";
 import { claimableReadLimit } from "../policy";
-import { epochAt, network } from "../stellar/network";
+import { epochAt, network } from "../record-network";
 import { StoreFailure } from "./Directory.server";
 import { StoredOrderJson } from "./AssetOrders.server";
 import { assetOrders, transfers, usernames } from "./tables.server";

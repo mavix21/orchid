@@ -1,4 +1,3 @@
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
@@ -13,7 +12,6 @@ import {
 } from "../contract";
 import { AssetOrders } from "./AssetOrders.server";
 import { Chain } from "./Chain.server";
-import { opensAt } from "./ledger-assets.server";
 import { rpcReadConcurrency } from "./settings.server";
 import { Transfers } from "./Transfers.server";
 
@@ -103,20 +101,15 @@ export const portfolioFlow = Effect.gen(function* () {
           continue;
         }
 
-        const claimant = entry.claimants.find(
-          (candidate) => candidate.destination === address,
-        );
-
         waiting.push(
           new UnclaimedFunds({
             ...item,
             asset: entry.asset,
             amount: entry.amount,
-            claimableAt: claimant
-              ? Option.map(opensAt(claimant.predicate), (at) =>
-                  DateTime.makeUnsafe(Number(at) * 1000),
-                )
-              : Option.none(),
+            claimableAt: Option.flatMap(
+              entry.claimOf(address),
+              (claim) => claim.opensAt,
+            ),
           }),
         );
       }

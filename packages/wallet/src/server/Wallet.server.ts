@@ -165,7 +165,11 @@ export class Wallet extends Context.Service<
 
         return request instanceof SigningRequest
           ? yield* resumed(
-              yield* transfers.redraft(stored, request),
+              yield* transfers.redraft(
+                stored,
+                request,
+                chain.unclaimedFundsCreatedBy(request),
+              ),
               requirement,
             )
           : request;
@@ -306,6 +310,7 @@ export class Wallet extends Context.Service<
           order,
           examined.recipient,
           request,
+          chain.unclaimedFundsCreatedBy(request),
         );
 
         return yield* resumed(proposed, examined.requirement);

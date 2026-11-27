@@ -1,7 +1,7 @@
 import { Database } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import * as Effect from "effect/Effect";
-import { network } from "../stellar/network";
+import { network } from "../record-network";
 import type { WalletRow } from "./Directory.server";
 import { wallets } from "./tables.server";
 

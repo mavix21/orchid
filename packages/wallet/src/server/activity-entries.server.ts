@@ -26,7 +26,7 @@ import {
   TransferId,
   Username,
 } from "../contract";
-import { issuedAsset } from "../stellar/assets";
+import { assetFromColumns } from "../record-network";
 import { StoreFailure } from "./Directory.server";
 import type { deposits } from "./tables.server";
 import type { StoredOrder } from "./asset-order-records.server";
@@ -199,7 +199,7 @@ export const depositEntry = (row: typeof deposits.$inferSelect) =>
         from: new ExternalRecipient({
           address: Schema.decodeSync(DestinationAddress)(row.sender),
         }),
-        asset: issuedAsset(row.code, row.issuer),
+        asset: assetFromColumns(row),
         amount: Schema.decodeSync(PositiveAmount)(row.amount.toString()),
       }),
     catch: (cause) => new StoreFailure({ cause }),

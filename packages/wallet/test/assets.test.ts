@@ -263,7 +263,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           world.holdings.set(
             addr,
             holdingsFor(addr, {
-              reserves: { subentries: 6, sponsored: 8, sponsoring: 0 },
+              trustlineSlotsUsed: 6,
             }),
           );
           expect(

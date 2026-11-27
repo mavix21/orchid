@@ -2,13 +2,9 @@ import * as Predicate from "effect/Predicate";
 import type { Account } from "@stellar/stellar-sdk";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
-  UnclaimedFundsId,
-  type CloseTrustline,
-  Asset,
-  type OpenTrustline,
+  type Asset,
   type UnsignedEnvelope,
   sameAsset,
 } from "../contract";
@@ -17,17 +13,8 @@ import {
   draftTrustline,
   draftTrustlineRemoval,
 } from "./asset-envelopes";
+import type { AssetPlan } from "../server/asset-plan.server";
 import { readEnvelope } from "./envelopes";
-
-export const ClaimPlan = Schema.TaggedStruct("ClaimPlan", {
-  unclaimedFunds: UnclaimedFundsId,
-  opens: Schema.optional(Asset),
-});
-
-export type AssetPlan =
-  | typeof OpenTrustline.Type
-  | typeof CloseTrustline.Type
-  | typeof ClaimPlan.Type;
 
 export interface PlanInput {
   readonly source: Account;

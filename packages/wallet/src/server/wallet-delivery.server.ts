@@ -21,7 +21,7 @@ import { claimableQuota } from "../policy";
 import { Chain } from "./Chain.server";
 import { type QuotaCheck, claimableQuotaFlow } from "./claimable-quota.server";
 import { Directory } from "./Directory.server";
-import type { Holdings } from "./ledger-assets.server";
+import type { Holdings } from "./holdings.server";
 import { rpcReadConcurrency } from "./settings.server";
 
 export type TransferTerms = Pick<

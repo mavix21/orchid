@@ -9,7 +9,7 @@ import { type AccountAddress, UnclaimedFundsId } from "../contract";
 import { depositLedgerScan } from "../policy";
 import { depositContract } from "../stellar/network";
 import type { ChainUnreachable } from "./chain-errors.server";
-import type { StellarRpc } from "./ledger.server";
+import type { StellarRpc } from "../stellar/ledger.server";
 
 export type AssetEvent = Data.TaggedEnum<{
   Payment: {
@@ -56,6 +56,7 @@ export interface EventsPage {
 }
 
 export interface DepositChain {
+  readonly depositFeed: string;
   resumeDeposits<E>(
     cursor: Effect.Effect<Option.Option<DepositPosition>, E>,
   ): Effect.Effect<EventsStart, ChainUnreachable | E>;
@@ -259,6 +260,7 @@ const catchUpDeposits = (rpc: StellarRpc) =>
   });
 
 export const depositChain = (rpc: StellarRpc): DepositChain => ({
+  depositFeed: depositContract,
   resumeDeposits: resumeDeposits(rpc),
   catchUpDeposits: catchUpDeposits(rpc),
   assetEvents: Effect.fn("Chain.assetEvents")(function* (query: EventsQuery) {

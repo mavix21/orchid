@@ -16,7 +16,7 @@ import {
   Username,
   WalletClaim,
 } from "../contract";
-import { epochAt, network } from "../stellar/network";
+import { epochAt, network } from "../record-network";
 import type { Sealed } from "./Chain.server";
 import { pruneAbandonedOpenings } from "./abandoned-openings.server";
 import { markRecovered } from "./recovered-wallets.server";

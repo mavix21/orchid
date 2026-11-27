@@ -34,9 +34,8 @@ import {
   type TransferId,
   type TransferOrder,
 } from "../contract";
-import { claimableBalanceOf } from "../stellar/asset-envelopes";
 import { approvalMargin, claimableQuota } from "../policy";
-import { epochAt, network } from "../stellar/network";
+import { epochAt, network } from "../record-network";
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import { SlotOccupied, WalletInactive, walletLock } from "./slot.server";
@@ -93,10 +92,12 @@ export class Transfers extends Context.Service<
       order: TransferOrder,
       recipient: ResolvedRecipient,
       request: SigningRequest,
+      unclaimedFunds: Option.Option<UnclaimedFundsId>,
     ): Effect.Effect<Transfer, StoreFailure>;
     redraft(
       proposed: Proposed,
       request: SigningRequest,
+      unclaimedFunds: Option.Option<UnclaimedFundsId>,
     ): Effect.Effect<Transfer, StoreFailure>;
     authorize(
       proposed: Proposed,
@@ -215,9 +216,9 @@ export class Transfers extends Context.Service<
         order: TransferOrder,
         recipient: ResolvedRecipient,
         request: SigningRequest,
+        unclaimedFunds: Option.Option<UnclaimedFundsId>,
       ) {
         const now = yield* Clock.currentTimeMillis;
-        const unclaimedFunds = claimableBalanceOf(request.envelope);
         const balanceId = Option.getOrNull(unclaimedFunds);
         const claimableKind = claimableKindOf(order, unclaimedFunds);
 
@@ -287,9 +288,9 @@ export class Transfers extends Context.Service<
       const redraft = Effect.fn("Transfers.redraft")(function* (
         proposed: Proposed,
         request: SigningRequest,
+        unclaimedFunds: Option.Option<UnclaimedFundsId>,
       ) {
         const now = yield* Clock.currentTimeMillis;
-        const unclaimedFunds = claimableBalanceOf(request.envelope);
 
         const attempts = appendAttempt(
           proposed.attemptUnclaimedFunds,
@@ -508,9 +509,10 @@ export class Transfers extends Context.Service<
       return Transfers.of({
         find: (id) => wrap(find(id)),
         latestFrom: (sender) => wrap(latest(sender)),
-        propose: (order, recipient, request) =>
-          wrap(propose(order, recipient, request)),
-        redraft: (proposed, request) => wrap(redraft(proposed, request)),
+        propose: (order, recipient, request, unclaimedFunds) =>
+          wrap(propose(order, recipient, request, unclaimedFunds)),
+        redraft: (proposed, request, unclaimedFunds) =>
+          wrap(redraft(proposed, request, unclaimedFunds)),
         authorize: (proposed, sealed) =>
           wrap(
             authorize(proposed, sealed).pipe(Effect.tap(announceAuthorized)),

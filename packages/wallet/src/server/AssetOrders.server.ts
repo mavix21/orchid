@@ -17,9 +17,13 @@ import {
   type UnclaimedFundsId,
   type SigningRequest,
 } from "../contract";
-import { issuedAsset, trustlineColumns } from "../stellar/assets";
 import { approvalMargin, maxSponsoredTrustlines } from "../policy";
-import { epochAt, network } from "../stellar/network";
+import {
+  assetColumns,
+  assetFromColumns,
+  epochAt,
+  network,
+} from "../record-network";
 import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import {
@@ -37,7 +41,7 @@ import {
   type StoredAssetOrder,
   type StoredOrder,
   StoredOrderJson,
-  opensOf,
+  opensColumn,
   readRow,
 } from "./asset-order-records.server";
 import { SlotOccupied, WalletInactive, walletLock } from "./slot.server";
@@ -87,10 +91,12 @@ export class AssetOrders extends Context.Service<
     propose(
       order: StoredOrder,
       request: SigningRequest,
+      opens: Option.Option<Asset>,
     ): Effect.Effect<StoredAssetOrder, StoreFailure>;
     redraft(
       proposed: AssetProposed,
       request: SigningRequest,
+      opens: Option.Option<Asset>,
     ): Effect.Effect<StoredAssetOrder, StoreFailure>;
     authorize(
       proposed: AssetProposed,
@@ -220,6 +226,7 @@ export class AssetOrders extends Context.Service<
       const propose = Effect.fn("AssetOrders.propose")(function* (
         order: StoredOrder,
         request: SigningRequest,
+        opens: Option.Option<Asset>,
       ) {
         const now = yield* Clock.currentTimeMillis;
 
@@ -227,7 +234,7 @@ export class AssetOrders extends Context.Service<
           id: order.id,
           wallet: order instanceof AssetOrder ? order.wallet : null,
           order: Schema.encodeSync(StoredOrderJson)(order),
-          opens: opensOf(request),
+          opens: opensColumn(opens),
           balanceId:
             Predicate.isTagged(order.action, "ClaimUnclaimedFunds") ||
             Predicate.isTagged(order.action, "ReceiveLink") ||
@@ -270,6 +277,7 @@ export class AssetOrders extends Context.Service<
       const redraft = Effect.fn("AssetOrders.redraft")(function* (
         proposed: AssetProposed,
         request: SigningRequest,
+        opens: Option.Option<Asset>,
       ) {
         const now = yield* Clock.currentTimeMillis;
 
@@ -278,7 +286,7 @@ export class AssetOrders extends Context.Service<
           .set({
             envelope: request.envelope,
             expiresAt: DateTime.toDateUtc(request.expiresAt),
-            opens: opensOf(request),
+            opens: opensColumn(opens),
           })
           .where(
             and(
@@ -392,7 +400,7 @@ export class AssetOrders extends Context.Service<
         address: wallet,
         network,
         testnetEpoch: epochAt(now),
-        ...trustlineColumns(asset),
+        ...assetColumns(asset),
       });
 
       const track = (
@@ -412,7 +420,7 @@ export class AssetOrders extends Context.Service<
         asset: Asset,
         now: number,
       ) => {
-        const { code, issuer } = trustlineColumns(asset);
+        const { code, issuer } = assetColumns(asset);
 
         return executor
           .delete(trustlines)
@@ -556,7 +564,7 @@ export class AssetOrders extends Context.Service<
           .orderBy(trustlines.openedAt, trustlines.code, trustlines.issuer)
           .limit(maxSponsoredTrustlines * 4);
 
-        return rows.map((row) => issuedAsset(row.code, row.issuer));
+        return rows.map(assetFromColumns);
       });
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
@@ -582,8 +590,10 @@ export class AssetOrders extends Context.Service<
       return AssetOrders.of({
         find: (id) => wrap(find(id)),
         inFlightFor: (wallet) => wrap(inFlightFor(wallet)),
-        propose: (order, request) => wrap(propose(order, request)),
-        redraft: (proposed, request) => wrap(redraft(proposed, request)),
+        propose: (order, request, opens) =>
+          wrap(propose(order, request, opens)),
+        redraft: (proposed, request, opens) =>
+          wrap(redraft(proposed, request, opens)),
         authorize: (proposed, sealed) =>
           wrap(
             authorize(proposed, sealed).pipe(Effect.tap(announceAuthorized)),

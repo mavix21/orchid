@@ -17,11 +17,11 @@ import {
   ResolvedPaymentLink,
   sameAsset,
 } from "../contract";
-import { network } from "../stellar/network";
+import { network } from "../record-network";
 import { Applied, Chain, type ChainUnreachable } from "./Chain.server";
 import { claimableQuotaFlow } from "./claimable-quota.server";
 import { Directory, type StoreFailure } from "./Directory.server";
-import { selectRecoverablePaymentLinks } from "./ledger-assets.server";
+import { recoverablePaymentLinks } from "./unclaimed-funds.server";
 import { rpcReadConcurrency } from "./settings.server";
 import { type Authorized, Transfers } from "./Transfers.server";
 
@@ -52,7 +52,7 @@ export const paymentLinksFlow = Effect.gen(function* () {
       pendingLinks.map((item) => item.unclaimedFunds),
     );
 
-    const liveLinks = selectRecoverablePaymentLinks(entries, address);
+    const liveLinks = recoverablePaymentLinks(entries, address);
     const links: OpenPaymentLink[] = [];
     const missing: UnclaimedFundsId[] = [];
 
@@ -107,7 +107,7 @@ export const paymentLinksFlow = Effect.gen(function* () {
     const expectedAddress = authorized.order.to.value;
     const entries = yield* chain.unclaimedFunds([authorized.unclaimedFunds]);
 
-    const matched = selectRecoverablePaymentLinks(
+    const matched = recoverablePaymentLinks(
       entries,
       authorized.order.from,
     ).some(
@@ -139,7 +139,7 @@ export const paymentLinksFlow = Effect.gen(function* () {
 
     const entries = yield* chain.unclaimedFunds(candidates);
 
-    const matches = selectRecoverablePaymentLinks(entries, sender).filter(
+    const matches = recoverablePaymentLinks(entries, sender).filter(
       (entry) =>
         entry.address === receipt.address &&
         sameAsset(entry.asset, receipt.asset) &&

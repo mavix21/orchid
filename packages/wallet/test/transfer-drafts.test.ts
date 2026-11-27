@@ -80,6 +80,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 order,
                 new ExternalRecipient({ address: addressOf(Keypair.random()) }),
                 refreshed.request,
+                Option.none(),
               ),
             ),
           ).toEqual(authorized);
@@ -291,7 +292,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           ).pipe(Effect.provide(fakeChain));
 
           const saved = yield* Transfers.use((s) =>
-            s.redraft(proposed, replacement),
+            s.redraft(proposed, replacement, Option.none()),
           );
 
           assertTagged(saved, "Authorized");

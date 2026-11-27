@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import type { AccountAddress, Amount } from "../contract";
 import type { ChainUnreachable } from "./chain-errors.server";
-import type { AccountState } from "./ledger.server";
+import type { AccountState } from "../stellar/ledger.server";
 
 export type AccountStanding =
   | "absent"

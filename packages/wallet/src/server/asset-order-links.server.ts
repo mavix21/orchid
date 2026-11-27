@@ -5,7 +5,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import type { AssetOrderId, UnclaimedFundsId } from "../contract";
 import { approvalMargin, sweepBatchSize } from "../policy";
-import { epochAt, network } from "../stellar/network";
+import { epochAt, network } from "../record-network";
 import type { Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import {

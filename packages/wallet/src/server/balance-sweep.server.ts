@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { UnclaimedFundsId } from "../contract";
 import { sweepBatchSize } from "../policy";
-import { epochAt, network } from "../stellar/network";
+import { epochAt, network } from "../record-network";
 import { transfers } from "./tables.server";
 
 export const unclaimedFundsToCheck = Effect.gen(function* () {

@@ -32,7 +32,8 @@ import {
   PaymentLinkIntent,
   makeWalletEffects,
 } from "../src/device/client";
-import { selectRecoverablePaymentLinks } from "../src/server/ledger-assets.server";
+import { unclaimedFundsEntry } from "../src/stellar/ledger-assets.server";
+import { recoverablePaymentLinks } from "../src/server/unclaimed-funds.server";
 import { draftClaim } from "../src/stellar/asset-envelopes";
 import {
   type LinkReceiveInput,
@@ -247,7 +248,7 @@ it("recovery selects only sponsored unclaimed funds with two unconditional claim
     `00000000${"3".repeat(64)}`,
   );
 
-  const selected = selectRecoverablePaymentLinks(
+  const selected = recoverablePaymentLinks(
     [
       {
         unclaimedFunds: linkBalance,
@@ -282,7 +283,7 @@ it("recovery selects only sponsored unclaimed funds with two unconditional claim
           new Claimant(sender, Claimant.predicateUnconditional()),
         ],
       },
-    ],
+    ].map(unclaimedFundsEntry),
     sender,
   );
 

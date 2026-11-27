@@ -41,11 +41,11 @@ import {
   destinationChain,
 } from "./chain-destinations.server";
 import { type DraftChain, draftChain } from "./chain-drafts.server";
-import { channelPool } from "./channel-pool.server";
+import { channelPool } from "../stellar/channel-pool.server";
 import { type LinkChain, linkChain } from "./chain-links.server";
 import { type DepositChain, depositChain } from "./chain-deposits.server";
 import { ChainUnreachable } from "./chain-errors.server";
-import { accountFromEntries, stellarRpc } from "./ledger.server";
+import { accountFromEntries, stellarRpc } from "../stellar/ledger.server";
 
 export { ChainUnreachable } from "./chain-errors.server";
 
@@ -57,7 +57,7 @@ export { DraftPurpose } from "./chain-drafts.server";
 
 export type { LinkReceive } from "./chain-links.server";
 
-import { memoRequirementFor } from "./exchange-memos.server";
+import { memoRequirementFor } from "../stellar/exchange-memos.server";
 import { validateRpcTimeout, validateRpcUrl } from "./rpc-settings.server";
 import { WalletSettings, rpcReadConcurrency } from "./settings.server";
 import type { StoreFailure } from "./store-failure.server";

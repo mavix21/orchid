@@ -3,7 +3,7 @@ import { Keypair, xdr } from "@stellar/stellar-sdk";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AccountAddress } from "../src/contract";
-import { accountFromEntries } from "../src/server/ledger.server";
+import { accountFromEntries } from "../src/stellar/ledger.server";
 
 const holder = Keypair.random();
 

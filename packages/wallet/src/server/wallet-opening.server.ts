@@ -1,4 +1,4 @@
-import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Match from "effect/Match";
@@ -23,7 +23,6 @@ import {
   sameAsset,
   baseAsset,
 } from "../contract";
-import { claimedByOpening, readEnvelope } from "../stellar/envelopes";
 import {
   Chain,
   ChainUnreachable,
@@ -31,7 +30,6 @@ import {
   type Settlement,
 } from "./Chain.server";
 import { Directory, StoreFailure, type WalletRow } from "./Directory.server";
-import { claimableAt } from "./ledger-assets.server";
 import { Transfers } from "./Transfers.server";
 import {
   type Binding,
@@ -60,7 +58,7 @@ export const openingFlow = Effect.gen(function* () {
     if (waiting.length === 0) return Option.none();
 
     const entries = yield* chain.unclaimedFunds(waiting);
-    const now = BigInt(Math.floor((yield* Clock.currentTimeMillis) / 1000));
+    const now = yield* DateTime.now;
 
     return Option.fromNullishOr(
       waiting.find((unclaimedFunds) =>
@@ -68,26 +66,13 @@ export const openingFlow = Effect.gen(function* () {
           (entry) =>
             entry.unclaimedFunds === unclaimedFunds &&
             sameAsset(entry.asset, baseAsset) &&
-            entry.claimants.some(
-              (claimant) =>
-                claimant.destination === address &&
-                claimableAt(claimant.predicate, now),
+            Option.exists(entry.claimOf(address), (claim) =>
+              claim.claimableAt(now),
             ),
         ),
       ),
     );
   });
-
-  const carriesClaim = (
-    draft: OpeningDraft,
-    claim: Option.Option<UnclaimedFundsId>,
-  ) =>
-    Option.exists(
-      readEnvelope(draft.request.envelope),
-      (facts) =>
-        Predicate.isTagged(facts, "OpeningFacts") &&
-        facts.claim === Option.getOrUndefined(claim),
-    );
 
   const openedOrBound = Effect.fn("Wallet.openedOrBound")(function* (
     row: WalletRow,
@@ -150,10 +135,10 @@ export const openingFlow = Effect.gen(function* () {
       Option.isSome(sealed) &&
       Option.exists(settlement, Predicate.isTagged("Applied"))
     )
-      yield* Option.match(
-        claimedByOpening(sealed.value.envelope, claim.address),
-        { onNone: () => Effect.void, onSome: transfers.closeUnclaimedFunds },
-      );
+      yield* Option.match(chain.claimedByOpening(sealed.value, claim.address), {
+        onNone: () => Effect.void,
+        onSome: transfers.closeUnclaimedFunds,
+      });
 
     return step;
   });
@@ -276,7 +261,8 @@ export const openingFlow = Effect.gen(function* () {
       Option.isSome(attempt) &&
       attempt.value instanceof OpeningDraft &&
       (yield* live(attempt.value.request)) &&
-      (Option.isSome(approvals) || carriesClaim(attempt.value, waiting))
+      (Option.isSome(approvals) ||
+        chain.openingDraftClaims(attempt.value.request, waiting))
     ) {
       const pending = attempt.value;
 
