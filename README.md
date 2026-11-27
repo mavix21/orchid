@@ -18,7 +18,7 @@ Orchid is a self-custodial dollar account for Latin America, starting in Peru. S
 - **Get paid with a link.** Ask for an amount, share the link, and anyone can pay it, with or without Orchid. You see it paid in your activity.
 - **Your money, your keys.** A standard recovery phrase stays on your device, sealed at rest by a passkey (Face ID or fingerprint) that every payment asks for again. The passkey proves it's you but never shows the payment, so Orchid's review screen is what tells you what you sign, and while you approve, the phrase sits in the app's memory, where code running on your phone could read it and the browser cannot promise to wipe it. Export it anytime and open the same wallet in other apps. When an exchange is hacked, its customers lose their money; nobody can empty an Orchid account without its owner.
 - **Nothing to learn.** No gas, no networks, no trustlines. Orchid sponsors every account and pays every network fee.
-- **Money that doesn't get lost.** Orchid checks every destination before you sign: exchanges that need a memo, accounts that can't receive yet, deposit addresses on the wrong network. The sender can take back a link nobody claimed. Every payment has a status you can follow, in plain Spanish or English.
+- **Money that doesn't get lost.** Orchid checks every destination before you sign: exchanges that need a memo, accounts that can't receive yet, deposit addresses on the wrong network. The sender can take back a link nobody claimed. Every payment has a status you can follow, in plain Spanish or English, and a link opens in its sender's language until the recipient picks their own.
 
 ## How it works
 
@@ -39,11 +39,11 @@ Sending, receiving and asking to be paid are free; that is how Orchid spreads. R
 
 ## Roadmap
 
-| Stage                       | Features                                                                                                                                                                                 |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Live on Stellar testnet** | Permanent usernames, sponsored accounts, passkey backup and restore, USDC payments with exchange memos checked against the ledger, payment links, activity, deposits from outside Orchid |
-| **Next**                    | Payment requests, keeping a received link in your own account as the main path, simulated Yape payouts, Spanish and English throughout                                                   |
-| **Then**                    | Payouts to Yape and Plin through a licensed partner, payment requests paid from other wallets, savings, swaps and tokenized stocks                                                       |
+| Stage                       | Features                                                                                                                                                                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Live on Stellar testnet** | Permanent usernames, sponsored accounts, passkey backup and restore, USDC payments with exchange memos checked against the ledger, payment links, activity, deposits from outside Orchid, Spanish and English throughout |
+| **Next**                    | Payment requests, keeping a received link in your own account as the main path, simulated Yape payouts                                                                                                                   |
+| **Then**                    | Payouts to Yape and Plin through a licensed partner, payment requests paid from other wallets, savings, swaps and tokenized stocks                                                                                       |
 
 ## Built with
 
