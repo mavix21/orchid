@@ -105,8 +105,6 @@
   "opening_no_wallet_title": "No encontramos tu cuenta",
   "opening_no_wallet": "Este navegador no tiene una cuenta guardada.",
   "opening_invalid_username_title": "Tu usuario no es válido",
-  "opening_arrival_explanation": "Abrimos tu cuenta y recibimos tu pago con tu passkey.",
-  "opening_arrival_note": "Abriendo tu cuenta. Esto toma unos segundos.",
   "receive_with_passkey": "Recibir con passkey",
   "session_description": "Necesitamos confirmar que eres tú antes de seguir. Puedes usar tu huella, tu rostro o el PIN de tu dispositivo.",
   "session_verifying": "Verificando…",

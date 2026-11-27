@@ -39,12 +39,8 @@ export const paymentLinksFlow = Effect.gen(function* () {
 
     const row = yield* directory.byAddress(address);
 
-    if (Option.isNone(row)) return new NotOpened();
-
-    if (Option.isSome(yield* directory.unopened(row.value)))
-      return new OpenPaymentLinks({ links: [], received: [] });
-
-    if (row.value.status !== "active") return new NotOpened();
+    if (Option.isNone(row) || row.value.status !== "active")
+      return new NotOpened();
 
     const pendingLinks = yield* transfers.openPaymentLinks(address);
 

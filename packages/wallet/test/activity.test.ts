@@ -3,16 +3,13 @@ import { Account, Keypair, MuxedAccount } from "@stellar/stellar-sdk";
 import { Database } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
-  ActivityPage,
   ExternalRecipient,
   InvalidAddress,
   DestinationAddress,
   NotOpened,
-  OpenPaymentLinks,
   Profile,
 } from "../src/contract";
 import { wallets } from "../src/server/tables.server";
@@ -304,40 +301,20 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "an unopened wallet has an empty history and an overview that lists the unclaimed funds naming its address",
+      "an unopened wallet has neither a history nor payment links yet",
       () =>
         Effect.gen(function* () {
           const wallet = yield* Wallet;
           const db = yield* Database;
-          const sender = yield* fundedWallet("unopensender");
-          const recipient = yield* fundedWallet("unopenrecipient");
-          const address = addressOf(recipient);
+          const address = addressOf(yield* fundedWallet("unopened"));
 
-          const paid = yield* payWithoutTrustline(sender, "unopenrecipient");
-
-          withClaimants(paid.unclaimedFunds, [address]);
           yield* db
             .update(wallets)
-            .set({ status: "opening", attemptHash: null })
+            .set({ status: "opening" })
             .where(eq(wallets.address, address));
 
-          const overview = yield* wallet.overview(address);
-
-          assertTagged(overview, "NotOpened");
-          expect(overview.profile).toEqual(
-            Option.some(
-              new Profile({ username: username("unopenrecipient"), address }),
-            ),
-          );
-          expect(overview.unclaimedFunds.map((entry) => entry.id)).toEqual([
-            paid.unclaimedFunds,
-          ]);
-          expect(yield* wallet.activity(address)).toEqual(
-            new ActivityPage({ entries: [] }),
-          );
-          expect(yield* wallet.paymentLinks(address)).toEqual(
-            new OpenPaymentLinks({ links: [], received: [] }),
-          );
+          expect(yield* wallet.activity(address)).toEqual(new NotOpened());
+          expect(yield* wallet.paymentLinks(address)).toEqual(new NotOpened());
         }),
     );
 

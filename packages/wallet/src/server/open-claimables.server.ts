@@ -1,7 +1,6 @@
 import { Database } from "@workspace/db";
 import {
   and,
-  asc,
   count,
   desc,
   eq,
@@ -148,40 +147,6 @@ export const openUnclaimedFundsFor = Effect.fn("Transfers.openUnclaimedFunds")(
     });
   },
 );
-
-export const waitingUnclaimedFundsFor = Effect.fn(
-  "Transfers.waitingUnclaimedFunds",
-)(function* (address: AccountAddress) {
-  const db = yield* Database;
-  const now = yield* Clock.currentTimeMillis;
-
-  const rows = yield* db
-    .select({ unclaimedFunds: transfers.balanceId })
-    .from(transfers)
-    .where(
-      and(
-        unclaimedAt(now),
-        or(
-          eq(transfers.claimableKind, "username"),
-          isNull(transfers.claimableKind),
-        ),
-        eq(transfers.status, "settled"),
-        eq(transfers.recipient, address),
-      ),
-    )
-    .orderBy(asc(transfers.createdAt))
-    .limit(claimableReadLimit);
-
-  return yield* Effect.try({
-    try: () =>
-      rows.flatMap((row) =>
-        row.unclaimedFunds === null
-          ? []
-          : [Schema.decodeUnknownSync(UnclaimedFundsId)(row.unclaimedFunds)],
-      ),
-    catch: (cause) => new StoreFailure({ cause }),
-  });
-});
 
 export const openPaymentLinksFor = Effect.fn("Transfers.openPaymentLinks")(
   function* (sender: AccountAddress) {

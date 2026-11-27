@@ -21,10 +21,6 @@ export class NotOpened extends Schema.TaggedClass<NotOpened>()("NotOpened", {
     Schema.withDecodingDefault(Effect.succeed(null)),
     Schema.withConstructorDefault(Effect.succeed(Option.none())),
   ),
-  unclaimedFunds: Schema.Array(UnclaimedFunds).pipe(
-    Schema.withDecodingDefault(Effect.succeed([])),
-    Schema.withConstructorDefault(Effect.succeed([])),
-  ),
 }) {}
 
 export class NeedsReopening extends Schema.TaggedClass<NeedsReopening>()(

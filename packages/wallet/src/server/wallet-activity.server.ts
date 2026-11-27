@@ -2,7 +2,6 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import {
   type AccountAddress,
-  ActivityPage,
   type ActivityCursor,
   type ActivityStep,
   InvalidAddress,
@@ -27,12 +26,8 @@ export const activityFlow = Effect.gen(function* () {
 
     const row = yield* directory.byAddress(address);
 
-    if (Option.isNone(row)) return new NotOpened();
-
-    if (Option.isSome(yield* directory.unopened(row.value)))
-      return new ActivityPage({ entries: [] });
-
-    if (row.value.status !== "active") return new NotOpened();
+    if (Option.isNone(row) || row.value.status !== "active")
+      return new NotOpened();
 
     if (before === undefined) yield* catchUp(address);
 

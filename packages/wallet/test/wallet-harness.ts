@@ -328,14 +328,13 @@ export const fakeChain = Layer.effect(
           Clock.currentTimeMillis,
           (now) => DateTime.toEpochMillis(s.expiresAt) < now,
         ),
-      draftOpening: (addr, claim) =>
+      draftOpening: (addr) =>
         draftWith((w) =>
           draftOpening({
             channel: sourceOf(channel),
             reserveSponsor,
             address: addr,
             createAccount: !world.accounts.has(addr),
-            claim,
             ...w,
           }),
         ).pipe(Effect.map((request) => new OpeningDraft({ request }))),

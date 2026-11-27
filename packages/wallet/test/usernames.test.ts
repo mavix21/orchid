@@ -10,6 +10,7 @@ import {
   HumanCheckRefused,
   NeedsReopening,
   Profile,
+  RecipientCannotReceive,
   Username,
   UsernameRecipient,
   UsernameTaken,
@@ -24,6 +25,7 @@ import {
   amount,
   bindingAllowed,
   approveOpening,
+  checkRecipient,
   claimFor,
   create,
   findWallet,
@@ -215,13 +217,33 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             "UnknownRecipient",
           );
 
-          const claim = yield* create(key, "maria");
+          const claim = claimFor(key, "maria");
+          const firstDraft = yield* opening(claim);
+
+          assertTagged(firstDraft, "OpeningDraft");
+          yield* opening(claim, approveOpening(key, firstDraft));
+          expect((yield* checkRecipient(toMaria))._tag).toBe(
+            "UnknownRecipient",
+          );
+          expect((yield* send(orderFor(sender, toMaria)))._tag).toBe(
+            "UnknownRecipient",
+          );
+          yield* settleAttempt(claim.address);
+          expect((yield* opening(claim))._tag).toBe("Opened");
+
           const activeDraft = yield* send(orderFor(sender, toMaria));
 
           assertTagged(activeDraft, "TransferDraft");
           expect(activeDraft.recipient.address).toBe(claim.address);
 
           world.accounts.delete(claim.address);
+          expect(yield* send(orderFor(sender, toMaria))).toEqual(
+            new RecipientCannotReceive({
+              address: claim.address,
+              reason: "no_account",
+              linkable: true,
+            }),
+          );
           expect(yield* overviewOf(claim.address)).toEqual(
             new NeedsReopening({ profile: new Profile(claim) }),
           );

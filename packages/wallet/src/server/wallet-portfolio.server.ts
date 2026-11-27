@@ -148,13 +148,5 @@ export const portfolioFlow = Effect.gen(function* () {
     };
   });
 
-  const unclaimedFundsFor = Effect.fn("Wallet.unclaimedFundsFor")(function* (
-    address: AccountAddress,
-  ) {
-    const permits = yield* Semaphore.make(rpcReadConcurrency);
-
-    return yield* loadUnclaimedFunds(address, permits);
-  });
-
-  return { portfolio, unclaimedFundsFor };
+  return { portfolio };
 });

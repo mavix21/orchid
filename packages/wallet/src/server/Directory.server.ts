@@ -129,8 +129,6 @@ export class Directory extends Context.Service<
       const lockRow = (tx: Transaction, matching: SQL | undefined) =>
         tx.select().from(wallets).where(matching).for("update");
 
-      const unopenedRow = eq(wallets.status, "opening");
-
       const enrollUnopened = Effect.fn("Directory.enrollUnopened")(function* (
         claim: WalletClaim,
         alongside: Binding["alongside"],
@@ -347,7 +345,7 @@ export class Directory extends Context.Service<
             and(
               scope,
               eq(usernames.username, username),
-              or(eq(wallets.status, "active"), unopenedRow),
+              eq(wallets.status, "active"),
             ),
           )
           .pipe(

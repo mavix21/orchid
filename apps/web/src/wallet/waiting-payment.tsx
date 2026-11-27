@@ -3,13 +3,14 @@ import { Button } from "@workspace/ui/components/button";
 import type {
   ConfirmReclaimOutcome,
   ReviewReclaimOutcome,
+  UnclaimedFunds,
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 
 import { walletEffects } from "@/wallet";
-import { type Arrival, arrivalSentence } from "@/wallet/arrival";
+import { arrivalSentence } from "@/wallet/arrival";
 import { DeviceFailure, useWalletTask } from "@/send/use-wallet-task";
 import { m } from "@/paraglide/messages";
 
@@ -30,15 +31,14 @@ const stopped = (outcome: ConfirmReclaimOutcome | DeviceFailure) =>
   });
 
 export function WaitingPayment({
-  arrival,
+  payment,
   onReceived,
 }: {
-  arrival: Arrival;
+  payment: UnclaimedFunds;
   onReceived: () => void;
 }) {
   const task = useWalletTask();
   const [step, setStep] = useState<WaitingStep>(WaitingStep.Claiming());
-  const { payment } = arrival;
 
   const settle = (outcome: ConfirmReclaimOutcome | DeviceFailure) => {
     if (
@@ -78,7 +78,7 @@ export function WaitingPayment({
       className="flex flex-col gap-3 rounded-lg bg-muted p-4"
     >
       <h2 id="waiting-payment-title" className="text-label-lg">
-        {arrivalSentence(arrival)}
+        {arrivalSentence(payment)}
       </h2>
       {Match.valueTags(step, {
         Claiming: () => (

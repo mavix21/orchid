@@ -11,9 +11,8 @@ import {
 } from "../contract";
 import { claimableBalanceOf } from "../stellar/asset-envelopes";
 import { plannedSequence } from "../stellar/asset-plans";
-import { claimedByOpening, readEnvelope } from "../stellar/envelopes";
+import { readEnvelope } from "../stellar/envelopes";
 import type { AssetPlan } from "./asset-plan.server";
-import type { Sealed } from "./chain-settlement.server";
 import { sameMemo } from "../stellar/memo";
 import type { ChainUnreachable } from "./chain-errors.server";
 import type { PreparedLinkReceive } from "./chain-links.server";
@@ -35,14 +34,6 @@ export interface DraftChain {
     request: SigningRequest,
     purpose: DraftPurpose,
   ): Effect.Effect<boolean, ChainUnreachable>;
-  openingDraftClaims(
-    request: SigningRequest,
-    claim: Option.Option<UnclaimedFundsId>,
-  ): boolean;
-  claimedByOpening(
-    sealed: Sealed,
-    address: AccountAddress,
-  ): Option.Option<UnclaimedFundsId>;
   unclaimedFundsCreatedBy(
     request: SigningRequest,
   ): Option.Option<UnclaimedFundsId>;
@@ -118,15 +109,6 @@ export const draftChain = (
   );
 
   return {
-    openingDraftClaims: (request, claim) =>
-      Option.exists(
-        readEnvelope(request.envelope),
-        (facts) =>
-          Predicate.isTagged(facts, "OpeningFacts") &&
-          facts.claim === Option.getOrUndefined(claim),
-      ),
-    claimedByOpening: (sealed, address) =>
-      claimedByOpening(sealed.envelope, address),
     unclaimedFundsCreatedBy: (request) => claimableBalanceOf(request.envelope),
     draftCurrent: (request, purpose) =>
       DraftPurpose.$match(purpose, {
