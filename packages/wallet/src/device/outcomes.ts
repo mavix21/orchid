@@ -48,6 +48,13 @@ import {
   type HumanCheckRefused,
   type UsernameTaken,
   type WalletUnavailable,
+  LocalAmount,
+  type NotClaimable,
+  PayoutDestination,
+  type PayoutQuote,
+  type PayoutQuoteChanged,
+  type PayoutStep,
+  type PayoutUnavailable,
 } from "../contract";
 import { LinkCode } from "./link-code";
 import type {
@@ -514,3 +521,32 @@ export type ReviewExternalLinkOutcome =
   | ExternalLinkOutcome;
 
 export type ConfirmExternalLinkOutcome = ReviewExternalLinkOutcome;
+
+export class PayoutReview extends Schema.TaggedClass<PayoutReview>()(
+  "PayoutReview",
+  {
+    claim: ExternalLinkReview,
+    destination: PayoutDestination,
+    local: LocalAmount,
+  },
+) {}
+
+export type QuotePayoutOutcome =
+  | PayoutQuote
+  | PayoutUnavailable
+  | NotClaimable
+  | InvalidAddress
+  | Exclude<PaymentLinkStep, PaymentLinkOpen>
+  | LinkCodeMismatch
+  | DraftRejected
+  | WalletUnavailable;
+
+export type ReviewPayoutOutcome =
+  | PayoutReview
+  | ExternalLinkOutcome
+  | PayoutQuoteChanged
+  | PayoutUnavailable;
+
+export type ConfirmPayoutOutcome = ReviewPayoutOutcome;
+
+export type FollowPayoutOutcome = PayoutStep | WalletUnavailable;

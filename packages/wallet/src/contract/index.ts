@@ -50,6 +50,14 @@ import {
   ResolvedPaymentLink,
   TransferId,
 } from "./payment-links";
+import {
+  PayoutDestination,
+  PayoutQuote,
+  PayoutQuoteChanged,
+  type PayoutStep,
+  PayoutUnavailable,
+  LocalAmount,
+} from "./payouts";
 import { NeedsReopening, NotOpened, UnclaimedFunds } from "./standing";
 
 export * from "./approval";
@@ -71,6 +79,8 @@ export * from "./network-addresses";
 export * from "./payment-links";
 
 export * from "./payment-requests";
+
+export * from "./payouts";
 
 export * from "./standing";
 
@@ -654,6 +664,31 @@ export const ExternalLinkStep = Schema.Union([
 
 export type ExternalLinkStep = typeof ExternalLinkStep.Type;
 
+export class PayoutOrder extends Schema.Class<PayoutOrder>(
+  "@workspace/wallet/PayoutOrder",
+)({
+  claim: ExternalLinkOrder,
+  destination: PayoutDestination,
+  local: LocalAmount,
+}) {}
+
+export const PayoutQuoteStep = Schema.Union([
+  PayoutQuote,
+  PayoutUnavailable,
+  NotClaimable,
+  InvalidAddress,
+]);
+
+export type PayoutQuoteStep = typeof PayoutQuoteStep.Type;
+
+export const PayoutClaimStep = Schema.Union([
+  ...ExternalLinkStep.members,
+  PayoutQuoteChanged,
+  PayoutUnavailable,
+]);
+
+export type PayoutClaimStep = typeof PayoutClaimStep.Type;
+
 export class Balance extends Schema.Class<Balance>("@workspace/wallet/Balance")(
   {
     asset: Asset,
@@ -763,6 +798,12 @@ export interface WalletPort<E = WalletUnavailable> {
     sender: AccountAddress,
     receipt: PaymentLinkReceipt,
   ): Effect.Effect<ResolveReceiptStep, E>;
+  quotePayout(link: AccountAddress): Effect.Effect<PayoutQuoteStep, E>;
+  requestPayout(
+    order: PayoutOrder,
+    approval: Option.Option<Approval>,
+  ): Effect.Effect<PayoutClaimStep, E>;
+  payout(id: AssetOrderId): Effect.Effect<PayoutStep, E>;
   restoreChallenge(): Effect.Effect<PasskeyChallenge, E>;
   enrollmentChallenge(
     claim: WalletClaim,

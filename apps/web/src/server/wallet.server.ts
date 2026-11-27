@@ -10,6 +10,7 @@ import { type AccountAddress, ServerFailure } from "@workspace/wallet";
 import {
   ClientAddress,
   PaymentRequests,
+  PayoutPartner,
   Principal,
   SessionCookie,
   type SessionGrant,
@@ -18,8 +19,10 @@ import {
   concealFailure,
 } from "@workspace/wallet/server";
 import * as Clock from "effect/Clock";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
@@ -39,6 +42,17 @@ const walletSettingsLayer = Layer.suspend(() =>
   }),
 );
 
+const payoutPartnerLayer = Layer.suspend(() =>
+  Match.value(env.PAYOUT_PARTNER).pipe(
+    Match.when("sandbox", () =>
+      PayoutPartner.sandbox(Duration.seconds(8)).pipe(
+        Layer.provide(walletSettingsLayer),
+      ),
+    ),
+    Match.exhaustive,
+  ),
+);
+
 const requestRateLimitsLayer = Layer.suspend(() =>
   rateLimitsLayer({
     principal: env.WALLET_RATE_LIMITER,
@@ -48,6 +62,7 @@ const requestRateLimitsLayer = Layer.suspend(() =>
 
 const requestWalletLayer = Layer.suspend(() =>
   Wallet.layer.pipe(
+    Layer.provide(payoutPartnerLayer),
     Layer.provide(walletSettingsLayer),
     Layer.provide(databaseLayer(env.HYPERDRIVE)),
     Layer.provide(workQueueLayer(env.WALLET_WORK)),

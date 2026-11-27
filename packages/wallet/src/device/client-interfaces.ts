@@ -1,7 +1,10 @@
 import type * as Effect from "effect/Effect";
 import type {
   ActivityCursor,
+  AssetOrderId,
   PasskeyChallenge,
+  PayoutDestination,
+  PayoutQuote,
   TransferId,
   TransferIntent,
 } from "../contract";
@@ -14,11 +17,13 @@ import type {
   ConfirmOpeningOutcome,
   ConfirmOutcome,
   ConfirmPaymentLinkOutcome,
+  ConfirmPayoutOutcome,
   ConfirmReclaimOutcome,
   ConfirmSessionOutcome,
   DeviceOverview,
   ExternalLinkIntent,
   ExternalLinkReview,
+  FollowPayoutOutcome,
   LinkReceiveReview,
   OpeningReview,
   PaymentLinkIntent,
@@ -26,6 +31,8 @@ import type {
   PaymentLinkTarget,
   PaymentLinksOutcome,
   PaymentReview,
+  PayoutReview,
+  QuotePayoutOutcome,
   ReclaimReview,
   ResolvePaymentLinkOutcome,
   RestoreOutcome,
@@ -36,6 +43,7 @@ import type {
   ReviewOpeningOutcome,
   ReviewOutcome,
   ReviewPaymentLinkOutcome,
+  ReviewPayoutOutcome,
   ReviewReclaimOutcome,
   SavedLinkTarget,
   SavedOutcome,
@@ -79,6 +87,17 @@ export interface WalletClient {
     review: ExternalLinkReview,
     code: LinkCode,
   ): Promise<ConfirmExternalLinkOutcome>;
+  quotePayout(code: LinkCode): Promise<QuotePayoutOutcome>;
+  reviewPayout(
+    code: LinkCode,
+    destination: PayoutDestination,
+    quote: PayoutQuote,
+  ): Promise<ReviewPayoutOutcome>;
+  confirmPayout(
+    review: PayoutReview,
+    code: LinkCode,
+  ): Promise<ConfirmPayoutOutcome>;
+  followPayout(id: AssetOrderId): Promise<FollowPayoutOutcome>;
 }
 
 export interface WalletEffects {
@@ -124,4 +143,15 @@ export interface WalletEffects {
     review: ExternalLinkReview,
     code: LinkCode,
   ): Effect.Effect<ConfirmExternalLinkOutcome>;
+  quotePayout(code: LinkCode): Effect.Effect<QuotePayoutOutcome>;
+  reviewPayout(
+    code: LinkCode,
+    destination: PayoutDestination,
+    quote: PayoutQuote,
+  ): Effect.Effect<ReviewPayoutOutcome>;
+  confirmPayout(
+    review: PayoutReview,
+    code: LinkCode,
+  ): Effect.Effect<ConfirmPayoutOutcome>;
+  followPayout(id: AssetOrderId): Effect.Effect<FollowPayoutOutcome>;
 }

@@ -72,6 +72,7 @@ import { concealFailure } from "./failures.server";
 import { backupFlow } from "./wallet-backup.server";
 import { activityFlow } from "./wallet-activity.server";
 import { paymentLinksFlow } from "./wallet-payment-links.server";
+import { payoutFlow } from "./wallet-payouts.server";
 import { confirmedReads, live } from "./wallet-reads.server";
 import { claimableQuotaFlow } from "./claimable-quota.server";
 import { transferReconcileFlow } from "./wallet-reconcile.server";
@@ -113,6 +114,12 @@ export class Wallet extends Context.Service<
       const checkLinkAsset = yield* paymentLinkAssetRefusal;
       const { quotaFull } = yield* claimableQuotaFlow;
       const links = yield* paymentLinksFlow;
+
+      const payouts = yield* payoutFlow({
+        claimExternal: assetActions.claimPaymentLink,
+        reconcile: assetActions.reconcile,
+      });
+
       const history = yield* activityFlow;
       const { portfolio } = yield* portfolioFlow;
 
@@ -448,6 +455,10 @@ export class Wallet extends Context.Service<
           wrap(assetActions.claimPaymentLink(order, approval)),
         resolvePaymentLink: (sender, receipt) =>
           wrap(links.resolvePaymentLink(sender, receipt)),
+        quotePayout: (link) => wrap(payouts.quotePayout(link)),
+        requestPayout: (order, approval) =>
+          wrap(payouts.requestPayout(order, approval)),
+        payout: (id) => wrap(payouts.payout(id)),
         restoreChallenge: () => wrap(backup.restoreChallenge()),
         enrollmentChallenge: (claim, humanCheck = Option.none()) =>
           wrap(backup.enrollmentChallenge(claim, humanCheck)),
