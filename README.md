@@ -1,55 +1,53 @@
 # Orchid
 
-**Pay anyone, anywhere, instantly.**
+**Dollars that move by link.**
 
-Orchid is a self-custodial dollar wallet for Latin America. Send dollars to a username or drop a link in WhatsApp, and the other person receives them in Orchid, in any wallet or exchange, or as soles in Yape, without installing anything. Your keys never leave your phone, and Orchid never holds your money.
+Orchid is a self-custodial dollar account for Latin America, starting in Peru. Send dollars as a link in WhatsApp, or ask to be paid with one, and the person on the other side needs nothing: no app, no wallet and no KYC to start. They take the money however they want: soles in Yape, any wallet or exchange, or their own Orchid account in one tap. Your keys never leave your phone, and Orchid never holds your money.
 
 ## One link, straight to Yape
 
 > Rosa works in Madrid. She opens Orchid, types 50, taps **Crear link de pago** and sends it to her mother in Arequipa on WhatsApp.
 >
-> Her mother taps the link, enters her phone number, sees "Recibirás S/ 187.40" and taps **Recibir en Yape**. Seconds later, the soles are in her Yape.
+> Her mother taps the link, enters her phone number, sees "Recibirás S/ 187.40" and taps **Recibir en Yape**. Seconds later, the soles are in her Yape. Or she keeps the dollars in an Orchid account of her own, protected by her fingerprint.
 >
-> No app to install, no account to open, no crypto to understand. Until the link is claimed, the money is held by the link itself, never by Orchid.
+> No app to install, no crypto to understand. Until the link is claimed, the money is held by the network for the link, never by Orchid.
 
 ## Why Orchid
 
-- **Pay anyone.** A `@username`, a payment link, an exchange, a Yape account, or an address on Stellar, Solana, Base and other networks. Recipients choose how they receive.
-- **Your money, your keys.** A standard recovery phrase stays on your device, sealed at rest by a passkey (Face ID or fingerprint) that every payment asks for again. The passkey proves it's you but never shows the payment, so Orchid's review screen is what tells you what you sign, and while you approve, the phrase sits in the app's memory, where code running on your phone could read it and the browser cannot promise to wipe it. Export it anytime and open the same wallet in other apps.
-- **Nothing to learn.** No gas, no XLM, no networks, no trustlines. Orchid sponsors every account and pays every network fee.
-- **Money that doesn't get lost.** Orchid checks every destination before you sign: exchanges that need a memo, accounts that can't receive yet, deposit addresses on the wrong network. Every payment has a status you can follow, in plain Spanish.
-- **Dollars that work.** Idle dollars earn yield in **Ahorro**, and the same balance buys Bitcoin and tokenized US stocks, all in one confirmation.
+- **Every link brings someone new.** Whoever receives a payment link can keep the dollars in an account of their own, created in one step with a passkey, with no phrase to write down and no fees to pay. Every payment grows Orchid.
+- **Get paid with a link.** Ask for an amount, share the link, and anyone can pay it, with or without Orchid. You see it paid in your activity.
+- **Your money, your keys.** A standard recovery phrase stays on your device, sealed at rest by a passkey (Face ID or fingerprint) that every payment asks for again. The passkey proves it's you but never shows the payment, so Orchid's review screen is what tells you what you sign, and while you approve, the phrase sits in the app's memory, where code running on your phone could read it and the browser cannot promise to wipe it. Export it anytime and open the same wallet in other apps. When an exchange is hacked, its customers lose their money; nobody can empty an Orchid account without its owner.
+- **Nothing to learn.** No gas, no networks, no trustlines. Orchid sponsors every account and pays every network fee.
+- **Money that doesn't get lost.** Orchid checks every destination before you sign: exchanges that need a memo, accounts that can't receive yet, deposit addresses on the wrong network. The sender can take back a link nobody claimed. Every payment has a status you can follow, in plain Spanish or English.
 
 ## How it works
 
-| Layer                                     | What Orchid does                                                                                                                                                                                                             |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Payments on Stellar**                   | Usernames, USDC payments in seconds, sponsored accounts and fee bumps, so users hold no XLM. Payment links are funds held on-chain that only the link can claim, and the sender can take back anytime.                       |
-| **One phrase, every network**             | The device derives Stellar and Solana accounts from the same phrase. One balance on screen; USDC moves between networks behind the scenes with Circle's CCTP, burned on one and minted on the other, with no wrapped tokens. |
-| **The phone approves everything**         | Orchid's server drafts each transaction; the phone checks that it does exactly what the user asked (recipient, asset, amount, memo), shows it, and signs only after a fresh passkey check.                                   |
-| **Local money through licensed partners** | A licensed payment partner turns USDC into soles and pays out to Yape, Plin and banks over Peru's interoperable payment network.                                                                                             |
-| **Yield and investing**                   | Ahorro deposits into a DeFindex vault lending through Blend. Swaps route through Soroswap on Stellar and Jupiter on Solana, where tokenized stocks (xStocks) and Bitcoin (cbBTC) trade.                                      |
-| **USDT from anywhere**                    | USDT sent on Tron, the default for many exchanges in the region, arrives as USDC.                                                                                                                                            |
+| Layer                                     | What Orchid does                                                                                                                                                                                                       |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Payment links**                         | The link carries a code after the `#` that the server never receives. The device derives the link's key from it; only that key can claim the funds the network holds, and the sender can take them back anytime.       |
+| **Payment requests**                      | A public link with who is asking, how much and why. It holds no secret, so any way to pay can settle it: Orchid today, other wallets later.                                                                            |
+| **The phone approves everything**         | Orchid's server drafts each transaction; the phone checks that it does exactly what the user asked (recipient, asset, amount, memo), shows it, and signs only after a fresh passkey check.                             |
+| **Payments behind one seam**              | The wallet domain talks to the network through one interface. Stellar is the first implementation: usernames, USDC payments in seconds, sponsored accounts and fee bumps. Other networks plug in behind the same seam. |
+| **Local money through licensed partners** | A licensed payment partner turns USDC into soles and pays out to Yape, Plin and banks over Peru's interoperable payment network. Until one is signed, testnet payouts go through a clearly marked simulation.          |
 
 ## Business model
 
-Sending and receiving are free; that is how Orchid spreads. Revenue comes from what people do with their dollars:
+Sending, receiving and asking to be paid are free; that is how Orchid spreads. Revenue comes from what people do with their dollars:
 
-- **Ahorro:** 10% of the yield earned, never a fee on deposits.
-- **Swaps and investing:** 0.5% per trade.
 - **Cash-out to Yape, Plin and banks:** a small spread over the partner's rate.
+- **Later, savings and investing:** a share of yield earned and a small fee per trade.
 
 ## Roadmap
 
-| Stage                       | Features                                                                                                                                       |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Live on Stellar testnet** | Permanent usernames, sponsored accounts, passkey backup and restore, USDC payments from the app with exchange memos checked against the ledger |
-| **Next**                    | Payment links, activity, deposits from Solana and Tron                                                                                         |
-| **Then**                    | Sending to Solana, Base and other networks, payouts to Yape and Plin, Ahorro, swaps, tokenized stocks and Bitcoin                              |
+| Stage                       | Features                                                                                                                                                                                 |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Live on Stellar testnet** | Permanent usernames, sponsored accounts, passkey backup and restore, USDC payments with exchange memos checked against the ledger, payment links, activity, deposits from outside Orchid |
+| **Next**                    | Payment requests, keeping a received link in your own account as the main path, simulated Yape payouts, Spanish and English throughout                                                   |
+| **Then**                    | Payouts to Yape and Plin through a licensed partner, payment requests paid from other wallets, savings, swaps and tokenized stocks                                                       |
 
 ## Built with
 
-Stellar (classic accounts, sponsored reserves, fee bumps, claimable balances, Soroban), Circle USDC and CCTP, Solana, passkeys (WebAuthn PRF), Cloudflare Workers and Hyperdrive, Neon Postgres, TanStack Start, React, Effect, Drizzle, Bun, Tailwind CSS, shadcn, Base UI.
+Stellar (classic accounts, sponsored reserves, fee bumps, claimable balances), Circle USDC, passkeys (WebAuthn PRF), Cloudflare Workers and Hyperdrive, Neon Postgres, TanStack Start, React, Effect, Drizzle, Bun, Tailwind CSS, shadcn, Base UI.
 
 ## Run it locally
 
