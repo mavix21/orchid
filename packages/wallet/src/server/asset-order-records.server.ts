@@ -17,6 +17,7 @@ import {
   ExternalLinkSettled,
   Asset,
   PaymentMemo,
+  PayoutTerms,
   SigningRequest,
 } from "../contract";
 import { Sealed } from "./Chain.server";
@@ -27,6 +28,7 @@ export const ReceiveLinkExternal = Schema.TaggedStruct("ReceiveLinkExternal", {
   unclaimedFunds: UnclaimedFundsId,
   destination: DestinationAddress,
   memo: Schema.optional(PaymentMemo),
+  payout: Schema.optional(PayoutTerms),
 });
 
 export class StoredExternalOrder extends Schema.Class<StoredExternalOrder>(
@@ -40,7 +42,10 @@ export const StoredOrder = Schema.Union([AssetOrder, StoredExternalOrder]);
 
 export type StoredOrder = typeof StoredOrder.Type;
 
-export const toStoredExternalOrder = (order: ExternalLinkOrder) =>
+export const toStoredExternalOrder = (
+  order: ExternalLinkOrder,
+  payout: Option.Option<PayoutTerms> = Option.none(),
+) =>
   new StoredExternalOrder({
     id: order.id,
     action: ReceiveLinkExternal.make({
@@ -48,6 +53,7 @@ export const toStoredExternalOrder = (order: ExternalLinkOrder) =>
       unclaimedFunds: order.unclaimedFunds,
       destination: order.destination,
       memo: order.memo,
+      payout: Option.getOrUndefined(payout),
     }),
   });
 

@@ -67,6 +67,7 @@ const issueMessage = (issue: UsernameIssue) =>
 
 interface EnrollmentFlowProps {
   title: string;
+  incoming?: string;
   back: (disabled: boolean) => TopNavAction;
   walletClient: WalletClient;
   receive?: ReadLinkCode;
@@ -76,6 +77,7 @@ interface EnrollmentFlowProps {
 
 export function EnrollmentFlow({
   title,
+  incoming,
   back,
   walletClient,
   receive,
@@ -384,6 +386,14 @@ export function EnrollmentFlow({
         disabled={busy}
         {...back(busy)}
       />
+      {incoming === undefined ? null : (
+        <p
+          data-testid="incoming-amount"
+          className="mx-auto mt-1 rounded-full bg-secondary px-4 py-1.5 text-center text-label text-balance"
+        >
+          {incoming}
+        </p>
+      )}
       {EnrollmentStep.$match(stage, {
         Checking: () => <OrchidPending title={m.account_preparing()} />,
         Finishing: ({ username: name }) => (

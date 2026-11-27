@@ -1,6 +1,5 @@
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Ref from "effect/Ref";
@@ -8,8 +7,10 @@ import * as Schema from "effect/Schema";
 import {
   type Approval,
   AssetOrderId,
-  type ExternalLinkDraft,
+  ExternalLinkDraft,
   ExternalLinkOrder,
+  ExternalLinkPending,
+  type ExternalLinkStep,
   MemoNotAllowed,
   type WalletPort,
   type WalletUnavailable,
@@ -26,10 +27,8 @@ import {
   readDraft,
 } from "../device-network";
 import {
-  type ConfirmExternalLinkOutcome,
   DraftRejected,
   type ExternalLinkIntent,
-  type ExternalLinkOutcome,
   ExternalLinkReview,
   type LinkReceiveTarget,
   LinkCodeMismatch,
@@ -119,18 +118,27 @@ const externalStanding = (
     : draftTiming(derived.value.maxTime, shown.draft.request, nowMillis);
 };
 
-interface ExternalTurn {
-  readonly done: Option.Option<ReviewExternalLinkOutcome>;
-  readonly pause: boolean;
-}
-
-export function deviceExternalLinkClaim(
-  port: Pick<WalletPort, "paymentLink" | "claimPaymentLink">,
+export function deviceExternalLinkClaim<
+  Refusal extends { readonly _tag: string } = never,
+>(
+  port: Pick<WalletPort, "paymentLink"> & {
+    claimPaymentLink(
+      order: ExternalLinkOrder,
+      approval: Option.Option<Approval>,
+    ): Effect.Effect<ExternalLinkStep | NoInfer<Refusal>, WalletUnavailable>;
+  },
   state: Ref.Ref<ClaimIssue>,
 ) {
+  type Outcome = ReviewExternalLinkOutcome | Refusal;
+
   type OnDraft = (
     draft: ExternalLinkDraft,
-  ) => Effect.Effect<Option.Option<ReviewExternalLinkOutcome>>;
+  ) => Effect.Effect<Option.Option<Outcome>>;
+
+  interface ExternalTurn {
+    readonly done: Option.Option<Outcome>;
+    readonly pause: boolean;
+  }
 
   const afterRelease: OnDraft = () =>
     Effect.succeed(Option.some(new DraftRejected()));
@@ -163,7 +171,7 @@ export function deviceExternalLinkClaim(
     order: ExternalLinkOrder,
     onDraft: OnDraft,
     released: Option.Option<Approval> = Option.none(),
-  ): Effect.Effect<ReviewExternalLinkOutcome, WalletUnavailable> =>
+  ): Effect.Effect<Outcome, WalletUnavailable> =>
     Effect.gen(function* () {
       let approval = released;
       let attempts = 0;
@@ -178,29 +186,22 @@ export function deviceExternalLinkClaim(
 
           approval = Option.none();
 
-          return yield* Match.value(response).pipe(
-            Match.tag("ExternalLinkDraft", (draft) =>
-              Effect.map(onDraft(draft), (done): ExternalTurn => ({
-                done,
-                pause: false,
-              })),
-            ),
-            Match.tag("ExternalLinkPending", (pending) =>
-              Effect.succeed<ExternalTurn>({
-                done:
-                  attempts >= pendingSteps
-                    ? Option.some(pending)
-                    : Option.none(),
-                pause: !submitted,
-              }),
-            ),
-            Match.orElse((outcome: ExternalLinkOutcome) =>
-              Effect.succeed<ExternalTurn>({
-                done: Option.some(outcome),
-                pause: false,
-              }),
-            ),
-          );
+          if (response instanceof ExternalLinkDraft)
+            return {
+              done: yield* onDraft(response),
+              pause: false,
+            };
+
+          if (response instanceof ExternalLinkPending)
+            return {
+              done:
+                attempts >= pendingSteps
+                  ? Option.some<Outcome>(response)
+                  : Option.none(),
+              pause: !submitted,
+            };
+
+          return { done: Option.some<Outcome>(response), pause: false };
         },
       );
 
@@ -211,10 +212,7 @@ export function deviceExternalLinkClaim(
         ),
       });
 
-      return Option.getOrElse(
-        last.done,
-        (): ReviewExternalLinkOutcome => new DraftRejected(),
-      );
+      return Option.getOrElse(last.done, (): Outcome => new DraftRejected());
     });
 
   const presenting = (
@@ -226,9 +224,7 @@ export function deviceExternalLinkClaim(
     let refreshed = false;
 
     return (draft) =>
-      Effect.gen(function* (): Effect.fn.Return<
-        Option.Option<ReviewExternalLinkOutcome>
-      > {
+      Effect.gen(function* (): Effect.fn.Return<Option.Option<Outcome>> {
         const derived = externalReviewOf(
           order,
           draft,
@@ -278,7 +274,7 @@ export function deviceExternalLinkClaim(
   const review = Effect.fn("Device.reviewExternalLinkClaim")(function* (
     code: LinkCode,
     intent: ExternalLinkIntent,
-  ): Effect.fn.Return<ReviewExternalLinkOutcome, WalletUnavailable> {
+  ): Effect.fn.Return<Outcome, WalletUnavailable> {
     if (Option.isNone(linkAddressOf(code))) return new LinkCodeMismatch();
 
     if (forbidsMemo(intent.destination) && intent.memo !== undefined)
@@ -304,7 +300,7 @@ export function deviceExternalLinkClaim(
   const confirm = Effect.fn("Device.confirmExternalLinkClaim")(function* (
     shown: ExternalLinkReview,
     code: LinkCode,
-  ): Effect.fn.Return<ConfirmExternalLinkOutcome, WalletUnavailable> {
+  ): Effect.fn.Return<Outcome, WalletUnavailable> {
     if (!opensLink(code, shown.link)) return new LinkCodeMismatch();
 
     const { issued: snapshot } = yield* Ref.get(state);

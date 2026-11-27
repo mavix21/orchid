@@ -4,6 +4,8 @@ export { WalletSettings } from "./settings.server";
 
 export { Wallet } from "./Wallet.server";
 
+export { PayoutPartner } from "./PayoutPartner.server";
+
 export { PaymentRequests } from "./PaymentRequests.server";
 
 export { RateLimits } from "./RateLimits.server";

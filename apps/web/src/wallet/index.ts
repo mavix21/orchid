@@ -60,6 +60,12 @@ export const walletEffects: WalletEffects = {
     withWallet((wallet) => wallet.reviewExternalLinkClaim(code, intent)),
   confirmExternalLinkClaim: (shown, code) =>
     withWallet((wallet) => wallet.confirmExternalLinkClaim(shown, code)),
+  quotePayout: (code) => withWallet((wallet) => wallet.quotePayout(code)),
+  reviewPayout: (code, destination, quote) =>
+    withWallet((wallet) => wallet.reviewPayout(code, destination, quote)),
+  confirmPayout: (shown, code) =>
+    withWallet((wallet) => wallet.confirmPayout(shown, code)),
+  followPayout: (id) => withWallet((wallet) => wallet.followPayout(id)),
 };
 
 export const walletClient: WalletClient = {
@@ -101,4 +107,10 @@ export const walletClient: WalletClient = {
     Effect.runPromise(walletEffects.reviewExternalLinkClaim(code, intent)),
   confirmExternalLinkClaim: (shown, code) =>
     Effect.runPromise(walletEffects.confirmExternalLinkClaim(shown, code)),
+  quotePayout: (code) => Effect.runPromise(walletEffects.quotePayout(code)),
+  reviewPayout: (code, destination, quote) =>
+    Effect.runPromise(walletEffects.reviewPayout(code, destination, quote)),
+  confirmPayout: (shown, code) =>
+    Effect.runPromise(walletEffects.confirmPayout(shown, code)),
+  followPayout: (id) => Effect.runPromise(walletEffects.followPayout(id)),
 };

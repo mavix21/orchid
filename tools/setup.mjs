@@ -170,6 +170,14 @@ const ensureDevVars = async () => {
   if (channels > 0)
     report(`the reserve sponsor opened ${channels} channel accounts.`);
 
+  if (
+    await testnet.openSandboxPartner(
+      secrets.get("RESERVE_SPONSOR_SECRET"),
+      secrets.get("FEE_PAYER_SECRET"),
+    )
+  )
+    report("the reserve sponsor opened the sandbox payout partner.");
+
   const generated = [
     ...funded,
     ["SESSION_SECRET", randomBytes(32).toString("base64url")],

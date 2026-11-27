@@ -99,6 +99,19 @@ export function makeWalletEffects(
     ),
   );
 
+  const payoutIssue = Ref.makeUnsafe<ClaimIssue>({
+    ticket: 0,
+    issued: Option.none(),
+  });
+
+  const issuedPayout = Ref.makeUnsafe(Option.none<string>());
+
+  const payouts = loadFromServer(() => import("./payouts")).pipe(
+    Effect.map(({ devicePayouts }) =>
+      devicePayouts(port, { claim: payoutIssue, issued: issuedPayout }),
+    ),
+  );
+
   const opening = loadFromServer(() => import("./opening")).pipe(
     Effect.map(({ deviceOpening }) =>
       deviceOpening(port, store, { issued: issuedOpening, device }),
@@ -385,6 +398,20 @@ export function makeWalletEffects(
           Effect.flatMap(({ confirm }) => confirm(shown, code)),
         ),
       ),
+    quotePayout: (code) =>
+      networkOnly(payouts.pipe(Effect.flatMap(({ quote }) => quote(code)))),
+    reviewPayout: (code, destination, quoted) =>
+      networkOnly(
+        payouts.pipe(
+          Effect.flatMap(({ review }) => review(code, destination, quoted)),
+        ),
+      ),
+    confirmPayout: (shown, code) =>
+      networkOnly(
+        payouts.pipe(Effect.flatMap(({ confirm }) => confirm(shown, code))),
+      ),
+    followPayout: (id) =>
+      networkOnly(payouts.pipe(Effect.flatMap(({ follow }) => follow(id)))),
   };
 }
 
@@ -431,5 +458,11 @@ export function makeWalletClient(
       Effect.runPromise(effects.reviewExternalLinkClaim(code, intent)),
     confirmExternalLinkClaim: (shown, code) =>
       Effect.runPromise(effects.confirmExternalLinkClaim(shown, code)),
+    quotePayout: (code) => Effect.runPromise(effects.quotePayout(code)),
+    reviewPayout: (code, destination, quoted) =>
+      Effect.runPromise(effects.reviewPayout(code, destination, quoted)),
+    confirmPayout: (shown, code) =>
+      Effect.runPromise(effects.confirmPayout(shown, code)),
+    followPayout: (id) => Effect.runPromise(effects.followPayout(id)),
   };
 }
