@@ -14,6 +14,8 @@ export { SavedLinkCorrupt, SealedLinkCode } from "./device/link-seal";
 
 export * from "./device/enrollment";
 
+export * from "./device/payment-requests";
+
 export { currentUntil } from "./device/opening-drafts";
 
 export { receiveCurrentUntil } from "./device/link-receive";
