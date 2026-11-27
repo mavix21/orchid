@@ -57,7 +57,7 @@ _Avoid_: Link secret.
 **Link key**: The key that controls a payment link's own account, which can claim the link's **Unclaimed funds**. Only the network can interpret it, and it never leaves the device.
 _Avoid_: Link secret.
 
-**Payment request**: A public ask to be paid an asset amount, with an optional note, that its requester shares as a link. It names the requester by username, carries no secret and puts nothing on the network. It is **open** while it waits to be paid, **paid** once it has been, or **cancelled** once its requester withdraws it while open.
+**Payment request**: A public ask to be paid an asset amount, with an optional note, that its requester shares as a link. It names the requester by username, carries no secret and puts nothing on the network. It is **open** while it waits to be paid, **paid** once it has been, or **cancelled** once its requester withdraws it while open. It is paid only by the Orchid payment bound to it, once that payment settles. The binding is made before the payment can be approved and lasts until the payment settles or can no longer be approved or settle, so a request cannot be cancelled while bound and a cancelled request stays cancelled; money sent any other way is an ordinary payment the request does not know about. It can be paid only directly into the requester's wallet, never as **Unclaimed funds**.
 _Avoid_: **Payment link**, which carries a **Link code** for **Unclaimed funds**; invoice; charge.
 
 **Asset order**: A uniquely identified instruction to open or close a trustline, or claim **Unclaimed funds**.
