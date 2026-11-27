@@ -8,7 +8,6 @@ import type {
 import * as Data from "effect/Data";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 
 import { OrchidPending } from "@/components/orchid-pending";
 import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
@@ -170,13 +169,11 @@ const readOutcome = (
 
 function OpeningReviewScreen({
   review,
-  arrival,
   problem,
   copy,
   onConfirm,
 }: {
   review: OpeningReview;
-  arrival: Option.Option<string>;
   problem: Option.Option<string>;
   copy: OpeningCopy;
   onConfirm: () => void;
@@ -184,17 +181,11 @@ function OpeningReviewScreen({
   return (
     <>
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-        <h1 className="font-display text-h1">
-          {Option.getOrElse(arrival, () => copy.title)}
-        </h1>
+        <h1 className="font-display text-h1">{copy.title}</h1>
         <p className="text-label-lg" data-testid="opening-username">
           @{review.username}
         </p>
-        <p className="text-body text-muted-foreground">
-          {Option.isSome(arrival)
-            ? m.opening_arrival_explanation()
-            : copy.explanation}
-        </p>
+        <p className="text-body text-muted-foreground">{copy.explanation}</p>
         {Option.isSome(problem) ? (
           <p role="alert" className="text-body text-destructive">
             {problem.value}
@@ -207,7 +198,7 @@ function OpeningReviewScreen({
           onClick={onConfirm}
           data-testid="confirm-opening"
         >
-          {Option.isSome(arrival) ? m.receive_with_passkey() : copy.action}
+          {copy.action}
         </Button>
       </ScreenActions>
     </>
@@ -216,12 +207,10 @@ function OpeningReviewScreen({
 
 export function OpeningFlow({
   username,
-  arrival = Option.none(),
   onOpened,
   copy = reopeningCopy(),
 }: {
   username: string;
-  arrival?: Option.Option<string>;
   onOpened: () => void;
   copy?: OpeningCopy;
 }) {
@@ -237,39 +226,21 @@ export function OpeningFlow({
 
   const look = () => {
     setStep(OpeningStep.Preparing());
-    task.run(walletEffects.reviewOpening(username), (answer) => {
-      const next = readAnswer(answer, Option.none(), onOpened);
-
-      if (
-        Option.isSome(arrival) &&
-        Predicate.isTagged(next, "Shown") &&
-        Option.isNone(next.problem)
-      )
-        confirm(next.review);
-      else setStep(next);
-    });
+    task.run(walletEffects.reviewOpening(username), (answer) =>
+      setStep(readAnswer(answer, Option.none(), onOpened)),
+    );
   };
 
   useEffect(look, [username]);
 
   return Match.valueTags(step, {
-    Preparing: () => (
-      <OrchidPending title={Option.getOrElse(arrival, () => copy.preparing)} />
-    ),
+    Preparing: () => <OrchidPending title={copy.preparing} />,
     Confirming: () => (
-      <OrchidPending
-        title={Option.getOrElse(arrival, () => copy.confirming)}
-        note={
-          Option.isSome(arrival)
-            ? m.opening_arrival_note()
-            : m.account_takes_seconds()
-        }
-      />
+      <OrchidPending title={copy.confirming} note={m.account_takes_seconds()} />
     ),
     Shown: ({ review, problem }) => (
       <OpeningReviewScreen
         review={review}
-        arrival={arrival}
         problem={problem}
         copy={copy}
         onConfirm={() => confirm(review)}

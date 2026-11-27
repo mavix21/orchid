@@ -113,7 +113,7 @@ export class Wallet extends Context.Service<
       const { quotaFull } = yield* claimableQuotaFlow;
       const links = yield* paymentLinksFlow;
       const history = yield* activityFlow;
-      const { portfolio, unclaimedFundsFor } = yield* portfolioFlow;
+      const { portfolio } = yield* portfolioFlow;
 
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.catchCause(concealFailure));
@@ -342,18 +342,10 @@ export class Wallet extends Context.Service<
           Predicate.isTagged(step, "Opened"),
         );
 
-        if (Option.isSome(unopened) && !opened) {
-          const unclaimedFunds = yield* unclaimedFundsFor(address);
-
-          return Option.exists(
-            resumed,
-            (step) =>
-              Predicate.isTagged(step, "OpeningPending") &&
-              unclaimedFunds.length === 0,
-          )
+        if (Option.isSome(unopened) && !opened)
+          return Option.exists(resumed, Predicate.isTagged("OpeningPending"))
             ? new NeedsReopening({ profile: unopened.value })
-            : new NotOpened({ profile: unopened, unclaimedFunds });
-        }
+            : new NotOpened({ profile: unopened });
 
         const row = opened ? yield* directory.byAddress(address) : found;
 

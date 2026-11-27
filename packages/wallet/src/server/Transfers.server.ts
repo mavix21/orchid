@@ -9,7 +9,6 @@ import {
   receivedPaymentLinksFor,
   settledOpenUnclaimedFundsFrom,
   unclaimedAt,
-  waitingUnclaimedFundsFor,
 } from "./open-claimables.server";
 import { Database } from "@workspace/db";
 import { and, count, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
@@ -132,10 +131,6 @@ export class Transfers extends Context.Service<
     openUnclaimedFunds(
       address: AccountAddress,
     ): Effect.Effect<ReadonlyArray<OpenUnclaimedFunds>, StoreFailure>;
-
-    waitingUnclaimedFunds(
-      address: AccountAddress,
-    ): Effect.Effect<ReadonlyArray<UnclaimedFundsId>, StoreFailure>;
 
     openPaymentLinks(
       sender: AccountAddress,
@@ -547,12 +542,6 @@ export class Transfers extends Context.Service<
         openUnclaimedFunds: (address) =>
           wrap(
             openUnclaimedFundsFor(address).pipe(
-              Effect.provideService(Database, db),
-            ),
-          ),
-        waitingUnclaimedFunds: (address) =>
-          wrap(
-            waitingUnclaimedFundsFor(address).pipe(
               Effect.provideService(Database, db),
             ),
           ),

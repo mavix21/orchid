@@ -105,8 +105,6 @@
   "opening_no_wallet_title": "We couldn't find your account",
   "opening_no_wallet": "This browser has no saved account.",
   "opening_invalid_username_title": "Your username isn't valid",
-  "opening_arrival_explanation": "We'll open your account and receive your payment with your passkey.",
-  "opening_arrival_note": "Opening your account. This takes a few seconds.",
   "receive_with_passkey": "Receive with passkey",
   "session_description": "We need to confirm it's you before continuing. You can use your fingerprint, face or device PIN.",
   "session_verifying": "Verifying…",

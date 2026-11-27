@@ -1,6 +1,5 @@
 import {
   Account,
-  FeeBumpTransaction,
   Operation,
   Transaction,
   TransactionBuilder,
@@ -10,7 +9,6 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   Asset,
-  UnclaimedFundsId,
   DestinationAddress,
   PaymentMemo,
   PositiveAmount,
@@ -40,7 +38,6 @@ export class OpeningFacts extends Schema.TaggedClass<OpeningFacts>()(
     address: AccountAddress,
     reserveSponsor: AccountAddress,
     createAccount: Schema.Boolean,
-    claim: Schema.optional(UnclaimedFundsId),
   },
 ) {}
 
@@ -63,7 +60,6 @@ export interface OpeningInput {
   readonly minTime: number;
   readonly maxTime: number;
   readonly createAccount: boolean;
-  readonly claim?: UnclaimedFundsId;
 }
 
 export interface PaymentInput {
@@ -103,14 +99,6 @@ export function draftOpening(input: OpeningInput): UnsignedEnvelope {
   builder.addOperation(
     Operation.endSponsoringFutureReserves({ source: input.address }),
   );
-
-  if (input.claim)
-    builder.addOperation(
-      Operation.claimClaimableBalance({
-        source: input.address,
-        balanceId: input.claim,
-      }),
-    );
 
   return Schema.decodeSync(UnsignedEnvelope)(
     builder.setTimebounds(input.minTime, input.maxTime).build().toXDR(),
@@ -173,12 +161,6 @@ export function readEnvelope(
       const reserveSponsor = Schema.decodeSync(AccountAddress)(first.source);
       const channel = Schema.decodeSync(AccountAddress)(tx.source);
       const createAccount = second?.type === "createAccount";
-      const last = tx.operations.at(-1);
-
-      const claim =
-        last?.type === "claimClaimableBalance"
-          ? Schema.decodeSync(UnclaimedFundsId)(last.balanceId)
-          : undefined;
 
       if (
         draftOpening({
@@ -188,7 +170,6 @@ export function readEnvelope(
           minTime,
           maxTime,
           createAccount,
-          claim,
         }) === envelope
       )
         return Option.some(
@@ -198,7 +179,6 @@ export function readEnvelope(
             address,
             reserveSponsor,
             createAccount,
-            claim,
           }),
         );
     }
@@ -238,30 +218,6 @@ export function readEnvelope(
     return Option.orElse(readAssetEnvelope(tx, envelope, fields), () =>
       readLinkReceive(tx, envelope, fields),
     );
-  } catch {
-    return Option.none();
-  }
-}
-
-export function claimedByOpening(
-  envelope: string,
-  address: AccountAddress,
-): Option.Option<UnclaimedFundsId> {
-  try {
-    const outer = TransactionBuilder.fromXDR(envelope, networkPassphrase);
-
-    const inner =
-      outer instanceof FeeBumpTransaction ? outer.innerTransaction : outer;
-
-    const [first] = inner.operations;
-    const last = inner.operations.at(-1);
-
-    return first?.type === "beginSponsoringFutureReserves" &&
-      first.sponsoredId === address &&
-      last?.type === "claimClaimableBalance" &&
-      last.source === address
-      ? Option.some(Schema.decodeSync(UnclaimedFundsId)(last.balanceId))
-      : Option.none();
   } catch {
     return Option.none();
   }

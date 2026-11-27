@@ -8,6 +8,7 @@ import {
   type Holding,
   type SavedBackup,
   type SavedOutcome,
+  type UnclaimedFunds,
   type WalletUnavailable,
   baseAsset,
 } from "@workspace/wallet";
@@ -18,7 +19,7 @@ import { RecentActivity } from "@/activity/recent-activity";
 import { BalanceHeader } from "@/components/balance-header";
 import { HomeSkeleton } from "@/components/home-skeleton";
 import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
-import { type Arrival, arrivalOf, arrivalSentence } from "@/wallet/arrival";
+import { arrivalOf } from "@/wallet/arrival";
 import { OpeningFlow } from "@/wallet/opening-flow";
 import { shownOverview } from "@/wallet/shown-overview";
 import {
@@ -89,14 +90,6 @@ const backUpRefusal = (
 function HomeScreen() {
   const { overview, arrival, backup, activity } = Route.useLoaderData();
 
-  if (Option.isSome(arrival) && arrival.value.opening)
-    return (
-      <Reopening
-        username={arrival.value.username}
-        arrival={Option.some(arrivalSentence(arrival.value))}
-      />
-    );
-
   return Match.valueTags(overview, {
     Holding: (holding) => (
       <Home
@@ -130,7 +123,7 @@ function Home({
   activity,
 }: {
   holding: Holding;
-  arrival: Option.Option<Arrival>;
+  arrival: Option.Option<UnclaimedFunds>;
   backup: Option.Option<SavedBackup>;
   activity: ActivityOutcome;
 }) {
@@ -146,8 +139,8 @@ function Home({
         <BalanceHeader username={holding.profile.username} dollars={dollars} />
         {Option.isSome(arrival) ? (
           <WaitingPayment
-            key={arrival.value.payment.id}
-            arrival={arrival.value}
+            key={arrival.value.id}
+            payment={arrival.value}
             onReceived={() => router.invalidate()}
           />
         ) : null}
@@ -212,23 +205,13 @@ function BackupNotice() {
   );
 }
 
-function Reopening({
-  username,
-  arrival = Option.none(),
-}: {
-  username: string;
-  arrival?: Option.Option<string>;
-}) {
+function Reopening({ username }: { username: string }) {
   const router = useRouter();
 
   return (
     <Screen>
       <div className="flex flex-1 flex-col pb-30 md:pb-16">
-        <OpeningFlow
-          username={username}
-          arrival={arrival}
-          onOpened={() => router.invalidate()}
-        />
+        <OpeningFlow username={username} onOpened={() => router.invalidate()} />
       </div>
     </Screen>
   );
