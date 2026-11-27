@@ -9,6 +9,7 @@ import { Database } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -51,6 +52,7 @@ import { linkChain } from "../src/server/chain-links.server";
 import { Deposits } from "../src/server/Deposits.server";
 import { Directory } from "../src/server/Directory.server";
 import { HumanCheck } from "../src/server/HumanCheck.server";
+import { PayoutPartner } from "../src/server/PayoutPartner.server";
 import { checkedBinding } from "../src/server/username-standing.server";
 import { transfers } from "../src/server/tables.server";
 import {
@@ -403,6 +405,8 @@ export const fakeHumanCheck = Layer.succeed(
   }),
 );
 
+export const payoutCompletesAfter = Duration.minutes(1);
+
 export const walletForDb = <E>(
   db: Layer.Layer<Database, E>,
   limits: Layer.Layer<RateLimits> = RateLimits.unlimited,
@@ -413,6 +417,7 @@ export const walletForDb = <E>(
     Layer.provide(limits),
     Layer.provide(fakeChain),
     Layer.provide(fakeHumanCheck),
+    Layer.provide(PayoutPartner.sandbox(payoutCompletesAfter)),
     Layer.provide(settings),
   );
 
@@ -434,6 +439,7 @@ export const walletWithChain = (
         ).pipe(Layer.provide(fakeChain)),
       ),
       Layer.provide(fakeHumanCheck),
+      Layer.provide(PayoutPartner.sandbox(payoutCompletesAfter)),
       Layer.provide(settings),
     ),
   );

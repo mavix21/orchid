@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { WalletIcon } from "lucide-react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
@@ -22,6 +23,7 @@ import { BrandLogo } from "@/components/brand-logo";
 import { BloomActions, BloomHero } from "@/components/orchid-bloom";
 import { Screen } from "@/components/screen";
 import { ExternalClaimFlow } from "@/links/external-claim-flow";
+import { PayoutFlow } from "@/links/payout-flow";
 import { linkPreviewMeta } from "@/links/link-preview";
 import {
   LinkResultScreen,
@@ -34,6 +36,7 @@ import {
   type ReceiveConclusion,
   receiveScreen,
 } from "@/links/receive-outcomes";
+import { m } from "@/paraglide/messages";
 import { amountLabel } from "@/send/money";
 import { DeviceFailure, useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
@@ -41,15 +44,12 @@ import { enrollmentEffects } from "@/wallet/enrollment";
 import { EnrollmentFlow } from "@/wallet/enrollment-flow";
 import { SessionConfirmation } from "@/wallet/session-confirmation";
 
-const previewTitle = "Link de pago de Orchid";
-const previewDescription = "Ábrelo para ver el pago y recibirlo en Orchid.";
-
 export const Route = createFileRoute("/r")({
   ssr: false,
   head: () => ({
     meta: linkPreviewMeta({
-      title: previewTitle,
-      description: previewDescription,
+      title: m.receive_preview_title(),
+      description: m.receive_preview_description(),
       path: "/r",
       image: "/og-payment-link.png",
     }),
@@ -61,6 +61,7 @@ type ReceiveStep = Data.TaggedEnum<{
   Reading: {};
   Offered: { readonly open: PaymentLinkOpen };
   ExternalClaiming: { readonly open: PaymentLinkOpen };
+  PayingOut: { readonly open: PaymentLinkOpen };
   Enrolling: { readonly open: PaymentLinkOpen };
   Preparing: { readonly open: PaymentLinkOpen };
   SessionNeeded: { readonly open: PaymentLinkOpen };
@@ -123,13 +124,12 @@ function PaymentLinkPage() {
           screen={{
             title:
               fragment === ""
-                ? "Falta parte del link"
-                : "Este link está incompleto",
-            message:
-              "Copia el link completo del mensaje que te enviaron y ábrelo de nuevo.",
+                ? m.receive_link_missing_title()
+                : m.receive_link_incomplete_title(),
+            message: m.receive_link_copy_whole(),
           }}
         >
-          <ResultLink link={<Link to="/" />}>Ir al inicio</ResultLink>
+          <ResultLink link={<Link to="/" />}>{m.receive_go_start()}</ResultLink>
         </LinkResultScreen>
       </Screen>
     ),
@@ -263,7 +263,7 @@ function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
     Reading: () => (
       <Screen>
         <p role="status" className="sr-only">
-          Revisando el link…
+          {m.enrollment_checking_link()}
         </p>
       </Screen>
     ),
@@ -273,7 +273,7 @@ function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
         <main data-testid="link-offer" className="flex flex-1 flex-col px-5">
           <BloomHero
             motion="bloom"
-            label={`@${open.sender.username} te envió`}
+            label={m.receive_sender_sent({ username: open.sender.username })}
             amount={amountLabel(open.amount, open.asset)}
           />
         </main>
@@ -283,16 +283,35 @@ function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
             data-testid="receive-link"
             onClick={() => receive(open)}
           >
-            Recibir en Orchid
+            {m.receive_in_orchid()}
           </Button>
-          <Button
-            className="w-full"
-            variant="secondary"
-            data-testid="claim-external"
-            onClick={() => setStep(ReceiveStep.ExternalClaiming({ open }))}
-          >
-            Enviar a otra dirección
-          </Button>
+          <div className="flex w-full flex-wrap items-center justify-center gap-x-1">
+            <span className="text-caption text-muted-foreground">
+              {m.receive_other_ways()}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="receive-yape"
+              onClick={() => setStep(ReceiveStep.PayingOut({ open }))}
+            >
+              <img
+                src="/cash-out/logos/yape.png"
+                alt=""
+                className="size-5 rounded-sm"
+              />
+              {m.receive_yape()}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="claim-external"
+              onClick={() => setStep(ReceiveStep.ExternalClaiming({ open }))}
+            >
+              <WalletIcon className="text-icon-muted" />
+              {m.receive_elsewhere()}
+            </Button>
+          </div>
         </BloomActions>
       </Screen>
     ),
@@ -304,10 +323,22 @@ function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
         onRecheck={read}
       />
     ),
+    PayingOut: ({ open }) => (
+      <PayoutFlow
+        code={code}
+        open={open}
+        onBack={() => setStep(ReceiveStep.Offered({ open }))}
+        onRecheck={read}
+      />
+    ),
     Enrolling: ({ open }) => (
       <PasskeyBrowserGate>
         <EnrollmentFlow
-          title="Recibe tu dinero"
+          title={m.receive_title()}
+          incoming={m.receive_incoming({
+            amount: amountLabel(open.amount, open.asset),
+            username: open.sender.username,
+          })}
           back={() => ({
             onClick: () => setStep(ReceiveStep.Offered({ open })),
           })}
@@ -355,7 +386,7 @@ function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
         <main role="status" className="flex flex-1 flex-col px-5">
           <BloomHero
             motion="breathe"
-            label="Recibiendo tu dinero…"
+            label={m.receive_receiving()}
             amount={amountLabel(shown.amount, shown.asset)}
           />
         </main>
@@ -371,14 +402,20 @@ function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
             data-outcome={outcome}
             className="flex flex-1 flex-col px-5"
           >
-            <BloomHero motion="flourish" label="Recibiste" amount={received}>
+            <BloomHero
+              motion="flourish"
+              label={m.receive_received()}
+              amount={received}
+            >
               <p className="text-body text-muted-foreground">
                 {screen.message}
               </p>
             </BloomHero>
           </main>
           <BloomActions>
-            <ResultLink link={<Link to="/home" />}>Ir a mi cuenta</ResultLink>
+            <ResultLink link={<Link to="/home" />}>
+              {m.receive_go_account()}
+            </ResultLink>
           </BloomActions>
         </Screen>
       ) : (
@@ -387,17 +424,21 @@ function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
             {Match.value(screen.action).pipe(
               Match.when("home", () => (
                 <ResultLink link={<Link to="/home" />}>
-                  Ir a mi cuenta
+                  {m.receive_go_account()}
                 </ResultLink>
               )),
               Match.when("again", () => (
-                <ResultButton onClick={read}>Reintentar</ResultButton>
+                <ResultButton onClick={read}>{m.common_retry()}</ResultButton>
               )),
               Match.when("check", () => (
-                <ResultButton onClick={read}>Revisar de nuevo</ResultButton>
+                <ResultButton onClick={read}>
+                  {m.receive_check_again()}
+                </ResultButton>
               )),
               Match.when("done", () => (
-                <ResultLink link={<Link to="/" />}>Ir al inicio</ResultLink>
+                <ResultLink link={<Link to="/" />}>
+                  {m.receive_go_start()}
+                </ResultLink>
               )),
               Match.exhaustive,
             )}
@@ -430,12 +471,16 @@ function ReceiveReview({
         aria-busy={!ready}
         className="flex flex-1 flex-col px-5"
       >
-        <BloomHero motion="rest" label={`De @${sender}`} amount={amount}>
+        <BloomHero
+          motion="rest"
+          label={m.receive_from({ username: sender })}
+          amount={amount}
+        >
           <div className="flex h-6 items-center">
             {testnet ? <Badge variant="neutral">Testnet</Badge> : null}
           </div>
           <p className="text-body text-pretty text-muted-foreground">
-            El dinero pasa a tu cuenta y el link deja de funcionar.
+            {m.receive_review_note()}
           </p>
           {Option.isSome(problem) ? (
             <p role="alert" className="text-body text-destructive">
@@ -451,7 +496,7 @@ function ReceiveReview({
           disabled={!ready}
           onClick={onConfirm}
         >
-          Recibir con passkey
+          {m.receive_with_passkey()}
         </Button>
       </BloomActions>
     </Screen>

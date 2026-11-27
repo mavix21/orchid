@@ -60,6 +60,15 @@ _Avoid_: Link secret.
 **Payment request**: A public ask to be paid an asset amount, with an optional note, that its requester shares as a link. It names the requester by username, carries no secret and puts nothing on the network. It is **open** while it waits to be paid, **paid** once it has been, or **cancelled** once its requester withdraws it while open. It is paid only by the Orchid payment bound to it, once that payment settles. The binding is made before the payment can be approved and lasts until the payment settles or can no longer be approved or settle, so a request cannot be cancelled while bound and a cancelled request stays cancelled; money sent any other way is an ordinary payment the request does not know about. It can be paid only directly into the requester's wallet, never as **Unclaimed funds**.
 _Avoid_: **Payment link**, which carries a **Link code** for **Unclaimed funds**; invoice; charge.
 
+**Payout**: Receiving a **Payment link** in local currency at a **Payout destination**: the link's **Unclaimed funds** are claimed on the network to the **Payout partner**'s deposit address, and the partner pays the quoted local amount. A payout is **sending** until that claim settles, **processing** while the partner pays, **completed** once the partner has paid, and **failed** if the claim does not settle.
+_Avoid_: Withdrawal, cash-out, off-ramp.
+
+**Payout partner**: The company that receives a payout's funds on the network and pays its local amount. Until Orchid has a licensed partner, a **simulated partner** stands in on testnet: an Orchid-controlled address receives the funds and nobody is paid.
+
+**Payout destination**: Where the partner pays a payout, such as a Yape account identified by a Peruvian mobile number. It never goes on the network and is never shown to the link's sender.
+
+**Payout quote**: The local-currency amount, such as S/ 187.40, that the partner pays for a link's asset amount.
+
 **Asset order**: A uniquely identified instruction to open or close a trustline, or claim **Unclaimed funds**.
 
 **Draft**: An unsigned transaction offered for approval before its expiry.
@@ -88,17 +97,23 @@ _Avoid_: Payment or transfer when the money did not go through Orchid.
 
 Product names in English:
 
-| Spanish       | English         |
-| ------------- | --------------- |
-| Ahorro        | Savings         |
-| Mis links     | My links        |
-| Link de pago  | Payment link    |
-| Link de cobro | Payment request |
-| Pendiente     | Open            |
-| Pagado        | Paid            |
-| Cancelado     | Cancelled       |
-| Inicio        | Home            |
-| Actividad     | Activity        |
-| Enviar        | Send            |
-| Recibir       | Receive         |
-| Ajustes       | Settings        |
+| Spanish         | English         |
+| --------------- | --------------- |
+| Ahorro          | Savings         |
+| Mis links       | My links        |
+| Link de pago    | Payment link    |
+| Link de cobro   | Payment request |
+| Pendiente       | Open            |
+| Pagado          | Paid            |
+| Cancelado       | Cancelled       |
+| Inicio          | Home            |
+| Actividad       | Activity        |
+| Enviar          | Send            |
+| Recibir         | Receive         |
+| Ajustes         | Settings        |
+| Recibir en Yape | Receive in Yape |
+| Enviando        | Sending         |
+| En proceso      | Processing      |
+| Completado      | Completed       |
+| Fallido         | Failed          |
+| Simulación      | Simulation      |

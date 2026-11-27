@@ -19,6 +19,7 @@ import {
   LinkUnclaimable,
   NotClaimable,
   PaymentLinkChecking,
+  type PayoutTerms,
   RecipientCannotReceive,
   type SigningRequest,
 } from "../contract";
@@ -118,6 +119,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
     return Effect.fn("Wallet.claimPaymentLink")(function* (
       order: ExternalLinkOrder,
       approval: Option.Option<Approval>,
+      payout: Option.Option<PayoutTerms> = Option.none(),
     ): Effect.fn.Return<ExternalLinkStep, StoreFailure | ChainUnreachable> {
       if (!chain.validAddress(order.link))
         return new InvalidAddress({ address: order.link });
@@ -125,7 +127,7 @@ export const externalLinkClaimFlow = (shared: LinkReceiveShared) =>
       if (!chain.validAddress(order.destination))
         return new InvalidAddress({ address: order.destination });
 
-      const storedOrder = toStoredExternalOrder(order);
+      const storedOrder = toStoredExternalOrder(order, payout);
       const existing = yield* orders.find(order.id);
 
       if (Option.isSome(existing)) {

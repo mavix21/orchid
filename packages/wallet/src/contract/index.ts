@@ -30,6 +30,7 @@ import {
   type SessionStep,
 } from "./backup";
 import { UnclaimedFundsId } from "./unclaimed-funds";
+import type { WalletUnavailable } from "./failures";
 import { HumanCheckRefused, type HumanCheckToken } from "./human-check";
 import {
   AccountAddress,
@@ -58,6 +59,14 @@ import {
   PaymentRequestPaid,
   type PaymentRequestStep,
 } from "./payment-requests";
+import {
+  PayoutDestination,
+  PayoutQuote,
+  PayoutQuoteChanged,
+  type PayoutStep,
+  PayoutUnavailable,
+  LocalAmount,
+} from "./payouts";
 import { NeedsReopening, NotOpened, UnclaimedFunds } from "./standing";
 
 export * from "./approval";
@@ -65,6 +74,8 @@ export * from "./approval";
 export * from "./asset-orders";
 
 export * from "./assets";
+
+export * from "./failures";
 
 export * from "./backup";
 
@@ -79,6 +90,8 @@ export * from "./network-addresses";
 export * from "./payment-links";
 
 export * from "./payment-requests";
+
+export * from "./payouts";
 
 export * from "./standing";
 
@@ -689,6 +702,31 @@ export const ExternalLinkStep = Schema.Union([
 
 export type ExternalLinkStep = typeof ExternalLinkStep.Type;
 
+export class PayoutOrder extends Schema.Class<PayoutOrder>(
+  "@workspace/wallet/PayoutOrder",
+)({
+  claim: ExternalLinkOrder,
+  destination: PayoutDestination,
+  local: LocalAmount,
+}) {}
+
+export const PayoutQuoteStep = Schema.Union([
+  PayoutQuote,
+  PayoutUnavailable,
+  NotClaimable,
+  InvalidAddress,
+]);
+
+export type PayoutQuoteStep = typeof PayoutQuoteStep.Type;
+
+export const PayoutClaimStep = Schema.Union([
+  ...ExternalLinkStep.members,
+  PayoutQuoteChanged,
+  PayoutUnavailable,
+]);
+
+export type PayoutClaimStep = typeof PayoutClaimStep.Type;
+
 export class Balance extends Schema.Class<Balance>("@workspace/wallet/Balance")(
   {
     asset: Asset,
@@ -715,59 +753,6 @@ export const Overview = Schema.Union([
 ]);
 
 export type Overview = typeof Overview.Type;
-
-export class Offline extends Schema.TaggedError<Offline>()("Offline", {}) {}
-
-export class ServerUnreachable extends Schema.TaggedError<ServerUnreachable>()(
-  "ServerUnreachable",
-  {},
-) {}
-
-export class LedgerUnreachable extends Schema.TaggedError<LedgerUnreachable>()(
-  "LedgerUnreachable",
-  {},
-) {}
-
-export class ServiceFailed extends Schema.TaggedError<ServiceFailed>()(
-  "ServiceFailed",
-  {},
-) {}
-
-export class InvalidResponse extends Schema.TaggedError<InvalidResponse>()(
-  "InvalidResponse",
-  {},
-) {}
-
-export class SessionRequired extends Schema.TaggedError<SessionRequired>()(
-  "SessionRequired",
-  {},
-) {}
-
-export class RateLimited extends Schema.TaggedError<RateLimited>()(
-  "RateLimited",
-  {},
-) {}
-
-export const ServerFailure = Schema.Union([
-  LedgerUnreachable,
-  ServiceFailed,
-  SessionRequired,
-  RateLimited,
-]);
-
-export type ServerFailure = typeof ServerFailure.Type;
-
-export const WalletUnavailable = Schema.Union([
-  Offline,
-  ServerUnreachable,
-  LedgerUnreachable,
-  ServiceFailed,
-  SessionRequired,
-  RateLimited,
-  InvalidResponse,
-]);
-
-export type WalletUnavailable = typeof WalletUnavailable.Type;
 
 export interface WalletPort<E = WalletUnavailable> {
   overview(address: AccountAddress): Effect.Effect<Overview, E>;
@@ -798,6 +783,12 @@ export interface WalletPort<E = WalletUnavailable> {
     sender: AccountAddress,
     receipt: PaymentLinkReceipt,
   ): Effect.Effect<ResolveReceiptStep, E>;
+  quotePayout(link: AccountAddress): Effect.Effect<PayoutQuoteStep, E>;
+  requestPayout(
+    order: PayoutOrder,
+    approval: Option.Option<Approval>,
+  ): Effect.Effect<PayoutClaimStep, E>;
+  payout(id: AssetOrderId): Effect.Effect<PayoutStep, E>;
   restoreChallenge(): Effect.Effect<PasskeyChallenge, E>;
   enrollmentChallenge(
     claim: WalletClaim,

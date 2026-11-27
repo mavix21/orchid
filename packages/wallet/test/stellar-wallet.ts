@@ -7,6 +7,7 @@ import type * as HttpClientError from "effect/http/HttpClientError";
 import type * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as TestClock from "effect/testing/TestClock";
 import { Chain } from "../src/server/Chain.server";
+import { PayoutPartner } from "../src/server/PayoutPartner.server";
 import { RateLimits } from "../src/server/RateLimits.server";
 import { Wallet } from "../src/server/Wallet.server";
 import {
@@ -15,7 +16,12 @@ import {
   rpcMethod,
   testRpcUrl,
 } from "./rpc-answering";
-import { fakeHumanCheck, recordingQueue, settingsFor } from "./wallet-harness";
+import {
+  fakeHumanCheck,
+  payoutCompletesAfter,
+  recordingQueue,
+  settingsFor,
+} from "./wallet-harness";
 
 export const stellarWallet = (
   reply: (
@@ -28,6 +34,7 @@ export const stellarWallet = (
     Layer.provide(RateLimits.unlimited),
     Layer.provide(fakeHumanCheck),
     Layer.provide(Layer.fresh(Chain.layer)),
+    Layer.provide(PayoutPartner.sandbox(payoutCompletesAfter)),
     Layer.provide(settingsFor(testRpcUrl)),
     Layer.provide(httpClientAnswering((req) => reply(rpcMethod(req), req))),
   );
