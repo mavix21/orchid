@@ -142,6 +142,7 @@ export const payoutFlow = (claims: PayoutClaims) =>
       if (Predicate.isTagged(receipt, "ExternalLinkSettled")) {
         const completedAt = yield* partner.completedAt({
           id,
+          terms,
           settledAt: receipt.settledAt,
         });
 

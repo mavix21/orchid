@@ -1,5 +1,7 @@
 import * as Effect from "effect/Effect";
-import type * as Ref from "effect/Ref";
+import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import {
   type AssetOrderId,
   type LocalAmount,
@@ -32,7 +34,17 @@ type PayoutPort = Pick<
   "paymentLink" | "quotePayout" | "requestPayout" | "payout"
 >;
 
-export function devicePayouts(port: PayoutPort, state: Ref.Ref<ClaimIssue>) {
+const payoutReviewJson = Schema.encodeSync(Schema.fromJsonString(PayoutReview));
+
+export interface PayoutIssue {
+  readonly claim: Ref.Ref<ClaimIssue>;
+  readonly issued: Ref.Ref<Option.Option<string>>;
+}
+
+export function devicePayouts(
+  port: PayoutPort,
+  { claim: state, issued }: PayoutIssue,
+) {
   const claimsFor = (destination: PayoutDestination, local: LocalAmount) =>
     deviceExternalLinkClaim<PayoutQuoteChanged | PayoutUnavailable>(
       {
@@ -52,10 +64,16 @@ export function devicePayouts(port: PayoutPort, state: Ref.Ref<ClaimIssue>) {
       outcome: Effect.Success<
         ReturnType<ReturnType<typeof claimsFor>["review"]>
       >,
-    ): ReviewPayoutOutcome =>
-      outcome instanceof ExternalLinkReview
-        ? new PayoutReview({ claim: outcome, destination, local })
-        : outcome;
+    ): Effect.Effect<ReviewPayoutOutcome> => {
+      if (!(outcome instanceof ExternalLinkReview))
+        return Effect.succeed(outcome);
+
+      const review = new PayoutReview({ claim: outcome, destination, local });
+
+      return Ref.set(issued, Option.some(payoutReviewJson(review))).pipe(
+        Effect.as(review),
+      );
+    };
 
   const quote = Effect.fn("Device.quotePayout")(function* (
     code: LinkCode,
@@ -86,15 +104,24 @@ export function devicePayouts(port: PayoutPort, state: Ref.Ref<ClaimIssue>) {
         code,
         new ExternalLinkIntent({ destination: quoted.depositAddress }),
       )
-      .pipe(Effect.map(reviewed(destination, quoted.local)));
+      .pipe(Effect.flatMap(reviewed(destination, quoted.local)));
 
-  const confirm = (
+  const confirm = Effect.fn("Device.confirmPayout")(function* (
     shown: PayoutReview,
     code: LinkCode,
-  ): Effect.Effect<ConfirmPayoutOutcome, WalletUnavailable> =>
-    claimsFor(shown.destination, shown.local)
-      .confirm(shown.claim, code)
-      .pipe(Effect.map(reviewed(shown.destination, shown.local)));
+  ): Effect.fn.Return<ConfirmPayoutOutcome, WalletUnavailable> {
+    const current = yield* Ref.getAndSet(issued, Option.none());
+
+    if (!Option.contains(current, payoutReviewJson(shown)))
+      return new DraftRejected();
+
+    const outcome = yield* claimsFor(shown.destination, shown.local).confirm(
+      shown.claim,
+      code,
+    );
+
+    return yield* reviewed(shown.destination, shown.local)(outcome);
+  });
 
   const follow = (
     id: AssetOrderId,

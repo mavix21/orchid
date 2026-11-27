@@ -1,5 +1,6 @@
 import {
   type Asset,
+  ExternalLinkFailed,
   type PayoutQuote,
   type PayoutQuoteChanged,
   type PayoutReview,
@@ -23,6 +24,20 @@ export type PayoutConclusion =
   | Exclude<ReviewPayoutOutcome, PayoutReview | PayoutQuoteChanged>
   | DeviceFailure;
 
+export const payoutFailedScreen = () =>
+  new LinkScreen<ExternalClaimAction>(
+    m.payout_failed_title(),
+    m.payout_failed_note(),
+    "check",
+  );
+
+export const payoutNotFoundScreen = () =>
+  new LinkScreen<ExternalClaimAction>(
+    m.payout_not_found_title(),
+    m.payout_not_found_note(),
+    "check",
+  );
+
 export const payoutScreen = (
   outcome: PayoutConclusion,
   asset: Asset,
@@ -33,18 +48,20 @@ export const payoutScreen = (
         m.payout_unavailable_note(),
         "done",
       )
-    : Match.valueTags(reviewExternalResult(outcome, asset), {
-        Concluded: ({ screen }) => screen,
-        Field: () =>
-          new LinkScreen<ExternalClaimAction>(
-            m.payout_failed_title(),
-            m.payout_not_sent(),
-            "check",
-          ),
-        RetryLookup: () =>
-          new LinkScreen<ExternalClaimAction>(
-            m.payout_failed_title(),
-            m.payout_not_sent(),
-            "check",
-          ),
-      });
+    : outcome instanceof ExternalLinkFailed
+      ? payoutFailedScreen()
+      : Match.valueTags(reviewExternalResult(outcome, asset), {
+          Concluded: ({ screen }) => screen,
+          Field: () =>
+            new LinkScreen<ExternalClaimAction>(
+              m.payout_failed_title(),
+              m.payout_not_sent(),
+              "check",
+            ),
+          RetryLookup: () =>
+            new LinkScreen<ExternalClaimAction>(
+              m.payout_failed_title(),
+              m.payout_not_sent(),
+              "check",
+            ),
+        });

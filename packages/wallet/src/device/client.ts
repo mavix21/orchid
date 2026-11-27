@@ -104,8 +104,12 @@ export function makeWalletEffects(
     issued: Option.none(),
   });
 
+  const issuedPayout = Ref.makeUnsafe(Option.none<string>());
+
   const payouts = loadFromServer(() => import("./payouts")).pipe(
-    Effect.map(({ devicePayouts }) => devicePayouts(port, payoutIssue)),
+    Effect.map(({ devicePayouts }) =>
+      devicePayouts(port, { claim: payoutIssue, issued: issuedPayout }),
+    ),
   );
 
   const opening = loadFromServer(() => import("./opening")).pipe(

@@ -236,7 +236,6 @@
   "payout_review_free": "Free",
   "payout_review_note": "The link stops working and the money goes to the payout partner.",
   "payout_confirm": "Send to Yape",
-  "payout_edit": "Edit",
   "payout_redrafted": "The previous payout expired and we prepared it again. Review it and confirm again.",
   "payout_quote_changed": "The amount in soles changed. Check the new amount before you continue.",
   "payout_status_title": "Your money is on its way to Yape",

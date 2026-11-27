@@ -12,6 +12,7 @@ import {
   type Asset,
   type AssetOrderId,
   LocalAmount,
+  type PayoutTerms,
   type PositiveAmount,
   baseAsset,
   precisionOf,
@@ -22,6 +23,7 @@ import { WalletSettings } from "./settings.server";
 
 export interface SettledPayout {
   readonly id: AssetOrderId;
+  readonly terms: PayoutTerms;
   readonly settledAt: DateTime.Utc;
 }
 
@@ -56,9 +58,9 @@ export class PayoutPartner extends Context.Service<
     );
 }
 
-export const sandboxCentimosPerDollar = 375n;
+const sandboxCentimosPerDollar = 375n;
 
-export const sandboxPartner = (
+const sandboxPartner = (
   depositAddress: AccountAddress,
   completesAfter: Duration.Input,
 ) =>

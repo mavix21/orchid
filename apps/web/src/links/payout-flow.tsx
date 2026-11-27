@@ -37,7 +37,7 @@ import {
   ResultButton,
   ResultLink,
 } from "@/links/link-result";
-import { LinkScreen } from "@/links/outcomes";
+import type { LinkScreen } from "@/links/outcomes";
 import { m } from "@/paraglide/messages";
 import { amountLabel } from "@/send/money";
 import { ReviewRow } from "@/send/payment-review";
@@ -46,7 +46,12 @@ import { walletEffects } from "@/wallet";
 
 import type { ExternalClaimAction } from "./external-claim-outcomes";
 import { localAmountLabel, mobileDigits, mobileLabel } from "./payout-labels";
-import { type PayoutConclusion, payoutScreen } from "./payout-outcomes";
+import {
+  type PayoutConclusion,
+  payoutFailedScreen,
+  payoutNotFoundScreen,
+  payoutScreen,
+} from "./payout-outcomes";
 import { PayoutTracker, SimulationNotice } from "./payout-status";
 
 const followInterval = 2000;
@@ -71,9 +76,6 @@ type PayoutFlowStep = Data.TaggedEnum<{
 }>;
 
 const PayoutFlowStep = Data.taggedEnum<PayoutFlowStep>();
-
-const settledOrPending = (tag: string) =>
-  tag === "ExternalLinkSettled" || tag === "ExternalLinkPending";
 
 const finished = (status: Option.Option<PayoutStep>) =>
   Option.exists(status, (found) =>
@@ -151,11 +153,15 @@ export function PayoutFlow({
               setStep(
                 PayoutFlowStep.Concluded({
                   outcome: "PayoutFailed",
-                  screen: new LinkScreen<ExternalClaimAction>(
-                    m.payout_failed_title(),
-                    m.payout_failed_note(),
-                    "check",
-                  ),
+                  screen: payoutFailedScreen(),
+                }),
+              ),
+            ),
+            Match.tag("PayoutNotFound", () =>
+              setStep(
+                PayoutFlowStep.Concluded({
+                  outcome: "PayoutNotFound",
+                  screen: payoutNotFoundScreen(),
                 }),
               ),
             ),
@@ -191,6 +197,16 @@ export function PayoutFlow({
   };
 
   const confirm = (shown: PayoutReview) => {
+    const follow = () =>
+      setStep(
+        PayoutFlowStep.Following({
+          review: shown,
+          status: Option.none(),
+          confirming: false,
+          round: 0,
+        }),
+      );
+
     setStep(
       PayoutFlowStep.Following({
         review: shown,
@@ -210,18 +226,19 @@ export function PayoutFlow({
           ),
         ),
         Match.tag("PayoutQuoteChanged", ({ quote: fresh }) => requote(fresh)),
-        Match.orElse((outcome) =>
-          settledOrPending(outcome._tag)
-            ? setStep(
-                PayoutFlowStep.Following({
-                  review: shown,
-                  status: Option.none(),
-                  confirming: false,
-                  round: 0,
-                }),
-              )
-            : conclude(outcome),
-        ),
+        Match.tags({
+          ExternalLinkSettled: follow,
+          ExternalLinkPending: follow,
+          Offline: follow,
+          ServerUnreachable: follow,
+          LedgerUnreachable: follow,
+          ServiceFailed: follow,
+          SessionRequired: follow,
+          RateLimited: follow,
+          InvalidResponse: follow,
+          DeviceFailure: follow,
+        }),
+        Match.orElse(conclude),
       ),
     );
   };
