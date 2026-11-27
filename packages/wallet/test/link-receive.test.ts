@@ -28,9 +28,11 @@ import { CleanUpReceivedLink } from "../src/server/work-queue.server";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { draftLinkReceive } from "../src/stellar/link-receive";
 import { network, usdc } from "../src/stellar/network";
-import { fundLink, linkAmount } from "./link-fixtures";
+import { sandboxPartnerKeypair } from "../src/stellar/sandbox-partner";
 import { assertTagged } from "./tagged";
 import {
+  fundLink,
+  linkAmount,
   accountState,
   addressOf,
   amount,
@@ -45,7 +47,12 @@ import {
   useDisposableDatabase,
   walletTestLayer,
   world,
-} from "./wallet-harness";
+  exchangeMemos,
+  activityOf,
+  claimExternally,
+  feePayer,
+  username,
+} from "./stellar-harness";
 
 const envelopeBalance = Schema.decodeSync(UnclaimedFundsId)(
   `00000000${"a".repeat(64)}`,
@@ -86,7 +93,7 @@ const registerExchange = (address: AccountAddress) => {
     source: "https://stellar.org/protocol/sep-29",
   });
 
-  world.exchangeMemos.push(entry);
+  exchangeMemos.push(entry);
 
   return entry;
 };
@@ -260,6 +267,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           world.accounts.set(addressOf(link), accountState());
 
+          const quote = yield* wallet.quotePayout(addressOf(link));
+
+          assertTagged(quote, "PayoutQuote");
+          expect(quote.depositAddress).toBe(
+            sandboxPartnerKeypair(feePayer).publicKey(),
+          );
+
           const claim = claimOrder();
           const drafted = yield* wallet.claimPaymentLink(claim, Option.none());
 
@@ -320,6 +334,33 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(listed.received.map((entry) => entry.address)).toEqual([
             addressOf(link),
           ]);
+        }),
+    );
+
+    it.effect(
+      "lists a link claimed to a wallet's muxed address as that wallet's claim",
+      () =>
+        Effect.gen(function* () {
+          const funded = yield* fundLink("muxedfunder");
+          const claimer = addressOf(yield* fundedWallet("muxedclaimer"));
+
+          yield* claimExternally(
+            funded.wallet,
+            funded,
+            Schema.decodeSync(DestinationAddress)(
+              new MuxedAccount(new Account(claimer, "0"), "42").accountId(),
+            ),
+          );
+
+          const claimed = yield* activityOf(funded.wallet, claimer);
+
+          expect(claimed.entries).toHaveLength(1);
+
+          const [entry] = claimed.entries;
+
+          assertTagged(entry, "ClaimedLinkActivity");
+          expect(entry.from.username).toBe(username("muxedfunder"));
+          expect(entry.amount).toBe(linkAmount);
         }),
     );
 

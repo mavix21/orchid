@@ -39,9 +39,9 @@ import {
   installSealedWallet,
   sealedKeyStore,
 } from "./sealed-wallet-fixtures";
-import { settleOnSubmit } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {
+  settleOnSubmit,
   addressOf,
   amount,
   approve,
@@ -56,7 +56,8 @@ import {
   useDisposableDatabase,
   walletTestLayer,
   world,
-} from "./wallet-harness";
+  recordClaimableBalance,
+} from "./stellar-harness";
 
 const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");
 
@@ -264,7 +265,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             (yield* savedWallet(sealedKeyStore)).linkReceipt?.unclaimedFunds,
           ).toBe(receipt.unclaimedFunds);
 
-          world.claimables.set(receipt.unclaimedFunds, {
+          recordClaimableBalance({
             unclaimedFunds: receipt.unclaimedFunds,
             asset: baseAsset,
             amount: linkAmount,
@@ -380,7 +381,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             `00000000${"9".repeat(64)}`,
           );
 
-          world.claimables.set(unclaimedFunds, {
+          recordClaimableBalance({
             unclaimedFunds,
             asset: euro,
             amount: linkAmount,
@@ -467,7 +468,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             Option.fromNullishOr(world.submitted.at(-1)),
           );
 
-          world.claimables.set(inflightBalance, {
+          recordClaimableBalance({
             unclaimedFunds: inflightBalance,
             asset: baseAsset,
             amount: linkAmount,
@@ -540,7 +541,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             attempts: [balanceB],
           });
 
-          world.claimables.set(balanceA, {
+          recordClaimableBalance({
             unclaimedFunds: balanceA,
             asset: baseAsset,
             amount: linkAmount,
@@ -550,7 +551,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               new Claimant(sender.address, Claimant.predicateUnconditional()),
             ],
           });
-          world.claimables.set(balanceB, {
+          recordClaimableBalance({
             unclaimedFunds: balanceB,
             asset: baseAsset,
             amount: linkAmount,

@@ -8,7 +8,7 @@ import type * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { HumanCheckRefused, HumanCheckToken } from "../src/contract";
 import { HumanCheck } from "../src/server/HumanCheck.server";
 import { WalletSettings } from "../src/server/settings.server";
-import { bodyText, httpClientAnswering, jsonResponse } from "./rpc-answering";
+import { bodyText, httpClientAnswering, jsonResponse } from "./http-answering";
 
 const secret = "siteverify-secret";
 const token = Schema.decodeSync(HumanCheckToken)("token-from-the-widget");

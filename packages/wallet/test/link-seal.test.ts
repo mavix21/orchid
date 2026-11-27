@@ -1,11 +1,10 @@
 import { expect, it } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { CredentialId } from "../src/contract";
-import { generateLinkCode } from "../src/device/link-code";
+import { generateLinkCode, linkAddressOf } from "../src/device/link-code";
 import {
   type LinkSealContext,
   SealedLinkCode,
@@ -14,18 +13,18 @@ import {
   sealLinkCode,
 } from "../src/device/link-seal";
 import { canonicalTuple } from "../src/device/canonical-digest";
-import { network } from "../src/stellar/network";
-import { addressOf, linkFixture } from "./device-fixtures";
+import { network } from "../src/device-network";
 import { assertTagged } from "./tagged";
+import { randomAddress } from "./test-keys";
 
 const encoder = new TextEncoder();
-const { code, keypair: linkKey } = linkFixture();
-const otherLink = addressOf(Keypair.random());
+const code = generateLinkCode();
+const otherLink = randomAddress();
 
 const context: LinkSealContext = {
   network,
-  wallet: addressOf(Keypair.random()),
-  address: addressOf(linkKey),
+  wallet: randomAddress(),
+  address: Option.getOrThrow(linkAddressOf(code)),
   credentialId: Schema.decodeSync(CredentialId)("Y3JlZGVudGlhbA"),
 };
 

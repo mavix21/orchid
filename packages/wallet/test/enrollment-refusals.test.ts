@@ -23,14 +23,14 @@ import { clearDatabase, relyingParty } from "./sealed-wallet-fixtures";
 import { settlingOpenings } from "./settling-openings";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
+
+import { memoryPendingStorage, tableRows } from "./enrollment-fixtures";
 import {
   passkeyOrigin,
   useDisposableDatabase,
   walletTestLayer,
   world,
-} from "./wallet-harness";
-
-import { memoryPendingStorage, tableRows } from "./enrollment-fixtures";
+} from "./stellar-harness";
 
 const enrollmentFor = (
   port: WalletPort,

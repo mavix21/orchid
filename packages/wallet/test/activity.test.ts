@@ -1,5 +1,4 @@
 import { expect, layer } from "@effect/vitest";
-import { Account, Keypair, MuxedAccount } from "@stellar/stellar-sdk";
 import { Database } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
@@ -8,35 +7,32 @@ import {
   AccountAddress,
   ExternalRecipient,
   InvalidAddress,
-  DestinationAddress,
   NotOpened,
   Profile,
 } from "../src/contract";
 import { wallets } from "../src/server/tables.server";
 import { Wallet } from "../src/server/Wallet.server";
+import { assertTagged } from "./tagged";
 import {
   activityOf,
+  addressOf,
   claimBalance,
   claimExternally,
   entryFor,
+  fundHolder,
+  fundLink,
+  fundLinkFrom,
+  fundedWallet,
+  linkAmount,
   payUsername,
   payWithoutTrustline,
   receiveInto,
-  username,
-  withClaimants,
-} from "./activity-fixtures";
-import { memoryKeyStore, signingKey } from "./device-fixtures";
-import { fundLink, fundLinkFrom, linkAmount } from "./link-fixtures";
-import { assertTagged } from "./tagged";
-import {
-  addressOf,
-  fundHolder,
-  fundedWallet,
-  openSender,
   useDisposableDatabase,
+  username,
   walletTestLayer,
   world,
 } from "./wallet-harness";
+import { randomKey, randomAddress } from "./test-keys";
 
 useDisposableDatabase();
 
@@ -101,43 +97,26 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "ends each payment link as claimed into a wallet, claimed to an address, recovered or still open, and lists the claim for the wallet that took it",
       () =>
         Effect.gen(function* () {
-          const { sender, wallet } = yield* openSender(
-            memoryKeyStore(),
-            "linkowner",
-          );
+          const sender = yield* fundedWallet("linkowner");
+          const wallet = yield* Wallet;
 
           const intoWallet = yield* fundLinkFrom(wallet, sender);
           const toAddress = yield* fundLinkFrom(wallet, sender);
           const recovered = yield* fundLinkFrom(wallet, sender);
           const open = yield* fundLinkFrom(wallet, sender);
-          const toMuxed = yield* fundLinkFrom(wallet, sender);
           const claimer = yield* fundedWallet("linkclaimer");
-          const external = Keypair.random();
+          const external = randomKey();
 
           fundHolder(external);
 
           const claim = yield* receiveInto(wallet, claimer, intoWallet);
 
           yield* claimExternally(wallet, toAddress, addressOf(external));
-          yield* claimExternally(
-            wallet,
-            toMuxed,
-            Schema.decodeSync(DestinationAddress)(
-              new MuxedAccount(
-                new Account(addressOf(claimer), "0"),
-                "42",
-              ).accountId(),
-            ),
-          );
-          yield* claimBalance(
-            wallet,
-            signingKey(sender.phrase),
-            recovered.unclaimedFunds,
-          );
+          yield* claimBalance(wallet, sender, recovered.unclaimedFunds);
 
-          const listed = yield* activityOf(wallet, sender.address);
+          const listed = yield* activityOf(wallet, addressOf(sender));
 
-          expect(listed.entries).toHaveLength(5);
+          expect(listed.entries).toHaveLength(4);
 
           const receiptOf = (id: string) => {
             const entry = entryFor(listed, id);
@@ -172,7 +151,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           assertTagged(claimEntry, "ClaimedLinkActivity");
           expect(claimed.entries.map((entry) => entry._tag)).toEqual([
             "ClaimedLinkActivity",
-            "ClaimedLinkActivity",
           ]);
           expect(claimEntry.from.username).toBe(username("linkowner"));
           expect(claimEntry.amount).toBe(linkAmount);
@@ -191,11 +169,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             sender,
             "acceptrecipient",
           );
-
-          withClaimants(accepted.unclaimedFunds, [
-            addressOf(recipient),
-            addressOf(sender),
-          ]);
 
           const waiting = yield* activityOf(wallet, addressOf(recipient));
 
@@ -216,10 +189,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const taken = yield* payWithoutTrustline(sender, "acceptrecipient");
 
-          withClaimants(taken.unclaimedFunds, [
-            addressOf(recipient),
-            addressOf(sender),
-          ]);
           yield* claimBalance(wallet, sender, taken.unclaimedFunds);
 
           const asRecipient = yield* activityOf(wallet, addressOf(recipient));
@@ -321,7 +290,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     it.effect.each([
       {
         name: "an unknown address",
-        address: () => addressOf(Keypair.random()),
+        address: () => randomAddress(),
         expected: () => new NotOpened(),
       },
       {

@@ -4,9 +4,9 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AssetOrder, AssetOrderId, ReceiveLink } from "../src/contract";
 import { readEnvelope } from "../src/stellar/envelopes";
-import { fundLink } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {
+  fundLink,
   accountState,
   addressOf,
   approve,
@@ -14,7 +14,7 @@ import {
   useDisposableDatabase,
   walletTestLayer,
   world,
-} from "./wallet-harness";
+} from "./stellar-harness";
 
 useDisposableDatabase();
 

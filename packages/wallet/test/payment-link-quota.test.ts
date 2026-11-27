@@ -1,5 +1,4 @@
 import { expect, layer } from "@effect/vitest";
-import { Claimant, Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import {
@@ -9,9 +8,7 @@ import {
 } from "../src/contract";
 import { Wallet } from "../src/server/Wallet.server";
 import { Transfers } from "../src/server/Transfers.server";
-import { readEnvelope } from "../src/stellar/envelopes";
 import { sweepBatchSize } from "../src/policy";
-import { linkAmount } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {
   accountState,
@@ -29,6 +26,7 @@ import {
   walletTestLayer,
   world,
 } from "./wallet-harness";
+import { randomAddress } from "./test-keys";
 
 useDisposableDatabase();
 
@@ -46,7 +44,7 @@ const linkSender = Effect.gen(function* () {
   const createLinkAt = Effect.fn(function* (sequence: string) {
     world.accounts.set(senderAddr, accountState({ sequence }));
 
-    const linkKey = addressOf(Keypair.random());
+    const linkKey = randomAddress();
 
     const order = orderFor(
       sender,
@@ -57,9 +55,10 @@ const linkSender = Effect.gen(function* () {
 
     assertTagged(draft, "TransferDraft");
 
-    const facts = Option.getOrThrow(readEnvelope(draft.request.envelope));
+    const unclaimedFunds = Option.getOrThrow(
+      Option.fromNullishOr(draft.unclaimedFunds),
+    );
 
-    assertTagged(facts, "PaymentLinkFacts");
     expect((yield* send(order, approve(draft.request, sender)))._tag).toBe(
       "Pending",
     );
@@ -68,20 +67,10 @@ const linkSender = Effect.gen(function* () {
 
     if (!submitted) throw new Error("Expected submission");
 
-    world.claimables.set(facts.unclaimedFunds, {
-      unclaimedFunds: facts.unclaimedFunds,
-      asset: baseAsset,
-      amount: linkAmount,
-      sponsored: true,
-      claimants: [
-        new Claimant(linkKey, Claimant.predicateUnconditional()),
-        new Claimant(senderAddr, Claimant.predicateUnconditional()),
-      ],
-    });
     settleHash(submitted.hash);
     yield* sweep;
 
-    return facts.unclaimedFunds;
+    return unclaimedFunds;
   });
 
   return { sender, senderAddr, createLinkAt };
@@ -135,7 +124,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const sixth = yield* send(
             orderFor(
               sender,
-              PaymentLinkRecipient.make({ value: addressOf(Keypair.random()) }),
+              PaymentLinkRecipient.make({ value: randomAddress() }),
             ),
           );
 
@@ -156,7 +145,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               orderFor(
                 sender,
                 PaymentLinkRecipient.make({
-                  value: addressOf(Keypair.random()),
+                  value: randomAddress(),
                 }),
               ),
             ),
@@ -181,7 +170,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const sixth = orderFor(
             sender,
-            PaymentLinkRecipient.make({ value: addressOf(Keypair.random()) }),
+            PaymentLinkRecipient.make({ value: randomAddress() }),
           );
 
           expect(yield* assess(sender, sixth)).toEqual(

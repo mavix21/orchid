@@ -40,6 +40,15 @@ export class PayoutPartner extends Context.Service<
     ): Effect.Effect<Option.Option<DateTime.Utc>>;
   }
 >()("@workspace/wallet/server/PayoutPartner") {
+  static readonly depositingTo = (
+    depositAddress: AccountAddress,
+    completesAfter: Duration.Input,
+  ) =>
+    Layer.succeed(
+      PayoutPartner,
+      sandboxPartner(depositAddress, completesAfter),
+    );
+
   static readonly sandbox = (completesAfter: Duration.Input) =>
     Layer.effect(
       PayoutPartner,

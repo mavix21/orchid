@@ -1,16 +1,13 @@
 import { expect, it } from "@effect/vitest";
 import { bech32, bech32m } from "@scure/base";
-import { Account, MuxedAccount } from "@stellar/stellar-sdk";
 import * as Option from "effect/Option";
 import { type AddressNetwork, recogniseAddress } from "../src/contract";
 
 const stellarAccount =
   "GDRXE2BQUC3AZNPVFSCEZ76NJ3WWL25FYFK6RGZGIEKWE4SOOHSUJUJ6";
 
-const stellarMuxed = new MuxedAccount(
-  new Account(stellarAccount, "0"),
-  "1",
-).accountId();
+const stellarMuxed =
+  "MDRXE2BQUC3AZNPVFSCEZ76NJ3WWL25FYFK6RGZGIEKWE4SOOHSUIAAAAAAAAAAAAESPG";
 
 const base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 

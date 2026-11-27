@@ -4,16 +4,30 @@ import { sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
-import { Profile, ServiceFailed } from "../src/contract";
+import * as DateTime from "effect/DateTime";
+import * as Schema from "effect/Schema";
+import {
+  ExternalRecipient,
+  PositiveAmount,
+  Profile,
+  ServiceFailed,
+  TransferOrder,
+} from "../src/contract";
+import { Chain } from "../src/server/Chain.server";
+import { Transfers } from "../src/server/Transfers.server";
 import { Directory } from "../src/server/Directory.server";
 import { ReconcileTransfer } from "../src/server/work-queue.server";
 import { assertTagged } from "./tagged";
+import { randomAddress } from "./test-keys";
 import {
   addressOf,
   approve,
   draftTransfer,
   findTransfer,
+  fundHolder,
   fundedWallet,
+  memoryChain,
+  overviewOf,
   selfOrder,
   send,
   settleHash,
@@ -249,6 +263,121 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           "Proposed",
         );
       }),
+    );
+
+    it.effect(
+      "near-expiry unsigned drafts refresh, while authorized bytes never change",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet();
+          const order = selfOrder(key);
+
+          yield* send(order);
+          yield* Database.use((db) =>
+            db.execute(
+              sql`update transfers set "expiresAt" = now() + interval '10 seconds' where id = ${order.id}`,
+            ),
+          );
+
+          const refreshed = yield* draftTransfer(order);
+
+          expect(
+            DateTime.toEpochMillis(refreshed.request.expiresAt),
+          ).toBeGreaterThan(Date.now() + 20_000);
+          yield* send(order, approve(refreshed.request, key));
+
+          const authorized = Option.getOrThrow(yield* findTransfer(order.id));
+
+          assertTagged(authorized, "Authorized");
+          expect(
+            yield* Transfers.use((s) =>
+              s.propose(
+                order,
+                new ExternalRecipient({ address: randomAddress() }),
+                refreshed.request,
+                Option.none(),
+              ),
+            ),
+          ).toEqual(authorized);
+
+          const changed = new TransferOrder({
+            ...order,
+            amount: Schema.decodeSync(PositiveAmount)("20000000"),
+          });
+
+          expect(yield* send(changed).pipe(Effect.flip)).toEqual(
+            new ServiceFailed(),
+          );
+          expect(Option.getOrThrow(yield* findTransfer(order.id))).toEqual(
+            authorized,
+          );
+        }),
+    );
+
+    it.effect(
+      "an unsigned newer draft cannot hide the latest authorized or settled receipt",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet();
+          const first = selfOrder(key);
+          const draft = yield* draftTransfer(first);
+
+          yield* send(selfOrder(key));
+          yield* send(first, approve(draft.request, key));
+
+          const pendingView = yield* overviewOf(addressOf(key));
+
+          assertTagged(pendingView, "Holding");
+          expect(Option.getOrThrow(pendingView.latest)._tag).toBe("Pending");
+          expect(Option.getOrThrow(pendingView.latest).id).toBe(first.id);
+
+          const signed = Option.getOrThrow(yield* findTransfer(first.id));
+
+          assertTagged(signed, "Authorized");
+          settleHash(signed.sealed.hash);
+          expect((yield* send(first))._tag).toBe("Settled");
+
+          const settledView = yield* overviewOf(addressOf(key));
+
+          assertTagged(settledView, "Holding");
+          expect(Option.getOrThrow(settledView.latest)._tag).toBe("Settled");
+          expect(Option.getOrThrow(settledView.latest).id).toBe(first.id);
+        }),
+    );
+
+    it.effect(
+      "a stale redraft cannot replace a concurrent durable authorization",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet();
+          const order = selfOrder(key);
+          const draft = yield* draftTransfer(order);
+          const proposed = Option.getOrThrow(yield* findTransfer(order.id));
+
+          assertTagged(proposed, "Proposed");
+          yield* send(order, approve(draft.request, key));
+
+          const authorized = Option.getOrThrow(yield* findTransfer(order.id));
+
+          assertTagged(authorized, "Authorized");
+          fundHolder(key, { sequence: "1001" });
+
+          const replacement = yield* Chain.use((c) =>
+            c.draftPayment(
+              order.from,
+              addressOf(key),
+              order.asset,
+              order.amount,
+            ),
+          ).pipe(Effect.provide(memoryChain));
+
+          const saved = yield* Transfers.use((s) =>
+            s.redraft(proposed, replacement, Option.none()),
+          );
+
+          assertTagged(saved, "Authorized");
+          expect(saved.sealed.envelope).toBe(authorized.sealed.envelope);
+        }),
     );
   },
 );

@@ -1,5 +1,4 @@
 import { expect, layer } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -33,6 +32,7 @@ import {
   walletForDb,
   walletTestLayer,
 } from "./wallet-harness";
+import { randomKey, randomAddress } from "./test-keys";
 
 const credentialId = Schema.decodeSync(CredentialId)("Y3JlZGVudGlhbA");
 
@@ -98,14 +98,16 @@ const receiving = (wallet: AccountAddress) =>
   order(wallet, ReceiveLink.make({ link: wallet, unclaimedFunds }));
 
 const signed = Option.some(
-  new Approval({ signature: Keypair.random().sign(Buffer.from("approval")) }),
+  new Approval({
+    signature: randomKey().sign(new TextEncoder().encode("approval")),
+  }),
 );
 
 const refusals = [
   {
     name: "another wallet's address",
     cookie: (own: AccountAddress) => tokenFor(own),
-    asking: () => addressOf(Keypair.random()),
+    asking: () => randomAddress(),
   },
   {
     name: "a missing cookie",
@@ -125,7 +127,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect("answers for the wallet its live session carries", () =>
       Effect.gen(function* () {
-        const own = addressOf(Keypair.random());
+        const own = randomAddress();
 
         const token = yield* tokenFor(own);
 
@@ -137,7 +139,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "refuses $name with SessionRequired",
       ({ cookie, asking }) =>
         Effect.gen(function* () {
-          const own = addressOf(Keypair.random());
+          const own = randomAddress();
           const presented = yield* cookie(own);
 
           const refusal = yield* Effect.flip(
@@ -152,7 +154,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "drafts a receive into a wallet still opening without a session, but never with an approval or another action",
       () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
+          const key = randomKey();
           const wallet = addressOf(key);
 
           assertTagged(yield* opening(claimFor(key, "nuevo")), "OpeningDraft");
@@ -210,8 +212,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     it.effect("meters each verified wallet against its own budget", () =>
       Effect.gen(function* () {
         const limits = budget(2);
-        const busy = addressOf(Keypair.random());
-        const quiet = addressOf(Keypair.random());
+        const busy = randomAddress();
+        const quiet = randomAddress();
         const busyCookie = Option.some(yield* tokenFor(busy));
         const quietCookie = Option.some(yield* tokenFor(quiet));
 
@@ -281,7 +283,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           const limits = budget(1);
-          const key = Keypair.random();
+          const key = randomKey();
           const wallet = addressOf(key);
 
           assertTagged(yield* opening(claimFor(key, "paso")), "OpeningDraft");

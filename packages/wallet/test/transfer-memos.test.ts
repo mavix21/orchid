@@ -35,7 +35,8 @@ import {
   useDisposableDatabase,
   walletTestLayer,
   world,
-} from "./wallet-harness";
+  exchangeMemos,
+} from "./stellar-harness";
 
 useDisposableDatabase();
 
@@ -47,7 +48,7 @@ const registerExchange = (address: AccountAddress) => {
     source: "https://example.com/fixtures/stellar-testnet-memo-required",
   });
 
-  world.exchangeMemos.push(entry);
+  exchangeMemos.push(entry);
 
   return entry;
 };
@@ -159,7 +160,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             "Proposed",
           );
 
-          world.exchangeMemos.length = 0;
+          exchangeMemos.length = 0;
           expect((yield* send(order, approve(draft.request, key)))._tag).toBe(
             "Pending",
           );

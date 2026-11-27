@@ -1,8 +1,4 @@
-import { hkdf } from "@noble/hashes/hkdf.js";
-import { sha256 } from "@noble/hashes/sha2.js";
-import { base58 } from "@scure/base";
 import { mnemonicToSeedSync } from "@scure/bip39";
-import { Account, Keypair, MuxedAccount } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -10,22 +6,17 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { HDKey } from "micro-key-producer/slip10.js";
 import {
-  AccountAddress,
-  type Asset,
-  type UnclaimedFundsId,
-  DestinationAddress,
   type ExternalRecipient,
   type LinkRecipient,
-  type PaymentMemo,
-  PositiveAmount,
-  Profile,
+  type Profile,
   SigningRequest,
   TransferDraft,
+  type UnclaimedFundsId,
   type UnsignedEnvelope,
   Username,
   type WalletPort,
-  baseAsset,
 } from "../src/contract";
+import { signingScheme } from "../src/device-network";
 import {
   type KeyStore,
   KeyStoreUnavailable,
@@ -35,45 +26,16 @@ import {
   SecretPhrase,
   generateSecretPhrase,
 } from "../src/device/secret-phrase";
-import { type LinkCode, generateLinkCode } from "../src/device/link-code";
-import {
-  draftClaimable,
-  draftPaymentLink,
-} from "../src/stellar/asset-envelopes";
-import { draftPayment } from "../src/stellar/envelopes";
-import { networkPassphrase } from "../src/stellar/network";
-import { stellarSigningScheme } from "../src/stellar/signing-scheme";
-
-export const linkKeypairOf = (code: LinkCode) =>
-  Keypair.fromRawEd25519Seed(
-    Buffer.from(
-      hkdf(
-        sha256,
-        base58.decode(code).slice(1, 17),
-        new TextEncoder().encode("orchid-payment-link-code-v1"),
-        new TextEncoder().encode(networkPassphrase),
-        32,
-      ),
-    ),
-  );
-
-export const linkFixture = () => {
-  const code = generateLinkCode();
-
-  return { code, keypair: linkKeypairOf(code) };
-};
-
-export const addressOf = (key: Keypair) =>
-  Schema.decodeSync(AccountAddress)(key.publicKey());
+import { addressOf, keyFromSeed } from "./test-keys";
 
 export const knownPhrase = Schema.decodeSync(SecretPhrase)(
   "illness spike retreat truth genius clock brain pass fit cave bargain toe",
 );
 
 export const signingKey = (phrase: SecretPhrase) =>
-  Keypair.fromRawEd25519Seed(
+  keyFromSeed(
     HDKey.fromMasterSeed(mnemonicToSeedSync(phrase)).derive(
-      stellarSigningScheme.derivationPath,
+      signingScheme.derivationPath,
     ).privateKey,
   );
 
@@ -177,111 +139,6 @@ export const enrolledDeviceWallet = (name = "maria") => {
     username: Schema.decodeSync(Username)(name),
     backup: "stored",
   });
-};
-
-export const seededDeviceWallet = (
-  reserveSponsor = addressOf(Keypair.random()),
-) =>
-  new DeviceWallet({
-    phrase: knownPhrase,
-    address: addressOf(signingKey(knownPhrase)),
-    username: Schema.decodeSync(Username)("maria"),
-    reserveSponsor,
-    backup: "stored",
-  });
-
-export const sendActors = () => {
-  const sponsor = addressOf(Keypair.random());
-  const wallet = seededDeviceWallet(sponsor);
-  const exchange = addressOf(Keypair.random());
-  const pedro = addressOf(Keypair.random());
-  const stranger = addressOf(Keypair.random());
-
-  const pedroProfile = new Profile({
-    username: Schema.decodeSync(Username)("pedro"),
-    address: pedro,
-  });
-
-  return {
-    wallet,
-    sender: wallet.address,
-    sponsor,
-    exchange,
-    pedro,
-    stranger,
-    pedroProfile,
-    muxed: (id: string) =>
-      Schema.decodeSync(DestinationAddress)(
-        new MuxedAccount(new Account(exchange, "0"), id).accountId(),
-      ),
-    payment: (opts: {
-      readonly source?: AccountAddress;
-      readonly to: DestinationAddress;
-      readonly amount: PositiveAmount;
-      readonly asset?: Asset;
-      readonly memo?: PaymentMemo;
-      readonly sequence?: string;
-      readonly lifetime?: number;
-      readonly at?: number;
-    }) => {
-      const at = opts.at ?? nowSeconds();
-
-      return draftPayment({
-        source: new Account(
-          opts.source ?? wallet.address,
-          opts.sequence ?? "100",
-        ),
-        to: opts.to,
-        asset: opts.asset ?? baseAsset,
-        amount: opts.amount,
-        memo: opts.memo,
-        minTime: at,
-        maxTime: at + (opts.lifetime ?? 120),
-      });
-    },
-    claimable: (opts: {
-      readonly to: AccountAddress;
-      readonly amount: PositiveAmount;
-      readonly reserveSponsor?: AccountAddress;
-    }) => {
-      const at = nowSeconds();
-
-      return draftClaimable({
-        source: new Account(wallet.address, "100"),
-        reserveSponsor: opts.reserveSponsor ?? sponsor,
-        to: opts.to,
-        asset: baseAsset,
-        amount: opts.amount,
-        minTime: at,
-        maxTime: at + 120,
-      });
-    },
-    paymentLink: (opts: {
-      readonly source?: AccountAddress;
-      readonly to: AccountAddress;
-      readonly asset?: Asset;
-      readonly amount: PositiveAmount;
-      readonly reserveSponsor?: AccountAddress;
-      readonly sequence?: string;
-      readonly lifetime?: number;
-      readonly at?: number;
-    }) => {
-      const at = opts.at ?? nowSeconds();
-
-      return draftPaymentLink({
-        source: new Account(
-          opts.source ?? wallet.address,
-          opts.sequence ?? "100",
-        ),
-        reserveSponsor: opts.reserveSponsor ?? sponsor,
-        to: opts.to,
-        asset: opts.asset ?? baseAsset,
-        amount: opts.amount,
-        minTime: at,
-        maxTime: at + (opts.lifetime ?? 120),
-      });
-    },
-  };
 };
 
 export const transferDraftOf = (

@@ -1,5 +1,4 @@
 import { expect, layer } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
 import { Database } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
@@ -41,6 +40,7 @@ import {
   walletWithChain,
   world,
 } from "./wallet-harness";
+import { randomKey } from "./test-keys";
 
 useDisposableDatabase();
 
@@ -75,7 +75,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
     it.effect("the sweep never closes an empty open wallet", () =>
       Effect.gen(function* () {
-        const claim = yield* create(Keypair.random(), "maria");
+        const claim = yield* create(randomKey(), "maria");
         const initial = world.submitted.length;
 
         world.accounts.set(
@@ -175,7 +175,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const stuck = yield* Effect.forEach(names, (name) =>
             Effect.gen(function* () {
-              const key = Keypair.random();
+              const key = randomKey();
               const claim = claimFor(key, name);
               const hash = yield* sealLostOpening(key, claim);
 
@@ -266,10 +266,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "the sweep prunes expired unbound openings that nothing references",
       () =>
         Effect.gen(function* () {
-          const abandoned = claimFor(Keypair.random(), "abandoned");
-          const waiting = claimFor(Keypair.random(), "waiting");
-          const attempting = claimFor(Keypair.random(), "attempting");
-          const sealedKey = Keypair.random();
+          const abandoned = claimFor(randomKey(), "abandoned");
+          const waiting = claimFor(randomKey(), "waiting");
+          const attempting = claimFor(randomKey(), "attempting");
+          const sealedKey = randomKey();
           const sealed = claimFor(sealedKey, "sealed");
           const funded = yield* fundedWallet("bound");
 
