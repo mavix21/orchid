@@ -51,7 +51,8 @@ import {
   type Sealed,
 } from "./Chain.server";
 import { memoRefusal } from "./memo-refusal.server";
-import { Directory, StoreFailure } from "./Directory.server";
+import { Directory, StoreFailure, type WalletRow } from "./Directory.server";
+import { sealedOpening } from "./opening-attempt.server";
 import {
   Authorized,
   type Concluded,
@@ -119,7 +120,7 @@ export class Wallet extends Context.Service<
         program.pipe(Effect.catchCause(concealFailure));
 
       const { readBalance } = yield* confirmedReads;
-      const { open, resume } = yield* openingFlow;
+      const { open, resume, reconcileOpening } = yield* openingFlow;
       const backup = yield* backupFlow;
 
       const proposedStep = (
@@ -316,6 +317,36 @@ export class Wallet extends Context.Service<
         return yield* resumed(proposed, examined.requirement);
       });
 
+      const heldBack = Effect.fn("Wallet.heldBackOverview")(function* (
+        row: WalletRow,
+      ): Effect.fn.Return<
+        Option.Option<NotOpened | NeedsReopening>,
+        StoreFailure | ChainUnreachable
+      > {
+        const bound =
+          row.status === "recovered"
+            ? Option.some(yield* directory.profile(row))
+            : yield* directory.unopened(row);
+
+        if (Option.isNone(bound)) return Option.some(new NotOpened());
+
+        const profile = bound.value;
+
+        const step = Option.isSome(sealedOpening(row))
+          ? Option.some(yield* resume(profile))
+          : Option.none();
+
+        if (Option.exists(step, Predicate.isTagged("Opened")))
+          return Option.none();
+
+        return Option.some(
+          row.status === "recovered" ||
+            Option.exists(step, Predicate.isTagged("OpeningPending"))
+            ? new NeedsReopening({ profile })
+            : new NotOpened({ profile: bound }),
+        );
+      });
+
       const overview = Effect.fn("Wallet.overview")(function* (
         address: AccountAddress,
       ): Effect.fn.Return<Overview, StoreFailure | ChainUnreachable> {
@@ -326,28 +357,15 @@ export class Wallet extends Context.Service<
 
         if (Option.isNone(found)) return new NotOpened();
 
-        if (found.value.status === "recovered")
-          return new NeedsReopening({
-            profile: yield* directory.profile(found.value),
-          });
+        const active = found.value.status === "active";
 
-        const unopened = yield* directory.unopened(found.value);
+        if (!active) {
+          const shown = yield* heldBack(found.value);
 
-        const resumed =
-          Option.isSome(unopened) && found.value.attemptHash !== null
-            ? Option.some(yield* resume(unopened.value))
-            : Option.none();
+          if (Option.isSome(shown)) return shown.value;
+        }
 
-        const opened = Option.exists(resumed, (step) =>
-          Predicate.isTagged(step, "Opened"),
-        );
-
-        if (Option.isSome(unopened) && !opened)
-          return Option.exists(resumed, Predicate.isTagged("OpeningPending"))
-            ? new NeedsReopening({ profile: unopened.value })
-            : new NotOpened({ profile: unopened });
-
-        const row = opened ? yield* directory.byAddress(address) : found;
+        const row = active ? found : yield* directory.byAddress(address);
 
         if (Option.isNone(row) || row.value.status !== "active")
           return new NotOpened();
@@ -385,6 +403,7 @@ export class Wallet extends Context.Service<
           reconcile(entry).pipe(
             Effect.map((receipt) => Predicate.isTagged(receipt, "Pending")),
           ),
+        reconcileOpening,
         reconcileAsset: assetActions.reconcilePending,
         cleanUpReceivedLink: assetActions.cleanUpReceivedLink,
       };

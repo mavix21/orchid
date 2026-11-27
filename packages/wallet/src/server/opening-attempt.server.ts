@@ -34,3 +34,16 @@ export function openingAttempt(
     }),
   );
 }
+
+export interface SealedOpening {
+  readonly row: WalletRow;
+  readonly sealed: Sealed;
+}
+
+export const sealedOpening = (row: WalletRow): Option.Option<SealedOpening> =>
+  row.status === "active"
+    ? Option.none()
+    : openingAttempt(row).pipe(
+        Option.filter((attempt) => attempt instanceof Sealed),
+        Option.map((sealed) => ({ row, sealed })),
+      );

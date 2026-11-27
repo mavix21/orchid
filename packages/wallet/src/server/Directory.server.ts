@@ -19,7 +19,9 @@ import {
 import { epochAt, network } from "../record-network";
 import type { Sealed } from "./Chain.server";
 import { pruneAbandonedOpenings } from "./abandoned-openings.server";
-import { markRecovered } from "./recovered-wallets.server";
+import { markRecovered, noAttempt } from "./recovered-wallets.server";
+import type { SealedOpening } from "./opening-attempt.server";
+import { stuckOpenings } from "./opening-sweep.server";
 import { walletLock } from "./slot.server";
 import { StoreFailure } from "./store-failure.server";
 import { usernames, wallets } from "./tables.server";
@@ -89,6 +91,10 @@ export class Directory extends Context.Service<
     ): Effect.Effect<Option.Option<Profile> | Unavailable, StoreFailure>;
 
     recover(row: WalletRow): Effect.Effect<void, StoreFailure>;
+    discardAttempt(row: WalletRow): Effect.Effect<void, StoreFailure>;
+    stuckOpenings(
+      runStartedAt: DateTime.Utc,
+    ): Effect.Effect<ReadonlyArray<SealedOpening>, StoreFailure>;
     readonly pruneAbandonedOpenings: Effect.Effect<void, StoreFailure>;
   }
 >()("@workspace/wallet/server/Directory") {
@@ -283,6 +289,7 @@ export class Directory extends Context.Service<
                 status: "active",
                 version: row.version + 1,
                 testnetEpoch: epochAt(now),
+                ...noAttempt,
               })
               .where(activatable)
               .returning();
@@ -291,6 +298,19 @@ export class Directory extends Context.Service<
           }),
         );
       });
+
+      const discardAttempt = (row: WalletRow) =>
+        db
+          .update(wallets)
+          .set({ version: row.version + 1, ...noAttempt })
+          .where(
+            and(
+              scope,
+              eq(wallets.address, row.address),
+              eq(wallets.version, row.version),
+            ),
+          )
+          .pipe(Effect.asVoid);
 
       const byUsername = (username: Username) =>
         db
@@ -362,6 +382,13 @@ export class Directory extends Context.Service<
           wrap(proven(activate(row, claim, binding))),
         recover: (row) =>
           wrap(markRecovered(row).pipe(Effect.provideService(Database, db))),
+        discardAttempt: (row) => wrap(discardAttempt(row)),
+        stuckOpenings: (runStartedAt) =>
+          wrap(
+            stuckOpenings(runStartedAt).pipe(
+              Effect.provideService(Database, db),
+            ),
+          ),
         pruneAbandonedOpenings: wrap(
           pruneAbandonedOpenings().pipe(Effect.provideService(Database, db)),
         ),

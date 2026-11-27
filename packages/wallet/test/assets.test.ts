@@ -105,7 +105,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const { opening, hash } = yield* heldTrustline;
           const message = new ReconcileAssetOrder({ id: opening.id });
 
-          expect(world.queued).toEqual([message]);
+          expect(world.queued).toContainEqual(message);
           assertTagged(yield* attend(message), "WorkRetry");
           expect(world.submitted.at(-1)?.hash).toBe(hash);
 

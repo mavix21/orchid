@@ -126,7 +126,7 @@ export const world = {
   issuers: new Map<AssetId, { readonly authRequired: boolean }>(),
 };
 
-const recordingQueue = Layer.succeed(WorkQueue, {
+export const recordingQueue = Layer.succeed(WorkQueue, {
   send: (work) =>
     world.queueDown
       ? Effect.fail(new QueueUnavailable({ cause: new Error("Queue down") }))
@@ -409,6 +409,7 @@ export const walletForDb = <E>(
 ) =>
   Wallet.serviceLayer.pipe(
     Layer.provide(storesFor(db)),
+    Layer.provide(recordingQueue),
     Layer.provide(limits),
     Layer.provide(fakeChain),
     Layer.provide(fakeHumanCheck),
@@ -424,6 +425,7 @@ export const walletWithChain = (
   Layer.fresh(
     Wallet.serviceLayer.pipe(
       Layer.provide(stores),
+      Layer.provide(recordingQueue),
       Layer.provide(RateLimits.unlimited),
       Layer.provide(
         Layer.effect(
@@ -515,6 +517,34 @@ export const settleAttempt = Effect.fn(function* (
     }),
   );
 });
+
+export const sealLostOpening = Effect.fn(function* (
+  key: Keypair,
+  claim: WalletClaim,
+) {
+  const draft = yield* opening(claim);
+
+  assertTagged(draft, "OpeningDraft");
+  world.failSubmit = true;
+  assertTagged(
+    yield* opening(claim, approveOpening(key, draft)),
+    "OpeningPending",
+  );
+  world.failSubmit = false;
+
+  return Option.getOrThrow(
+    Option.fromNullishOr(
+      Option.getOrThrow(yield* findWallet(claim.address)).attemptHash,
+    ),
+  );
+});
+
+export const expireAttempt = (address: AccountAddress) =>
+  Database.use((db) =>
+    db.execute(
+      sql`update wallets set "attemptExpiresAt" = now() - interval '1 hour' where address = ${address}`,
+    ),
+  );
 
 export const create = Effect.fn(function* (key: Keypair, name: string) {
   const claim = claimFor(key, name);

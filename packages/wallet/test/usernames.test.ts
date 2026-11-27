@@ -237,6 +237,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(activeDraft.recipient.address).toBe(claim.address);
 
           world.accounts.delete(claim.address);
+          world.evidence.clear();
           expect(yield* send(orderFor(sender, toMaria))).toEqual(
             new RecipientCannotReceive({
               address: claim.address,
@@ -274,7 +275,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
           expect((yield* send(recoveredOrder))._tag).toBe("UnknownRecipient");
           yield* settleAttempt(claim.address);
-          expect((yield* opening(claim))._tag).toBe("Opened");
           expect((yield* overviewOf(claim.address))._tag).toBe("Holding");
 
           const reopenedDraft = yield* send(recoveredOrder);

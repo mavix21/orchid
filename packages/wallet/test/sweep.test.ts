@@ -12,6 +12,7 @@ import {
   type AccountAddress,
 } from "../src/contract";
 import { AssetOrders } from "../src/server/AssetOrders.server";
+import { Rejected } from "../src/server/Chain.server";
 import { Wallet } from "../src/server/Wallet.server";
 import { sweepBatchSize } from "../src/policy";
 import { assertTagged } from "./tagged";
@@ -25,16 +26,19 @@ import {
   create,
   draftTransfer,
   euro,
+  expireAttempt,
   findTransfer,
   findWallet,
   fundedWallet,
   opening,
+  sealLostOpening,
   selfOrder,
   settleHash,
   sweep,
   sweepNow,
   useDisposableDatabase,
   walletTestLayer,
+  walletWithChain,
   world,
 } from "./wallet-harness";
 
@@ -44,13 +48,6 @@ const expire = (table: "transfers" | "asset_orders", id: string) =>
   Database.use((db) =>
     db.execute(
       sql`update ${sql.identifier(table)} set "expiresAt" = now() - interval '1 hour' where id = ${id}`,
-    ),
-  );
-
-const expireAttempt = (address: AccountAddress) =>
-  Database.use((db) =>
-    db.execute(
-      sql`update wallets set "attemptExpiresAt" = now() - interval '1 hour' where address = ${address}`,
     ),
   );
 
@@ -164,6 +161,69 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(submissionsOf(unresolved.authorized.sealed.hash)).toBe(
             before + 1,
           );
+        }),
+    );
+
+    it.effect(
+      "one sweep run settles more stuck openings than a batch, on any testnet epoch, and tries an unresolved one once",
+      () =>
+        Effect.gen(function* () {
+          const names = Array.from(
+            { length: sweepBatchSize + 2 },
+            (_, index) => `stuck${"abcdefgh"[index]}`,
+          );
+
+          const stuck = yield* Effect.forEach(names, (name) =>
+            Effect.gen(function* () {
+              const key = Keypair.random();
+              const claim = claimFor(key, name);
+              const hash = yield* sealLostOpening(key, claim);
+
+              yield* expireAttempt(claim.address);
+
+              return { address: claim.address, hash };
+            }),
+          );
+
+          const [unresolved, recovered, ...rejected] = stuck;
+
+          if (!unresolved || !recovered)
+            throw new Error("Expected stuck openings");
+
+          yield* Database.use((db) =>
+            db.execute(
+              sql`update wallets set status = 'recovered', "testnetEpoch" = 'an-earlier-epoch' where address = ${recovered.address}`,
+            ),
+          );
+          world.accounts.set(recovered.address, accountState());
+
+          for (const { hash } of rejected)
+            world.evidence.set(hash, new Rejected({ code: "txFailed" }));
+
+          yield* sweepNow.pipe(
+            Effect.provide(
+              walletWithChain(() => ({
+                pastOpeningWindow: () => Effect.succeed(false),
+              })),
+            ),
+          );
+
+          expect(
+            Option.getOrThrow(yield* findWallet(recovered.address)),
+          ).toMatchObject({ status: "active", attemptHash: null });
+
+          for (const { address } of rejected)
+            expect(Option.getOrThrow(yield* findWallet(address))).toMatchObject(
+              { status: "opening", attemptHash: null },
+            );
+
+          expect(
+            Option.getOrThrow(yield* findWallet(unresolved.address))
+              .attemptHash,
+          ).toBe(unresolved.hash);
+          expect(world.submitted.map((sealed) => sealed.hash)).toEqual([
+            unresolved.hash,
+          ]);
         }),
     );
 

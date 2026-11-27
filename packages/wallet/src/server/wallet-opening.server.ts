@@ -2,8 +2,9 @@ import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import {
-  type AccountAddress,
+  AccountAddress,
   AddressBound,
   type Approval,
   type Approvals,
@@ -27,7 +28,8 @@ import {
   unavailability,
 } from "./username-standing.server";
 import { HumanCheck } from "./HumanCheck.server";
-import { openingAttempt } from "./opening-attempt.server";
+import { type SealedOpening, openingAttempt } from "./opening-attempt.server";
+import { ReconcileOpening, WorkQueue, announcer } from "./work-queue.server";
 import { confirmedReads, live } from "./wallet-reads.server";
 
 export const openingFlow = Effect.gen(function* () {
@@ -35,6 +37,8 @@ export const openingFlow = Effect.gen(function* () {
   const directory = yield* Directory;
   const humanCheck = yield* HumanCheck;
   const { readStanding } = yield* confirmedReads;
+  const announce = announcer(yield* WorkQueue);
+  const unchecked = checkedBinding(Effect.succeed(Option.none()));
 
   const openedOrBound = Effect.fn("Wallet.openedOrBound")(function* (
     row: WalletRow,
@@ -84,6 +88,43 @@ export const openingFlow = Effect.gen(function* () {
     }
 
     return activated(yield* directory.activate(row, claim, binding));
+  });
+
+  const reconcileOpening = Effect.fn("Wallet.reconcileOpening")(function* ({
+    row,
+    sealed,
+  }: SealedOpening): Effect.fn.Return<
+    boolean,
+    StoreFailure | ChainUnreachable
+  > {
+    const settlement = yield* chain.settlement(sealed);
+
+    const dead =
+      Predicate.isTagged(settlement, "Rejected") ||
+      Predicate.isTagged(settlement, "Expired") ||
+      (yield* chain.pastOpeningWindow(sealed));
+
+    const address = Schema.decodeSync(AccountAddress)(row.address);
+
+    if ((yield* readStanding(address)) === "open") {
+      const profile = yield* directory.profile(row);
+
+      const step = activated(
+        yield* directory.activate(row, new WalletClaim(profile), unchecked),
+      );
+
+      return !Predicate.isTagged(step, "Opened");
+    }
+
+    if (dead) {
+      yield* directory.discardAttempt(row);
+
+      return false;
+    }
+
+    yield* chain.submit(sealed).pipe(Effect.ignore);
+
+    return true;
   });
 
   const lone = (approvals: Approvals): Option.Option<Approval> => {
@@ -214,8 +255,10 @@ export const openingFlow = Effect.gen(function* () {
 
       const committed = openingAttempt(written);
 
-      if (Option.isSome(committed) && committed.value instanceof Sealed)
+      if (Option.isSome(committed) && committed.value instanceof Sealed) {
         yield* chain.submit(committed.value).pipe(Effect.ignore);
+        yield* announce(new ReconcileOpening({ address: claim.address }));
+      }
 
       return new OpeningPending();
     }
@@ -236,11 +279,7 @@ export const openingFlow = Effect.gen(function* () {
   ) => openWith(claim, approvals, checkedBinding(humanCheck.verify(token)));
 
   const resume = (profile: Profile) =>
-    openWith(
-      new WalletClaim(profile),
-      Option.none(),
-      checkedBinding(Effect.succeed(Option.none())),
-    );
+    openWith(new WalletClaim(profile), Option.none(), unchecked);
 
-  return { open, openWith, resume };
+  return { open, openWith, resume, reconcileOpening };
 });

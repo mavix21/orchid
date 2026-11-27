@@ -10,6 +10,7 @@ import {
 } from "./AssetOrders.server";
 import { Chain, type ChainUnreachable } from "./Chain.server";
 import { Directory, type StoreFailure } from "./Directory.server";
+import type { SealedOpening } from "./opening-attempt.server";
 import { sweepTimeBudget } from "../policy";
 import { rpcReadConcurrency } from "./settings.server";
 import { type Authorized, Transfers } from "./Transfers.server";
@@ -17,6 +18,9 @@ import { type Authorized, Transfers } from "./Transfers.server";
 export const sweepFlow = (actions: {
   readonly reconcileTransfer: (
     entry: Authorized,
+  ) => Effect.Effect<boolean, StoreFailure | ChainUnreachable>;
+  readonly reconcileOpening: (
+    opening: SealedOpening,
   ) => Effect.Effect<boolean, StoreFailure | ChainUnreachable>;
   readonly reconcileAsset: (
     entry: AssetAuthorized,
@@ -48,6 +52,7 @@ export const sweepFlow = (actions: {
         const inFlight = yield* transfers.inFlight(runStartedAt);
         const assetOrders = yield* assets.inFlight(runStartedAt);
         const receivedLinks = yield* assets.receivedLinksToClean(runStartedAt);
+        const openings = yield* directory.stuckOpenings(runStartedAt);
 
         const records = yield* Effect.forEach(
           [
@@ -56,6 +61,9 @@ export const sweepFlow = (actions: {
             ),
             ...inFlight.map((entry) =>
               actions.reconcileTransfer(entry).pipe(Effect.asVoid),
+            ),
+            ...openings.map((opening) =>
+              actions.reconcileOpening(opening).pipe(Effect.asVoid),
             ),
             ...receivedLinks.map((entry) =>
               actions.cleanUpReceivedLink(entry).pipe(Effect.asVoid),

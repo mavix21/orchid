@@ -22,6 +22,7 @@ export const wallets = pgTable("wallets", {
   attemptEnvelope: text(),
   attemptHash: text(),
   attemptExpiresAt: timestamp({ withTimezone: true }),
+  sweepCheckedAt: timestamp({ withTimezone: true }),
 });
 
 export const usernames = pgTable("usernames", {
