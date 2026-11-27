@@ -6,8 +6,10 @@ import type {
   ActivityCursor,
   ActivityEntry,
   ActivityOutcome,
-  ActivityPage,
+  PaidRequest,
+  RequestActivityPage,
 } from "@workspace/wallet";
+import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -16,15 +18,17 @@ import { ActivityList } from "@/activity/activity-list";
 import { NoEntries } from "@/activity/recent-activity";
 import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
 import { useWalletTask } from "@/send/use-wallet-task";
-import { walletEffects } from "@/wallet";
+import { paymentRequestEffects } from "@/wallet/payment-requests";
 import { unavailableMessage } from "@/wallet/unavailable";
 
 export const Route = createFileRoute("/_wallet/_app/activity")({
   ssr: false,
   pendingMs: 0,
   pendingComponent: ActivitySkeleton,
-  loader: async ({ context }) => {
-    return { activity: await context.walletClient.activity() };
+  loader: async () => {
+    return {
+      activity: await Effect.runPromise(paymentRequestEffects.activity()),
+    };
   },
   component: AllActivity,
 });
@@ -66,7 +70,7 @@ function ActivitySkeleton() {
 }
 
 const activityProblem = (
-  activity: Exclude<ActivityOutcome, { _tag: "ActivityPage" }>,
+  activity: Exclude<ActivityOutcome, { _tag: "RequestActivityPage" }>,
 ) =>
   Match.valueTags(activity, {
     NotOpened: () => "Tu cuenta aún se está activando.",
@@ -87,12 +91,12 @@ function AllActivity() {
   const { activity } = Route.useLoaderData();
   const loadedAt = Route.useMatch({ select: (match) => match.updatedAt });
 
-  if (!Predicate.isTagged(activity, "ActivityPage"))
+  if (!Predicate.isTagged(activity, "RequestActivityPage"))
     return <ActivityProblem message={activityProblem(activity)} />;
 
   return (
     <ActivityFrame>
-      {activity.entries.length === 0 ? (
+      {activity.page.entries.length === 0 ? (
         <NoEntries />
       ) : (
         <ActivityPages key={loadedAt} first={activity} />
@@ -103,23 +107,25 @@ function AllActivity() {
 
 type Loaded = {
   readonly entries: ReadonlyArray<ActivityEntry>;
+  readonly paidRequests: ReadonlyArray<PaidRequest>;
   readonly next: Option.Option<ActivityCursor>;
 };
 
-function ActivityPages({ first }: { first: ActivityPage }) {
+function ActivityPages({ first }: { first: RequestActivityPage }) {
   const task = useWalletTask();
 
   const [loaded, setLoaded] = useState<Loaded>({
-    entries: first.entries,
-    next: Option.fromUndefinedOr(first.next),
+    entries: first.page.entries,
+    paidRequests: first.paidRequests,
+    next: Option.fromUndefinedOr(first.page.next),
   });
 
   const [paging, setPaging] = useState<"idle" | "loading" | "failed">("idle");
 
   const loadMore = (cursor: ActivityCursor) => {
     setPaging("loading");
-    task.run(walletEffects.activity(cursor), (answer) => {
-      if (!Predicate.isTagged(answer, "ActivityPage")) {
+    task.run(paymentRequestEffects.activity(cursor), (answer) => {
+      if (!Predicate.isTagged(answer, "RequestActivityPage")) {
         setPaging("failed");
 
         return;
@@ -128,15 +134,19 @@ function ActivityPages({ first }: { first: ActivityPage }) {
       setPaging("idle");
 
       setLoaded((current) => ({
-        entries: [...current.entries, ...answer.entries],
-        next: Option.fromUndefinedOr(answer.next),
+        entries: [...current.entries, ...answer.page.entries],
+        paidRequests: [...current.paidRequests, ...answer.paidRequests],
+        next: Option.fromUndefinedOr(answer.page.next),
       }));
     });
   };
 
   return (
     <>
-      <ActivityList entries={loaded.entries} />
+      <ActivityList
+        entries={loaded.entries}
+        paidRequests={loaded.paidRequests}
+      />
       {Option.match(loaded.next, {
         onNone: () => null,
         onSome: (cursor) => (

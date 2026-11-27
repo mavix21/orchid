@@ -3,7 +3,12 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
-import { type ActivityEntry, Profile } from "@workspace/wallet";
+import {
+  type ActivityEntry,
+  type PaidRequest,
+  type PaymentRequestPaid,
+  Profile,
+} from "@workspace/wallet";
 import * as Option from "effect/Option";
 
 import {
@@ -20,14 +25,17 @@ import {
   type Party,
   createdAtLabel,
   entryKey,
+  paidRequestOf,
   partyName,
   shownEntry,
 } from "./entry";
 
 export function ActivityList({
   entries,
+  paidRequests,
 }: {
   entries: ReadonlyArray<ActivityEntry>;
+  paidRequests: ReadonlyArray<PaidRequest>;
 }) {
   const [opened, setOpened] = useState<Option.Option<ActivityEntry>>(
     Option.none(),
@@ -40,6 +48,7 @@ export function ActivityList({
           <ActivityRow
             key={entryKey(entry)}
             entry={entry}
+            paidRequest={paidRequestOf(paidRequests, entry)}
             onOpen={() => setOpened(Option.some(entry))}
           />
         ))}
@@ -56,6 +65,7 @@ export function ActivityList({
             onSome: (entry) => (
               <EntryDetail
                 entry={entry}
+                paidRequest={paidRequestOf(paidRequests, entry)}
                 onClose={() => setOpened(Option.none())}
               />
             ),
@@ -68,12 +78,14 @@ export function ActivityList({
 
 function EntryDetail({
   entry,
+  paidRequest,
   onClose,
 }: {
   entry: ActivityEntry;
+  paidRequest: Option.Option<PaymentRequestPaid>;
   onClose: () => void;
 }) {
-  const shown = shownEntry(entry);
+  const shown = shownEntry(entry, paidRequest);
 
   return (
     <>

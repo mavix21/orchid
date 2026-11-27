@@ -4,7 +4,6 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import {
-  type ActivityCursor,
   BackupStored,
   type WalletPort,
   type WalletUnavailable,
@@ -22,6 +21,7 @@ import { loadFromServer } from "./reaching";
 import type { ClaimIssue } from "./claim-reviews";
 import type { RestoreProgress } from "./restore";
 import { deviceSession } from "./session";
+import { directRoute } from "./transfer-route";
 import type { WalletClient, WalletEffects } from "./client-interfaces";
 
 export * from "./outcomes";
@@ -64,7 +64,10 @@ export function makeWalletEffects(
 
   const sending = loadFromServer(() => import("./sending")).pipe(
     Effect.map(({ sendTransfer }) =>
-      sendTransfer(port, store, { issued: issuedReview, device }),
+      sendTransfer(port, directRoute(port), store, {
+        issued: issuedReview,
+        device,
+      }),
     ),
   );
 
@@ -170,16 +173,6 @@ export function makeWalletEffects(
       });
 
     return overview;
-  });
-
-  const activity = Effect.fn("Device.activity")(function* (
-    cursor: ActivityCursor | undefined,
-  ) {
-    const stored = yield* store.readPublic();
-
-    if (Option.isNone(stored)) return new NoWallet();
-
-    return yield* port.activity(stored.value.address, cursor);
   });
 
   const saved = Effect.fn("Device.saved")(function* () {
@@ -333,7 +326,6 @@ export function makeWalletEffects(
       transfer(
         links.pipe(Effect.flatMap(({ paymentLinks }) => paymentLinks())),
       ),
-    activity: (cursor) => transfer(activity(cursor)),
     resolvePaymentLink: () =>
       transfer(
         links.pipe(
@@ -416,7 +408,6 @@ export function makeWalletClient(
     confirmPaymentLink: (shown) =>
       Effect.runPromise(effects.confirmPaymentLink(shown)),
     paymentLinks: () => Effect.runPromise(effects.paymentLinks()),
-    activity: (cursor) => Effect.runPromise(effects.activity(cursor)),
     resolvePaymentLink: () => Effect.runPromise(effects.resolvePaymentLink()),
     revealPaymentLink: (target) =>
       Effect.runPromise(effects.revealPaymentLink(target)),

@@ -1,10 +1,14 @@
 import { expect, layer } from "@effect/vitest";
 import { Keypair } from "@stellar/stellar-sdk";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   Offline,
+  PaymentRequestBeingPaid,
+  PaymentRequestId,
+  PaymentRequestOpen,
   PositiveAmount,
   Settled,
   TransferIntent,
@@ -14,6 +18,7 @@ import {
   baseAsset,
 } from "../src/contract";
 import { makeWalletEffects } from "../src/device/client";
+import { makeRequestPaymentEffects } from "../src/device/payment-requests";
 import { DeviceWallet, memoryKeyStore } from "./device-fixtures";
 import {
   approvingDevice,
@@ -52,6 +57,16 @@ const reviewedAndConfirmed = Effect.fn(function* (
 
   return yield* client.confirm(review);
 });
+
+const requestForPedro = (id: string) =>
+  new PaymentRequestOpen({
+    id: Schema.decodeSync(PaymentRequestId)(id),
+    requester: Schema.decodeSync(Username)("pedro"),
+    asset: toPedro.asset,
+    amount: toPedro.amount,
+    note: undefined,
+    createdAt: DateTime.nowUnsafe(),
+  });
 
 useDisposableDatabase();
 
@@ -151,6 +166,73 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(
             sent instanceof Settled && sent.unclaimedFunds !== undefined,
           ).toBe(true);
+        }),
+    );
+
+    it.effect(
+      "keeps a request payment on its own order and withdraws the approval a request refuses",
+      () =>
+        Effect.gen(function* () {
+          yield* create(Keypair.random(), "pedro");
+          const { wallet, sender } = yield* openSender(memoryKeyStore());
+          const { auth } = yield* installSealedWallet(sender);
+          const device = approvingDevice(auth);
+
+          const sending = makeWalletEffects(
+            wallet,
+            sealedKeyStore,
+            devicePasskeys,
+            device,
+          );
+
+          const requests = makeRequestPaymentEffects(
+            wallet,
+            {
+              pay: (_, order, approval) =>
+                Option.isSome(approval)
+                  ? Effect.succeed(new PaymentRequestBeingPaid())
+                  : wallet.transfer(order, approval),
+            },
+            sealedKeyStore,
+            device,
+          );
+
+          const first = requestForPedro("aaaaaaaaaa");
+          const second = requestForPedro("bbbbbbbbbb");
+
+          const reviewedId = Effect.fn(function* (
+            review: ReturnType<typeof requests.review>,
+          ) {
+            const reviewed = yield* review;
+
+            assertTagged(reviewed, "PaymentReview");
+
+            return reviewed.order.id;
+          });
+
+          const sent = yield* reviewedId(sending.review(toPedro));
+          const paidFirst = yield* reviewedId(requests.review(first));
+          const paidSecond = yield* reviewedId(requests.review(second));
+
+          expect(yield* reviewedId(requests.review(second))).toBe(paidSecond);
+
+          const sentAgain = yield* reviewedId(sending.review(toPedro));
+
+          expect(new Set([sent, paidFirst, paidSecond, sentAgain]).size).toBe(
+            4,
+          );
+
+          const review = yield* requests.review(first);
+
+          assertTagged(review, "PaymentReview");
+          expect(yield* requests.confirm(first.id, review)).toEqual(
+            new PaymentRequestBeingPaid(),
+          );
+
+          const stored = Option.getOrThrow(yield* sealedKeyStore.readPublic());
+
+          expect(stored.transfer?.id).toBe(review.order.id);
+          expect(stored.approvedUntil).toBeUndefined();
         }),
     );
   },

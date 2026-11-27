@@ -2,6 +2,7 @@ import {
   type CorruptDeviceWallet,
   type KeyStore,
   KeyStoreUnavailable,
+  type SealedDevice,
   type SealedKeyStore,
   browserAssertions,
   browserKeyStore,
@@ -52,13 +53,15 @@ const restoreKeyStore: SealedKeyStore = {
     ),
 };
 
+export const sealedDevice: SealedDevice = {
+  store: restoreKeyStore,
+  ceremony: browserAssertions,
+  relyingParty: browserRelyingParty,
+};
+
 export const walletEffects = makeWalletEffects(
   port,
   deviceKeyStore,
   browserPasskeys,
-  {
-    store: restoreKeyStore,
-    ceremony: browserAssertions,
-    relyingParty: browserRelyingParty,
-  },
+  sealedDevice,
 );

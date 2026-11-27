@@ -26,11 +26,14 @@ export function RecentActivity({ activity }: { activity: ActivityOutcome }) {
           Ver todo
         </Link>
       </div>
-      {Predicate.isTagged(activity, "ActivityPage") ? (
-        activity.entries.length === 0 ? (
+      {Predicate.isTagged(activity, "RequestActivityPage") ? (
+        activity.page.entries.length === 0 ? (
           <NoEntries />
         ) : (
-          <ActivityList entries={activity.entries.slice(0, recentCount)} />
+          <ActivityList
+            entries={activity.page.entries.slice(0, recentCount)}
+            paidRequests={activity.paidRequests}
+          />
         )
       ) : (
         <ActivityProblem />

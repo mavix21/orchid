@@ -11,6 +11,7 @@ import {
   ClientAddress,
   PaymentRequests,
   Principal,
+  RequestPayments,
   SessionCookie,
   type SessionGrant,
   Wallet,
@@ -61,6 +62,16 @@ const requestPaymentRequestsLayer = Layer.suspend(() =>
     Layer.provide(walletSettingsLayer),
     Layer.provide(databaseLayer(env.HYPERDRIVE)),
     Layer.provide(requestRateLimitsLayer),
+  ),
+);
+
+const requestRequestPaymentsLayer = Layer.suspend(() =>
+  RequestPayments.layer.pipe(
+    Layer.provide(walletSettingsLayer),
+    Layer.provide(databaseLayer(env.HYPERDRIVE)),
+    Layer.provide(workQueueLayer(env.WALLET_WORK)),
+    Layer.provide(requestRateLimitsLayer),
+    Layer.provide(FetchHttpClient.layer),
   ),
 );
 
@@ -147,6 +158,8 @@ const answeringWith = <S, LE>(layer: Layer.Layer<S | Principal, LE>) => {
 export const answerWallet = answeringWith(requestWalletLayer);
 
 export const answerPaymentRequests = answeringWith(requestPaymentRequestsLayer);
+
+export const answerRequestPayments = answeringWith(requestRequestPaymentsLayer);
 
 export const speakingFor = <A, E, R>(
   address: AccountAddress,

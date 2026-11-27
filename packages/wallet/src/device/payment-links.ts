@@ -67,6 +67,7 @@ import {
 import type { PasskeyCancelled, PasskeyFailed } from "./passkeys";
 import { recordFunded, recordsStore, savedLinkFor } from "./saved-links";
 import { type LinkSaving, type Reviews, sendTransfer } from "./sending";
+import { directRoute } from "./transfer-route";
 
 const clockAllowance = 60;
 
@@ -86,7 +87,7 @@ export function devicePaymentLinks(
   reviews: Reviews,
   held: Ref.Ref<Option.Option<HeldLink>>,
 ) {
-  const transfers = sendTransfer(port, store, reviews);
+  const transfers = sendTransfer(port, directRoute(port), store, reviews);
   const records = recordsStore(store, reviews.device?.store);
 
   const saving = (

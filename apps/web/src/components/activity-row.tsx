@@ -9,7 +9,11 @@ import {
   ItemTitle,
 } from "@workspace/ui/components/item";
 import { cn } from "@workspace/ui/lib/utils";
-import { type ActivityEntry, Profile } from "@workspace/wallet";
+import {
+  type ActivityEntry,
+  type PaymentRequestPaid,
+  Profile,
+} from "@workspace/wallet";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -58,12 +62,14 @@ export function EntryAvatar({ media }: { media: EntryMedia }) {
 
 export function ActivityRow({
   entry,
+  paidRequest,
   onOpen,
 }: {
   entry: ActivityEntry;
+  paidRequest: Option.Option<PaymentRequestPaid>;
   onOpen: () => void;
 }) {
-  const shown = shownEntry(entry);
+  const shown = shownEntry(entry, paidRequest);
 
   return (
     <div role="listitem">
@@ -73,6 +79,9 @@ export function ActivityRow({
         render={<button type="button" onClick={onOpen} />}
         data-testid="activity-row"
         data-entry={entry._tag}
+        data-paid-request={Option.getOrUndefined(
+          Option.map(paidRequest, ({ id }) => id),
+        )}
         data-receipt={
           Predicate.isTagged(entry, "SentActivity")
             ? entry.receipt._tag

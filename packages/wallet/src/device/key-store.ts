@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   PaymentLinkReceipt,
+  PaymentRequestId,
   type TransferId,
   TransferOrder,
   Username,
@@ -29,6 +30,7 @@ export class PublicDeviceWallet extends Schema.Class<PublicDeviceWallet>(
   approvedUntil: Schema.optional(Schema.Number),
   linkReceipt: Schema.optional(PaymentLinkReceipt),
   transferRevision: Schema.optional(Schema.Number),
+  paymentRequest: Schema.optional(PaymentRequestId),
 }) {}
 
 export class SealedDeviceWallet extends Schema.Class<SealedDeviceWallet>(
@@ -144,6 +146,7 @@ export const clearedLink = (current: PublicDeviceWallet) =>
     transfer: undefined,
     approvedUntil: undefined,
     linkReceipt: undefined,
+    paymentRequest: undefined,
     transferRevision: (current.transferRevision ?? 0) + 1,
   });
 

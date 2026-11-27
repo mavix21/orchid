@@ -72,6 +72,7 @@ interface EnrollmentFlowProps {
   receive?: ReadLinkCode;
   onEnrolled: (enrolled: WalletEnrolled) => void;
   onOpened: () => void;
+  onRestore?: () => void;
 }
 
 export function EnrollmentFlow({
@@ -81,6 +82,7 @@ export function EnrollmentFlow({
   receive,
   onEnrolled,
   onOpened,
+  onRestore,
 }: EnrollmentFlowProps) {
   const [stage, dispatch] = useReducer(
     advanceEnrollment,
@@ -514,12 +516,23 @@ export function EnrollmentFlow({
                       </FieldError>
                     ) : null}
                     {Option.exists(found, (shown) => shown.takenName) ? (
-                      <Link
-                        to="/restore"
-                        className="text-label text-primary underline-offset-4 hover:underline"
-                      >
-                        {m.enrollment_is_it_yours()}
-                      </Link>
+                      onRestore === undefined ? (
+                        <Link
+                          to="/restore"
+                          className="text-label text-primary underline-offset-4 hover:underline"
+                        >
+                          {m.enrollment_is_it_yours()}
+                        </Link>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={onRestore}
+                        >
+                          {m.enrollment_is_it_yours()}
+                        </Button>
+                      )
                     ) : null}
                   </Field>
                 </main>
