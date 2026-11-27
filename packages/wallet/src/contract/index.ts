@@ -154,12 +154,7 @@ export const EnrollmentChallengeStep = Schema.Union([
 
 export type EnrollmentChallengeStep = typeof EnrollmentChallengeStep.Type;
 
-export class Enrolled extends Schema.TaggedClass<Enrolled>()("Enrolled", {
-  profile: Profile,
-}) {}
-
 export const EnrollStep = Schema.Union([
-  Enrolled,
   OpeningDraft,
   OpeningPending,
   Opened,
@@ -775,7 +770,7 @@ export interface WalletPort<E = WalletUnavailable> {
   ): Effect.Effect<EnrollmentChallengeStep, E>;
   enroll(
     enrollment: BackupEnrollment,
-    approvals: Option.Option<Approvals>,
+    approvals: Approvals,
   ): Effect.Effect<EnrollStep, E>;
   restore(assertion: PasskeyAssertion): Effect.Effect<RestoreStep, E>;
   sessionChallenge(): Effect.Effect<PasskeyChallenge, E>;

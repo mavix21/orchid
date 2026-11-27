@@ -353,7 +353,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               ...savedRelease.enrollment,
               username: Schema.decodeSync(Username)("pedro"),
             }),
-            Option.fromNullishOr(savedRelease.approvals),
+            savedRelease.approvals,
           );
 
           expect(mismatchedRetry._tag).toBe("ChallengeRefused");
@@ -382,7 +382,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 ...savedRelease.enrollment,
                 registration: impostorRegistration,
               }),
-              Option.fromNullishOr(savedRelease.approvals),
+              savedRelease.approvals,
             ),
           ).toEqual(new ChallengeRefused());
           expect(

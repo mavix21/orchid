@@ -108,7 +108,7 @@ export class PendingRelease extends Schema.TaggedClass<PendingRelease>()(
     enrollment: BackupEnrollment,
     candidate: PendingCandidate,
     review: Schema.optional(OpeningReview),
-    approvals: Schema.optional(Approvals),
+    approvals: Approvals,
     receive: Schema.optional(HeldReceive),
   },
 ) {}

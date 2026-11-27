@@ -33,12 +33,11 @@ import type { Transaction } from "./transaction.server";
 import {
   type Binding,
   type BindingUnproven,
-  EnrollmentRefused,
   type Unavailable,
   availability,
   profileOf,
   unavailability,
-  Available,
+  type Available,
 } from "./username-standing.server";
 
 export { StoreFailure };
@@ -63,11 +62,6 @@ export class Directory extends Context.Service<
     ): Effect.Effect<Available | Unavailable, StoreFailure>;
 
     bound(claim: WalletClaim): Effect.Effect<boolean, StoreFailure>;
-
-    enrollUnopened(
-      claim: WalletClaim,
-      alongside: Binding["alongside"],
-    ): Effect.Effect<Available | Unavailable, StoreFailure>;
 
     unopened(
       row: WalletRow,
@@ -128,44 +122,6 @@ export class Directory extends Context.Service<
 
       const lockRow = (tx: Transaction, matching: SQL | undefined) =>
         tx.select().from(wallets).where(matching).for("update");
-
-      const enrollUnopened = Effect.fn("Directory.enrollUnopened")(function* (
-        claim: WalletClaim,
-        alongside: Binding["alongside"],
-      ) {
-        const now = yield* Clock.currentTimeMillis;
-
-        return yield* db
-          .transaction((tx) =>
-            Effect.gen(function* () {
-              yield* tx
-                .insert(wallets)
-                .values({
-                  address: claim.address,
-                  status: "opening",
-                  network,
-                  testnetEpoch: epochAt(now),
-                })
-                .onConflictDoNothing();
-
-              const bound = yield* bind(tx, claim, "verified", alongside);
-
-              const refused = unavailability(bound);
-
-              if (Option.isSome(refused))
-                return yield* new EnrollmentRefused({
-                  standing: refused.value,
-                });
-
-              return new Available();
-            }),
-          )
-          .pipe(
-            Effect.catchTag("EnrollmentRefused", ({ standing }) =>
-              Effect.succeed(standing),
-            ),
-          );
-      });
 
       const unopened = Effect.fn("Directory.unopened")(function* (
         row: WalletRow,
@@ -397,8 +353,6 @@ export class Directory extends Context.Service<
               ),
             ).pipe(Effect.map((found) => found.length > 0)),
           ),
-        enrollUnopened: (claim, alongside) =>
-          wrap(proven(enrollUnopened(claim, alongside))),
         unopened: (row) => wrap(unopened(row)),
         start: (address, initial) => wrap(start(address, initial)),
         draft: (row, request) => wrap(draft(row, request)),
