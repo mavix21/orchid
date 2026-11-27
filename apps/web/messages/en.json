@@ -165,6 +165,8 @@
   "payment_request_already_paid": "This request is already paid. Submit the form again to create another one.",
   "payment_request_already_cancelled": "This request is cancelled. Submit the form again to create another one.",
   "payment_request_asset_unsupported": "You can't request that currency yet.",
+  "payment_request_limit_reached": "You already have {limit} open payment requests. Cancel one or wait until it is paid.",
+  "payment_request_being_paid": "Someone is paying this request. Try again in a few minutes.",
   "payment_request_not_opened": "Finish creating your account to request money.",
   "payment_request_needs_reopening": "Reopen your account from Home before requesting money.",
   "payment_request_device_failed": "Something failed on this device. Try again.",

@@ -87,6 +87,10 @@ function RequestList({
         PaymentRequestCancelled: settled,
         PaymentRequestPaid: settled,
         PaymentRequestNotFound: settled,
+        PaymentRequestBeingPaid: () => {
+          setCancelling(false);
+          setProblem(Option.some(m.payment_request_being_paid()));
+        },
         NotOpened: refuse,
         NoWallet: refuse,
         UnsupportedDevice: refuse,

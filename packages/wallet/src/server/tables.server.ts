@@ -232,8 +232,14 @@ export const paymentRequests = pgTable(
     status: text({ enum: ["open", "paid", "cancelled"] }).notNull(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     cancelledAt: timestamp({ withTimezone: true }),
+    payment: text(),
+    paymentExpiresAt: timestamp({ withTimezone: true }),
+    paidAt: timestamp({ withTimezone: true }),
   },
   (table) => [
+    uniqueIndex("payment_requests_payment")
+      .on(table.payment)
+      .where(sql`${table.payment} is not null`),
     index("payment_requests_open")
       .on(table.requester, table.network, table.testnetEpoch, table.createdAt)
       .where(sql`${table.status} = 'open'`),
@@ -241,6 +247,18 @@ export const paymentRequests = pgTable(
     check(
       "payment_requests_cancelled_at",
       sql`${table.status} <> 'cancelled' or ${table.cancelledAt} is not null`,
+    ),
+    check(
+      "payment_requests_paid_by_payment",
+      sql`${table.status} <> 'paid' or (${table.payment} is not null and ${table.paidAt} is not null)`,
+    ),
+    check(
+      "payment_requests_cancelled_unbound",
+      sql`${table.status} <> 'cancelled' or ${table.payment} is null`,
+    ),
+    check(
+      "payment_requests_binding_expires",
+      sql`${table.status} <> 'open' or ((${table.payment} is null) = (${table.paymentExpiresAt} is null))`,
     ),
   ],
 );

@@ -165,6 +165,8 @@
   "payment_request_already_paid": "Este cobro ya está pagado. Envía el formulario de nuevo para crear otro.",
   "payment_request_already_cancelled": "Este cobro está cancelado. Envía el formulario de nuevo para crear otro.",
   "payment_request_asset_unsupported": "Por ahora no puedes cobrar en esa moneda.",
+  "payment_request_limit_reached": "Ya tienes {limit} cobros pendientes. Cancela uno o espera a que te lo paguen.",
+  "payment_request_being_paid": "Alguien está pagando este cobro. Inténtalo de nuevo en unos minutos.",
   "payment_request_not_opened": "Termina de crear tu cuenta para poder cobrar.",
   "payment_request_needs_reopening": "Reabre tu cuenta desde Inicio antes de cobrar.",
   "payment_request_device_failed": "Algo falló en este dispositivo. Inténtalo de nuevo.",

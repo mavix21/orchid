@@ -79,6 +79,8 @@ export function RequestForm() {
           conclude(m.payment_request_already_cancelled()),
         PaymentRequestAssetUnsupported: () =>
           refuse(m.payment_request_asset_unsupported()),
+        PaymentRequestLimitReached: ({ limit }) =>
+          refuse(m.payment_request_limit_reached({ limit })),
         NeedsReopening: () => refuse(m.payment_request_needs_reopening()),
         NotOpened: (refusal) => refuse(requestRefusal(refusal)),
         NoWallet: (refusal) => refuse(requestRefusal(refusal)),

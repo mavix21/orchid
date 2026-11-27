@@ -2,6 +2,8 @@ export const maxSponsoredTrustlines = 6;
 
 export const claimableQuota = { username: 2, paymentLink: 5 } as const;
 
+export const openPaymentRequestQuota = 5;
+
 export const reclaimDelay = 7 * 24 * 60 * 60;
 
 export const paymentLifetime = 120;

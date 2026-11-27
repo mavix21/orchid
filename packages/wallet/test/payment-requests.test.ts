@@ -1,9 +1,10 @@
 import { expect, it, layer } from "@effect/vitest";
 import { Database } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
@@ -11,9 +12,11 @@ import {
   AssetId,
   NewPaymentRequest,
   PaymentRequestId,
+  PaymentRequestLimitReached,
   PaymentRequestNote,
   PaymentRequestStep,
   PositiveAmount,
+  TransferId,
   baseAsset,
   nativeAsset,
   precisionOf,
@@ -76,13 +79,16 @@ const seedWallet = Effect.fn("seedWallet")(function* (
     yield* db.insert(usernames).values({ address: owner, username });
 });
 
-const markPaid = (id: PaymentRequestId) =>
-  Database.use((db) =>
-    db
-      .update(paymentRequests)
-      .set({ status: "paid" })
-      .where(eq(paymentRequests.id, id)),
-  );
+const markPaid = Effect.fn("markPaid")(function* (id: PaymentRequestId) {
+  const requests = yield* PaymentRequests;
+  const payment = Schema.decodeSync(TransferId)(crypto.randomUUID());
+
+  yield* requests.bind(id, payment, yield* DateTime.now);
+  yield* requests.markPaid(id, payment);
+});
+
+const numberedId = (index: number) =>
+  Schema.decodeSync(PaymentRequestId)(`${index}`.padStart(10, "a"));
 
 const testLayer = PaymentRequests.serviceLayer.pipe(
   Layer.provide(Directory.layer),
@@ -237,10 +243,13 @@ layer(testLayer, { excludeTestServices: true, concurrent: false })(
           "PaymentRequestCancelled",
         );
 
-        yield* markPaid(id);
+        const paid = numberedId(1);
 
-        assertTagged(yield* requests.cancel(maria, id), "PaymentRequestPaid");
-        assertTagged(yield* requests.read(id), "PaymentRequestPaid");
+        yield* requests.create(maria, newRequest({ id: paid }));
+        yield* markPaid(paid);
+
+        assertTagged(yield* requests.cancel(maria, paid), "PaymentRequestPaid");
+        assertTagged(yield* requests.read(paid), "PaymentRequestPaid");
         assertTagged(
           yield* requests.cancel(maria, missingId),
           "PaymentRequestNotFound",
@@ -266,13 +275,49 @@ layer(testLayer, { excludeTestServices: true, concurrent: false })(
       }),
     );
 
+    it.effect(
+      "holds at most five open requests until one is paid or cancelled",
+      () =>
+        Effect.gen(function* () {
+          yield* seedWallet(maria, "active", "maria");
+
+          const requests = yield* PaymentRequests;
+
+          const create = (index: number) =>
+            requests.create(maria, newRequest({ id: numberedId(index) }));
+
+          const created = yield* Effect.all([1, 2, 3, 4, 5, 6].map(create), {
+            concurrency: "unbounded",
+          });
+
+          const opened = created.filter(
+            Predicate.isTagged("PaymentRequestOpen"),
+          );
+
+          expect(opened).toHaveLength(5);
+          expect(created).toContainEqual(
+            new PaymentRequestLimitReached({ limit: 5 }),
+          );
+
+          const [first, second] = opened;
+
+          assertTagged(first, "PaymentRequestOpen");
+          assertTagged(second, "PaymentRequestOpen");
+          expect(
+            yield* requests.create(maria, newRequest({ id: first.id })),
+          ).toEqual(first);
+
+          yield* requests.cancel(maria, first.id);
+          assertTagged(yield* create(7), "PaymentRequestOpen");
+          assertTagged(yield* create(8), "PaymentRequestLimitReached");
+
+          yield* markPaid(second.id);
+          assertTagged(yield* create(8), "PaymentRequestOpen");
+        }),
+    );
+
     it.effect.each([
-      [
-        "an unopened wallet with a username",
-        "opening",
-        "maria",
-        "PaymentRequestOpen",
-      ],
+      ["an unopened wallet with a username", "opening", "maria", "NotOpened"],
       ["an unbound opening", "opening", undefined, "NotOpened"],
       ["a recovered wallet", "recovered", "maria", "NeedsReopening"],
     ] as const)("answers a create from %s", ([, status, username, expected]) =>

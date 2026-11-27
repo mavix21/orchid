@@ -50,6 +50,14 @@ import {
   ResolvedPaymentLink,
   TransferId,
 } from "./payment-links";
+import {
+  type CancelPaymentRequestStep,
+  type OpenPaymentRequestsStep,
+  PayPaymentRequestRefusal,
+  type PaymentRequestId,
+  PaymentRequestPaid,
+  type PaymentRequestStep,
+} from "./payment-requests";
 import { NeedsReopening, NotOpened, UnclaimedFunds } from "./standing";
 
 export * from "./approval";
@@ -485,6 +493,13 @@ export const TransferStep = Schema.Union([
 
 export type TransferStep = typeof TransferStep.Type;
 
+export const PayPaymentRequestStep = Schema.Union([
+  ...TransferStep.members,
+  ...PayPaymentRequestRefusal.members,
+]);
+
+export type PayPaymentRequestStep = typeof PayPaymentRequestStep.Type;
+
 const memoRequirementFields = {
   memoRequired: Schema.Boolean,
   exchange: Schema.OptionFromNullOr(Schema.String),
@@ -573,6 +588,26 @@ export const ActivityStep = Schema.Union([
 ]);
 
 export type ActivityStep = typeof ActivityStep.Type;
+
+export const PaidRequest = Schema.Struct({
+  payment: TransferId,
+  request: PaymentRequestPaid,
+});
+
+export type PaidRequest = typeof PaidRequest.Type;
+
+export class RequestActivityPage extends Schema.TaggedClass<RequestActivityPage>()(
+  "RequestActivityPage",
+  { page: ActivityPage, paidRequests: Schema.Array(PaidRequest) },
+) {}
+
+export const RequestActivityStep = Schema.Union([
+  RequestActivityPage,
+  NotOpened,
+  InvalidAddress,
+]);
+
+export type RequestActivityStep = typeof RequestActivityStep.Type;
 
 export const ResolveReceiptStep = Schema.Union([
   ResolvedPaymentLink,
@@ -775,4 +810,22 @@ export interface WalletPort<E = WalletUnavailable> {
   restore(assertion: PasskeyAssertion): Effect.Effect<RestoreStep, E>;
   sessionChallenge(): Effect.Effect<PasskeyChallenge, E>;
   beginSession(assertion: PasskeyAssertion): Effect.Effect<SessionStep, E>;
+}
+
+export interface RequestPaymentsPort<E = WalletUnavailable> {
+  pay(
+    id: PaymentRequestId,
+    order: TransferOrder,
+    approval: Option.Option<Approval>,
+  ): Effect.Effect<PayPaymentRequestStep, E>;
+  read(id: PaymentRequestId): Effect.Effect<PaymentRequestStep, E>;
+  open(address: AccountAddress): Effect.Effect<OpenPaymentRequestsStep, E>;
+  cancel(
+    address: AccountAddress,
+    id: PaymentRequestId,
+  ): Effect.Effect<CancelPaymentRequestStep, E>;
+  activity(
+    address: AccountAddress,
+    before?: ActivityCursor,
+  ): Effect.Effect<RequestActivityStep, E>;
 }
