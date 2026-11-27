@@ -8,6 +8,7 @@ import {
 import { databaseLayer } from "@workspace/db";
 import { type AccountAddress, ServerFailure } from "@workspace/wallet";
 import {
+  AgentWallets,
   ClientAddress,
   PaymentRequests,
   PayoutPartner,
@@ -29,6 +30,7 @@ import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import { SessionWallet } from "../agent/session-wallet.server";
 import { rateLimitsLayer } from "./rate-limits.server";
 import { workQueueLayer } from "./work-queue.server";
 
@@ -188,4 +190,31 @@ export const speakingFor = <A, E, R>(
 export const publicly = <A, E, R>(program: Effect.Effect<A, E, R>) =>
   Principal.use((principal) => principal.admitsPublicCall).pipe(
     Effect.andThen(program),
+  );
+
+export const agentWalletLayer = (address: AccountAddress) =>
+  Layer.effect(
+    SessionWallet,
+    speakingFor(
+      address,
+      AgentWallets.use((agents) => Effect.succeed(agents.bind(address))),
+    ),
+  ).pipe(
+    Layer.provide(AgentWallets.layer),
+    Layer.provide(requestWalletLayer),
+    Layer.provide(
+      Layer.succeed(
+        SessionCookie,
+        Option.fromNullishOr(getCookie(sessionCookieFor(getRequestUrl()).name)),
+      ),
+    ),
+    Layer.provide(
+      Layer.succeed(
+        ClientAddress,
+        Option.fromNullishOr(getRequestHeader("cf-connecting-ip")),
+      ),
+    ),
+    Layer.catchCause((cause) =>
+      Layer.effect(SessionWallet, concealFailure(cause)),
+    ),
   );

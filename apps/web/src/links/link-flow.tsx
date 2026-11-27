@@ -446,12 +446,13 @@ function SavedLink({ link }: { link: SavedLinkTarget }) {
 const startingStep = (
   asset: Asset,
   initialAmount: Option.Option<PositiveAmount>,
+  saveOnDevice: boolean,
 ): LinkStep =>
   Option.match(initialAmount, {
     onNone: entering,
     onSome: (amount) =>
       LinkStep.Reviewing({
-        intent: new PaymentLinkIntent({ asset, amount, saveOnDevice: true }),
+        intent: new PaymentLinkIntent({ asset, amount, saveOnDevice }),
       }),
   });
 
@@ -459,12 +460,14 @@ export function LinkFlow({
   asset,
   available,
   initialAmount,
+  initialSaving,
   nav,
   onChangeDestination,
 }: {
   asset: Asset;
   available: Amount;
   initialAmount: Option.Option<PositiveAmount>;
+  initialSaving: boolean;
   nav: (locked: boolean, edit?: () => void) => React.ReactNode;
   onChangeDestination: () => void;
 }) {
@@ -475,7 +478,7 @@ export function LinkFlow({
       onNone: () => "",
       onSome: (initial) => formatAmount(initial, precisionOf(asset)),
     }),
-    step: startingStep(asset, initialAmount),
+    step: startingStep(asset, initialAmount, initialSaving),
   }));
 
   usePageDeparture(

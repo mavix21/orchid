@@ -13,7 +13,8 @@
       "./messages/{locale}/send.json",
       "./messages/{locale}/payment-links.json",
       "./messages/{locale}/link-claim.json",
-      "./messages/{locale}/payment-requests.json"
+      "./messages/{locale}/payment-requests.json",
+      "./messages/{locale}/agent.json"
     ]
   }
 }

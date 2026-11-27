@@ -1,3 +1,4 @@
+import { useEffect, useEffectEvent } from "react";
 import { ChevronLeftIcon } from "lucide-react";
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
@@ -9,12 +10,13 @@ import {
   ItemTitle,
 } from "@workspace/ui/components/item";
 import { Skeleton } from "@workspace/ui/components/skeleton";
-import type {
-  ListedPaymentLink,
-  PaymentLinksOutcome,
-  ReceivedPaymentLink,
-  ResolvePaymentLinkOutcome,
-  SavedLinkTarget,
+import {
+  type ListedPaymentLink,
+  type PaymentLinksOutcome,
+  type ReceivedPaymentLink,
+  type ResolvePaymentLinkOutcome,
+  type SavedLinkTarget,
+  UnclaimedFundsId,
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
@@ -22,6 +24,7 @@ import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 
 import { formattingLocale } from "@/locale/format";
 import {
@@ -41,8 +44,13 @@ import { paymentRequestEffects } from "@/wallet/payment-requests";
 import { unavailableMessage } from "@/wallet/unavailable";
 import { m } from "@/paraglide/messages";
 
+const LinksSearch = Schema.Struct({
+  recover: Schema.optional(UnclaimedFundsId),
+});
+
 export const Route = createFileRoute("/_wallet/links")({
   ssr: false,
+  validateSearch: Schema.toStandardSchemaV1(LinksSearch),
   pendingMs: 0,
   pendingComponent: () => <LinksFrame loading />,
   preload: false,
@@ -203,9 +211,22 @@ function LinksFrame({
 
 function PaymentLinks() {
   const { latest, links, requests } = Route.useLoaderData();
+  const { recover } = Route.useSearch();
   const router = useRouter();
   const { started, begin, confirm, reset } = useRecovery();
   const sharing = useLinkReveal();
+
+  const recoverProposed = useEffectEvent(() => {
+    if (!Predicate.isTagged(links, "ListedPaymentLinks")) return;
+
+    const proposed = links.links.find(
+      (link) => link.unclaimedFunds === recover,
+    );
+
+    if (proposed !== undefined) begin(proposed, createdOn(proposed, false));
+  });
+
+  useEffect(recoverProposed, []);
 
   if (Option.isSome(started))
     return (

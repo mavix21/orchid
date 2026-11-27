@@ -1,18 +1,21 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useEffectEvent, useReducer, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
-import type {
-  Amount,
-  Asset,
-  PaymentReview,
-  PositiveAmount,
-  ResumeOutcome,
-  TransferId,
-  TransferIntent,
+import {
+  type Amount,
+  type Asset,
+  type PaymentReview,
+  type PositiveAmount,
+  type ResumeOutcome,
+  type TransferId,
+  type TransferIntent,
+  parseAmount,
+  precisionOf,
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as Result from "effect/Result";
 
 import { ScreenActions, ScreenStatus } from "@/components/screen";
 import { LinkFlow } from "@/links/link-flow";
@@ -29,6 +32,7 @@ import {
   FieldProblem,
   type SendField,
   type SendForm,
+  intentOf,
 } from "./intent";
 import { amountLabel } from "./money";
 import { SendScreen } from "./outcomes";
@@ -62,7 +66,10 @@ interface Draft {
 
 type SendStep = Data.TaggedEnum<{
   Choosing: {};
-  Linking: { readonly amount: Option.Option<PositiveAmount> };
+  Linking: {
+    readonly amount: Option.Option<PositiveAmount>;
+    readonly saveOnDevice: boolean;
+  };
   Offering: { readonly draft: Draft; readonly problem: FieldProblem };
   Entering: { readonly field: EntryField; readonly entry: Entry };
   Reviewing: { readonly draft: Draft };
@@ -138,7 +145,7 @@ const reduceSendFlow = (step: SendStep, event: SendEvent): SendStep =>
       if (!Predicate.isTagged(step, "Choosing")) return step;
 
       return choice === "link"
-        ? SendStep.Linking({ amount: Option.none() })
+        ? SendStep.Linking({ amount: Option.none(), saveOnDevice: true })
         : SendStep.Entering({
             field: "recipient",
             entry: {
@@ -155,7 +162,10 @@ const reduceSendFlow = (step: SendStep, event: SendEvent): SendStep =>
         : step,
     LinkAccepted: () =>
       Predicate.isTagged(step, "Offering")
-        ? SendStep.Linking({ amount: Option.some(step.draft.intent.amount) })
+        ? SendStep.Linking({
+            amount: Option.some(step.draft.intent.amount),
+            saveOnDevice: true,
+          })
         : step,
     LinkDeclined: () =>
       Predicate.isTagged(step, "Offering")
@@ -356,28 +366,66 @@ function TransferStatus({
   });
 }
 
+export type SendPrefill =
+  | { readonly destination: Destination; readonly form: SendForm }
+  | {
+      readonly destination: "link";
+      readonly amount: string;
+      readonly saveOnDevice: boolean;
+    };
+
+const proposedStep = (
+  destination: Destination,
+  form: SendForm,
+  asset: Asset,
+): SendStep => {
+  const entry: Entry = { destination, form, problem: Option.none() };
+
+  return Result.match(intentOf(form, destination, asset), {
+    onFailure: (problem) => corrected(entry, problem),
+    onSuccess: (intent) => SendStep.Reviewing({ draft: { entry, intent } }),
+  });
+};
+
+const startingStep = (
+  transfer: Option.Option<TransferId>,
+  prefill: Option.Option<SendPrefill>,
+  asset: Asset,
+): SendStep =>
+  Option.match(transfer, {
+    onSome: (id) => SendStep.Tracking({ id, draft: Option.none() }),
+    onNone: () =>
+      Option.match(prefill, {
+        onNone: () => SendStep.Choosing(),
+        onSome: (filled) =>
+          filled.destination === "link"
+            ? SendStep.Linking({
+                amount: parseAmount(filled.amount, precisionOf(asset)),
+                saveOnDevice: filled.saveOnDevice,
+              })
+            : proposedStep(filled.destination, filled.form, asset),
+      }),
+  });
+
 export function SendFlow({
   asset,
   available,
   transfer,
+  prefill,
   nav,
   onTransfer,
 }: {
   asset: Asset;
   available: Amount;
   transfer: Option.Option<TransferId>;
+  prefill: Option.Option<SendPrefill>;
   nav: (locked: boolean, edit?: () => void) => React.ReactNode;
   onTransfer: (id: Option.Option<TransferId>) => void;
 }) {
   const task = useWalletTask();
 
-  const [step, send] = useReducer(
-    reduceSendFlow,
-    transfer,
-    Option.match({
-      onNone: () => SendStep.Choosing(),
-      onSome: (id) => SendStep.Tracking({ id, draft: Option.none() }),
-    }),
+  const [step, send] = useReducer(reduceSendFlow, undefined, () =>
+    startingStep(transfer, prefill, asset),
   );
 
   const startOver = () => {
@@ -386,13 +434,22 @@ export function SendFlow({
     send(SendEvent.StartedOver());
   };
 
-  const review = (intent: TransferIntent) => {
-    onTransfer(Option.none());
-    send(SendEvent.ReviewStarted({ intent }));
+  const prepare = (intent: TransferIntent) =>
     task.run(walletEffects.review(intent), (answer) =>
       send(SendEvent.ReviewAnswered({ answer: readReview(answer, asset) })),
     );
+
+  const review = (intent: TransferIntent) => {
+    onTransfer(Option.none());
+    send(SendEvent.ReviewStarted({ intent }));
+    prepare(intent);
   };
+
+  const prepareProposed = useEffectEvent(() => {
+    if (Predicate.isTagged(step, "Reviewing")) prepare(step.draft.intent);
+  });
+
+  useEffect(prepareProposed, []);
 
   const confirm = (shown: PaymentReview) => {
     onTransfer(Option.some(shown.order.id));
@@ -425,11 +482,12 @@ export function SendFlow({
   );
 
   return Match.valueTags(step, {
-    Linking: ({ amount }) => (
+    Linking: ({ amount, saveOnDevice }) => (
       <LinkFlow
         asset={asset}
         available={available}
         initialAmount={amount}
+        initialSaving={saveOnDevice}
         nav={nav}
         onChangeDestination={() => send(SendEvent.Unchose())}
       />
