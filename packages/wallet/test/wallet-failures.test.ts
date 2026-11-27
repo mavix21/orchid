@@ -5,33 +5,16 @@ import { RateLimited, ServiceFailed } from "../src/contract";
 import { concealFailure } from "../src/server/failures.server";
 import { assertTagged } from "./tagged";
 import {
-  authorizeTransfer,
   findTransfer,
-  fundedWallet,
-  selfOrder,
   settleHash,
   sweep,
   useDisposableDatabase,
   walletTestLayer,
   world,
+  signedTransfer,
 } from "./wallet-harness";
 
 useDisposableDatabase();
-
-const signedTransfer = Effect.fn(function* (username: string) {
-  const key = yield* fundedWallet(username);
-  const order = selfOrder(key);
-
-  const { authorized } = yield* authorizeTransfer(key, order, {
-    failSubmit: true,
-  });
-
-  return {
-    order,
-    hash: authorized.sealed.hash,
-    envelope: authorized.sealed.envelope,
-  };
-});
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {

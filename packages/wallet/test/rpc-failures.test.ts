@@ -14,31 +14,14 @@ import {
 import { stellarAnswering, stellarWallet, timeOutRpc } from "./stellar-wallet";
 import { assertTagged } from "./tagged";
 import {
-  authorizeTransfer,
   findTransfer,
-  fundedWallet,
-  selfOrder,
   send,
   useDisposableDatabase,
   walletTestLayer,
+  signedTransfer,
 } from "./stellar-harness";
 
 useDisposableDatabase();
-
-const signedTransfer = Effect.fn(function* (username: string) {
-  const key = yield* fundedWallet(username);
-  const order = selfOrder(key);
-
-  const { authorized } = yield* authorizeTransfer(key, order, {
-    failSubmit: true,
-  });
-
-  return {
-    order,
-    hash: authorized.sealed.hash,
-    envelope: authorized.sealed.envelope,
-  };
-});
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {

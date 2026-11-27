@@ -5,8 +5,11 @@ import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
   Amount,
+  type Asset,
   type AssetId,
   HumanCheckRefused,
+  baseAsset,
+  sameAsset,
 } from "../src/contract";
 import type { Sealed, Settlement } from "../src/server/Chain.server";
 import type { Holdings } from "../src/server/holdings.server";
@@ -122,3 +125,43 @@ export const advanceSequence = (address: AccountAddress) => {
     sequence: (BigInt(current.sequence) + 1n).toString(),
   });
 };
+
+export const holdingsReader =
+  <E>(
+    account: (
+      address: AccountAddress,
+    ) => Effect.Effect<Option.Option<LedgerAccount>, E>,
+    reserveSponsor: AccountAddress,
+  ) =>
+  (address: AccountAddress, assets: ReadonlyArray<Asset>) =>
+    world.holdings.has(address)
+      ? Effect.succeed(Option.fromNullishOr(world.holdings.get(address)))
+      : account(address).pipe(
+          Effect.map(
+            Option.map((state) =>
+              holdingsFor(address, {
+                nativeTotal: amount(state.nativeBalance.toString()),
+                reserveSponsor: state.accountSponsored
+                  ? Option.some(reserveSponsor)
+                  : Option.none(),
+                native: amount(state.nativeBalance.toString()),
+                trustlineSlotsUsed: 1,
+                lines: assets.flatMap((asset) =>
+                  sameAsset(asset, baseAsset) && Option.isSome(state.balance)
+                    ? [
+                        {
+                          asset,
+                          balance: state.balance.value,
+                          spendable: state.balance.value,
+                          capacity: amount("9223372036854775807"),
+                          authorized: true,
+                          clawbackEnabled: false,
+                          sponsored: true,
+                        },
+                      ]
+                    : [],
+                ),
+              }),
+            ),
+          ),
+        );

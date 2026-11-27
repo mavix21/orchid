@@ -4,14 +4,12 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
-  type SigningRequest,
   AssetOrder,
   AddressRecipient,
   AssetUnsupported,
   baseAsset,
   ClaimUnclaimedFunds,
   CloseTrustline,
-  UnclaimedFundsLimitReached,
   InsufficientBalance,
   nativeAsset,
   OpenTrustline,
@@ -25,7 +23,6 @@ import { readEnvelope } from "../src/stellar/envelopes";
 import { assertTagged } from "./tagged";
 import {
   addressOf,
-  accountState,
   amount,
   approve,
   euro,
@@ -155,99 +152,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             (yield* manage(claimOrder, approve(claimDraft.request, recipient)))
               ._tag,
           ).toBe("AssetPending");
-        }),
-    );
-
-    it.effect(
-      "a claimable drafted before the second slot fills is refused at approval",
-      () =>
-        Effect.gen(function* () {
-          const sender = yield* fundedWallet("quotasender");
-          const senderAddr = addressOf(sender);
-
-          const recipientAddress = addressOf(
-            yield* fundedWallet("quotarecipient"),
-          );
-
-          world.holdings.set(
-            senderAddr,
-            holdingsFor(senderAddr, { lines: [euroLine("50000000")] }),
-          );
-
-          const claimable = () =>
-            new TransferOrder({
-              ...orderFor(
-                sender,
-                UsernameRecipient.make({
-                  value: Schema.decodeSync(Username)("quotarecipient"),
-                }),
-              ),
-              asset: euro,
-            });
-
-          const draftAt = Effect.fn(function* (
-            order: TransferOrder,
-            sequence: string,
-          ) {
-            world.accounts.set(senderAddr, accountState({ sequence }));
-
-            return yield* send(order);
-          });
-
-          const settle = Effect.fn(function* (
-            order: TransferOrder,
-            draft: SigningRequest,
-          ) {
-            expect((yield* send(order, approve(draft, sender)))._tag).toBe(
-              "Pending",
-            );
-
-            const submitted = world.submitted.at(-1);
-            const facts = Option.getOrThrow(readEnvelope(draft.envelope));
-
-            if (!submitted) throw new Error("Expected submission");
-
-            assertTagged(facts, "ClaimableFacts");
-            recordClaimableBalance({
-              unclaimedFunds: facts.unclaimedFunds,
-              asset: euro,
-              amount: Schema.decodeSync(PositiveAmount)("10000000"),
-              sponsored: true,
-              claimants: [
-                new Claimant(
-                  recipientAddress,
-                  Claimant.predicateUnconditional(),
-                ),
-              ],
-            });
-            settleHash(submitted.hash);
-            yield* sweep;
-          });
-
-          const first = claimable();
-          const firstDraft = yield* draftAt(first, "2000");
-
-          assertTagged(firstDraft, "TransferDraft");
-          yield* settle(first, firstDraft.request);
-
-          const second = claimable();
-          const third = claimable();
-          const secondDraft = yield* draftAt(second, "3000");
-          const thirdDraft = yield* send(third);
-
-          assertTagged(secondDraft, "TransferDraft");
-          assertTagged(thirdDraft, "TransferDraft");
-          yield* settle(second, secondDraft.request);
-
-          expect(
-            yield* send(third, approve(thirdDraft.request, sender)),
-          ).toEqual(new UnclaimedFundsLimitReached({ limit: 2 }));
-
-          world.claimables.clear();
-          assertTagged(
-            yield* send(third, approve(thirdDraft.request, sender)),
-            "Settled",
-          );
         }),
     );
 

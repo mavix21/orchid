@@ -18,7 +18,6 @@ import {
   SigningRequest,
   UnclaimedFundsId,
   UnsignedEnvelope,
-  baseAsset,
   needsTrustline,
   sameAsset,
 } from "../src/contract";
@@ -39,7 +38,7 @@ import {
 import { EventsStart } from "../src/server/chain-deposits.server";
 import type { UnclaimedFundsEntry } from "../src/server/unclaimed-funds.server";
 import { approvalMargin, paymentLifetime } from "../src/policy";
-import { accountState, amount, holdingsFor, world } from "./ledger-world";
+import { accountState, amount, holdingsReader, world } from "./ledger-world";
 import { randomAddress, signedBy } from "./test-keys";
 
 type PreparedReceive = LinkReceive & { readonly createsLinkAccount: boolean };
@@ -72,7 +71,7 @@ const drafts = new Map<string, RecordedDraft>();
 
 const sealedDrafts = new Map<string, RecordedDraft>();
 
-export const reserveSponsor = randomAddress();
+const reserveSponsor = randomAddress();
 
 export const exchanges = new Map<
   AccountAddress,
@@ -219,38 +218,7 @@ const sameReceive = (left: PreparedReceive, right: PreparedReceive) =>
   sameAsset(left.asset, right.asset) &&
   left.amount === right.amount;
 
-const holdings: Chain["Service"]["holdings"] = (address, assets) =>
-  world.holdings.has(address)
-    ? Effect.succeed(Option.fromNullishOr(world.holdings.get(address)))
-    : account(address).pipe(
-        Effect.map(
-          Option.map((state) =>
-            holdingsFor(address, {
-              nativeTotal: amount(state.nativeBalance.toString()),
-              reserveSponsor: state.accountSponsored
-                ? Option.some(reserveSponsor)
-                : Option.none(),
-              native: amount(state.nativeBalance.toString()),
-              trustlineSlotsUsed: 1,
-              lines: assets.flatMap((asset) =>
-                sameAsset(asset, baseAsset) && Option.isSome(state.balance)
-                  ? [
-                      {
-                        asset,
-                        balance: state.balance.value,
-                        spendable: state.balance.value,
-                        capacity: amount("9223372036854775807"),
-                        authorized: true,
-                        clawbackEnabled: false,
-                        sponsored: true,
-                      },
-                    ]
-                  : [],
-              ),
-            }),
-          ),
-        ),
-      );
+const holdings = holdingsReader(account, reserveSponsor);
 
 const receiveBlocker: Chain["Service"]["receiveBlocker"] = (
   address,
@@ -322,7 +290,10 @@ export const memoryChain = Layer.succeed(
     validAsset: () => true,
     issuedBy: isIssuedBy,
     holdings,
-    issuer: () => Effect.succeed(Option.some({ authRequired: false })),
+    issuer: (asset) =>
+      Effect.succeed(
+        Option.some(world.issuers.get(asset.id) ?? { authRequired: false }),
+      ),
     unclaimedFunds: (ids) =>
       Effect.suspend(() =>
         world.claimablesDown

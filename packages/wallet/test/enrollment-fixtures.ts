@@ -2,11 +2,7 @@ import { expect } from "@effect/vitest";
 import { Database } from "@workspace/db";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import {
-  BackupFound,
-  type PasskeyChallenge,
-  type WalletPort,
-} from "../src/contract";
+import { BackupFound, type WalletPort } from "../src/contract";
 import {
   type PendingEnrollmentRecord,
   type PendingEnrollmentStorage,
@@ -98,22 +94,4 @@ export const restoreBackupPhrase = (
         yield* openPhrase(authenticated.prf, restored.sealed),
       ),
     };
-  });
-
-export const backupRows = Effect.gen(function* () {
-  const db = yield* Database;
-
-  return yield* db.select().from(backups);
-});
-
-export const restoreAssertion = (
-  port: WalletPort,
-  auth: SoftwareAuthenticator,
-  challenge?: PasskeyChallenge,
-) =>
-  Effect.gen(function* () {
-    const token = challenge ?? (yield* port.restoreChallenge());
-    const passkey = yield* auth.passkeys.authenticate(token, yield* backupSalt);
-
-    return Option.getOrThrow(passkey).assertion;
   });

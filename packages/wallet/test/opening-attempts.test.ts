@@ -1,7 +1,20 @@
+import * as DateTime from "effect/DateTime";
+import * as Schema from "effect/Schema";
+import {
+  AccountAddress,
+  AddressRecipient,
+  Username,
+  WalletClaim,
+  NotOpened,
+  Opened,
+  Profile,
+} from "../src/contract";
+import { Sealed } from "../src/server/Chain.server";
+import { Directory } from "../src/server/Directory.server";
+import { addressOf, bindingAllowed, orderFor, send } from "./wallet-harness";
 import { expect, layer } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { AccountAddress, NotOpened, Opened, Profile } from "../src/contract";
 import { Expired, Rejected } from "../src/server/Chain.server";
 import { ReconcileOpening } from "../src/server/work-queue.server";
 import { assertTagged } from "./tagged";
@@ -173,6 +186,57 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(
             Option.getOrThrow(yield* findWallet(claim.address)).status,
           ).toBe("active");
+        }),
+    );
+
+    it.effect(
+      "a sealed opening outside RPC history redrafts after the ledger passes maxTime",
+      () =>
+        Effect.gen(function* () {
+          const key = randomKey();
+          const claim = claimFor(key, "maria");
+          const row = yield* Directory.use((d) => d.start(claim.address));
+
+          const historical = new Sealed({
+            envelope: "historical-opening",
+            hash: "00".repeat(32),
+            expiresAt: DateTime.makeUnsafe(Date.now() - 80_000),
+          });
+
+          yield* Directory.use((d) =>
+            d.seal(row, historical, claim, bindingAllowed),
+          );
+          expect((yield* opening(claim))._tag).toBe("OpeningDraft");
+          expect(world.submitted).toHaveLength(0);
+          expect(
+            Option.getOrThrow(yield* findWallet(claim.address)).attemptHash,
+          ).toBeNull();
+        }),
+    );
+
+    it.effect(
+      "bad address checksums are typed refusals before username claims or drafts",
+      () =>
+        Effect.gen(function* () {
+          const key = randomKey();
+          const valid = addressOf(key);
+
+          const bad = Schema.decodeSync(AccountAddress)(
+            `${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`,
+          );
+
+          const claim = new WalletClaim({
+            username: Schema.decodeSync(Username)("maria"),
+            address: bad,
+          });
+
+          expect((yield* opening(claim))._tag).toBe("InvalidAddress");
+          expect(Option.isNone(yield* findWallet(bad))).toBe(true);
+          expect(
+            (yield* send(orderFor(key, AddressRecipient.make({ value: bad }))))
+              ._tag,
+          ).toBe("InvalidAddress");
+          expect(world.submitted).toHaveLength(0);
         }),
     );
   },
