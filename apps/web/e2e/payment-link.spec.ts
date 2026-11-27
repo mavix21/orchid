@@ -230,6 +230,33 @@ test("receives a link into a wallet created on the link page with two passkey pr
     address: linkAddress,
   } = await sharedFundedLink(page, senderUsername);
 
+  expect(link.searchParams.get("lang")).toBe("en");
+
+  const visitor = await browser.newPage({ locale: "es-PE" });
+  const pageErrors: Array<string> = [];
+
+  const documentLanguage = () =>
+    visitor.evaluate(() => document.documentElement.lang);
+
+  visitor.on("pageerror", (error) => {
+    pageErrors.push(error.message);
+  });
+
+  await visitor.goto(link.href);
+  await expect(visitor.getByTestId("link-offer")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect.poll(documentLanguage).toBe("en");
+
+  await visitor.getByTestId("language-switch").click();
+  await expect.poll(documentLanguage).toBe("es");
+  await expect(visitor.getByTestId("link-offer")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(visitor).toHaveURL(link.href);
+  expect(pageErrors).toEqual([]);
+  await visitor.close();
+
   const recipient = await browser.newPage();
   const requests: Array<string> = [];
 

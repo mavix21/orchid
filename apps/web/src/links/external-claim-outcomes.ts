@@ -15,6 +15,8 @@ import { unavailableMessage } from "@/wallet/unavailable";
 
 import { ExternalClaimFieldProblem } from "./external-claim-intent";
 
+import { m } from "@/paraglide/messages";
+
 export type ExternalClaimAction = "check" | "done";
 
 export type ExternalClaimConclusion =
@@ -32,38 +34,42 @@ export type ExternalClaimResult = Data.TaggedEnum<{
 
 export const ExternalClaimResult = Data.taggedEnum<ExternalClaimResult>();
 
-const stillInLink = "El dinero sigue en el link.";
+const thenStillInLink = (sentence: string) =>
+  `${sentence} ${m.link_still_there()}`;
 
-const lookupFailedMessage =
-  "No pudimos verificar los datos del depósito. El dinero sigue en el link.";
+const lookupFailedMessage = () => thenStillInLink(m.external_lookup_failed());
 
-const used = new LinkScreen<ExternalClaimAction>(
-  "Este link ya fue usado",
-  "Ya no tiene dinero para recibir.",
-  "done",
-);
+const used = () =>
+  new LinkScreen<ExternalClaimAction>(
+    m.claim_used_title(),
+    m.claim_used(),
+    "done",
+  );
 
-const unresolved = new LinkScreen<ExternalClaimAction>(
-  "No pudimos confirmar qué pasó con este link",
-  "Ya no tiene dinero, pero no podemos saber quién lo recibió.",
-  "done",
-);
+const unresolved = () =>
+  new LinkScreen<ExternalClaimAction>(
+    m.claim_unresolved_title(),
+    m.claim_unresolved(),
+    "done",
+  );
 
-const unrecognized = new LinkScreen<ExternalClaimAction>(
-  "No reconocemos este link",
-  "El dinero sigue en el link, pero no podemos cobrarlo desde aquí.",
-  "done",
-);
+const unrecognized = () =>
+  new LinkScreen<ExternalClaimAction>(
+    m.claim_unrecognized_title(),
+    m.claim_unrecognized(),
+    "done",
+  );
 
-const checking = new LinkScreen<ExternalClaimAction>(
-  "Estamos comprobando si se envió",
-  "Revisa de nuevo en un momento.",
-  "check",
-);
+const checking = () =>
+  new LinkScreen<ExternalClaimAction>(
+    m.claim_checking_title(),
+    m.claim_checking(),
+    "check",
+  );
 
 const notSent = (message: string, action: ExternalClaimAction = "check") =>
   new LinkScreen<ExternalClaimAction>(
-    "No pudimos enviar este dinero",
+    m.external_not_sent_title(),
     message,
     action,
   );
@@ -93,10 +99,10 @@ const mapResult = (
 
   const onUnavailable = (failure: WalletUnavailable) =>
     mode.kind === "review"
-      ? ExternalClaimResult.RetryLookup({ message: lookupFailedMessage })
+      ? ExternalClaimResult.RetryLookup({ message: lookupFailedMessage() })
       : concluded(
           outcome,
-          notSent(`${unavailableMessage(failure)} ${stillInLink}`, "check"),
+          notSent(thenStillInLink(unavailableMessage(failure)), "check"),
         );
 
   return Match.valueTags(outcome, {
@@ -104,34 +110,31 @@ const mapResult = (
       concluded(
         outcome,
         new LinkScreen<ExternalClaimAction>(
-          "Enviado",
+          m.send_sent(),
           mode.kind === "confirm"
-            ? `Enviamos ${mode.sent} a ${shortAddress(mode.destination)}.`
-            : "Enviamos el dinero del link a esa dirección.",
+            ? m.external_sent({
+                amount: mode.sent,
+                address: shortAddress(mode.destination),
+              })
+            : m.external_sent_unknown(),
           "done",
         ),
       ),
-    ExternalLinkPending: () => concluded(outcome, checking),
-    PaymentLinkChecking: () => concluded(outcome, checking),
+    ExternalLinkPending: () => concluded(outcome, checking()),
+    PaymentLinkChecking: () => concluded(outcome, checking()),
     ExternalLinkFailed: () =>
-      concluded(
-        outcome,
-        notSent(
-          "La operación no se completó. Revisa el link para saber si el dinero sigue ahí.",
-          "check",
-        ),
-      ),
+      concluded(outcome, notSent(m.claim_incomplete_operation(), "check")),
     UnclaimedFundsGone: ({ status }) =>
-      concluded(outcome, status === "unresolved" ? unresolved : used),
-    PaymentLinkUsed: () => concluded(outcome, used),
-    PaymentLinkUnresolved: () => concluded(outcome, unresolved),
-    PaymentLinkUnrecognized: () => concluded(outcome, unrecognized),
+      concluded(outcome, status === "unresolved" ? unresolved() : used()),
+    PaymentLinkUsed: () => concluded(outcome, used()),
+    PaymentLinkUnresolved: () => concluded(outcome, unresolved()),
+    PaymentLinkUnrecognized: () => concluded(outcome, unrecognized()),
     PaymentLinkNotFound: () =>
       concluded(
         outcome,
         new LinkScreen<ExternalClaimAction>(
-          "No encontramos este link",
-          "Revisa que lo hayas abierto completo desde el mensaje que te enviaron.",
+          m.claim_not_found_title(),
+          m.claim_not_found(),
           "done",
         ),
       ),
@@ -139,39 +142,29 @@ const mapResult = (
       concluded(
         outcome,
         new LinkScreen<ExternalClaimAction>(
-          "Este link está incompleto",
-          "Ábrelo de nuevo desde el mensaje que te enviaron.",
+          m.receive_link_incomplete_title(),
+          m.claim_reopen(),
           "done",
         ),
       ),
     InvalidAddress: () =>
-      fieldProblem("destination", "La dirección no es válida"),
+      fieldProblem("destination", m.common_address_invalid()),
     ExternalMemoRequired: () =>
-      fieldProblem(
-        "memo",
-        "Esta dirección requiere un memo. Cópialo de la pantalla de depósito.",
-      ),
-    MemoNotAllowed: () =>
-      fieldProblem(
-        "memo",
-        "Esta dirección ya identifica tu cuenta; no necesita memo.",
-      ),
+      fieldProblem("memo", m.external_deposit_needs_memo()),
+    MemoNotAllowed: () => fieldProblem("memo", m.external_muxed_note()),
     RecipientCannotReceive: ({ reason }) =>
       fieldProblem(
         "destination",
         Match.value(reason).pipe(
-          Match.when("no_account", () => "Esa cuenta no existe en Stellar."),
-          Match.when(
-            "no_trustline",
-            () => `Esa cuenta no acepta ${code} todavía.`,
+          Match.when("no_account", () => m.common_account_cannot_receive()),
+          Match.when("no_trustline", () =>
+            m.common_recipient_no_trustline({ asset: code }),
           ),
-          Match.when(
-            "not_authorized",
-            () => `El emisor de ${code} no autoriza esa cuenta.`,
+          Match.when("not_authorized", () =>
+            m.common_recipient_not_authorized({ asset: code }),
           ),
-          Match.when(
-            "no_capacity",
-            () => `Esa cuenta no puede recibir tanto ${code} por ahora.`,
+          Match.when("no_capacity", () =>
+            m.common_recipient_no_capacity({ asset: code }),
           ),
           Match.exhaustive,
         ),
@@ -179,23 +172,20 @@ const mapResult = (
     LinkUnclaimable: ({ reason }) =>
       Match.value(reason).pipe(
         Match.when("destination_is_link", () =>
-          fieldProblem(
-            "destination",
-            "No puedes enviar el dinero a la misma dirección del link.",
-          ),
+          fieldProblem("destination", m.external_destination_is_link()),
         ),
         Match.when("destination_is_issuer", () =>
           fieldProblem(
             "destination",
-            `No puedes enviar ${code} a la dirección que la emite.`,
+            m.external_destination_is_issuer({ asset: code }),
           ),
         ),
         Match.when("link_account_unexpected", () =>
           concluded(
             outcome,
             new LinkScreen<ExternalClaimAction>(
-              "No pudimos cobrar este link",
-              "El dinero sigue disponible para quien lo envió.",
+              m.claim_failed_title(),
+              m.claim_still_available(),
               "done",
             ),
           ),
@@ -203,18 +193,15 @@ const mapResult = (
         Match.exhaustive,
       ),
     NotClaimable: () =>
-      concluded(outcome, notSent(`Inténtalo de nuevo. ${stillInLink}`)),
+      concluded(outcome, notSent(thenStillInLink(m.link_try_again()))),
     DraftRejected: () =>
-      concluded(
-        outcome,
-        notSent(`La solicitud cambió antes de firmarse. ${stillInLink}`),
-      ),
+      concluded(outcome, notSent(thenStillInLink(m.claim_request_changed()))),
     DeviceFailure: () =>
       mode.kind === "review"
-        ? ExternalClaimResult.RetryLookup({ message: lookupFailedMessage })
+        ? ExternalClaimResult.RetryLookup({ message: lookupFailedMessage() })
         : concluded(
             outcome,
-            notSent(`Algo falló en este dispositivo. ${stillInLink}`, "check"),
+            notSent(thenStillInLink(m.link_device_failed()), "check"),
           ),
     Offline: onUnavailable,
     ServerUnreachable: onUnavailable,

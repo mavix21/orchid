@@ -22,17 +22,15 @@ import { TopNav } from "@/components/top-nav";
 import { DepositAddress } from "@/receive/deposit-address";
 import { type OpeningCopy, OpeningFlow } from "@/wallet/opening-flow";
 import { UnavailableNotice, unavailableNotice } from "@/wallet/unavailable";
+import { m } from "@/paraglide/messages";
 
-const preparing = "Preparando tu dirección…";
-
-const depositCopy: OpeningCopy = {
-  preparing,
-  confirming: preparing,
-  title: "Abre tu cuenta",
-  explanation:
-    "Tu cuenta todavía no está abierta en la red Stellar. Confirma con tu passkey para abrirla y ver tu dirección.",
-  action: "Abrir con passkey",
-};
+const depositCopy = (): OpeningCopy => ({
+  preparing: m.deposit_preparing(),
+  confirming: m.deposit_preparing(),
+  title: m.opening_title(),
+  explanation: m.deposit_opening_explanation(),
+  action: m.opening_action(),
+});
 
 class Unopened extends Data.TaggedClass("Unopened")<{
   readonly profile: Profile;
@@ -59,7 +57,7 @@ export const Route = createFileRoute("/_wallet/receive")({
   pendingMs: 0,
   pendingComponent: () => (
     <ReceiveFrame>
-      <OrchidPending title={preparing} />
+      <OrchidPending title={m.deposit_preparing()} />
     </ReceiveFrame>
   ),
   loader: async ({ context }) =>
@@ -71,8 +69,8 @@ function ReceiveFrame({ children }: { children: React.ReactNode }) {
   return (
     <Screen>
       <TopNav
-        title="Recibir USDC"
-        label="Cerrar"
+        title={m.deposit_title()}
+        label={m.common_close()}
         icon={<XIcon absoluteStrokeWidth />}
         link={<Link to="/home" />}
       />
@@ -88,7 +86,7 @@ function Receive() {
   const opening = (username: string) => (
     <OpeningFlow
       username={username}
-      copy={depositCopy}
+      copy={depositCopy()}
       onOpened={() => void router.invalidate()}
     />
   );
@@ -101,22 +99,12 @@ function Receive() {
         NeedsReopening: ({ profile }) => opening(profile.username),
         InvalidAddress: () => (
           <ReceiveUnavailable
-            notice={
-              new UnavailableNotice(
-                "La llave guardada en este dispositivo no es válida.",
-                false,
-              )
-            }
+            notice={new UnavailableNotice(m.common_stored_key_invalid(), false)}
           />
         ),
         UnsupportedDevice: () => (
           <ReceiveUnavailable
-            notice={
-              new UnavailableNotice(
-                "Este navegador no puede leer tu llave de forma segura.",
-                false,
-              )
-            }
+            notice={new UnavailableNotice(m.device_cannot_read_key(), false)}
           />
         ),
         Offline: (failure) => (
@@ -150,13 +138,13 @@ function ReceiveUnavailable({ notice }: { notice: UnavailableNotice }) {
 
   return (
     <>
-      <ScreenStatus title="No pudimos mostrar tu dirección">
+      <ScreenStatus title={m.deposit_unavailable_title()}>
         <ScreenNote>{notice.message}</ScreenNote>
       </ScreenStatus>
       {notice.actionable ? (
         <ScreenActions>
           <Button className="w-full" onClick={() => void router.invalidate()}>
-            Reintentar
+            {m.common_retry()}
           </Button>
         </ScreenActions>
       ) : null}

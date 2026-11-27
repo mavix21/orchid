@@ -17,6 +17,8 @@ import {
 } from "@workspace/ui/components/drawer";
 import { useIsMobile } from "@workspace/ui/hooks/use-mobile";
 
+import { m } from "@/paraglide/messages";
+
 type ModalPresentation = {
   readonly sheet: boolean;
   readonly dismissible: boolean;
@@ -75,7 +77,11 @@ export function ModalContent({
   return sheet ? (
     <DrawerContent data-testid={testId}>{children}</DrawerContent>
   ) : (
-    <DialogContent data-testid={testId} showCloseButton={dismissible}>
+    <DialogContent
+      data-testid={testId}
+      showCloseButton={dismissible}
+      closeLabel={m.common_close()}
+    >
       {children}
     </DialogContent>
   );

@@ -55,16 +55,10 @@ const withoutCode = (reveal: Reveal, unloading: boolean): Reveal =>
 const deliveryNote = (delivery: Delivery) =>
   Match.value(delivery).pipe(
     Match.when("none", () => Option.none<string>()),
-    Match.when("shared", () => Option.some("Link compartido.")),
-    Match.when("copied", () =>
-      Option.some("Link copiado. Pégalo en el chat de quien recibe."),
-    ),
-    Match.when("dismissed", () =>
-      Option.some("Aún no lo compartiste. Puedes intentarlo de nuevo."),
-    ),
-    Match.when("failed", () =>
-      Option.some("No se pudo completar. Inténtalo de nuevo."),
-    ),
+    Match.when("shared", () => Option.some(m.link_delivery_shared())),
+    Match.when("copied", () => Option.some(m.link_delivery_copied())),
+    Match.when("dismissed", () => Option.some(m.link_delivery_dismissed())),
+    Match.when("failed", () => Option.some(m.link_delivery_failed())),
     Match.exhaustive,
   );
 
@@ -194,18 +188,18 @@ export function LinkShareModal({
           Closed: () => null,
           Opening: () => (
             <ModalHeader>
-              <ModalTitle>Abriendo tu link…</ModalTitle>
-              <ModalDescription>
-                Confirma con tu passkey para compartirlo.
-              </ModalDescription>
+              <ModalTitle>{m.link_opening()}</ModalTitle>
+              <ModalDescription>{m.link_opening_note()}</ModalDescription>
             </ModalHeader>
           ),
           Opened: ({ link, delivery, delivering }) => (
             <>
               <ModalHeader>
-                <ModalTitle>Comparte tu link</ModalTitle>
+                <ModalTitle>{m.link_share_title()}</ModalTitle>
                 <ModalDescription>
-                  {`Quien abra el link podrá recibir ${amountLabel(link.amount, link.asset)}.`}
+                  {m.link_share_description({
+                    amount: amountLabel(link.amount, link.asset),
+                  })}
                 </ModalDescription>
               </ModalHeader>
               <DeliveryNote delivery={delivery} />
@@ -216,7 +210,7 @@ export function LinkShareModal({
                   onCopy={copy}
                 />
                 <Button className="w-full" variant="ghost" onClick={close}>
-                  Cerrar
+                  {m.common_close()}
                 </Button>
               </ModalFooter>
             </>
@@ -238,7 +232,7 @@ export function LinkShareModal({
                 <ModalFooter>
                   {screen.action === "retry" ? (
                     <Button className="w-full" onClick={() => open(target)}>
-                      Reintentar
+                      {m.common_retry()}
                     </Button>
                   ) : (
                     <Button
@@ -248,11 +242,13 @@ export function LinkShareModal({
                         onRecover(target);
                       }}
                     >
-                      {`Recuperar ${amountLabel(target.amount, target.asset)}`}
+                      {m.link_recover_amount({
+                        amount: amountLabel(target.amount, target.asset),
+                      })}
                     </Button>
                   )}
                   <Button className="w-full" variant="ghost" onClick={close}>
-                    Cerrar
+                    {m.common_close()}
                   </Button>
                 </ModalFooter>
               </>

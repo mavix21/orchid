@@ -30,6 +30,8 @@ import {
   reclaimResult,
 } from "./outcomes";
 
+import { m } from "@/paraglide/messages";
+
 interface ChosenLink {
   readonly link: RecoverableLink;
   readonly created: Option.Option<string>;
@@ -67,9 +69,6 @@ type RecoveryEvent = Data.TaggedEnum<{
 
 const RecoveryEvent = Data.taggedEnum<RecoveryEvent>();
 
-const expired =
-  "La recuperación venció. La preparamos de nuevo: toca Recuperar dinero.";
-
 const confirmed = (
   state: Data.TaggedEnum.Value<Recovery, "Confirming">,
   answer: Answer<ConfirmReclaimOutcome>,
@@ -86,22 +85,16 @@ const confirmed = (
       Recovery.Reviewed({
         chosen: state.chosen,
         review,
-        problem: Option.some(expired),
+        problem: Option.some(m.link_reclaim_expired()),
       }),
     ),
     Match.tag("PasskeyCancelled", () =>
-      withdrawn("No recuperamos el dinero porque no usaste tu passkey."),
+      withdrawn(m.link_reclaim_passkey_cancelled()),
     ),
-    Match.tag("PasskeyFailed", () =>
-      withdrawn("No pudimos usar tu passkey. Inténtalo de nuevo."),
-    ),
-    Match.tag("WrongCredential", () =>
-      withdrawn("Usaste otra passkey. Usa la de tu cuenta."),
-    ),
+    Match.tag("PasskeyFailed", () => withdrawn(m.passkey_failed())),
+    Match.tag("WrongCredential", () => withdrawn(m.link_other_passkey())),
     Match.tag("AssertionRejected", () =>
-      withdrawn(
-        "No pudimos verificar tu passkey. Usa tu huella, rostro o PIN.",
-      ),
+      withdrawn(m.link_assertion_rejected()),
     ),
     Match.orElse((outcome) =>
       Recovery.Recovered({ chosen: state.chosen, answer: outcome }),
@@ -195,12 +188,12 @@ function ReclaimReviewScreen({
         className="flex flex-1 flex-col gap-6 px-5 pt-2"
       >
         <ReviewHero
-          title="Revisa tu recuperación"
+          title={m.link_reclaim_review_title()}
           amount={amountLabel(review.amount, review.asset)}
           network={review.network}
         />
         <p className="text-body text-muted-foreground">
-          El link deja de funcionar y el dinero vuelve a tu cuenta.
+          {m.link_reclaim_review_note()}
         </p>
         {Option.isSome(problem) ? (
           <p role="alert" className="text-body text-destructive">
@@ -214,10 +207,10 @@ function ReclaimReviewScreen({
           onClick={onConfirm}
           data-testid="confirm-recover"
         >
-          Recuperar dinero
+          {m.link_recover_money()}
         </Button>
         <Button className="w-full" variant="secondary" onClick={onCancel}>
-          Volver
+          {m.common_go_back()}
         </Button>
       </ScreenActions>
     </>
@@ -238,8 +231,8 @@ export function RecoveryAnswer({
   onCancel: () => void;
 }) {
   return Match.valueTags(recovery, {
-    Reviewing: () => <LinkWorking label="Preparando tu recuperación…" />,
-    Confirming: () => <LinkWorking label="Recuperando tu dinero…" />,
+    Reviewing: () => <LinkWorking label={m.link_reclaim_preparing()} />,
+    Confirming: () => <LinkWorking label={m.link_reclaiming()} />,
     Reviewed: ({ review, problem }) => (
       <ReclaimReviewScreen
         review={review}
@@ -260,14 +253,16 @@ export function RecoveryAnswer({
             Match.when("done", () => done),
             Match.when("home", () => (
               <ResultLink link={<Link to="/home" />}>
-                Volver al inicio
+                {m.common_back_home()}
               </ResultLink>
             )),
             Match.when("again", () => (
-              <ResultButton onClick={again}>Reintentar</ResultButton>
+              <ResultButton onClick={again}>{m.common_retry()}</ResultButton>
             )),
             Match.when("check", () => (
-              <ResultButton onClick={again}>Revisar de nuevo</ResultButton>
+              <ResultButton onClick={again}>
+                {m.receive_check_again()}
+              </ResultButton>
             )),
             Match.exhaustive,
           )}

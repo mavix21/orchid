@@ -1,6 +1,7 @@
 import { Skeleton } from "@workspace/ui/components/skeleton";
 
 import { Screen } from "@/components/screen";
+import { m } from "@/paraglide/messages";
 
 const actionTiles = ["send", "request", "receive", "add"];
 const activityRows = ["first", "second", "third"];
@@ -10,7 +11,7 @@ export function HomeSkeleton() {
     <Screen>
       <main
         aria-busy="true"
-        aria-label="Cargando tu cuenta"
+        aria-label={m.home_loading()}
         className="flex flex-1 flex-col gap-10 px-5 pt-2 pb-30 md:pb-16"
       >
         <section className="flex flex-col gap-6">
@@ -34,7 +35,7 @@ export function HomeSkeleton() {
           </div>
         </section>
         <section className="flex flex-col gap-2">
-          <h2 className="text-label-lg">Actividad</h2>
+          <h2 className="text-label-lg">{m.nav_activity()}</h2>
           <div className="flex flex-col gap-1">
             {activityRows.map((row) => (
               <div key={row} className="flex items-center gap-3 px-1 py-3">

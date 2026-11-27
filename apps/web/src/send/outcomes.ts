@@ -5,13 +5,13 @@ import {
   type ResolvedRecipient,
   type ResumeOutcome,
   type TransferOrder,
-  formatAmount,
-  precisionOf,
 } from "@workspace/wallet";
 import * as Match from "effect/Match";
 
 import { amountLabel, shortAddress } from "./money";
 import { FieldProblem } from "./intent";
+
+import { m } from "@/paraglide/messages";
 
 export type NextAction = "done" | "home" | "retry" | "wait" | "check";
 
@@ -32,18 +32,13 @@ const recipientName = (recipient: ResolvedRecipient) =>
     : shortAddress(recipient.address);
 
 const accepting = (recipient: ResolvedRecipient) =>
-  `Enviado. ${recipientName(recipient)} lo recibirá cuando lo acepte`;
+  m.send_accepting({ recipient: recipientName(recipient) });
 
-const untouched = "Tu dinero no se movió";
+const thenMaybeMoving = (sentence: string) =>
+  `${sentence} ${m.send_maybe_moving()}`;
 
-const maybeMoving =
-  "Si ya confirmaste, tu pago puede seguir en curso: no lo envíes de nuevo";
-
-export const deviceFailure = new SendScreen(
-  "Algo falló en este dispositivo",
-  "Si ya confirmaste, tu pago puede seguir en curso: no lo envíes de nuevo",
-  "home",
-);
+export const deviceFailure = () =>
+  new SendScreen(m.common_device_failed_title(), m.send_maybe_moving(), "home");
 
 export const sendResult = (
   outcome: ResumeOutcome | Receipt,
@@ -52,78 +47,69 @@ export const sendResult = (
   Match.valueTags(outcome, {
     Settled: (settled) =>
       new SendScreen(
-        "Enviado",
+        m.send_sent(),
         settled.unclaimedFunds === undefined
-          ? `${amountLabel(settled.amount, settled.asset)} a ${recipientName(settled.recipient)}`
+          ? m.send_amount_to({
+              amount: amountLabel(settled.amount, settled.asset),
+              recipient: recipientName(settled.recipient),
+            })
           : accepting(settled.recipient),
         "done",
       ),
     Reserved: ({ recipient }) =>
-      new SendScreen("Enviado", accepting(recipient), "done"),
+      new SendScreen(m.send_sent(), accepting(recipient), "done"),
     Claimed: ({ recipient }) =>
       new SendScreen(
-        "Enviado",
-        `${recipientName(recipient)} aceptó tu pago`,
+        m.send_sent(),
+        m.send_claimed({ recipient: recipientName(recipient) }),
         "done",
       ),
     Refunded: ({ recipient }) =>
       new SendScreen(
-        "Devuelto",
-        `${recipientName(recipient)} no aceptó tu pago. Tu dinero volvió a tu cuenta`,
+        m.send_refunded_title(),
+        m.send_refunded({ recipient: recipientName(recipient) }),
         "done",
       ),
     Failed: ({ reason }) =>
       new SendScreen(
-        "No se envió",
-        reason === "expired"
-          ? `No se envió a tiempo. ${untouched}`
-          : `La red rechazó el pago. ${untouched}`,
+        m.activity_not_sent(),
+        `${reason === "expired" ? m.send_expired() : m.send_rejected()} ${m.send_untouched()}`,
         "retry",
       ),
     Pending: () =>
-      new SendScreen(
-        "Enviando…",
-        "Tu pago está en camino. Te mostramos el resultado apenas llegue",
-        "check",
-      ),
+      new SendScreen(m.common_sending(), m.send_pending(), "check"),
     NotOpened: () =>
       new SendScreen(
-        "Aún no puedes enviar",
-        "Tu cuenta aún se está activando",
+        m.send_not_opened_title(),
+        m.common_account_activating(),
         "home",
       ),
     UnknownRecipient: ({ username }) =>
-      new FieldProblem("recipient", `No existe @${username}`),
+      new FieldProblem("recipient", m.send_unknown_recipient({ username })),
     InvalidAddress: () =>
-      new FieldProblem("recipient", "La dirección no es válida"),
+      new FieldProblem("recipient", m.common_address_invalid()),
     ExternalMemoRequired: () =>
-      new FieldProblem(
-        "memo",
-        "Este destino necesita memo: sin él tu dinero puede perderse",
-      ),
+      new FieldProblem("memo", m.send_destination_needs_memo()),
     MemoNotAllowed: ({ reason }) =>
       new FieldProblem(
         "memo",
         reason === "muxed"
-          ? "Esta dirección ya identifica tu cuenta en el exchange; no necesita memo"
-          : "Los pagos entre usuarios de Orchid no llevan memo",
+          ? m.send_memo_not_allowed_muxed()
+          : m.send_memo_not_allowed_orchid(),
       ),
     RecipientCannotReceive: ({ reason }) =>
       new FieldProblem(
         "recipient",
         Match.value(reason).pipe(
-          Match.when("no_account", () => "Esa cuenta no existe en Stellar"),
-          Match.when(
-            "no_trustline",
-            () => `Esa cuenta no acepta ${asset.code} todavía`,
+          Match.when("no_account", () => m.common_account_cannot_receive()),
+          Match.when("no_trustline", () =>
+            m.common_recipient_no_trustline({ asset: asset.code }),
           ),
-          Match.when(
-            "not_authorized",
-            () => `El emisor de ${asset.code} no autoriza esa cuenta`,
+          Match.when("not_authorized", () =>
+            m.common_recipient_not_authorized({ asset: asset.code }),
           ),
-          Match.when(
-            "no_capacity",
-            () => `Esa cuenta no puede recibir tanto ${asset.code} por ahora`,
+          Match.when("no_capacity", () =>
+            m.common_recipient_no_capacity({ asset: asset.code }),
           ),
           Match.exhaustive,
         ),
@@ -131,107 +117,91 @@ export const sendResult = (
     InsufficientBalance: ({ available }) =>
       new FieldProblem(
         "amount",
-        `Tienes ${amountLabel(available, asset)} disponibles`,
+        m.common_amount_available({ amount: amountLabel(available, asset) }),
       ),
     UnclaimedFundsLimitReached: ({ limit }) =>
       new SendScreen(
-        "Espera a que acepten tus pagos",
-        `Tienes ${limit} pagos esperando ser aceptados`,
+        m.send_unclaimed_limit_title(),
+        m.send_unclaimed_limit({ limit }),
         "home",
       ),
-    AssetUnsupported: () => new SendScreen("No se envió", untouched, "home"),
+    AssetUnsupported: () =>
+      new SendScreen(m.activity_not_sent(), m.send_untouched(), "home"),
     SenderBusy: () =>
-      new SendScreen(
-        "Espera un momento",
-        "Tienes otra operación en curso",
-        "wait",
-      ),
+      new SendScreen(m.common_wait_title(), m.common_other_operation(), "wait"),
     AssetBusy: () =>
-      new SendScreen(
-        "Espera un momento",
-        "Tienes otra operación en curso",
-        "wait",
-      ),
-    PhoneNotSupported: () =>
-      new FieldProblem("recipient", "Los envíos por teléfono llegan pronto"),
+      new SendScreen(m.common_wait_title(), m.common_other_operation(), "wait"),
+    PhoneNotSupported: () => new FieldProblem("recipient", m.send_phone_soon()),
     ApprovalOutstanding: ({ order }) =>
       new SendScreen(
-        "Tienes un pago en curso",
-        "Tienes un pago firmado que aún no termina. Espera su resultado antes de enviar otro",
+        m.send_payment_in_progress_title(),
+        m.send_approval_outstanding(),
         "retry",
         order,
       ),
     DraftRejected: () =>
       new SendScreen(
-        "No firmamos este pago",
-        `No firmamos este pago porque no coincide con lo que escribiste o ya venció. ${untouched}`,
+        m.send_draft_rejected_title(),
+        `${m.send_draft_rejected()} ${m.send_untouched()}`,
         "retry",
       ),
     Offline: () =>
-      new SendScreen(
-        "Sin conexión",
-        "Sin conexión. Si ya confirmaste, revisaremos el pago al volver",
-        "retry",
-      ),
+      new SendScreen(m.send_offline_title(), m.send_offline(), "retry"),
     ServerUnreachable: () =>
       new SendScreen(
-        "No pudimos conectar con Orchid",
-        "Inténtalo de nuevo en unos minutos. Si ya confirmaste, revisaremos el pago al reintentar",
+        m.send_server_unreachable_title(),
+        m.send_unreachable(),
         "retry",
       ),
     LedgerUnreachable: () =>
       new SendScreen(
-        "La red Stellar no responde",
-        "Inténtalo de nuevo en unos minutos. Si ya confirmaste, revisaremos el pago al reintentar",
+        m.send_ledger_unreachable_title(),
+        m.send_unreachable(),
         "retry",
       ),
     ServiceFailed: () =>
       new SendScreen(
-        "Algo falló de nuestro lado",
-        `Ya quedó registrado. ${maybeMoving}`,
+        m.send_service_failed_title(),
+        thenMaybeMoving(m.send_service_failed()),
         "home",
       ),
     SessionRequired: () =>
       new SendScreen(
-        "Confirma tu passkey",
-        `Necesitamos confirmar que eres tú. ${maybeMoving}`,
+        m.send_session_title(),
+        thenMaybeMoving(m.send_session()),
         "retry",
       ),
     RateLimited: () =>
       new SendScreen(
-        "Demasiadas solicitudes seguidas",
-        `Espera un momento e inténtalo de nuevo. ${maybeMoving}`,
+        m.send_rate_limited_title(),
+        thenMaybeMoving(m.send_rate_limited()),
         "retry",
       ),
     InvalidResponse: () =>
-      new SendScreen("No pudimos leer la respuesta", maybeMoving, "home"),
-    NoWallet: () =>
       new SendScreen(
-        "No hay una cuenta aquí",
-        "Este dispositivo no tiene una cuenta de Orchid",
+        m.send_invalid_response_title(),
+        m.send_maybe_moving(),
         "home",
       ),
+    NoWallet: () =>
+      new SendScreen(m.common_no_wallet_title(), m.session_no_wallet(), "home"),
     UnsupportedDevice: () =>
       new SendScreen(
-        "No pudimos leer tu llave",
-        "Este navegador no puede leer tu llave de forma segura",
+        m.opening_corrupt_title(),
+        m.device_cannot_read_key(),
         "home",
       ),
     NoTransfer: () =>
-      new SendScreen(
-        "No encontramos ese pago",
-        "Este dispositivo no tiene un pago en curso",
-        "home",
-      ),
+      new SendScreen(m.send_no_transfer_title(), m.send_no_transfer(), "home"),
   });
 
 export const outstandingLabel = (order: TransferOrder) =>
-  `${formatAmount(order.amount, precisionOf(order.asset))} ${order.asset.code} a ${Match.valueTags(
-    order.to,
-    {
+  m.send_amount_to({
+    amount: amountLabel(order.amount, order.asset),
+    recipient: Match.valueTags(order.to, {
       Username: ({ value }) => `@${value}`,
       Address: ({ value }) => shortAddress(value),
       PaymentLink: ({ value }) => shortAddress(value),
       Phone: ({ value }) => value,
-    },
-  )}`;
+    }),
+  });

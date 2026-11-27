@@ -35,7 +35,10 @@ function SidebarIdentity() {
     return (
       <>
         <Skeleton variant="avatar" className="size-10" />
-        <Skeleton aria-label="Cargando tu usuario" className="h-4 w-24" />
+        <Skeleton
+          aria-label={m.settings_loading_username()}
+          className="h-4 w-24"
+        />
       </>
     );
 
@@ -43,7 +46,7 @@ function SidebarIdentity() {
     onNone: () => (
       <>
         <Avatar />
-        <span>Perfil</span>
+        <span>{m.nav_profile()}</span>
       </>
     ),
     onSome: (name) => (
@@ -62,7 +65,7 @@ function ThemeToggle() {
     <Button
       variant="ghost"
       size="icon"
-      aria-label="Cambiar entre modo claro y oscuro"
+      aria-label={m.nav_toggle_theme()}
       onClick={() =>
         setTheme(
           document.documentElement.classList.contains("dark")
@@ -83,7 +86,7 @@ export function AppSidebar() {
       <SidebarHeader>
         <Link
           to="/home"
-          aria-label="Orchid, ir al inicio"
+          aria-label={m.nav_home_link()}
           className="w-fit rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         >
           <BrandLogo />
@@ -91,24 +94,24 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <nav aria-label="Principal">
+          <nav aria-label={m.nav_main()}>
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton render={<Link to="/home" />}>
                   <HouseIcon />
-                  <span>Inicio</span>
+                  <span>{m.nav_home()}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton>
                   <ArrowLeftRightIcon />
-                  <span>Swap</span>
+                  <span>{m.nav_swap()}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton render={<Link to="/activity" />}>
                   <ClockIcon />
-                  <span>Actividad</span>
+                  <span>{m.nav_activity()}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

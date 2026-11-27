@@ -30,6 +30,7 @@ import {
   unavailableNotice,
 } from "@/wallet/unavailable";
 import { WaitingPayment } from "@/wallet/waiting-payment";
+import { m } from "@/paraglide/messages";
 
 export const Route = createFileRoute("/_wallet/_app/home")({
   ssr: false,
@@ -70,16 +71,13 @@ const backUpRefusal = (
   outcome: Exclude<BackUpOutcome, { _tag: "BackupStored" }>,
 ) =>
   Match.valueTags(outcome, {
-    BackupUnsupported: () =>
-      "Este navegador no permite respaldar tu cuenta con passkey.",
-    PasskeyCancelled: () => "No se creó la passkey. Inténtalo de nuevo.",
-    PasskeyFailed: () => "No pudimos crear la passkey. Inténtalo de nuevo.",
-    ChallengeRefused: () => "El respaldo tardó demasiado. Inténtalo de nuevo.",
-    RegistrationRefused: () =>
-      "No pudimos guardar el respaldo. Inténtalo de nuevo.",
-    NoWallet: () => "Este navegador no puede leer tu llave de forma segura.",
-    UnsupportedDevice: () =>
-      "Este navegador no puede leer tu llave de forma segura.",
+    BackupUnsupported: () => m.home_backup_unsupported(),
+    PasskeyCancelled: () => m.home_backup_passkey_cancelled(),
+    PasskeyFailed: () => m.home_backup_passkey_failed(),
+    ChallengeRefused: () => m.home_backup_challenge_refused(),
+    RegistrationRefused: () => m.home_backup_refused(),
+    NoWallet: () => m.device_cannot_read_key(),
+    UnsupportedDevice: () => m.device_cannot_read_key(),
     Offline: unavailableMessage,
     ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
@@ -102,12 +100,8 @@ function HomeScreen() {
       />
     ),
     NeedsReopening: ({ profile }) => <Reopening username={profile.username} />,
-    InvalidAddress: () => (
-      <Problem message="La llave guardada en este dispositivo no es válida." />
-    ),
-    UnsupportedDevice: () => (
-      <Problem message="Este navegador no puede leer tu llave de forma segura." />
-    ),
+    InvalidAddress: () => <Problem message={m.common_stored_key_invalid()} />,
+    UnsupportedDevice: () => <Problem message={m.device_cannot_read_key()} />,
     Offline: (failure) => <Unavailable failure={failure} />,
     ServerUnreachable: (failure) => <Unavailable failure={failure} />,
     LedgerUnreachable: (failure) => <Unavailable failure={failure} />,
@@ -185,12 +179,9 @@ function BackupNotice() {
       className="flex flex-col gap-3 rounded-lg bg-muted p-4"
     >
       <h2 id="backup-title" className="text-label-lg">
-        Tu cuenta no tiene respaldo
+        {m.home_backup_title()}
       </h2>
-      <p className="text-body text-muted-foreground">
-        Si pierdes este dispositivo, pierdes tu cuenta. Respáldala con una
-        passkey.
-      </p>
+      <p className="text-body text-muted-foreground">{m.home_backup_note()}</p>
       {problem ? (
         <p role="alert" className="text-body text-destructive">
           {problem}
@@ -201,7 +192,7 @@ function BackupNotice() {
         disabled={backingUp || stopped}
         onClick={backUp}
       >
-        {backingUp ? "Respaldando…" : "Respaldar con passkey"}
+        {backingUp ? m.home_backing_up() : m.home_backup_action()}
       </Button>
     </section>
   );
@@ -226,7 +217,7 @@ function Unavailable({ failure }: { failure: WalletUnavailable }) {
     <Problem message={notice.message} />
   ) : (
     <Screen>
-      <ScreenStatus title="No pudimos cargar tu cuenta">
+      <ScreenStatus title={m.common_account_load_failed()}>
         <ScreenNote>{notice.message}</ScreenNote>
       </ScreenStatus>
     </Screen>
@@ -238,9 +229,9 @@ function Problem({ message }: { message: string }) {
 
   return (
     <Notice
-      title="No pudimos cargar tu cuenta"
+      title={m.common_account_load_failed()}
       message={message}
-      action="Reintentar"
+      action={m.common_retry()}
       busy={false}
       onAction={() => router.invalidate()}
     />

@@ -140,7 +140,7 @@ export function PayRequest({
     setStep(PayStep.Following());
     task.run(requestPaymentEffects.resume(request.id, id), (answer) => {
       if (answer instanceof DeviceFailure)
-        return setStep(concluded(answer._tag, deviceFailure));
+        return setStep(concluded(answer._tag, deviceFailure()));
 
       if (isRequestRefusal(answer)) return refuse(answer);
 
@@ -160,7 +160,7 @@ export function PayRequest({
     setStep(PayStep.Preparing());
     task.run(requestPaymentEffects.review(request), (answer) => {
       if (answer instanceof DeviceFailure)
-        return setStep(concluded(answer._tag, deviceFailure));
+        return setStep(concluded(answer._tag, deviceFailure()));
 
       if (isRequestRefusal(answer)) return refuse(answer);
 
@@ -182,7 +182,7 @@ export function PayRequest({
     setStep(PayStep.Confirming());
     task.run(requestPaymentEffects.confirm(request.id, shown), (answer) => {
       if (answer instanceof DeviceFailure)
-        return setStep(concluded(answer._tag, deviceFailure));
+        return setStep(concluded(answer._tag, deviceFailure()));
 
       if (isRequestRefusal(answer)) return refuse(answer);
 
@@ -224,7 +224,7 @@ export function PayRequest({
       Effect.all([walletEffects.saved(), enrollmentEffects.pending()]),
       (answer) => {
         if (answer instanceof DeviceFailure)
-          return setStep(concluded(answer._tag, deviceFailure));
+          return setStep(concluded(answer._tag, deviceFailure()));
 
         const [saved, enrolling] = answer;
 

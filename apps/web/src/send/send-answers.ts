@@ -14,6 +14,8 @@ import { FieldProblem } from "./intent";
 import { SendScreen, deviceFailure, sendResult } from "./outcomes";
 import { type Answer, DeviceFailure } from "./use-wallet-task";
 
+import { m } from "@/paraglide/messages";
+
 export type Answered = Data.TaggedEnum<{
   Shown: { readonly review: PaymentReview };
   Refused: { readonly problem: string };
@@ -42,7 +44,7 @@ export const readOutcome = (
   if (answer instanceof DeviceFailure)
     return Answered.Concluded({
       outcome: answer._tag,
-      screen: deviceFailure,
+      screen: deviceFailure(),
     });
 
   const result = sendResult(answer, asset);
@@ -78,8 +80,6 @@ export const readReview = (
   );
 };
 
-const unsent = "Tu dinero no se movió.";
-
 export const unreleased = new Set([
   "PaymentReview",
   "PasskeyCancelled",
@@ -104,34 +104,23 @@ export const readConfirm = (
         ),
         Match.tag("PaymentReview", (review) => Answered.Shown({ review })),
         Match.tag("PasskeyCancelled", () =>
-          Answered.Refused({
-            problem: "No usaste tu passkey, así que no enviamos el pago.",
-          }),
+          Answered.Refused({ problem: m.send_passkey_cancelled() }),
         ),
         Match.tag("PasskeyFailed", () =>
-          Answered.Refused({
-            problem:
-              "No pudimos usar tu passkey y no enviamos el pago. Inténtalo de nuevo.",
-          }),
+          Answered.Refused({ problem: m.send_passkey_failed() }),
         ),
         Match.tag("WrongCredential", () =>
-          Answered.Refused({
-            problem:
-              "Usaste una passkey distinta y no enviamos el pago. Confirma con la passkey de tu cuenta.",
-          }),
+          Answered.Refused({ problem: m.send_wrong_credential() }),
         ),
         Match.tag("AssertionRejected", () =>
-          Answered.Refused({
-            problem:
-              "No pudimos verificar tu passkey y no enviamos el pago. Confirma con tu huella, rostro o PIN del dispositivo.",
-          }),
+          Answered.Refused({ problem: m.send_assertion_rejected() }),
         ),
         Match.tag("PrfOutputMissing", (missing) =>
           Answered.Concluded({
             outcome: missing._tag,
             screen: new SendScreen(
-              "Tu passkey no puede firmar aquí",
-              `Tu passkey no abrió tu llave en este dispositivo. ${unsent}`,
+              m.opening_prf_missing_title(),
+              `${m.send_passkey_unopened()} ${m.send_untouched()}`,
               "home",
             ),
           }),
@@ -140,8 +129,8 @@ export const readConfirm = (
           Answered.Concluded({
             outcome: damaged._tag,
             screen: new SendScreen(
-              "No pudimos leer tu llave",
-              `Los datos guardados en este navegador están dañados. ${unsent}`,
+              m.opening_corrupt_title(),
+              `${m.corrupt_device_wallet()} ${m.send_untouched()}`,
               "home",
             ),
           }),

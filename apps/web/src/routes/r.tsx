@@ -25,6 +25,8 @@ import { Screen } from "@/components/screen";
 import { ExternalClaimFlow } from "@/links/external-claim-flow";
 import { PayoutFlow } from "@/links/payout-flow";
 import { linkPreviewMeta } from "@/links/link-preview";
+import { LanguageSwitch } from "@/locale/language-switch";
+import { senderLanguageQuery } from "@/locale/sender-language";
 import {
   LinkResultScreen,
   ResultButton,
@@ -37,6 +39,7 @@ import {
   receiveScreen,
 } from "@/links/receive-outcomes";
 import { m } from "@/paraglide/messages";
+import { getLocale } from "@/paraglide/runtime";
 import { amountLabel } from "@/send/money";
 import { DeviceFailure, useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
@@ -50,7 +53,7 @@ export const Route = createFileRoute("/r")({
     meta: linkPreviewMeta({
       title: m.receive_preview_title(),
       description: m.receive_preview_description(),
-      path: "/r",
+      path: `/r?${senderLanguageQuery(getLocale())}`,
       image: "/og-payment-link.png",
     }),
   }),
@@ -269,7 +272,7 @@ function ReceiveLink({ opened }: { opened: ReadLinkCode }) {
     ),
     Offered: ({ open }) => (
       <Screen>
-        <ClaimHeader />
+        <ClaimHeader action={<LanguageSwitch />} />
         <main data-testid="link-offer" className="flex flex-1 flex-col px-5">
           <BloomHero
             motion="bloom"
@@ -503,10 +506,12 @@ function ReceiveReview({
   );
 }
 
-function ClaimHeader() {
+function ClaimHeader({ action }: { action?: React.ReactNode }) {
   return (
-    <header className="flex h-14 items-center justify-center px-5">
+    <header className="flex h-14 items-center gap-2 px-3">
+      <div className="flex-1" />
       <BrandLogo />
+      <div className="flex flex-1 justify-end">{action}</div>
     </header>
   );
 }

@@ -19,6 +19,8 @@ import { ScreenActions } from "@/components/screen";
 
 import { type Destination, FieldProblem, recipientOf } from "./intent";
 
+import { m } from "@/paraglide/messages";
+
 export function RecipientStep({
   destination,
   recipient,
@@ -80,12 +82,14 @@ export function RecipientStep({
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
         <h1 className="font-display text-h1">
           {destination === "username"
-            ? "¿A qué @usuario le envías?"
-            : "¿A qué dirección le envías?"}
+            ? m.send_recipient_username_title()
+            : m.send_recipient_address_title()}
         </h1>
         <Field>
           <FieldLabel htmlFor="recipient">
-            {destination === "username" ? "Usuario" : "Dirección Stellar"}
+            {destination === "username"
+              ? m.send_username_label()
+              : m.common_stellar_address()}
           </FieldLabel>
           {destination === "username" ? (
             <InputGroup>
@@ -97,8 +101,8 @@ export function RecipientStep({
           )}
           <FieldDescription>
             {destination === "username"
-              ? "Alguien que tenga Orchid"
-              : "Empieza con G o M"}
+              ? m.send_destination_username_note()
+              : m.common_address_hint()}
           </FieldDescription>
           {Option.isSome(message) ? (
             <FieldError id="recipient-error">{message.value}</FieldError>
@@ -111,7 +115,7 @@ export function RecipientStep({
           type="submit"
           data-testid="continue-recipient"
         >
-          Continuar
+          {m.send_continue()}
         </Button>
         <Button
           className="w-full"
@@ -120,7 +124,7 @@ export function RecipientStep({
           onClick={onChangeDestination}
           data-testid="change-destination"
         >
-          Cambiar destino
+          {m.common_change_destination()}
         </Button>
       </ScreenActions>
     </form>

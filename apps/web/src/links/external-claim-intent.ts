@@ -1,5 +1,4 @@
 import {
-  type AddressNetwork,
   DestinationAddress,
   ExternalLinkIntent,
   PaymentMemo,
@@ -10,7 +9,8 @@ import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
-import { memoByteLimit, memoBytes } from "@/send/intent";
+import { memoByteLimit, memoBytes, otherNetworkName } from "@/send/intent";
+import { m } from "@/paraglide/messages";
 
 export type ExternalClaimField = "destination" | "memo";
 
@@ -26,20 +26,13 @@ export interface ExternalClaimForm {
   readonly memo: string;
 }
 
-const otherNetworkNames: Record<Exclude<AddressNetwork, "stellar">, string> = {
-  evm: "una red EVM (como Base o Ethereum)",
-  solana: "Solana",
-  tron: "Tron",
-  bitcoin: "Bitcoin",
-};
-
 const destinationProblem = (typed: string) =>
   Option.match(recogniseAddress(typed), {
-    onNone: () => "La dirección no es válida",
+    onNone: () => m.common_address_invalid(),
     onSome: (network) =>
       network === "stellar"
-        ? "La dirección no es válida"
-        : `Esta es una dirección de ${otherNetworkNames[network]}. Este link solo se puede enviar a una dirección de Stellar.`,
+        ? m.common_address_invalid()
+        : m.external_other_network({ network: otherNetworkName(network) }),
   });
 
 export function externalClaimIntentOf(
@@ -68,10 +61,7 @@ export function externalClaimIntentOf(
 
   if (memoBytes(trimmed) > memoByteLimit)
     return Result.fail(
-      new ExternalClaimFieldProblem(
-        "memo",
-        "El memo es demasiado largo. Vuelve a copiarlo completo desde la app que recibe.",
-      ),
+      new ExternalClaimFieldProblem("memo", m.external_memo_too_long()),
     );
 
   return Option.match(
@@ -79,7 +69,7 @@ export function externalClaimIntentOf(
     {
       onNone: () =>
         Result.fail(
-          new ExternalClaimFieldProblem("memo", "Este memo no es válido"),
+          new ExternalClaimFieldProblem("memo", m.common_memo_invalid()),
         ),
       onSome: (memo) =>
         Result.succeed(new ExternalLinkIntent({ destination, memo })),

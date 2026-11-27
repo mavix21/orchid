@@ -19,6 +19,7 @@ import {
   type UnavailableOverview,
 } from "@/send/send-unavailable";
 import { shownOverview } from "@/wallet/shown-overview";
+import { m } from "@/paraglide/messages";
 
 const TransferSearch = Schema.Struct({ transfer: Schema.optional(TransferId) });
 
@@ -50,8 +51,10 @@ function SendAsset() {
 
   const nav = (locked: boolean, edit?: () => void) => (
     <TopNav
-      title={balance ? `Enviar ${balance.asset.code}` : "Enviar"}
-      label="Atrás"
+      title={
+        balance ? m.send_title({ asset: balance.asset.code }) : m.common_send()
+      }
+      label={m.common_back()}
       icon={<ChevronLeftIcon absoluteStrokeWidth />}
       link={
         <Link

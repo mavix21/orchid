@@ -20,6 +20,7 @@ import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
 import { useWalletTask } from "@/send/use-wallet-task";
 import { paymentRequestEffects } from "@/wallet/payment-requests";
 import { unavailableMessage } from "@/wallet/unavailable";
+import { m } from "@/paraglide/messages";
 
 export const Route = createFileRoute("/_wallet/_app/activity")({
   ssr: false,
@@ -39,7 +40,7 @@ function ActivityFrame({ children }: { children: React.ReactNode }) {
   return (
     <Screen>
       <main className="flex flex-1 flex-col gap-4 px-5 pt-6 pb-30 md:pt-2 md:pb-16">
-        <h1 className="font-display text-h1">Actividad</h1>
+        <h1 className="font-display text-h1">{m.nav_activity()}</h1>
         {children}
       </main>
     </Screen>
@@ -51,7 +52,7 @@ function ActivitySkeleton() {
     <ActivityFrame>
       <div
         aria-busy="true"
-        aria-label="Cargando tu actividad"
+        aria-label={m.activity_loading()}
         className="flex flex-col gap-1"
       >
         {skeletonRows.map((row) => (
@@ -73,11 +74,10 @@ const activityProblem = (
   activity: Exclude<ActivityOutcome, { _tag: "RequestActivityPage" }>,
 ) =>
   Match.valueTags(activity, {
-    NotOpened: () => "Tu cuenta aún se está activando.",
-    InvalidAddress: () => "La llave guardada en este dispositivo no es válida.",
-    NoWallet: () => "Este dispositivo no tiene una cuenta de Orchid.",
-    UnsupportedDevice: () =>
-      "Este navegador no puede leer tu llave de forma segura.",
+    NotOpened: () => m.common_account_activating(),
+    InvalidAddress: () => m.common_stored_key_invalid(),
+    NoWallet: () => m.session_no_wallet(),
+    UnsupportedDevice: () => m.device_cannot_read_key(),
     Offline: unavailableMessage,
     ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
@@ -153,7 +153,7 @@ function ActivityPages({ first }: { first: RequestActivityPage }) {
           <div className="flex flex-col gap-2">
             {paging === "failed" ? (
               <p role="alert" className="text-body text-muted-foreground">
-                No pudimos cargar tu actividad
+                {m.activity_load_failed()}
               </p>
             ) : null}
             <Button
@@ -164,9 +164,9 @@ function ActivityPages({ first }: { first: RequestActivityPage }) {
               data-testid="more-activity"
             >
               {Match.value(paging).pipe(
-                Match.when("idle", () => "Ver más"),
-                Match.when("loading", () => "Cargando…"),
-                Match.when("failed", () => "Reintentar"),
+                Match.when("idle", () => m.activity_load_more()),
+                Match.when("loading", () => m.activity_loading_more()),
+                Match.when("failed", () => m.common_retry()),
                 Match.exhaustive,
               )}
             </Button>
@@ -183,7 +183,7 @@ function ActivityProblem({ message }: { message: string }) {
 
   return (
     <Screen>
-      <ScreenStatus title="No pudimos cargar tu actividad">
+      <ScreenStatus title={m.activity_load_failed()}>
         <ScreenNote>{message}</ScreenNote>
         <Button
           className="mt-4 w-full"
@@ -193,7 +193,7 @@ function ActivityProblem({ message }: { message: string }) {
             void router.invalidate().finally(() => setRetrying(false));
           }}
         >
-          Reintentar
+          {m.common_retry()}
         </Button>
       </ScreenStatus>
     </Screen>
