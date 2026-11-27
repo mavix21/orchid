@@ -92,7 +92,7 @@ export const draftChain = (
       return (
         facts.value.createsLinkAccount === receive.createsLinkAccount &&
         facts.value.link === receive.link &&
-        facts.value.heldFunds === receive.heldFunds &&
+        facts.value.unclaimedFunds === receive.unclaimedFunds &&
         facts.value.destination === receive.destination &&
         sameMemo(facts.value.memo, receive.memo) &&
         sameAsset(facts.value.asset, receive.asset) &&

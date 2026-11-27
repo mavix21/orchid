@@ -53,7 +53,7 @@ export const sendResult = (
     Settled: (settled) =>
       new SendScreen(
         "Enviado",
-        settled.heldFunds === undefined
+        settled.unclaimedFunds === undefined
           ? `${amountLabel(settled.amount, settled.asset)} a ${recipientName(settled.recipient)}`
           : accepting(settled.recipient),
         "done",
@@ -133,7 +133,7 @@ export const sendResult = (
         "amount",
         `Tienes ${amountLabel(available, asset)} disponibles`,
       ),
-    HeldFundsLimitReached: ({ limit }) =>
+    UnclaimedFundsLimitReached: ({ limit }) =>
       new SendScreen(
         "Espera a que acepten tus pagos",
         `Tienes ${limit} pagos esperando ser aceptados`,

@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema";
 import {
   AssetOrder,
   AssetOrderId,
-  ClaimHeldFunds,
+  ClaimUnclaimedFunds,
   type WalletPort,
   type WalletUnavailable,
 } from "../contract";
@@ -44,9 +44,9 @@ export function deviceReclaim(
     concluded: (order, outcome) => {
       const { action } = order;
 
-      return Predicate.isTagged(action, "ClaimHeldFunds") &&
+      return Predicate.isTagged(action, "ClaimUnclaimedFunds") &&
         (Predicate.isTagged(outcome, "AssetSettled") ||
-          Predicate.isTagged(outcome, "HeldFundsGone"))
+          Predicate.isTagged(outcome, "UnclaimedFundsGone"))
         ? records
             .updateRecords(({ wallet, links }) =>
               wallet.address === order.wallet
@@ -55,7 +55,7 @@ export function deviceReclaim(
                     links: withoutReclaimed(
                       links,
                       wallet.address,
-                      action.heldFunds,
+                      action.unclaimedFunds,
                     ),
                   })
                 : Option.none(),
@@ -80,7 +80,9 @@ export function deviceReclaim(
     const order = new AssetOrder({
       id: Schema.decodeSync(AssetOrderId)(crypto.randomUUID()),
       wallet: stored.value.address,
-      action: ClaimHeldFunds.make({ heldFunds: target.heldFunds }),
+      action: ClaimUnclaimedFunds.make({
+        unclaimedFunds: target.unclaimedFunds,
+      }),
     });
 
     return yield* claims.review(stored.value, order, target);

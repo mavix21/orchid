@@ -121,7 +121,7 @@ const mapResult = (
           "check",
         ),
       ),
-    HeldFundsGone: ({ status }) =>
+    UnclaimedFundsGone: ({ status }) =>
       concluded(outcome, status === "unresolved" ? unresolved : used),
     PaymentLinkUsed: () => concluded(outcome, used),
     PaymentLinkUnresolved: () => concluded(outcome, unresolved),

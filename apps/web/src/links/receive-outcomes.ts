@@ -72,7 +72,7 @@ export const receiveScreen = (
         "La operación no se completó. Revisa el link para saber si el dinero sigue ahí.",
         "check",
       ),
-    HeldFundsGone: ({ status }) =>
+    UnclaimedFundsGone: ({ status }) =>
       status === "unresolved" ? unresolved : used,
     PaymentLinkUsed: () => used,
     PaymentLinkUnresolved: () => unresolved,

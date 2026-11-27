@@ -3,7 +3,7 @@ import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import type { AssetOrderId, HeldFundsId } from "../contract";
+import type { AssetOrderId, UnclaimedFundsId } from "../contract";
 import { approvalMargin, sweepBatchSize } from "../policy";
 import { epochAt, network } from "../stellar/network";
 import type { Sealed } from "./Chain.server";
@@ -26,15 +26,15 @@ export const scopeAt = (now: number) =>
     eq(assetOrders.testnetEpoch, epochAt(now)),
   );
 
-export const ordersOnHeldFunds = Effect.fn("AssetOrders.onHeldFunds")(
-  function* (heldFunds: HeldFundsId, decode: Decode) {
+export const ordersOnUnclaimedFunds = Effect.fn("AssetOrders.onUnclaimedFunds")(
+  function* (unclaimedFunds: UnclaimedFundsId, decode: Decode) {
     const db = yield* Database;
     const now = yield* Clock.currentTimeMillis;
 
     const rows = yield* db
       .select()
       .from(assetOrders)
-      .where(and(scopeAt(now), eq(assetOrders.balanceId, heldFunds)))
+      .where(and(scopeAt(now), eq(assetOrders.balanceId, unclaimedFunds)))
       .orderBy(desc(assetOrders.createdAt))
       .limit(sweepBatchSize * 4);
 
@@ -88,7 +88,7 @@ export const authorizeExternalOrder = (
           .where(
             and(
               scope,
-              eq(assetOrders.balanceId, action.heldFunds),
+              eq(assetOrders.balanceId, action.unclaimedFunds),
               eq(assetOrders.status, "authorized"),
             ),
           );

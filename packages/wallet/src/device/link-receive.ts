@@ -87,8 +87,8 @@ export const receiveReviewOf = (
     receive.link === wallet.address ||
     receive.channel === receive.link ||
     receive.channel === wallet.address ||
-    receive.heldFunds !== action.heldFunds ||
-    action.heldFunds !== target.heldFunds ||
+    receive.unclaimedFunds !== action.unclaimedFunds ||
+    action.unclaimedFunds !== target.unclaimedFunds ||
     !sameAsset(receive.asset, target.asset) ||
     receive.amount !== target.amount ||
     isIssuedBy(receive.asset, wallet.address)
@@ -103,7 +103,7 @@ export const receiveReviewOf = (
       redrafted,
       network,
       link: target.link,
-      heldFunds: target.heldFunds,
+      unclaimedFunds: target.unclaimedFunds,
       asset: target.asset,
       amount: target.amount,
       sender: target.sender,
@@ -129,7 +129,7 @@ export const receiveOrder = (
     wallet,
     action: ReceiveLink.make({
       link: target.link,
-      heldFunds: target.heldFunds,
+      unclaimedFunds: target.unclaimedFunds,
     }),
   });
 
@@ -155,7 +155,7 @@ export const openLink = Effect.fn("Device.openLink")(function* (
   return Predicate.isTagged(status, "PaymentLinkOpen")
     ? new OpenedLink({
         link,
-        heldFunds: status.heldFunds,
+        unclaimedFunds: status.unclaimedFunds,
         asset: status.asset,
         amount: status.amount,
         sender: status.sender,

@@ -19,7 +19,7 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
-  HeldFundsId,
+  UnclaimedFundsId,
   Profile,
   ReceivedPaymentLink,
   Username,
@@ -32,7 +32,7 @@ import { assetOrders, transfers, usernames } from "./tables.server";
 import {
   type ClaimableKind,
   FundedLink,
-  OpenHeldFunds,
+  OpenUnclaimedFunds,
   OpenLinkRecord,
   OrderJson,
   RecipientJson,
@@ -77,82 +77,39 @@ export const openClaimableCountFrom = Effect.fn("Transfers.openClaimables")(
   },
 );
 
-export const settledOpenHeldFundsFrom = Effect.fn(
-  "Transfers.settledOpenHeldFunds",
+export const settledOpenUnclaimedFundsFrom = Effect.fn(
+  "Transfers.settledOpenUnclaimedFunds",
 )(function* (sender: AccountAddress, kind: ClaimableKind) {
   const db = yield* Database;
   const now = yield* Clock.currentTimeMillis;
 
   const rows = yield* db
-    .select({ heldFunds: transfers.balanceId })
+    .select({ unclaimedFunds: transfers.balanceId })
     .from(transfers)
     .where(and(openFromAt(sender, kind, now), eq(transfers.status, "settled")))
     .limit(claimableReadLimit);
 
   return rows.flatMap((row) =>
-    row.heldFunds ? [Schema.decodeSync(HeldFundsId)(row.heldFunds)] : [],
+    row.unclaimedFunds
+      ? [Schema.decodeSync(UnclaimedFundsId)(row.unclaimedFunds)]
+      : [],
   );
 });
 
-export const openHeldFundsFor = Effect.fn("Transfers.openHeldFunds")(function* (
-  address: AccountAddress,
-) {
-  const db = yield* Database;
-  const now = yield* Clock.currentTimeMillis;
-
-  const rows = yield* db
-    .select({
-      heldFunds: transfers.balanceId,
-      sender: transfers.sender,
-      username: usernames.username,
-      resolvedRecipient: transfers.resolvedRecipient,
-    })
-    .from(transfers)
-    .innerJoin(usernames, eq(usernames.address, transfers.sender))
-    .where(
-      and(
-        unclaimedAt(now),
-        or(
-          eq(transfers.claimableKind, "username"),
-          isNull(transfers.claimableKind),
-        ),
-        eq(transfers.status, "settled"),
-        or(eq(transfers.sender, address), eq(transfers.recipient, address)),
-      ),
-    )
-    .orderBy(desc(transfers.createdAt))
-    .limit(claimableReadLimit);
-
-  return yield* Effect.try({
-    try: () =>
-      rows.flatMap((row) => {
-        const to = Schema.decodeSync(RecipientJson)(row.resolvedRecipient);
-
-        return to instanceof Profile
-          ? [
-              new OpenHeldFunds({
-                id: Schema.decodeUnknownSync(HeldFundsId)(row.heldFunds),
-                from: new Profile({
-                  address: Schema.decodeSync(AccountAddress)(row.sender),
-                  username: Schema.decodeSync(Username)(row.username),
-                }),
-                to,
-              }),
-            ]
-          : [];
-      }),
-    catch: (cause) => new StoreFailure({ cause }),
-  });
-});
-
-export const waitingHeldFundsFor = Effect.fn("Transfers.waitingHeldFunds")(
+export const openUnclaimedFundsFor = Effect.fn("Transfers.openUnclaimedFunds")(
   function* (address: AccountAddress) {
     const db = yield* Database;
     const now = yield* Clock.currentTimeMillis;
 
     const rows = yield* db
-      .select({ heldFunds: transfers.balanceId })
+      .select({
+        unclaimedFunds: transfers.balanceId,
+        sender: transfers.sender,
+        username: usernames.username,
+        resolvedRecipient: transfers.resolvedRecipient,
+      })
       .from(transfers)
+      .innerJoin(usernames, eq(usernames.address, transfers.sender))
       .where(
         and(
           unclaimedAt(now),
@@ -161,23 +118,70 @@ export const waitingHeldFundsFor = Effect.fn("Transfers.waitingHeldFunds")(
             isNull(transfers.claimableKind),
           ),
           eq(transfers.status, "settled"),
-          eq(transfers.recipient, address),
+          or(eq(transfers.sender, address), eq(transfers.recipient, address)),
         ),
       )
-      .orderBy(asc(transfers.createdAt))
+      .orderBy(desc(transfers.createdAt))
       .limit(claimableReadLimit);
 
     return yield* Effect.try({
       try: () =>
-        rows.flatMap((row) =>
-          row.heldFunds === null
-            ? []
-            : [Schema.decodeUnknownSync(HeldFundsId)(row.heldFunds)],
-        ),
+        rows.flatMap((row) => {
+          const to = Schema.decodeSync(RecipientJson)(row.resolvedRecipient);
+
+          return to instanceof Profile
+            ? [
+                new OpenUnclaimedFunds({
+                  id: Schema.decodeUnknownSync(UnclaimedFundsId)(
+                    row.unclaimedFunds,
+                  ),
+                  from: new Profile({
+                    address: Schema.decodeSync(AccountAddress)(row.sender),
+                    username: Schema.decodeSync(Username)(row.username),
+                  }),
+                  to,
+                }),
+              ]
+            : [];
+        }),
       catch: (cause) => new StoreFailure({ cause }),
     });
   },
 );
+
+export const waitingUnclaimedFundsFor = Effect.fn(
+  "Transfers.waitingUnclaimedFunds",
+)(function* (address: AccountAddress) {
+  const db = yield* Database;
+  const now = yield* Clock.currentTimeMillis;
+
+  const rows = yield* db
+    .select({ unclaimedFunds: transfers.balanceId })
+    .from(transfers)
+    .where(
+      and(
+        unclaimedAt(now),
+        or(
+          eq(transfers.claimableKind, "username"),
+          isNull(transfers.claimableKind),
+        ),
+        eq(transfers.status, "settled"),
+        eq(transfers.recipient, address),
+      ),
+    )
+    .orderBy(asc(transfers.createdAt))
+    .limit(claimableReadLimit);
+
+  return yield* Effect.try({
+    try: () =>
+      rows.flatMap((row) =>
+        row.unclaimedFunds === null
+          ? []
+          : [Schema.decodeUnknownSync(UnclaimedFundsId)(row.unclaimedFunds)],
+      ),
+    catch: (cause) => new StoreFailure({ cause }),
+  });
+});
 
 export const openPaymentLinksFor = Effect.fn("Transfers.openPaymentLinks")(
   function* (sender: AccountAddress) {
@@ -186,7 +190,7 @@ export const openPaymentLinksFor = Effect.fn("Transfers.openPaymentLinks")(
 
     const rows = yield* db
       .select({
-        heldFunds: transfers.balanceId,
+        unclaimedFunds: transfers.balanceId,
         order: transfers.order,
         createdAt: transfers.createdAt,
       })
@@ -208,11 +212,13 @@ export const openPaymentLinksFor = Effect.fn("Transfers.openPaymentLinks")(
           const order = Schema.decodeSync(OrderJson)(row.order);
 
           return Predicate.isTagged(order.to, "PaymentLink") &&
-            row.heldFunds !== null
+            row.unclaimedFunds !== null
             ? [
                 new OpenLinkRecord({
                   id: order.id,
-                  heldFunds: Schema.decodeSync(HeldFundsId)(row.heldFunds),
+                  unclaimedFunds: Schema.decodeSync(UnclaimedFundsId)(
+                    row.unclaimedFunds,
+                  ),
                   address: order.to.value,
                   asset: order.asset,
                   amount: order.amount,
@@ -234,7 +240,7 @@ export const fundedLinkAt = Effect.fn("Transfers.fundedLink")(function* (
 
   const rows = yield* db
     .select({
-      heldFunds: transfers.balanceId,
+      unclaimedFunds: transfers.balanceId,
       order: transfers.order,
       sender: transfers.sender,
       username: usernames.username,
@@ -262,10 +268,12 @@ export const fundedLinkAt = Effect.fn("Transfers.fundedLink")(function* (
 
           return Predicate.isTagged(order.to, "PaymentLink") &&
             order.to.value === link &&
-            row.heldFunds !== null
+            row.unclaimedFunds !== null
             ? Option.some(
                 new FundedLink({
-                  heldFunds: Schema.decodeSync(HeldFundsId)(row.heldFunds),
+                  unclaimedFunds: Schema.decodeSync(UnclaimedFundsId)(
+                    row.unclaimedFunds,
+                  ),
                   sender: new Profile({
                     address: Schema.decodeSync(AccountAddress)(row.sender),
                     username: Schema.decodeSync(Username)(row.username),

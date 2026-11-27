@@ -5,7 +5,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
-  HeldFundsId,
+  UnclaimedFundsId,
   type CloseTrustline,
   Asset,
   type OpenTrustline,
@@ -20,7 +20,7 @@ import {
 import { readEnvelope } from "./envelopes";
 
 export const ClaimPlan = Schema.TaggedStruct("ClaimPlan", {
-  heldFunds: HeldFundsId,
+  unclaimedFunds: UnclaimedFundsId,
   opens: Schema.optional(Asset),
 });
 
@@ -44,14 +44,14 @@ export function draftPlan(plan: AssetPlan, input: PlanInput): UnsignedEnvelope {
       draftTrustline({ ...drafting, reserveSponsor, asset }),
     CloseTrustline: ({ asset }) =>
       draftTrustlineRemoval({ ...drafting, asset }),
-    ClaimPlan: ({ heldFunds, opens }) =>
+    ClaimPlan: ({ unclaimedFunds, opens }) =>
       opens
         ? draftClaim({
             ...drafting,
-            heldFunds,
+            unclaimedFunds,
             opens: { asset: opens, reserveSponsor },
           })
-        : draftClaim({ ...drafting, heldFunds }),
+        : draftClaim({ ...drafting, unclaimedFunds }),
   });
 }
 
@@ -71,9 +71,9 @@ export function plannedSequence(
         CloseTrustline: ({ asset }) =>
           Predicate.isTagged(facts, "TrustlineRemovalFacts") &&
           sameAsset(facts.asset, asset),
-        ClaimPlan: ({ heldFunds, opens }) =>
+        ClaimPlan: ({ unclaimedFunds, opens }) =>
           Predicate.isTagged(facts, "ClaimFacts") &&
-          facts.heldFunds === heldFunds &&
+          facts.unclaimedFunds === unclaimedFunds &&
           sameOpening(facts.opens, opens),
       }),
     ),

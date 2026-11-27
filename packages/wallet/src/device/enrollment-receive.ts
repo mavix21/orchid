@@ -132,7 +132,7 @@ export const enrollmentReceive = (
       onNone: () => receiveOrder(addressOf(current), target),
       onSome: (held) =>
         held.link === target.link &&
-        held.heldFunds === target.heldFunds &&
+        held.unclaimedFunds === target.unclaimedFunds &&
         held.order.wallet === addressOf(current)
           ? held.order
           : receiveOrder(addressOf(current), target),

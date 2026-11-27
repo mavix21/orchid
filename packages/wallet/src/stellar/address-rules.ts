@@ -43,6 +43,6 @@ export const stellarAddressRules: AddressRules = {
   isDestinationAddress: (text) =>
     isAccountAddress(text) || isMuxedAddress(text),
   forbidsMemo: isMuxedAddress,
-  isHeldFundsId: (text) => claimableBalanceIdPattern.test(text),
+  isUnclaimedFundsId: (text) => claimableBalanceIdPattern.test(text),
   hasValidChecksum,
 };

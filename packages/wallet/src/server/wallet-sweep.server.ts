@@ -2,7 +2,7 @@ import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import type { HeldFundsId } from "../contract";
+import type { UnclaimedFundsId } from "../contract";
 import {
   type AssetAuthorized,
   type AssetConcluded,
@@ -21,8 +21,8 @@ export const sweepFlow = (actions: {
   readonly reconcileAsset: (
     entry: AssetAuthorized,
   ) => Effect.Effect<boolean, StoreFailure | ChainUnreachable>;
-  readonly closeGoneHeldFunds: (
-    id: HeldFundsId,
+  readonly closeGoneUnclaimedFunds: (
+    id: UnclaimedFundsId,
   ) => Effect.Effect<void, StoreFailure | ChainUnreachable>;
   readonly cleanUpReceivedLink: (
     concluded: AssetConcluded,
@@ -34,12 +34,12 @@ export const sweepFlow = (actions: {
     const transfers = yield* Transfers;
     const assets = yield* AssetOrders;
 
-    const goneHeldFunds = Effect.gen(function* () {
-      const ids = yield* transfers.heldFundsToCheck;
-      const entries = yield* chain.heldFunds(ids);
+    const goneUnclaimedFunds = Effect.gen(function* () {
+      const ids = yield* transfers.unclaimedFundsToCheck;
+      const entries = yield* chain.unclaimedFunds(ids);
 
       return ids.filter(
-        (id) => !entries.some((entry) => entry.heldFunds === id),
+        (id) => !entries.some((entry) => entry.unclaimedFunds === id),
       );
     });
 
@@ -111,11 +111,11 @@ export const sweepFlow = (actions: {
         (prune) => prune.pipe(Effect.exit),
       );
 
-      const heldFundsExits = yield* goneHeldFunds.pipe(
+      const unclaimedFundsExits = yield* goneUnclaimedFunds.pipe(
         Effect.flatMap((ids) =>
           Effect.forEach(
             ids,
-            (id) => actions.closeGoneHeldFunds(id).pipe(Effect.exit),
+            (id) => actions.closeGoneUnclaimedFunds(id).pipe(Effect.exit),
             { concurrency: rpcReadConcurrency },
           ),
         ),
@@ -126,9 +126,9 @@ export const sweepFlow = (actions: {
 
       const failed = [
         ...pruned.flatMap((exit) => (Exit.isFailure(exit) ? [exit.cause] : [])),
-        ...(Exit.isFailure(heldFundsExits)
-          ? [heldFundsExits.cause]
-          : heldFundsExits.value.flatMap((exit) =>
+        ...(Exit.isFailure(unclaimedFundsExits)
+          ? [unclaimedFundsExits.cause]
+          : unclaimedFundsExits.value.flatMap((exit) =>
               Exit.isFailure(exit) ? [exit.cause] : [],
             )),
         ...(Exit.isFailure(drained) ? [drained.cause] : drained.value),

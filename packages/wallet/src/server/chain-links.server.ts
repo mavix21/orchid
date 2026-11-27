@@ -11,7 +11,7 @@ import * as Schema from "effect/Schema";
 import {
   AccountAddress,
   type Asset,
-  type HeldFundsId,
+  type UnclaimedFundsId,
   type DestinationAddress,
   LinkUnclaimable,
   type PaymentMemo,
@@ -28,7 +28,7 @@ import type { StoreFailure } from "./store-failure.server";
 export interface LinkReceive {
   readonly link: AccountAddress;
   readonly destination: DestinationAddress;
-  readonly heldFunds: HeldFundsId;
+  readonly unclaimedFunds: UnclaimedFundsId;
   readonly asset: Asset;
   readonly amount: PositiveAmount;
   readonly memo?: PaymentMemo;

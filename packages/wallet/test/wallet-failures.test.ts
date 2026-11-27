@@ -73,7 +73,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "keeps reconciling transfers when the held funds read fails",
+      "keeps reconciling transfers when the unclaimed funds read fails",
       () =>
         Effect.gen(function* () {
           const signed = yield* signedTransfer("maria");

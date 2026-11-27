@@ -7,7 +7,7 @@ export const shownOverview = Match.type<DeviceOverview>().pipe(
   Match.tag("NoWallet", () => {
     throw redirect({ to: "/", replace: true });
   }),
-  Match.tag("NotOpened", ({ profile, heldFunds }) =>
+  Match.tag("NotOpened", ({ profile, unclaimedFunds }) =>
     Option.match(profile, {
       onNone: () => {
         throw redirect({ to: "/create-account", replace: true });
@@ -17,7 +17,7 @@ export const shownOverview = Match.type<DeviceOverview>().pipe(
           profile: owner,
           reserveSponsor: Option.none(),
           balances: [],
-          heldFunds,
+          unclaimedFunds,
           latest: Option.none(),
         }),
     }),

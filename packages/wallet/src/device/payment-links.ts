@@ -181,7 +181,7 @@ export function devicePaymentLinks(
 
     if (!Predicate.isTagged(outcome, "Settled")) return outcome;
 
-    if (outcome.heldFunds === undefined) return new DraftRejected();
+    if (outcome.unclaimedFunds === undefined) return new DraftRejected();
 
     const { address, code, saveOnDevice } = link.value;
 
@@ -195,7 +195,7 @@ export function devicePaymentLinks(
       id: outcome.id,
       address,
       code,
-      heldFunds: outcome.heldFunds,
+      unclaimedFunds: outcome.unclaimedFunds,
       asset: outcome.asset,
       amount: outcome.amount,
       network,
@@ -287,13 +287,13 @@ export function devicePaymentLinks(
                 links,
                 current.address,
                 resolved.address,
-                resolved.heldFunds,
+                resolved.unclaimedFunds,
               ),
             }),
         );
 
         return new LatestPaymentLink({
-          heldFunds: resolved.heldFunds,
+          unclaimedFunds: resolved.unclaimedFunds,
           address: resolved.address,
           asset: resolved.asset,
           amount: resolved.amount,
@@ -344,8 +344,9 @@ export function devicePaymentLinks(
 
     const saved = Option.filter(
       savedLinkFor(yield* device.store.readLinks(), wallet, target.address),
-      ({ heldFunds }) =>
-        heldFunds === undefined || heldFunds === target.heldFunds,
+      ({ unclaimedFunds }) =>
+        unclaimedFunds === undefined ||
+        unclaimedFunds === target.unclaimedFunds,
     );
 
     if (Option.isNone(saved)) return new SavedLinkMissing();
@@ -398,7 +399,7 @@ export function devicePaymentLinks(
       address: target.address,
       code,
       path: linkPath(code),
-      heldFunds: target.heldFunds,
+      unclaimedFunds: target.unclaimedFunds,
       asset: target.asset,
       amount: target.amount,
     });

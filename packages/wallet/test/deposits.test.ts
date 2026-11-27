@@ -264,9 +264,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const claimHash = lastSubmittedHash();
 
-          claimEvent(funded.heldFunds, addressOf(funded.link), 10_000_000n, {
-            hash: claimHash,
-          });
+          claimEvent(
+            funded.unclaimedFunds,
+            addressOf(funded.link),
+            10_000_000n,
+            {
+              hash: claimHash,
+            },
+          );
           paymentEvent(
             addressOf(funded.link),
             addressOf(claimer),
@@ -287,7 +292,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "closes the held funds of a claim made outside Orchid whoever received it and lists no deposit for the claim",
+      "closes the unclaimed funds of a claim made outside Orchid whoever received it and lists no deposit for the claim",
       () =>
         Effect.gen(function* () {
           const { wallet, sender } = yield* openSender(
@@ -313,11 +318,11 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           const accepted = Option.getOrThrow(
-            Option.fromNullishOr(settled.heldFunds),
+            Option.fromNullishOr(settled.unclaimedFunds),
           );
 
-          claimEvent(toOutsider.heldFunds, outsider(), 10_000_000n);
-          claimEvent(toWallet.heldFunds, claimer, 10_000_000n);
+          claimEvent(toOutsider.unclaimedFunds, outsider(), 10_000_000n);
+          claimEvent(toWallet.unclaimedFunds, claimer, 10_000_000n);
           claimEvent(accepted, recipientAddress, order.amount);
           yield* ingest;
 
@@ -431,10 +436,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "still sweeps in a scheduled run whose deposit ingest fails",
       () =>
         Effect.gen(function* () {
-          const { wallet, sender, heldFunds, transferId } =
+          const { wallet, sender, unclaimedFunds, transferId } =
             yield* fundLink("sweepowner");
 
-          world.claimables.delete(heldFunds);
+          world.claimables.delete(unclaimedFunds);
           ledgers.down = true;
 
           const scheduled = yield* Effect.exit(

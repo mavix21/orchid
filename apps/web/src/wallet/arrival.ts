@@ -1,4 +1,8 @@
-import type { HeldFunds, DeviceOverview, Profile } from "@workspace/wallet";
+import type {
+  UnclaimedFunds,
+  DeviceOverview,
+  Profile,
+} from "@workspace/wallet";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -9,12 +13,12 @@ import { m } from "@/paraglide/messages";
 export interface Arrival {
   readonly opening: boolean;
   readonly username: string;
-  readonly payment: HeldFunds;
+  readonly payment: UnclaimedFunds;
 }
 
 const arrivalFor = (
   profile: Profile,
-  waiting: ReadonlyArray<HeldFunds>,
+  waiting: ReadonlyArray<UnclaimedFunds>,
   opening: boolean,
 ): Option.Option<Arrival> =>
   Arr.findLast(waiting, (entry) => entry.to.address === profile.address).pipe(
@@ -27,11 +31,11 @@ const arrivalFor = (
 
 export const arrivalOf = (overview: DeviceOverview): Option.Option<Arrival> => {
   if (Predicate.isTagged(overview, "Holding"))
-    return arrivalFor(overview.profile, overview.heldFunds, false);
+    return arrivalFor(overview.profile, overview.unclaimedFunds, false);
 
   if (Predicate.isTagged(overview, "NotOpened"))
     return Option.flatMap(overview.profile, (profile) =>
-      arrivalFor(profile, overview.heldFunds, true),
+      arrivalFor(profile, overview.unclaimedFunds, true),
     );
 
   return Option.none();

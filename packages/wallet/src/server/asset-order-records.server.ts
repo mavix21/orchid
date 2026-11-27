@@ -10,7 +10,7 @@ import {
   AssetOrderId,
   AssetPending,
   AssetSettled,
-  HeldFundsId,
+  UnclaimedFundsId,
   DestinationAddress,
   ExternalLinkFailed,
   type ExternalLinkOrder,
@@ -26,7 +26,7 @@ import type { assetOrders } from "./tables.server";
 
 export const ReceiveLinkExternal = Schema.TaggedStruct("ReceiveLinkExternal", {
   link: AccountAddress,
-  heldFunds: HeldFundsId,
+  unclaimedFunds: UnclaimedFundsId,
   destination: DestinationAddress,
   memo: Schema.optional(PaymentMemo),
 });
@@ -47,7 +47,7 @@ export const toStoredExternalOrder = (order: ExternalLinkOrder) =>
     id: order.id,
     action: ReceiveLinkExternal.make({
       link: order.link,
-      heldFunds: order.heldFunds,
+      unclaimedFunds: order.unclaimedFunds,
       destination: order.destination,
       memo: order.memo,
     }),

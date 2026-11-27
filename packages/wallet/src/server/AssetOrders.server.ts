@@ -14,7 +14,7 @@ import {
   type Asset,
   AssetOrder,
   AssetOrderId,
-  type HeldFundsId,
+  type UnclaimedFundsId,
   type SigningRequest,
 } from "../contract";
 import { issuedAsset, trustlineColumns } from "../stellar/assets";
@@ -25,7 +25,7 @@ import { StoreFailure } from "./Directory.server";
 import {
   authorizeExternalOrder,
   linkCleaned,
-  ordersOnHeldFunds,
+  ordersOnUnclaimedFunds,
 } from "./asset-order-links.server";
 import {
   type AssetAuthorized,
@@ -122,8 +122,8 @@ export class AssetOrders extends Context.Service<
       asset: Asset,
     ): Effect.Effect<void, StoreFailure>;
 
-    onHeldFunds(
-      heldFunds: HeldFundsId,
+    onUnclaimedFunds(
+      unclaimedFunds: UnclaimedFundsId,
     ): Effect.Effect<ReadonlyArray<StoredAssetOrder>, StoreFailure>;
 
     receivedLinksToClean(
@@ -229,10 +229,10 @@ export class AssetOrders extends Context.Service<
           order: Schema.encodeSync(StoredOrderJson)(order),
           opens: opensOf(request),
           balanceId:
-            Predicate.isTagged(order.action, "ClaimHeldFunds") ||
+            Predicate.isTagged(order.action, "ClaimUnclaimedFunds") ||
             Predicate.isTagged(order.action, "ReceiveLink") ||
             Predicate.isTagged(order.action, "ReceiveLinkExternal")
-              ? order.action.heldFunds
+              ? order.action.unclaimedFunds
               : null,
           network,
           testnetEpoch: epochAt(now),
@@ -427,9 +427,9 @@ export class AssetOrders extends Context.Service<
           );
       };
 
-      const closeHeldFunds = (
+      const closeUnclaimedFunds = (
         tx: Transaction,
-        heldFunds: HeldFundsId,
+        unclaimedFunds: UnclaimedFundsId,
         now: DateTime.Utc,
       ) =>
         tx
@@ -437,7 +437,7 @@ export class AssetOrders extends Context.Service<
           .set({ balanceClosedAt: DateTime.toDateUtc(now) })
           .where(
             and(
-              eq(transfers.balanceId, heldFunds),
+              eq(transfers.balanceId, unclaimedFunds),
               isNull(transfers.balanceClosedAt),
             ),
           )
@@ -452,7 +452,7 @@ export class AssetOrders extends Context.Service<
         const nowMillis = DateTime.toEpochMillis(now);
 
         if (!(stored instanceof AssetOrder)) {
-          yield* closeHeldFunds(tx, stored.action.heldFunds, now);
+          yield* closeUnclaimedFunds(tx, stored.action.unclaimedFunds, now);
 
           return;
         }
@@ -464,8 +464,10 @@ export class AssetOrders extends Context.Service<
             track(tx, wallet, asset, nowMillis).pipe(Effect.asVoid),
           CloseTrustline: ({ asset }) =>
             untrack(tx, wallet, asset, nowMillis).pipe(Effect.asVoid),
-          ClaimHeldFunds: ({ heldFunds }) => closeHeldFunds(tx, heldFunds, now),
-          ReceiveLink: ({ heldFunds }) => closeHeldFunds(tx, heldFunds, now),
+          ClaimUnclaimedFunds: ({ unclaimedFunds }) =>
+            closeUnclaimedFunds(tx, unclaimedFunds, now),
+          ReceiveLink: ({ unclaimedFunds }) =>
+            closeUnclaimedFunds(tx, unclaimedFunds, now),
         });
 
         if (row.opens)
@@ -607,9 +609,9 @@ export class AssetOrders extends Context.Service<
           ),
         ),
         tracked: (wallet) => wrap(tracked(wallet)),
-        onHeldFunds: (heldFunds) =>
+        onUnclaimedFunds: (unclaimedFunds) =>
           wrap(
-            ordersOnHeldFunds(heldFunds, decode).pipe(
+            ordersOnUnclaimedFunds(unclaimedFunds, decode).pipe(
               Effect.provideService(Database, db),
             ),
           ),

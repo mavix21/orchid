@@ -90,7 +90,7 @@ export class Deposits extends Context.Service<
                   const payments = events.filter(AssetEvent.$is("Payment"));
 
                   const claims = events.filter(
-                    AssetEvent.$is("HeldFundsClaim"),
+                    AssetEvent.$is("UnclaimedFundsClaim"),
                   );
 
                   const recipients = [
@@ -182,7 +182,7 @@ export class Deposits extends Context.Service<
                     claims.length === 0
                       ? []
                       : yield* tx
-                          .select({ heldFunds: transfers.balanceId })
+                          .select({ unclaimedFunds: transfers.balanceId })
                           .from(transfers)
                           .where(
                             and(
@@ -192,14 +192,17 @@ export class Deposits extends Context.Service<
                               isNull(transfers.balanceClosedAt),
                               inArray(
                                 transfers.balanceId,
-                                claims.map((claim) => claim.heldFunds),
+                                claims.map((claim) => claim.unclaimedFunds),
                               ),
                             ),
                           );
 
                   yield* Effect.forEach(
                     claims.filter((claim) =>
-                      open.some((entry) => entry.heldFunds === claim.heldFunds),
+                      open.some(
+                        (entry) =>
+                          entry.unclaimedFunds === claim.unclaimedFunds,
+                      ),
                     ),
                     (claim) =>
                       tx
@@ -211,7 +214,7 @@ export class Deposits extends Context.Service<
                           and(
                             eq(transfers.network, network),
                             eq(transfers.testnetEpoch, epoch),
-                            eq(transfers.balanceId, claim.heldFunds),
+                            eq(transfers.balanceId, claim.unclaimedFunds),
                             isNull(transfers.balanceClosedAt),
                           ),
                         ),

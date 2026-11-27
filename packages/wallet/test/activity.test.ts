@@ -135,7 +135,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           yield* claimBalance(
             wallet,
             signingKey(sender.phrase),
-            recovered.heldFunds,
+            recovered.unclaimedFunds,
           );
 
           const listed = yield* activityOf(wallet, sender.address);
@@ -195,7 +195,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             "acceptrecipient",
           );
 
-          withClaimants(accepted.heldFunds, [
+          withClaimants(accepted.unclaimedFunds, [
             addressOf(recipient),
             addressOf(sender),
           ]);
@@ -215,15 +215,15 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           assertTagged(reserved, "SentActivity");
           assertTagged(reserved.receipt, "Reserved");
 
-          yield* claimBalance(wallet, recipient, accepted.heldFunds);
+          yield* claimBalance(wallet, recipient, accepted.unclaimedFunds);
 
           const taken = yield* payWithoutTrustline(sender, "acceptrecipient");
 
-          withClaimants(taken.heldFunds, [
+          withClaimants(taken.unclaimedFunds, [
             addressOf(recipient),
             addressOf(sender),
           ]);
-          yield* claimBalance(wallet, sender, taken.heldFunds);
+          yield* claimBalance(wallet, sender, taken.unclaimedFunds);
 
           const asRecipient = yield* activityOf(wallet, addressOf(recipient));
           const asSender = yield* activityOf(wallet, addressOf(sender));
@@ -304,7 +304,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "an unopened wallet has an empty history and an overview that lists the held funds naming its address",
+      "an unopened wallet has an empty history and an overview that lists the unclaimed funds naming its address",
       () =>
         Effect.gen(function* () {
           const wallet = yield* Wallet;
@@ -315,7 +315,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           const paid = yield* payWithoutTrustline(sender, "unopenrecipient");
 
-          withClaimants(paid.heldFunds, [address]);
+          withClaimants(paid.unclaimedFunds, [address]);
           yield* db
             .update(wallets)
             .set({ status: "opening", attemptHash: null })
@@ -329,8 +329,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               new Profile({ username: username("unopenrecipient"), address }),
             ),
           );
-          expect(overview.heldFunds.map((entry) => entry.id)).toEqual([
-            paid.heldFunds,
+          expect(overview.unclaimedFunds.map((entry) => entry.id)).toEqual([
+            paid.unclaimedFunds,
           ]);
           expect(yield* wallet.activity(address)).toEqual(
             new ActivityPage({ entries: [] }),
