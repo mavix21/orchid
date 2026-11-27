@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   NewPaymentRequest,
@@ -22,6 +23,7 @@ import { Directory } from "../src/server/Directory.server";
 import { PaymentRequests } from "../src/server/PaymentRequests.server";
 import { RequestPayments } from "../src/server/RequestPayments.server";
 import { Transfers } from "../src/server/Transfers.server";
+import { Wallet } from "../src/server/Wallet.server";
 import { assertTagged } from "./tagged";
 import {
   accountState,
@@ -140,6 +142,32 @@ const cancel = (requester: Keypair, id: PaymentRequestId) =>
 
 const publicRead = (id: PaymentRequestId) =>
   RequestPayments.use((payments) => payments.read(id));
+
+const authorizingDraftsOutside = (payer: Keypair) =>
+  Layer.fresh(
+    RequestPayments.serviceLayer.pipe(
+      Layer.provide(
+        Layer.effect(
+          Wallet,
+          Effect.map(Wallet, (wallet) =>
+            Wallet.of({
+              ...wallet,
+              transfer: (order, approval) =>
+                wallet
+                  .transfer(order, approval)
+                  .pipe(
+                    Effect.tap((step) =>
+                      Predicate.isTagged(step, "TransferDraft")
+                        ? wallet.transfer(order, approve(step.request, payer))
+                        : Effect.void,
+                    ),
+                  ),
+            }),
+          ),
+        ),
+      ),
+    ),
+  );
 
 const testLayer = RequestPayments.serviceLayer.pipe(
   Layer.provideMerge(PaymentRequests.serviceLayer),
@@ -341,6 +369,31 @@ layer(testLayer, { excludeTestServices: true, concurrent: false })(
       }),
     );
 
+    it.effect(
+      "never answers with a transfer authorized outside while refusing its draft",
+      () =>
+        Effect.gen(function* () {
+          const { maria, rosa, id } = yield* parties;
+          const order = orderFor(rosa, toMaria);
+
+          world.accounts.set(
+            addressOf(maria),
+            accountState({ balance: Option.none() }),
+          );
+
+          const answered = yield* pay(id, order).pipe(
+            Effect.provide(authorizingDraftsOutside(rosa)),
+          );
+
+          assertTagged(answered, "PaymentRequestPaymentTaken");
+          assertTagged(
+            Option.getOrThrow(yield* findTransfer(order.id)),
+            "Authorized",
+          );
+          expect(yield* boundTo(id)).toEqual(Option.none());
+        }),
+    );
+
     it.effect("refuses a payment the requester cannot receive directly", () =>
       Effect.gen(function* () {
         const { maria, rosa, id } = yield* parties;
@@ -364,6 +417,20 @@ layer(testLayer, { excludeTestServices: true, concurrent: false })(
         );
         expect(Option.isNone(yield* findTransfer(held.id))).toBe(true);
         expect(yield* authorizedTransfers).toEqual([]);
+
+        const diverted = orderFor(rosa, toMaria);
+        const unclaimed = yield* draftTransfer(diverted);
+
+        yield* bindDraft(id, diverted, unclaimed.request);
+        assertTagged(
+          yield* send(diverted, approve(unclaimed.request, rosa)),
+          "Pending",
+        );
+        settleHash(yield* signedHash(diverted));
+        assertTagged(yield* send(diverted), "Settled");
+
+        assertTagged(yield* pay(id, diverted), "PaymentRequestPaymentTaken");
+        assertTagged(yield* publicRead(id), "PaymentRequestOpen");
 
         world.accounts.set(addressOf(maria), accountState());
 

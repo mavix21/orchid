@@ -7,6 +7,9 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
+  type Failed,
+  type Pending,
+  type Settled,
   type AccountAddress,
   ActivityPage,
   type ActivityCursor,
@@ -40,7 +43,6 @@ import {
   type Authorized,
   type Concluded,
   OrderJson,
-  type Transfer,
   Transfers,
   pending,
 } from "./Transfers.server";
@@ -77,7 +79,7 @@ const paidDirectly = (request: PaymentRequestOpen, concluded: Concluded) =>
 const receiptOf = (signed: Authorized | Concluded) =>
   Predicate.isTagged(signed, "Authorized") ? pending(signed) : signed.receipt;
 
-const isReceipt = (step: TransferStep) =>
+const isReceipt = (step: TransferStep): step is Pending | Settled | Failed =>
   Predicate.isTagged(step, "Pending") ||
   Predicate.isTagged(step, "Settled") ||
   Predicate.isTagged(step, "Failed");
@@ -171,6 +173,22 @@ export class RequestPayments extends Context.Service<
         );
       });
 
+      const heldAnswer = Effect.fn("RequestPayments.heldAnswer")(function* (
+        id: PaymentRequestId,
+        receipt: Pending | Settled | Failed,
+      ) {
+        if (Predicate.isTagged(receipt, "Failed")) return receipt;
+
+        const inspected = yield* requests.inspect(id);
+
+        const held = Option.exists(
+          Option.flatMap(inspected, ({ binding }) => binding),
+          ({ payment }) => payment === receipt.id,
+        );
+
+        return held ? receipt : new PaymentRequestPaymentTaken();
+      });
+
       const withdraw = Effect.fn("RequestPayments.withdraw")(function* (
         id: PaymentRequestId,
         order: TransferOrder,
@@ -179,14 +197,16 @@ export class RequestPayments extends Context.Service<
 
         yield* converge(id, true);
 
-        return Option.flatMap(
-          yield* transfers.find(order.id),
-          (stored: Transfer) =>
-            !Predicate.isTagged(stored, "Proposed") &&
-            sameOrder(stored.order, order)
-              ? Option.some(receiptOf(stored))
-              : Option.none(),
-        );
+        const found = yield* transfers.find(order.id);
+
+        if (
+          Option.isNone(found) ||
+          Predicate.isTagged(found.value, "Proposed") ||
+          !sameOrder(found.value.order, order)
+        )
+          return Option.none();
+
+        return Option.some(yield* heldAnswer(id, receiptOf(found.value)));
       });
 
       const refuseRequester = Effect.fn("RequestPayments.refuseRequester")(
@@ -204,9 +224,9 @@ export class RequestPayments extends Context.Service<
       ) {
         const step = yield* wallet.transfer(order, Option.none());
 
-        return needsUnclaimedFunds(step)
-          ? yield* refuseRequester(id, order)
-          : step;
+        if (needsUnclaimedFunds(step)) return yield* refuseRequester(id, order);
+
+        return isReceipt(step) ? yield* heldAnswer(id, step) : step;
       });
 
       const submitted = Effect.fn("RequestPayments.submit")(function* (
@@ -221,7 +241,7 @@ export class RequestPayments extends Context.Service<
         if (isReceipt(step)) {
           yield* converge(id, false);
 
-          return step;
+          return yield* heldAnswer(id, step);
         }
 
         return Option.getOrElse(yield* withdraw(id, order), () => step);
@@ -265,7 +285,7 @@ export class RequestPayments extends Context.Service<
 
           yield* converge(id, false);
 
-          return receiptOf(found.value);
+          return yield* heldAnswer(id, receiptOf(found.value));
         }
 
         if (!(request instanceof PaymentRequestOpen)) return request;

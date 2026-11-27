@@ -115,7 +115,6 @@ export const Route = createFileRoute("/pay/$id")({
 
 function PaymentRequestPage() {
   const answer = decodeAnswer(Route.useLoaderData());
-  const saved = useSavedUsername();
   const [paying, setPaying] = useState(false);
 
   if (paying && Predicate.isTagged(answer, "PaymentRequestOpen"))
@@ -124,19 +123,6 @@ function PaymentRequestPage() {
         <PayRequest request={answer} onBack={() => setPaying(false)} />
       </PasskeyBrowserGate>
     );
-
-  const payAction = (request: PaymentRequestOpen) =>
-    saved.read && !Option.contains(saved.username, request.requester) ? (
-      <ScreenActions>
-        <Button
-          className="w-full"
-          data-testid="pay-request"
-          onClick={() => setPaying(true)}
-        >
-          {m.pay_request_action()}
-        </Button>
-      </ScreenActions>
-    ) : null;
 
   const found = (request: FoundRequest, status: React.ReactNode) => (
     <RequestDetails request={request} status={status} />
@@ -160,7 +146,7 @@ function PaymentRequestPage() {
                 {m.payment_request_status_open()}
               </Badge>,
             )}
-            {payAction(request)}
+            <PayAction request={request} onPay={() => setPaying(true)} />
           </>
         ),
         PaymentRequestPaid: (request) =>
@@ -192,6 +178,27 @@ function PaymentRequestPage() {
         InvalidResponse: unavailable,
       })}
     </Screen>
+  );
+}
+
+function PayAction({
+  request,
+  onPay,
+}: {
+  request: PaymentRequestOpen;
+  onPay: () => void;
+}) {
+  const saved = useSavedUsername();
+
+  if (!saved.read || Option.contains(saved.username, request.requester))
+    return null;
+
+  return (
+    <ScreenActions>
+      <Button className="w-full" data-testid="pay-request" onClick={onPay}>
+        {m.pay_request_action()}
+      </Button>
+    </ScreenActions>
   );
 }
 
