@@ -5,6 +5,12 @@ import { network } from "../record-network";
 import type { WalletRow } from "./Directory.server";
 import { wallets } from "./tables.server";
 
+export const noAttempt = {
+  attemptEnvelope: null,
+  attemptHash: null,
+  attemptExpiresAt: null,
+};
+
 export const markRecovered = Effect.fn("Directory.recover")(function* (
   row: WalletRow,
 ) {
@@ -15,9 +21,7 @@ export const markRecovered = Effect.fn("Directory.recover")(function* (
     .set({
       status: "recovered",
       version: row.version + 1,
-      attemptEnvelope: null,
-      attemptHash: null,
-      attemptExpiresAt: null,
+      ...noAttempt,
     })
     .where(
       and(

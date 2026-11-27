@@ -3,7 +3,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { AssetOrderId, TransferId } from "../contract";
+import { AccountAddress, AssetOrderId, TransferId } from "../contract";
 import { workFirstDelay, workRetryCeiling } from "../policy";
 
 export class ReconcileTransfer extends Schema.TaggedClass<ReconcileTransfer>()(
@@ -21,8 +21,14 @@ export class CleanUpReceivedLink extends Schema.TaggedClass<CleanUpReceivedLink>
   { id: AssetOrderId },
 ) {}
 
+export class ReconcileOpening extends Schema.TaggedClass<ReconcileOpening>()(
+  "ReconcileOpening",
+  { address: AccountAddress },
+) {}
+
 export const PendingWork = Schema.Union([
   ReconcileTransfer,
+  ReconcileOpening,
   ReconcileAssetOrder,
   CleanUpReceivedLink,
 ]);

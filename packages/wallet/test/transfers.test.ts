@@ -67,6 +67,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           world.failSubmit = true;
           world.queueDown = true;
+          world.queued.length = 0;
           expect((yield* send(order, approve(draft.request, key)))._tag).toBe(
             "Pending",
           );
@@ -91,6 +92,8 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
         Effect.gen(function* () {
           const key = yield* fundedWallet();
           const order = selfOrder(key);
+
+          world.queued.length = 0;
 
           const { authorized } = yield* authorizeTransfer(key, order, {
             failSubmit: true,

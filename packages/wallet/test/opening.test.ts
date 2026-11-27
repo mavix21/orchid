@@ -13,13 +13,15 @@ import {
   AccountAddress,
   AddressBound,
   AddressRecipient,
+  NotOpened,
   Opened,
   Profile,
   Username,
   WalletClaim,
 } from "../src/contract";
-import { Sealed } from "../src/server/Chain.server";
+import { Expired, Rejected, Sealed } from "../src/server/Chain.server";
 import { Directory } from "../src/server/Directory.server";
+import { ReconcileOpening } from "../src/server/work-queue.server";
 import { draftOpening, readEnvelope } from "../src/stellar/envelopes";
 import { networkPassphrase } from "../src/stellar/network";
 import { assertTagged } from "./tagged";
@@ -28,16 +30,19 @@ import {
   addressOf,
   amount,
   approveOpening,
+  attend,
   channel,
   bindingAllowed,
   claimFor,
   create,
+  expireAttempt,
   feePayer,
   findWallet,
   opening,
   orderFor,
   overviewOf,
   reserveSponsor,
+  sealLostOpening,
   send,
   settleAttempt,
   sponsor,
@@ -85,6 +90,92 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           expect(
             Option.getOrThrow(yield* findWallet(claim.address)).status,
           ).toBe("active");
+        }),
+    );
+
+    it.effect.each([
+      { name: "a new wallet's", arrange: (_key: Keypair) => Effect.void },
+      {
+        name: "a recovered wallet's",
+        arrange: (key: Keypair) =>
+          Effect.gen(function* () {
+            const claim = yield* create(key, "maria");
+
+            world.accounts.set(
+              claim.address,
+              accountState({ sequence: "2000", balance: Option.none() }),
+            );
+            assertTagged(yield* overviewOf(claim.address), "NeedsReopening");
+          }),
+      },
+    ])(
+      "a queue message resubmits $name sealed opening and activates it once its account is open, with no device call",
+      ({ arrange }) =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+          const claim = claimFor(key, "maria");
+
+          yield* arrange(key);
+          world.queued.length = 0;
+
+          const hash = yield* sealLostOpening(key, claim);
+          const message = new ReconcileOpening({ address: claim.address });
+
+          expect(world.queued).toEqual([message]);
+          assertTagged(yield* attend(message), "WorkRetry");
+          expect(world.submitted.at(-1)?.hash).toBe(hash);
+          assertTagged(yield* attend(message, 2), "WorkFinished");
+          expect(
+            Option.getOrThrow(yield* findWallet(claim.address)),
+          ).toMatchObject({ status: "active", attemptHash: null });
+        }),
+    );
+
+    it.effect.each([
+      {
+        name: "was rejected",
+        arrange: (_address: AccountAddress, hash: string) =>
+          Effect.sync(() => {
+            world.evidence.set(hash, new Rejected({ code: "txFailed" }));
+          }),
+      },
+      {
+        name: "expired",
+        arrange: (_address: AccountAddress, hash: string) =>
+          Effect.sync(() => {
+            world.evidence.set(hash, new Expired());
+          }),
+      },
+      {
+        name: "is past its window",
+        arrange: (address: AccountAddress, _hash: string) =>
+          expireAttempt(address),
+      },
+    ])(
+      "a queue message clears an opening that $name without drafting another",
+      ({ arrange }) =>
+        Effect.gen(function* () {
+          const key = Keypair.random();
+          const claim = claimFor(key, "maria");
+          const hash = yield* sealLostOpening(key, claim);
+
+          yield* arrange(claim.address, hash);
+          assertTagged(
+            yield* attend(new ReconcileOpening({ address: claim.address })),
+            "WorkFinished",
+          );
+          expect(
+            Option.getOrThrow(yield* findWallet(claim.address)),
+          ).toMatchObject({
+            status: "opening",
+            attemptEnvelope: null,
+            attemptHash: null,
+            attemptExpiresAt: null,
+          });
+          expect(world.submitted).toHaveLength(0);
+          expect(yield* overviewOf(claim.address)).toEqual(
+            new NotOpened({ profile: Option.some(new Profile(claim)) }),
+          );
         }),
     );
 
