@@ -30,6 +30,8 @@ import {
   shownEntry,
 } from "./entry";
 
+import { m } from "@/paraglide/messages";
+
 export function ActivityList({
   entries,
   paidRequests,
@@ -110,13 +112,13 @@ function EntryDetail({
             </DetailField>
           ),
         })}
-        <DetailField label="Fecha">
+        <DetailField label={m.activity_date()}>
           {createdAtLabel(shown.createdAt)}
         </DetailField>
         {Option.match(shown.memo, {
           onNone: () => null,
           onSome: (memo) => (
-            <DetailField label="Memo">
+            <DetailField label={m.common_memo()}>
               <span className="break-all">{memo}</span>
             </DetailField>
           ),
@@ -129,7 +131,7 @@ function EntryDetail({
             nativeButton={false}
             render={<Link to="/links" />}
           >
-            Ver en Links de pago
+            {m.activity_view_links()}
           </Button>
         ) : null}
         <Button
@@ -137,7 +139,7 @@ function EntryDetail({
           variant={shown.openLink ? "ghost" : "secondary"}
           onClick={onClose}
         >
-          Cerrar
+          {m.common_close()}
         </Button>
       </ModalFooter>
     </>
@@ -181,7 +183,9 @@ function PartyValue({ party }: { party: Party }) {
       <Button
         variant="secondary"
         size="icon"
-        aria-label={copied ? "Dirección copiada" : "Copiar dirección"}
+        aria-label={
+          copied ? m.activity_address_copied() : m.activity_copy_address()
+        }
         onClick={() => void copy()}
       >
         {copied ? <CheckIcon /> : <CopyIcon />}

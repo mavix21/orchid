@@ -22,6 +22,8 @@ import {
 } from "./link-step";
 import type { ShareResult } from "./share-link";
 
+import { m } from "@/paraglide/messages";
+
 export interface LinkFlowState {
   readonly amount: string;
   readonly step: LinkStep;
@@ -45,8 +47,6 @@ export type LinkEvent = Data.TaggedEnum<{
 
 export const LinkEvent = Data.taggedEnum<LinkEvent>();
 
-const expired = "El link venció. Lo preparamos de nuevo: toca Crear link.";
-
 const afterCreate = (
   step: Data.TaggedEnum.Value<LinkStep, "Creating">,
   answer: Answer<ConfirmPaymentLinkOutcome>,
@@ -66,21 +66,15 @@ const afterCreate = (
       LinkStep.Reviewed({
         intent: step.intent,
         review,
-        problem: Option.some(expired),
+        problem: Option.some(m.link_expired()),
       }),
     ),
     Match.tag("PasskeyCancelled", () =>
-      withheld("No creamos el link porque no usaste tu passkey."),
+      withheld(m.link_create_passkey_cancelled()),
     ),
-    Match.tag("PasskeyFailed", () =>
-      withheld("No pudimos usar tu passkey. Inténtalo de nuevo."),
-    ),
-    Match.tag("WrongCredential", () =>
-      withheld("Usaste otra passkey. Usa la de tu cuenta."),
-    ),
-    Match.tag("AssertionRejected", () =>
-      withheld("No pudimos verificar tu passkey. Usa tu huella, rostro o PIN."),
-    ),
+    Match.tag("PasskeyFailed", () => withheld(m.passkey_failed())),
+    Match.tag("WrongCredential", () => withheld(m.link_other_passkey())),
+    Match.tag("AssertionRejected", () => withheld(m.link_assertion_rejected())),
     Match.orElse((outcome) =>
       LinkStep.Refused({ intent: step.intent, confirmed: true, outcome }),
     ),

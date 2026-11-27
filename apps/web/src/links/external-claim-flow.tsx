@@ -55,6 +55,8 @@ import {
   reviewExternalResult,
 } from "./external-claim-outcomes";
 
+import { m } from "@/paraglide/messages";
+
 type ExternalStep = Data.TaggedEnum<{
   Form: {
     readonly problem: Option.Option<ExternalClaimFieldProblem>;
@@ -160,9 +162,7 @@ export function ExternalClaimFlow({
         setStep(
           ExternalStep.Reviewing({
             review: answer,
-            notice: Option.some(
-              "El envío anterior venció y lo preparamos de nuevo. Revísalo y confirma otra vez.",
-            ),
+            notice: Option.some(m.external_redrafted()),
           }),
         );
 
@@ -196,16 +196,17 @@ export function ExternalClaimFlow({
           >
             <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
               <div className="flex flex-col gap-1">
-                <h1 className="font-display text-h1">
-                  Enviar a otra dirección
-                </h1>
+                <h1 className="font-display text-h1">{m.external_title()}</h1>
                 <p className="text-body text-muted-foreground">
-                  {sent} de @{open.sender.username}
+                  {m.external_from({
+                    amount: sent,
+                    username: open.sender.username,
+                  })}
                 </p>
               </div>
               <Field>
                 <FieldLabel htmlFor="external-destination">
-                  Dirección Stellar
+                  {m.common_stellar_address()}
                 </FieldLabel>
                 <Input
                   id="external-destination"
@@ -235,7 +236,7 @@ export function ExternalClaimFlow({
                       : undefined
                   }
                 />
-                <FieldDescription>Empieza con G o M</FieldDescription>
+                <FieldDescription>{m.common_address_hint()}</FieldDescription>
                 {Option.isSome(destinationProblem) ? (
                   <FieldError id="external-destination-error">
                     {destinationProblem.value}
@@ -243,7 +244,9 @@ export function ExternalClaimFlow({
                 ) : null}
               </Field>
               <Field>
-                <FieldLabel htmlFor="external-memo">Memo (opcional)</FieldLabel>
+                <FieldLabel htmlFor="external-memo">
+                  {m.external_memo_optional()}
+                </FieldLabel>
                 <InputGroup>
                   <InputGroupInput
                     id="external-memo"
@@ -282,9 +285,7 @@ export function ExternalClaimFlow({
                   )}
                 </InputGroup>
                 <FieldDescription>
-                  {muxed
-                    ? "Esta dirección ya identifica tu cuenta; no necesita memo."
-                    : "Si la app que recibe te dio un memo, pégalo aquí."}
+                  {muxed ? m.external_muxed_note() : m.external_memo_hint()}
                 </FieldDescription>
                 {Option.isSome(memoProblem) ? (
                   <FieldError id="external-memo-error">
@@ -312,7 +313,9 @@ export function ExternalClaimFlow({
                     : "review-external-claim"
                 }
               >
-                {Option.isSome(lookupError) ? "Reintentar" : "Revisar"}
+                {Option.isSome(lookupError)
+                  ? m.common_retry()
+                  : m.common_review()}
               </Button>
               <Button
                 className="w-full"
@@ -321,7 +324,7 @@ export function ExternalClaimFlow({
                 data-testid="back-to-offer"
                 onClick={onBack}
               >
-                Volver
+                {m.common_go_back()}
               </Button>
             </ScreenActions>
           </form>
@@ -330,43 +333,43 @@ export function ExternalClaimFlow({
     },
     Preparing: () => (
       <Screen>
-        <LinkWorking label="Preparando tu envío…" />
+        <LinkWorking label={m.external_preparing()} />
       </Screen>
     ),
     Reviewing: ({ review: shown, notice }) => (
       <Screen>
         <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
           <ReviewHero
-            title={`De @${shown.sender.username}`}
+            title={m.receive_from({ username: shown.sender.username })}
             amount={amountLabel(shown.amount, shown.asset)}
             network={shown.network}
           />
           <dl
-            aria-label="Resumen del envío"
+            aria-label={m.external_summary()}
             data-testid="external-claim-review"
             className="flex flex-col divide-y divide-border rounded-lg border border-border px-4"
           >
-            <ReviewRow label="Para">
+            <ReviewRow label={m.common_to()}>
               <span className="flex flex-col items-end">
                 <FullValue>{shown.destination}</FullValue>
                 {shown.memoRequired ? (
                   <span className="text-caption text-muted-foreground">
-                    Esta dirección requiere memo
+                    {m.external_memo_required()}
                   </span>
                 ) : null}
               </span>
             </ReviewRow>
             {shown.memo === undefined ? null : (
-              <ReviewRow label="Memo">
+              <ReviewRow label={m.common_memo()}>
                 <span className="break-all whitespace-pre-wrap">
                   {shown.memo.value}
                 </span>
               </ReviewRow>
             )}
-            <ReviewRow label="Comisión">Gratis</ReviewRow>
+            <ReviewRow label={m.common_fee()}>{m.common_free()}</ReviewRow>
           </dl>
           <p className="text-body text-muted-foreground">
-            El link deja de funcionar y el dinero va a esa dirección.
+            {m.external_review_note()}
           </p>
           {Option.isSome(notice) ? (
             <p role="alert" className="text-body text-destructive">
@@ -380,7 +383,7 @@ export function ExternalClaimFlow({
             data-testid="confirm-external-claim"
             onClick={() => confirm(shown)}
           >
-            Enviar
+            {m.common_send()}
           </Button>
           <Button
             className="w-full"
@@ -396,14 +399,14 @@ export function ExternalClaimFlow({
               )
             }
           >
-            Editar
+            {m.common_edit()}
           </Button>
         </ScreenActions>
       </Screen>
     ),
     Confirming: () => (
       <Screen>
-        <LinkWorking label="Enviando…" />
+        <LinkWorking label={m.common_sending()} />
       </Screen>
     ),
     Concluded: ({ outcome, screen }) =>
@@ -421,7 +424,9 @@ export function ExternalClaimFlow({
             </BloomHero>
           </main>
           <ScreenActions>
-            <ResultLink link={<Link to="/" />}>Ir al inicio</ResultLink>
+            <ResultLink link={<Link to="/" />}>
+              {m.receive_go_start()}
+            </ResultLink>
           </ScreenActions>
         </Screen>
       ) : (
@@ -430,11 +435,13 @@ export function ExternalClaimFlow({
             {Match.value(screen.action).pipe(
               Match.when("check", () => (
                 <ResultButton onClick={onRecheck}>
-                  Revisar de nuevo
+                  {m.receive_check_again()}
                 </ResultButton>
               )),
               Match.when("done", () => (
-                <ResultLink link={<Link to="/" />}>Ir al inicio</ResultLink>
+                <ResultLink link={<Link to="/" />}>
+                  {m.receive_go_start()}
+                </ResultLink>
               )),
               Match.exhaustive,
             )}

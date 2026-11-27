@@ -9,6 +9,7 @@ import appCss from "@workspace/ui/globals.css?url";
 import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
 import { ThemeProvider } from "@/components/theme-provider";
 import { getLocale } from "@/paraglide/runtime";
+import { m } from "@/paraglide/messages";
 
 export const Route = createRootRouteWithContext<{
   walletClient: WalletClient;
@@ -40,7 +41,7 @@ export const Route = createRootRouteWithContext<{
   notFoundComponent: () => (
     <Screen>
       <ScreenStatus title="404">
-        <ScreenNote>No encontramos esta página.</ScreenNote>
+        <ScreenNote>{m.not_found_note()}</ScreenNote>
       </ScreenStatus>
     </Screen>
   ),

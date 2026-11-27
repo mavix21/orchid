@@ -186,13 +186,13 @@ export function HumanCheckWidget({ quiet = false }: { quiet?: boolean }) {
       >
         {status === "waiting" ? (
           <p className="text-label text-muted-foreground motion-safe:animate-pulse">
-            Verificando que eres una persona…
+            {m.human_check_verifying()}
           </p>
         ) : null}
         {status === "ready" ? (
           <p className="flex items-center gap-1.5 text-label text-muted-foreground">
             <CheckIcon aria-hidden="true" className="size-4 text-primary" />
-            Verificamos que eres una persona
+            {m.human_check_verified()}
           </p>
         ) : null}
       </div>

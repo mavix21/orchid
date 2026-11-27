@@ -8,6 +8,7 @@ import * as Match from "effect/Match";
 import type { DeviceFailure } from "@/send/use-wallet-task";
 import { LinkScreen } from "@/links/outcomes";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
+import { m } from "@/paraglide/messages";
 
 export type ReceiveAction = "home" | "again" | "check" | "done";
 
@@ -15,42 +16,39 @@ export type ReceiveConclusion =
   | Exclude<ConfirmLinkReceiveOutcome, LinkReceiveReview>
   | DeviceFailure;
 
-const stillInLink = "El dinero sigue en el link.";
+const thenStillInLink = (sentence: string) =>
+  `${sentence} ${m.link_still_there()}`;
 
-const used = new LinkScreen<ReceiveAction>(
-  "Este link ya fue usado",
-  "Ya no tiene dinero para recibir.",
-  "done",
-);
+const used = () =>
+  new LinkScreen<ReceiveAction>(m.claim_used_title(), m.claim_used(), "done");
 
-const unresolved = new LinkScreen<ReceiveAction>(
-  "No pudimos confirmar qué pasó con este link",
-  "Ya no tiene dinero, pero no podemos saber quién lo recibió.",
-  "done",
-);
+const unresolved = () =>
+  new LinkScreen<ReceiveAction>(
+    m.claim_unresolved_title(),
+    m.claim_unresolved(),
+    "done",
+  );
 
-const unrecognized = new LinkScreen<ReceiveAction>(
-  "No reconocemos este link",
-  "El dinero sigue en el link, pero no podemos cobrarlo desde aquí.",
-  "done",
-);
+const unrecognized = () =>
+  new LinkScreen<ReceiveAction>(
+    m.claim_unrecognized_title(),
+    m.claim_unrecognized(),
+    "done",
+  );
 
-const checking = new LinkScreen<ReceiveAction>(
-  "Estamos comprobando si se envió",
-  "Revisa de nuevo en un momento.",
-  "check",
-);
+const checking = () =>
+  new LinkScreen<ReceiveAction>(
+    m.claim_checking_title(),
+    m.claim_checking(),
+    "check",
+  );
 
 const notReceived = (message: string, action: ReceiveAction = "again") =>
-  new LinkScreen<ReceiveAction>(
-    "No pudimos recibir este dinero",
-    message,
-    action,
-  );
+  new LinkScreen<ReceiveAction>(m.claim_not_received_title(), message, action);
 
 const unavailable = (failure: WalletUnavailable) =>
   notReceived(
-    `${unavailableMessage(failure)} ${stillInLink}`,
+    thenStillInLink(unavailableMessage(failure)),
     retryable(failure) ? "again" : "done",
   );
 
@@ -61,101 +59,73 @@ export const receiveScreen = (
   Match.valueTags(outcome, {
     AssetSettled: () =>
       new LinkScreen<ReceiveAction>(
-        `Recibiste ${received}`,
-        "Ya está en tu cuenta de Orchid.",
+        m.claim_received_title({ amount: received }),
+        m.claim_received(),
         "home",
       ),
-    AssetPending: () => checking,
-    PaymentLinkChecking: () => checking,
-    AssetFailed: () =>
-      notReceived(
-        "La operación no se completó. Revisa el link para saber si el dinero sigue ahí.",
-        "check",
-      ),
+    AssetPending: checking,
+    PaymentLinkChecking: checking,
+    AssetFailed: () => notReceived(m.claim_incomplete_operation(), "check"),
     UnclaimedFundsGone: ({ status }) =>
-      status === "unresolved" ? unresolved : used,
-    PaymentLinkUsed: () => used,
-    PaymentLinkUnresolved: () => unresolved,
-    PaymentLinkUnrecognized: () => unrecognized,
+      status === "unresolved" ? unresolved() : used(),
+    PaymentLinkUsed: used,
+    PaymentLinkUnresolved: unresolved,
+    PaymentLinkUnrecognized: unrecognized,
     PaymentLinkNotFound: () =>
       new LinkScreen<ReceiveAction>(
-        "No encontramos este link",
-        "Revisa que lo hayas abierto completo desde el mensaje que te enviaron.",
+        m.claim_not_found_title(),
+        m.claim_not_found(),
         "done",
       ),
     LinkCodeMismatch: () =>
       new LinkScreen<ReceiveAction>(
-        "Este link está incompleto",
-        "Ábrelo de nuevo desde el mensaje que te enviaron.",
+        m.receive_link_incomplete_title(),
+        m.claim_reopen(),
         "done",
       ),
     InvalidAddress: () =>
       new LinkScreen<ReceiveAction>(
-        "Este link no es válido",
-        "Ábrelo de nuevo desde el mensaje que te enviaron.",
+        m.claim_invalid_title(),
+        m.claim_reopen(),
         "done",
       ),
     LinkUnclaimable: () =>
       new LinkScreen<ReceiveAction>(
-        "No pudimos cobrar este link",
-        "El dinero sigue disponible para quien lo envió.",
+        m.claim_failed_title(),
+        m.claim_still_available(),
         "done",
       ),
     RecipientCannotReceive: () =>
-      notReceived(
-        `Tu cuenta no puede recibir esta moneda. ${stillInLink}`,
-        "done",
-      ),
+      notReceived(thenStillInLink(m.claim_currency_unsupported()), "done"),
     AssetUnsupported: () =>
-      notReceived(
-        `Tu cuenta no puede recibir esta moneda. ${stillInLink}`,
-        "done",
-      ),
+      notReceived(thenStillInLink(m.claim_currency_unsupported()), "done"),
     TrustlineLimitReached: () =>
-      notReceived(
-        `Tu cuenta no puede recibir esta moneda. ${stillInLink}`,
-        "done",
-      ),
+      notReceived(thenStillInLink(m.claim_currency_unsupported()), "done"),
     NotOpened: () =>
-      notReceived(`Tu cuenta aún se está activando. ${stillInLink}`),
-    SenderBusy: () =>
-      notReceived(`Tienes otra operación en curso. ${stillInLink}`),
-    AssetBusy: () =>
-      notReceived(`Tienes otra operación en curso. ${stillInLink}`),
-    NotClaimable: () => notReceived(`Inténtalo de nuevo. ${stillInLink}`),
-    Unchanged: () => notReceived(`Inténtalo de nuevo. ${stillInLink}`),
-    TrustlineNotEmpty: () => notReceived(`Inténtalo de nuevo. ${stillInLink}`),
+      notReceived(thenStillInLink(m.common_account_activating())),
+    SenderBusy: () => notReceived(thenStillInLink(m.common_other_operation())),
+    AssetBusy: () => notReceived(thenStillInLink(m.common_other_operation())),
+    NotClaimable: () => notReceived(thenStillInLink(m.link_try_again())),
+    Unchanged: () => notReceived(thenStillInLink(m.link_try_again())),
+    TrustlineNotEmpty: () => notReceived(thenStillInLink(m.link_try_again())),
     DraftRejected: () =>
-      notReceived(`La solicitud cambió antes de firmarse. ${stillInLink}`),
-    NoWallet: () =>
-      notReceived(
-        `Este dispositivo no tiene una cuenta de Orchid. ${stillInLink}`,
-      ),
+      notReceived(thenStillInLink(m.claim_request_changed())),
+    NoWallet: () => notReceived(thenStillInLink(m.session_no_wallet())),
     UnsupportedDevice: () =>
-      notReceived(
-        `Este navegador no puede guardar tu llave de forma segura. ${stillInLink}`,
-        "done",
-      ),
+      notReceived(thenStillInLink(m.device_cannot_store_key()), "done"),
     PasskeyCancelled: () =>
-      notReceived(`Cancelaste el uso de tu passkey. ${stillInLink}`),
-    PasskeyFailed: () =>
-      notReceived(`No pudimos usar tu passkey. ${stillInLink}`),
+      notReceived(thenStillInLink(m.claim_passkey_cancelled())),
+    PasskeyFailed: () => notReceived(thenStillInLink(m.claim_passkey_failed())),
     WrongCredential: () =>
-      notReceived(`Usaste una passkey distinta. ${stillInLink}`),
+      notReceived(thenStillInLink(m.claim_wrong_credential())),
     AssertionRejected: () =>
-      notReceived(`No pudimos verificar tu passkey. ${stillInLink}`),
+      notReceived(thenStillInLink(m.claim_assertion_rejected())),
     PrfOutputMissing: () =>
-      notReceived(
-        `Tu passkey no abrió tu cuenta en este dispositivo. ${stillInLink}`,
-        "done",
-      ),
+      notReceived(thenStillInLink(m.claim_prf_missing()), "done"),
     CorruptDeviceWallet: () =>
-      notReceived(
-        `Los datos guardados en este navegador están dañados. ${stillInLink}`,
-        "done",
-      ),
+      notReceived(thenStillInLink(m.corrupt_device_wallet()), "done"),
     DeviceFailure: () =>
-      notReceived(`Algo falló en este dispositivo. ${stillInLink}`, "check"),
+      notReceived(thenStillInLink(m.link_device_failed()), "check"),
     Offline: unavailable,
     ServerUnreachable: unavailable,
     LedgerUnreachable: unavailable,

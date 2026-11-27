@@ -1,6 +1,14 @@
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
+import { createIsomorphicFn } from "@tanstack/react-start";
+import { registerSenderLanguageInBrowser } from "./locale/sender-language";
 import { walletClient } from "./wallet";
 import { routeTree } from "./routeTree.gen";
+
+const registerSenderLanguage = createIsomorphicFn().client(
+  registerSenderLanguageInBrowser,
+);
+
+registerSenderLanguage();
 
 export function getRouter() {
   const router = createTanStackRouter({

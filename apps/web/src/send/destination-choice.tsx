@@ -7,6 +7,8 @@ import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
 
 import type { Destination, FieldProblem } from "./intent";
 
+import { m } from "@/paraglide/messages";
+
 export type Choice = Destination | "link";
 
 export function LinkOffer({
@@ -23,14 +25,11 @@ export function LinkOffer({
   return (
     <>
       <ScreenStatus title={problem.message} data-testid="link-offer">
-        <ScreenNote>
-          Puedes enviar {amount} con un link de pago: quien lo abra lo recibe.
-          Tu dinero no se movió.
-        </ScreenNote>
+        <ScreenNote>{m.send_link_offer_note({ amount })}</ScreenNote>
       </ScreenStatus>
       <ScreenActions>
         <Button className="w-full" onClick={onAccept} data-testid="offer-link">
-          Enviar como link de pago
+          {m.send_link_offer_accept()}
         </Button>
         <Button
           className="w-full"
@@ -38,7 +37,7 @@ export function LinkOffer({
           onClick={onDecline}
           data-testid="decline-link"
         >
-          Cambiar destinatario
+          {m.send_change_recipient()}
         </Button>
       </ScreenActions>
     </>
@@ -53,11 +52,11 @@ export function DestinationChoice({
   return (
     <>
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-        <h1 className="font-display text-h1">¿A dónde lo envías?</h1>
+        <h1 className="font-display text-h1">{m.send_destination_title()}</h1>
         <div className="flex flex-col gap-3">
           <OptionRow
-            title="A un @usuario"
-            description="Alguien que tenga Orchid"
+            title={m.send_destination_username()}
+            description={m.send_destination_username_note()}
             media={<UserRoundIcon />}
             render={
               <button
@@ -68,8 +67,8 @@ export function DestinationChoice({
             }
           />
           <OptionRow
-            title="A una dirección Stellar"
-            description="Otra wallet o un exchange"
+            title={m.send_destination_address()}
+            description={m.send_destination_address_note()}
             media={<WalletIcon />}
             render={
               <button
@@ -80,8 +79,8 @@ export function DestinationChoice({
             }
           />
           <OptionRow
-            title="Con un link de pago"
-            description="Alguien sin Orchid"
+            title={m.send_destination_link()}
+            description={m.send_destination_link_note()}
             media={<LinkIcon />}
             render={
               <button
@@ -92,8 +91,8 @@ export function DestinationChoice({
             }
           />
           <OptionRow
-            title="A un teléfono"
-            description="Los envíos por teléfono llegan pronto"
+            title={m.send_destination_phone()}
+            description={m.send_phone_soon()}
             media={<PhoneIcon />}
             disabled
           />
@@ -106,7 +105,7 @@ export function DestinationChoice({
           nativeButton={false}
           render={<Link to="/links" data-testid="open-links" />}
         >
-          Ver mis links de pago
+          {m.send_view_links()}
         </Button>
       </ScreenActions>
     </>

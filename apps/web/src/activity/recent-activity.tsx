@@ -6,6 +6,8 @@ import * as Predicate from "effect/Predicate";
 
 import { ActivityList } from "./activity-list";
 
+import { m } from "@/paraglide/messages";
+
 const recentCount = 5;
 
 export function RecentActivity({ activity }: { activity: ActivityOutcome }) {
@@ -17,13 +19,13 @@ export function RecentActivity({ activity }: { activity: ActivityOutcome }) {
     >
       <div className="flex items-center justify-between">
         <h2 id="activity-title" className="text-label-lg">
-          Actividad
+          {m.nav_activity()}
         </h2>
         <Link
           to="/activity"
           className="rounded-xs text-label text-accent-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         >
-          Ver todo
+          {m.activity_view_all()}
         </Link>
       </div>
       {Predicate.isTagged(activity, "RequestActivityPage") ? (
@@ -44,9 +46,7 @@ export function RecentActivity({ activity }: { activity: ActivityOutcome }) {
 
 export function NoEntries() {
   return (
-    <p className="py-3 text-body text-muted-foreground">
-      Aún no tienes movimientos
-    </p>
+    <p className="py-3 text-body text-muted-foreground">{m.activity_empty()}</p>
   );
 }
 
@@ -62,10 +62,10 @@ function ActivityProblem() {
   return (
     <div className="flex flex-col items-start gap-3 py-3">
       <p className="text-body text-muted-foreground">
-        No pudimos cargar tu actividad
+        {m.activity_load_failed()}
       </p>
       <Button size="sm" variant="secondary" disabled={retrying} onClick={retry}>
-        Reintentar
+        {m.common_retry()}
       </Button>
     </div>
   );

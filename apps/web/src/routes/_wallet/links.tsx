@@ -31,7 +31,7 @@ import {
   ScreenStatus,
 } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
-import { type RecoverableLink, lostLinkMessage } from "@/links/outcomes";
+import type { RecoverableLink } from "@/links/outcomes";
 import { ResultButton } from "@/links/link-result";
 import { LinkShareModal, useLinkReveal } from "@/links/link-reveal";
 import { RecoveryAnswer, useRecovery } from "@/links/recovery";
@@ -80,37 +80,37 @@ const latestNotice = (
       Option.some(
         resolved.savedOnDevice
           ? new LatestNotice(
-              "Tu último link sigue abierto",
-              "Compártelo de nuevo o recupera el dinero mientras nadie lo use.",
+              m.links_latest_open_title(),
+              m.link_saved_note(),
               NoticeAction.Recover({ link: resolved, savedOnDevice: true }),
             )
           : new LatestNotice(
-              "Tu último link ya no se puede compartir",
-              lostLinkMessage,
+              m.links_latest_lost_title(),
+              m.link_lost(),
               NoticeAction.Recover({ link: resolved, savedOnDevice: false }),
             ),
       ),
     Pending: () =>
       Option.some(
         new LatestNotice(
-          "Tu último link aún se está creando",
-          "Cuando termine, aparecerá aquí para compartirlo o recuperar el dinero.",
+          m.link_last_creating_title(),
+          m.links_latest_creating(),
           NoticeAction.Recheck(),
         ),
       ),
     ApprovalOutstanding: () =>
       Option.some(
         new LatestNotice(
-          "Tienes una operación en curso",
-          "Cuando termine, tus links aparecerán aquí.",
+          m.links_operation_title(),
+          m.links_operation_note(),
           NoticeAction.Recheck(),
         ),
       ),
     PaymentLinkReceiptInvalid: () =>
       Option.some(
         new LatestNotice(
-          "No pudimos confirmar tu último link",
-          "Si aparece abajo, puedes recuperar el dinero.",
+          m.links_latest_unconfirmed_title(),
+          m.links_latest_unconfirmed(),
           NoticeAction.Browse(),
         ),
       ),
@@ -131,11 +131,10 @@ const listProblem = (
   links: Exclude<PaymentLinksOutcome, { _tag: "ListedPaymentLinks" }>,
 ) =>
   Match.valueTags(links, {
-    NotOpened: () => "Tu cuenta aún se está activando.",
-    InvalidAddress: () => "La llave guardada en este dispositivo no es válida.",
-    NoWallet: () => "Este dispositivo no tiene una cuenta de Orchid.",
-    UnsupportedDevice: () =>
-      "Este navegador no puede leer tu llave de forma segura.",
+    NotOpened: () => m.common_account_activating(),
+    InvalidAddress: () => m.common_stored_key_invalid(),
+    NoWallet: () => m.session_no_wallet(),
+    UnsupportedDevice: () => m.device_cannot_read_key(),
     Offline: unavailableMessage,
     ServerUnreachable: unavailableMessage,
     LedgerUnreachable: unavailableMessage,
@@ -188,7 +187,7 @@ function LinksFrame({
       />
       {loading ? (
         <div
-          aria-label="Cargando tus links"
+          aria-label={m.links_loading()}
           className="flex flex-col gap-3 px-5 pt-2"
         >
           <Skeleton className="h-9 w-56" />
@@ -222,7 +221,7 @@ function PaymentLinks() {
                 void router.invalidate({ forcePending: true }).finally(reset)
               }
             >
-              Listo
+              {m.common_done()}
             </ResultButton>
           }
         />
@@ -269,7 +268,7 @@ function ReceivedLinks({
       className="flex flex-col gap-3"
     >
       <h2 id="received-links-title" className="text-label-lg">
-        Links cobrados
+        {m.links_received_title()}
       </h2>
       <div role="list" className="flex flex-col gap-3">
         {received.map((link) => (
@@ -285,7 +284,7 @@ function ReceivedLinks({
                 {amountLabel(link.amount, link.asset)}
               </ItemTitle>
               <ItemDescription>
-                Lo cobraron el {receivedOn(link)}
+                {m.links_received_on({ date: receivedOn(link) })}
               </ItemDescription>
             </ItemContent>
           </Item>
@@ -334,9 +333,9 @@ function LinkList({
         className="flex flex-1 flex-col gap-6 px-5 pt-2"
       >
         <div className="flex flex-col gap-2">
-          <h1 className="font-display text-h1">Tus links abiertos</h1>
+          <h1 className="font-display text-h1">{m.links_open_title()}</h1>
           <p className="text-body text-muted-foreground">
-            Mientras nadie use un link, puedes recuperar su dinero.
+            {m.links_open_note()}
           </p>
         </div>
         {Option.isSome(notice) ? (
@@ -360,7 +359,7 @@ function LinkList({
                       onClick={() => onShare(link)}
                       data-testid="reshare-latest-link"
                     >
-                      Compartir link
+                      {m.link_share()}
                     </Button>
                   ) : null}
                   <Button
@@ -369,7 +368,9 @@ function LinkList({
                     onClick={() => onChoose(link)}
                     data-testid="recover-latest-link"
                   >
-                    Recuperar {amountLabel(link.amount, link.asset)}
+                    {m.link_recover_amount({
+                      amount: amountLabel(link.amount, link.asset),
+                    })}
                   </Button>
                 </>
               ),
@@ -379,7 +380,7 @@ function LinkList({
                   variant="secondary"
                   onClick={onRecheck}
                 >
-                  Revisar de nuevo
+                  {m.receive_check_again()}
                 </Button>
               ),
               Browse: () => null,
@@ -388,9 +389,7 @@ function LinkList({
         ) : null}
         {listed.length === 0 ? (
           <p className="text-body text-muted-foreground">
-            {Option.isSome(latest)
-              ? "No tienes otros links abiertos."
-              : "No tienes links abiertos."}
+            {Option.isSome(latest) ? m.links_none_other() : m.links_none()}
           </p>
         ) : (
           <div role="list" className="flex flex-col gap-3">
@@ -407,20 +406,26 @@ function LinkList({
                     <Button
                       size="sm"
                       onClick={() => onShare(link)}
-                      aria-label={`Compartir otra vez ${amountLabel(link.amount, link.asset)}, creado el ${created}`}
+                      aria-label={m.links_share_again_label({
+                        amount: amountLabel(link.amount, link.asset),
+                        created,
+                      })}
                       data-testid="reshare-link"
                     >
-                      Compartir otra vez
+                      {m.links_share_again()}
                     </Button>
                   ) : null}
                   <Button
                     size="sm"
                     variant="secondary"
                     onClick={() => onChoose(link, created)}
-                    aria-label={`Recuperar ${amountLabel(link.amount, link.asset)}, creado el ${created}`}
+                    aria-label={m.links_recover_label({
+                      amount: amountLabel(link.amount, link.asset),
+                      created,
+                    })}
                     data-testid="recover-link"
                   >
-                    Recuperar
+                    {m.link_recover()}
                   </Button>
                 </ItemActions>
               </Item>
@@ -435,7 +440,7 @@ function LinkList({
           nativeButton={false}
           render={<Link to="/send" />}
         >
-          Crear un link
+          {m.links_create()}
         </Button>
       </ScreenActions>
     </>
@@ -447,12 +452,12 @@ function ListProblem({ message }: { message: string }) {
 
   return (
     <>
-      <ScreenStatus title="No pudimos cargar tus links">
+      <ScreenStatus title={m.links_load_failed()}>
         <ScreenNote>{message}</ScreenNote>
       </ScreenStatus>
       <ScreenActions>
         <Button className="w-full" onClick={() => void router.invalidate()}>
-          Reintentar
+          {m.common_retry()}
         </Button>
       </ScreenActions>
     </>

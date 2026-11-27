@@ -14,6 +14,8 @@ import { TokenIcon } from "@/components/token-icon";
 
 import { amountLabel } from "./money";
 
+import { m } from "@/paraglide/messages";
+
 const amountPattern = ({ decimals }: AssetPrecision) =>
   new RegExp(`^(0|[1-9][0-9]*)?(\\.[0-9]{0,${decimals}})?$`);
 
@@ -82,7 +84,7 @@ export function AmountPad({
             htmlFor="amount"
             className="font-display text-h1 text-muted-foreground"
           >
-            <span className="sr-only">Monto en </span>
+            <span className="sr-only">{m.send_amount_in()} </span>
             {asset.code}
           </label>
         </div>
@@ -96,7 +98,9 @@ export function AmountPad({
           <div className="flex flex-1 flex-col">
             <span className="text-label-lg">{asset.code}</span>
             <span className="text-body text-muted-foreground">
-              {amountLabel(available, asset)} disponibles
+              {m.send_amount_available({
+                amount: amountLabel(available, asset),
+              })}
             </span>
           </div>
           <Button
@@ -105,7 +109,7 @@ export function AmountPad({
             variant="secondary"
             onClick={() => onAmount(formatAmount(available, precision))}
           >
-            Usar todo
+            {m.send_use_all()}
           </Button>
         </div>
       )}
@@ -123,7 +127,7 @@ export function AmountPad({
         <Button
           type="button"
           variant="ghost"
-          aria-label="Borrar"
+          aria-label={m.send_delete_digit()}
           onClick={() => type(amount.slice(0, -1))}
         >
           <DeleteIcon />

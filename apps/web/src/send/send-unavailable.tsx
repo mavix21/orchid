@@ -10,6 +10,7 @@ import * as Match from "effect/Match";
 
 import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
 import { UnavailableNotice, unavailableNotice } from "@/wallet/unavailable";
+import { m } from "@/paraglide/messages";
 
 export type UnavailableOverview =
   | NeedsReopening
@@ -27,19 +28,13 @@ export function SendUnavailable({
   const notice = Match.valueTags(overview, {
     NeedsReopening: ({ profile }) =>
       new UnavailableNotice(
-        `@${profile.username} necesita reabrirse antes de enviar.`,
+        m.send_needs_reopening({ username: profile.username }),
         false,
       ),
     InvalidAddress: () =>
-      new UnavailableNotice(
-        "La llave guardada en este dispositivo no es válida.",
-        false,
-      ),
+      new UnavailableNotice(m.common_stored_key_invalid(), false),
     UnsupportedDevice: () =>
-      new UnavailableNotice(
-        "Este navegador no puede leer tu llave de forma segura.",
-        false,
-      ),
+      new UnavailableNotice(m.device_cannot_read_key(), false),
     Offline: unavailableNotice,
     ServerUnreachable: unavailableNotice,
     LedgerUnreachable: unavailableNotice,
@@ -51,13 +46,13 @@ export function SendUnavailable({
 
   return (
     <>
-      <ScreenStatus title="No puedes enviar ahora">
+      <ScreenStatus title={m.send_unavailable_title()}>
         <ScreenNote>{notice.message}</ScreenNote>
       </ScreenStatus>
       <ScreenActions>
         {notice.actionable ? (
           <Button className="w-full" onClick={() => void router.invalidate()}>
-            Reintentar
+            {m.common_retry()}
           </Button>
         ) : null}
         <Button
@@ -66,7 +61,7 @@ export function SendUnavailable({
           nativeButton={false}
           render={<Link to="/home" />}
         >
-          Volver al inicio
+          {m.common_back_home()}
         </Button>
       </ScreenActions>
     </>

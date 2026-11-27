@@ -19,6 +19,8 @@ import {
 
 import { memoByteLimit, memoBytes } from "./intent";
 
+import { m } from "@/paraglide/messages";
+
 export function MemoModal({
   open,
   memo,
@@ -55,15 +57,12 @@ export function MemoModal({
           }}
         >
           <ModalHeader>
-            <ModalTitle>Memo</ModalTitle>
-            <ModalDescription>
-              Escríbelo solo si el exchange te lo pide al depositar. Cópialo tal
-              cual aparece en su pantalla.
-            </ModalDescription>
+            <ModalTitle>{m.common_memo()}</ModalTitle>
+            <ModalDescription>{m.send_memo_description()}</ModalDescription>
           </ModalHeader>
           <div className="px-4">
             <Field>
-              <FieldLabel htmlFor="memo">Memo</FieldLabel>
+              <FieldLabel htmlFor="memo">{m.common_memo()}</FieldLabel>
               <InputGroup>
                 <InputGroupInput
                   id="memo"
@@ -92,7 +91,7 @@ export function MemoModal({
           </div>
           <ModalFooter>
             <Button className="w-full" type="submit" data-testid="save-memo">
-              Guardar memo
+              {m.send_save_memo()}
             </Button>
             {memo === "" ? null : (
               <Button
@@ -101,7 +100,7 @@ export function MemoModal({
                 variant="secondary"
                 onClick={() => save("")}
               >
-                Quitar memo
+                {m.send_remove_memo()}
               </Button>
             )}
           </ModalFooter>

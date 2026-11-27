@@ -26,6 +26,7 @@ import { formattingLocale } from "@/locale/format";
 import { amountLabel } from "@/send/money";
 import type { DeviceFailure } from "@/send/use-wallet-task";
 import { unavailableMessage } from "@/wallet/unavailable";
+import { m } from "@/paraglide/messages";
 
 export type CreateAction =
   | "once"
@@ -57,29 +58,20 @@ export const recoverable = ({
   amount,
 }: RecoverableLink): RecoverableLink => ({ unclaimedFunds, asset, amount });
 
-export const lostLinkMessage =
-  "Este link no se guardó en este dispositivo, así que ya no se puede compartir. Tu dinero sigue a salvo: recupéralo y crea uno nuevo.";
+const thenUntouched = (sentence: string) => `${sentence} ${m.send_untouched()}`;
 
-const untouched = "Tu dinero no se movió.";
-
-const checkFirst = "Revisa si tu link se creó antes de crear otro.";
-
-const stillInLink = "El dinero sigue en el link.";
+const thenStillInLink = (sentence: string) =>
+  `${sentence} ${m.link_still_there()}`;
 
 const unavailable = (failure: WalletUnavailable, next: string) =>
   new LinkScreen(
-    "Algo se interrumpió",
+    m.link_interrupted_title(),
     `${unavailableMessage(failure)} ${next}`,
     "check",
   );
 
-const creationDeviceFailure = new LinkScreen(
-  "Algo falló en este dispositivo",
-  checkFirst,
-  "check",
-);
-
-const notByLink = "Esta moneda no se puede enviar con un link de pago.";
+const creationDeviceFailure = () =>
+  new LinkScreen(m.common_device_failed_title(), m.link_check_first(), "check");
 
 const unsupportedScreen = (
   reason:
@@ -89,48 +81,44 @@ const unsupportedScreen = (
     | "authorization_required"
     | "clawback_enabled",
   code: string,
-) =>
-  reason === "clawback_enabled"
-    ? new LinkScreen(
-        `No puedes enviar ${code} con un link`,
-        `${notByLink} Puedes enviarla a un @usuario o a una dirección, o elegir otra moneda. ${untouched}`,
-        "elsewhere",
-      )
-    : new LinkScreen(
-        `No puedes enviar ${code} con un link`,
-        `${notByLink} Elige otra moneda. ${untouched}`,
-        "assets",
-      );
+) => {
+  const elsewhere = reason === "clawback_enabled";
 
-const stillCreating = new LinkScreen(
-  "Tu link aún se está creando",
-  "Cuando termine de crearse, revisa tus links para compartirlo o recuperar el dinero.",
-  "check",
-);
+  return new LinkScreen<CreateAction>(
+    m.link_unsupported_title({ asset: code }),
+    thenUntouched(
+      `${m.link_unsupported_currency()} ${elsewhere ? m.link_unsupported_elsewhere() : m.link_unsupported_choose()}`,
+    ),
+    elsewhere ? "elsewhere" : "assets",
+  );
+};
 
-const busyCreating = new LinkScreen(
-  "Espera un momento",
-  "Tienes otra operación en curso. Espera su resultado antes de crear un link.",
-  "again",
-);
+const stillCreating = () =>
+  new LinkScreen(
+    m.link_still_creating_title(),
+    m.link_still_creating(),
+    "check",
+  );
 
-const busyRecovering = new LinkScreen(
-  "Espera un momento",
-  "Tienes una operación en curso. Espera su resultado y revisa de nuevo.",
-  "check",
-);
+const busyCreating = () =>
+  new LinkScreen(
+    m.common_wait_title(),
+    `${m.common_other_operation()} ${m.link_busy_creating()}`,
+    "again",
+  );
 
-const unconfirmed = new LinkScreen(
-  "No pudimos confirmar tu link",
-  checkFirst,
-  "check",
-);
+const busyRecovering = () =>
+  new LinkScreen(m.common_wait_title(), m.link_busy_recovering(), "check");
 
-const notCreated = new LinkScreen(
-  "No se creó el link",
-  `Algo no cuadró al preparar tu link. ${untouched}`,
-  "home",
-);
+const unconfirmed = () =>
+  new LinkScreen(m.link_unconfirmed_title(), m.link_check_first(), "check");
+
+const notCreated = () =>
+  new LinkScreen(
+    m.link_not_created_title(),
+    thenUntouched(m.link_mismatched()),
+    "home",
+  );
 
 export type CreateRefusal =
   | Exclude<
@@ -149,109 +137,110 @@ export const createLinkResult = (
   asset: Asset,
 ): LinkScreen<CreateAction> =>
   Match.valueTags(outcome, {
-    DeviceFailure: () => creationDeviceFailure,
-    Pending: () => stillCreating,
+    DeviceFailure: creationDeviceFailure,
+    Pending: stillCreating,
     ApprovalOutstanding: ({ order }) =>
       Predicate.isTagged(order.to, "PaymentLink")
         ? new LinkScreen(
-            "Tu último link aún se está creando",
-            "Espera a que termine antes de crear otro.",
+            m.link_last_creating_title(),
+            m.link_last_creating(),
             "check",
           )
         : new LinkScreen(
-            "Tienes un pago en curso",
-            "Espera su resultado antes de crear un link.",
+            m.send_payment_in_progress_title(),
+            m.link_busy_creating(),
             "again",
           ),
-    DraftRejected: () => unconfirmed,
-    NoTransfer: () => unconfirmed,
-    Reserved: () => unconfirmed,
-    Claimed: () => unconfirmed,
-    Refunded: () => unconfirmed,
+    DraftRejected: unconfirmed,
+    NoTransfer: unconfirmed,
+    Reserved: unconfirmed,
+    Claimed: unconfirmed,
+    Refunded: unconfirmed,
     PrfOutputMissing: () =>
       new LinkScreen(
-        "Tu passkey no puede firmar aquí",
-        `Tu passkey no abrió tu llave en este dispositivo. ${untouched}`,
+        m.opening_prf_missing_title(),
+        thenUntouched(m.send_passkey_unopened()),
         "home",
       ),
     LinkOutputMissing: () =>
       new LinkScreen(
-        "No podemos guardar tu link aquí",
-        `Tu passkey no puede proteger el link en este dispositivo. Puedes crearlo sin guardarlo y compartirlo apenas esté listo. ${untouched}`,
+        m.link_cannot_save_title(),
+        thenUntouched(m.link_cannot_save()),
         "once",
       ),
     CorruptDeviceWallet: () =>
       new LinkScreen(
-        "No pudimos leer tu llave",
-        `Los datos guardados en este navegador están dañados. ${untouched}`,
+        m.opening_corrupt_title(),
+        thenUntouched(m.corrupt_device_wallet()),
         "home",
       ),
     Failed: ({ reason }) =>
       new LinkScreen(
-        "No se creó el link",
-        reason === "expired"
-          ? `No se confirmó a tiempo. ${untouched}`
-          : `La red rechazó el link. ${untouched}`,
+        m.link_not_created_title(),
+        thenUntouched(
+          reason === "expired"
+            ? m.link_not_confirmed_in_time()
+            : m.link_network_rejected(),
+        ),
         "again",
       ),
     InsufficientBalance: ({ available }) =>
       new LinkScreen(
-        `No tienes suficiente ${asset.code}`,
-        `Tienes ${amountLabel(available, asset)} disponibles. ${untouched}`,
+        m.link_insufficient_title({ asset: asset.code }),
+        thenUntouched(
+          m.link_insufficient({ amount: amountLabel(available, asset) }),
+        ),
         "edit",
       ),
     UnclaimedFundsLimitReached: ({ limit }) =>
       new LinkScreen(
-        `Ya tienes ${limit} links abiertos`,
-        `Puedes tener hasta ${limit} a la vez. Recupera el dinero de uno para crear otro. ${untouched}`,
+        m.link_limit_title({ limit }),
+        thenUntouched(m.link_limit({ limit })),
         "links",
       ),
     AssetUnsupported: ({ reason }) => unsupportedScreen(reason, asset.code),
-    SenderBusy: () => busyCreating,
-    AssetBusy: () => busyCreating,
+    SenderBusy: busyCreating,
+    AssetBusy: busyCreating,
     NotOpened: () =>
       new LinkScreen(
-        "Aún no puedes crear links",
-        "Tu cuenta aún se está activando.",
+        m.link_not_opened_title(),
+        m.common_account_activating(),
         "home",
       ),
-    InvalidAddress: () => notCreated,
-    UnknownRecipient: () => notCreated,
-    PhoneNotSupported: () => notCreated,
-    ExternalMemoRequired: () => notCreated,
-    MemoNotAllowed: () => notCreated,
-    RecipientCannotReceive: () => notCreated,
+    InvalidAddress: notCreated,
+    UnknownRecipient: notCreated,
+    PhoneNotSupported: notCreated,
+    ExternalMemoRequired: notCreated,
+    MemoNotAllowed: notCreated,
+    RecipientCannotReceive: notCreated,
     NoWallet: () =>
-      new LinkScreen(
-        "No hay una cuenta aquí",
-        "Este dispositivo no tiene una cuenta de Orchid.",
-        "home",
-      ),
+      new LinkScreen(m.common_no_wallet_title(), m.session_no_wallet(), "home"),
     UnsupportedDevice: () =>
       new LinkScreen(
-        "No pudimos leer tu llave",
-        "Este navegador no puede leer tu llave de forma segura.",
+        m.opening_corrupt_title(),
+        m.device_cannot_read_key(),
         "home",
       ),
-    Offline: (failure) => unavailable(failure, checkFirst),
-    ServerUnreachable: (failure) => unavailable(failure, checkFirst),
-    LedgerUnreachable: (failure) => unavailable(failure, checkFirst),
-    ServiceFailed: (failure) => unavailable(failure, checkFirst),
-    SessionRequired: (failure) => unavailable(failure, checkFirst),
-    RateLimited: (failure) => unavailable(failure, checkFirst),
-    InvalidResponse: (failure) => unavailable(failure, checkFirst),
+    Offline: (failure) => unavailable(failure, m.link_check_first()),
+    ServerUnreachable: (failure) => unavailable(failure, m.link_check_first()),
+    LedgerUnreachable: (failure) => unavailable(failure, m.link_check_first()),
+    ServiceFailed: (failure) => unavailable(failure, m.link_check_first()),
+    SessionRequired: (failure) => unavailable(failure, m.link_check_first()),
+    RateLimited: (failure) => unavailable(failure, m.link_check_first()),
+    InvalidResponse: (failure) => unavailable(failure, m.link_check_first()),
   });
 
-const unprepared = new LinkScreen(
-  "No pudimos preparar tu link",
-  `Inténtalo de nuevo. ${untouched}`,
-  "again",
-);
+const unprepared = () =>
+  new LinkScreen(
+    m.link_unprepared_title(),
+    thenUntouched(m.link_try_again()),
+    "again",
+  );
 
 const interrupted = (failure: WalletUnavailable) =>
   new LinkScreen(
-    "Algo se interrumpió",
-    `${unavailableMessage(failure)} ${untouched}`,
+    m.link_interrupted_title(),
+    thenUntouched(unavailableMessage(failure)),
     "again",
   );
 
@@ -261,8 +250,8 @@ export const preparedLinkResult = (
 ): LinkScreen<CreateAction> =>
   Match.value(outcome).pipe(
     Match.tags({
-      DeviceFailure: () => unprepared,
-      DraftRejected: () => unprepared,
+      DeviceFailure: unprepared,
+      DraftRejected: unprepared,
       Offline: interrupted,
       ServerUnreachable: interrupted,
       LedgerUnreachable: interrupted,
@@ -282,62 +271,57 @@ export const resolveLinkResult = (
   outcome: CheckRefusal,
 ): LinkScreen<CheckAction> =>
   Match.valueTags(outcome, {
-    DeviceFailure: () => creationDeviceFailure,
-    Pending: () => stillCreating,
-    ApprovalOutstanding: () => stillCreating,
+    DeviceFailure: creationDeviceFailure,
+    Pending: stillCreating,
+    ApprovalOutstanding: stillCreating,
     PaymentLinkNotFound: () =>
       new LinkScreen(
-        "No encontramos tu link",
-        "No hay dinero en un link de este intento. Revisa tu saldo antes de crear otro.",
+        m.link_receipt_missing_title(),
+        m.link_receipt_missing(),
         "home",
       ),
     PaymentLinkReceiptInvalid: () =>
       new LinkScreen(
-        "No pudimos confirmar tu link",
-        "Revisa tus links: si aparece ahí, puedes recuperar el dinero.",
+        m.link_unconfirmed_title(),
+        m.link_receipt_invalid(),
         "links",
       ),
     InvalidAddress: () =>
       new LinkScreen(
-        "No pudimos leer tu llave",
-        "La llave guardada en este dispositivo no es válida.",
+        m.opening_corrupt_title(),
+        m.common_stored_key_invalid(),
         "home",
       ),
     NoWallet: () =>
-      new LinkScreen(
-        "No hay una cuenta aquí",
-        "Este dispositivo no tiene una cuenta de Orchid.",
-        "home",
-      ),
+      new LinkScreen(m.common_no_wallet_title(), m.session_no_wallet(), "home"),
     UnsupportedDevice: () =>
       new LinkScreen(
-        "No pudimos leer tu llave",
-        "Este navegador no puede leer tu llave de forma segura.",
+        m.opening_corrupt_title(),
+        m.device_cannot_read_key(),
         "home",
       ),
-    Offline: (failure) => unavailable(failure, checkFirst),
-    ServerUnreachable: (failure) => unavailable(failure, checkFirst),
-    LedgerUnreachable: (failure) => unavailable(failure, checkFirst),
-    ServiceFailed: (failure) => unavailable(failure, checkFirst),
-    SessionRequired: (failure) => unavailable(failure, checkFirst),
-    RateLimited: (failure) => unavailable(failure, checkFirst),
-    InvalidResponse: (failure) => unavailable(failure, checkFirst),
+    Offline: (failure) => unavailable(failure, m.link_check_first()),
+    ServerUnreachable: (failure) => unavailable(failure, m.link_check_first()),
+    LedgerUnreachable: (failure) => unavailable(failure, m.link_check_first()),
+    ServiceFailed: (failure) => unavailable(failure, m.link_check_first()),
+    SessionRequired: (failure) => unavailable(failure, m.link_check_first()),
+    RateLimited: (failure) => unavailable(failure, m.link_check_first()),
+    InvalidResponse: (failure) => unavailable(failure, m.link_check_first()),
   });
 
 const cannotRecover = (reason: string) =>
   new LinkScreen(
-    "No podemos devolverte este dinero",
-    `${reason} ${stillInLink}`,
+    m.link_cannot_recover_title(),
+    thenStillInLink(reason),
     "done",
   );
 
-const recoverAgain = new LinkScreen(
-  "No pudimos recuperar el dinero",
-  `Inténtalo de nuevo. ${stillInLink}`,
-  "again",
-);
-
-const recheck = "Revisa de nuevo para saber si recuperaste el dinero.";
+const recoverAgain = () =>
+  new LinkScreen(
+    m.link_recover_failed_title(),
+    thenStillInLink(m.link_try_again()),
+    "again",
+  );
 
 export type ReclaimConclusion =
   | ReclaimOutcome
@@ -354,23 +338,27 @@ export const reclaimResult = (
 
   return Match.valueTags(outcome, {
     DeviceFailure: () =>
-      new LinkScreen("Algo falló en este dispositivo", recheck, "check"),
+      new LinkScreen(
+        m.common_device_failed_title(),
+        m.link_recheck_recovery(),
+        "check",
+      ),
     AssetSettled: () =>
       new LinkScreen(
-        "Recuperaste tu dinero",
-        `${amount} volvió a tu cuenta. El link ya no funciona.`,
+        m.link_recovered_title(),
+        m.link_recovered({ amount }),
         "done",
       ),
     AssetPending: () =>
       new LinkScreen(
-        "Tu recuperación sigue en proceso",
-        "Revisa de nuevo en un momento para ver si el dinero volvió a tu cuenta.",
+        m.link_recovery_pending_title(),
+        m.link_recovery_pending(),
         "check",
       ),
     AssetFailed: () =>
       new LinkScreen(
-        "No se recuperó el dinero",
-        "La operación no se completó. Inténtalo de nuevo para saber si el dinero sigue en el link.",
+        m.link_recovery_not_done_title(),
+        m.link_recovery_not_done(),
         "again",
       ),
     UnclaimedFundsGone: ({ status }) =>
@@ -379,8 +367,8 @@ export const reclaimResult = (
           "reclaimed",
           () =>
             new LinkScreen(
-              "Ya recuperaste este dinero",
-              `${amount} volvió a tu cuenta. El link ya no funciona.`,
+              m.link_already_recovered_title(),
+              m.link_recovered({ amount }),
               "done",
             ),
         ),
@@ -388,8 +376,8 @@ export const reclaimResult = (
           "claimed",
           () =>
             new LinkScreen(
-              "Alguien ya usó este link",
-              `Quien tenía el link ya recibió ${amount}.`,
+              m.link_claimed_title(),
+              m.link_claimed({ amount }),
               "done",
             ),
         ),
@@ -397,8 +385,8 @@ export const reclaimResult = (
           "clawed_back",
           () =>
             new LinkScreen(
-              "Este dinero ya no está en el link",
-              `La empresa que emite ${code} retiró ${amount} de este link. No volverá a tu cuenta.`,
+              m.link_clawed_back_title(),
+              m.link_clawed_back({ asset: code, amount }),
               "done",
             ),
         ),
@@ -406,8 +394,8 @@ export const reclaimResult = (
           "unresolved",
           () =>
             new LinkScreen(
-              "No pudimos confirmar qué pasó",
-              "Este link ya no tiene dinero, pero no podemos saber si alguien lo recibió o si volvió a ti. Revisa tu saldo.",
+              m.link_unresolved_title(),
+              m.link_unresolved(),
               "done",
             ),
         ),
@@ -416,93 +404,92 @@ export const reclaimResult = (
     RecipientCannotReceive: ({ reason }) =>
       cannotRecover(
         Match.value(reason).pipe(
-          Match.when("no_account", () => "Tu cuenta no está activa."),
-          Match.when(
-            "no_trustline",
-            () => `Tu cuenta no puede recibir ${code} en este momento.`,
+          Match.when("no_account", () => m.link_own_inactive()),
+          Match.when("no_trustline", () =>
+            m.link_own_cannot_receive({ asset: code }),
           ),
-          Match.when(
-            "not_authorized",
-            () =>
-              "El emisor de esta moneda no permite que tu cuenta reciba dinero.",
-          ),
-          Match.when(
-            "no_capacity",
-            () =>
-              `Tu cuenta no puede recibir esta cantidad de ${code} en este momento.`,
+          Match.when("not_authorized", () => m.link_own_not_authorized()),
+          Match.when("no_capacity", () =>
+            m.link_own_no_capacity({ asset: code }),
           ),
           Match.exhaustive,
         ),
       ),
     TrustlineLimitReached: ({ limit }) =>
-      cannotRecover(
-        `Tu cuenta ya tiene el máximo de ${limit} monedas y ${code} no está entre ellas.`,
-      ),
+      cannotRecover(m.link_trustline_limit({ limit, asset: code })),
     AssetUnsupported: () =>
-      cannotRecover(`Tu cuenta no puede recibir ${code} en este momento.`),
+      cannotRecover(m.link_own_cannot_receive({ asset: code })),
     NotClaimable: ({ claimableAt }) =>
       Option.match(claimableAt, {
-        onNone: () => recoverAgain,
+        onNone: recoverAgain,
         onSome: (at) =>
           new LinkScreen(
-            "Aún no puedes recuperar este dinero",
-            `Podrás recuperarlo desde el ${DateTime.toDate(at).toLocaleString(
-              formattingLocale(),
-              { dateStyle: "long", timeStyle: "short" },
-            )}. ${stillInLink}`,
+            m.link_not_yet_recoverable_title(),
+            thenStillInLink(
+              m.link_recoverable_from({
+                date: DateTime.toDate(at).toLocaleString(formattingLocale(), {
+                  dateStyle: "long",
+                  timeStyle: "short",
+                }),
+              }),
+            ),
             "done",
           ),
       }),
-    SenderBusy: () => busyRecovering,
-    AssetBusy: () => busyRecovering,
-    LinkUnclaimable: () => recoverAgain,
-    Unchanged: () => recoverAgain,
-    TrustlineNotEmpty: () => recoverAgain,
+    SenderBusy: busyRecovering,
+    AssetBusy: busyRecovering,
+    LinkUnclaimable: recoverAgain,
+    Unchanged: recoverAgain,
+    TrustlineNotEmpty: recoverAgain,
     DraftRejected: () =>
-      new LinkScreen("No pudimos confirmar la operación", recheck, "check"),
+      new LinkScreen(
+        m.link_operation_unconfirmed_title(),
+        m.link_recheck_recovery(),
+        "check",
+      ),
     PrfOutputMissing: () =>
       new LinkScreen(
-        "Tu passkey no puede firmar aquí",
-        `Tu passkey no abrió tu llave en este dispositivo. ${stillInLink}`,
+        m.opening_prf_missing_title(),
+        thenStillInLink(m.send_passkey_unopened()),
         "home",
       ),
     CorruptDeviceWallet: () =>
       new LinkScreen(
-        "No pudimos leer tu llave",
-        `Los datos guardados en este navegador están dañados. ${stillInLink}`,
+        m.opening_corrupt_title(),
+        thenStillInLink(m.corrupt_device_wallet()),
         "home",
       ),
     NotOpened: () =>
       new LinkScreen(
-        "Aún no puedes recuperar dinero",
-        "Tu cuenta aún se está activando.",
+        m.link_cannot_recover_yet_title(),
+        m.common_account_activating(),
         "home",
       ),
     InvalidAddress: () =>
       new LinkScreen(
-        "No pudimos leer tu llave",
-        "La llave guardada en este dispositivo no es válida.",
+        m.opening_corrupt_title(),
+        m.common_stored_key_invalid(),
         "home",
       ),
     NoWallet: () =>
-      new LinkScreen(
-        "No hay una cuenta aquí",
-        "Este dispositivo no tiene una cuenta de Orchid.",
-        "home",
-      ),
+      new LinkScreen(m.common_no_wallet_title(), m.session_no_wallet(), "home"),
     UnsupportedDevice: () =>
       new LinkScreen(
-        "No pudimos leer tu llave",
-        "Este navegador no puede leer tu llave de forma segura.",
+        m.opening_corrupt_title(),
+        m.device_cannot_read_key(),
         "home",
       ),
-    Offline: (failure) => unavailable(failure, recheck),
-    ServerUnreachable: (failure) => unavailable(failure, recheck),
-    LedgerUnreachable: (failure) => unavailable(failure, recheck),
-    ServiceFailed: (failure) => unavailable(failure, recheck),
-    SessionRequired: (failure) => unavailable(failure, recheck),
-    RateLimited: (failure) => unavailable(failure, recheck),
-    InvalidResponse: (failure) => unavailable(failure, recheck),
+    Offline: (failure) => unavailable(failure, m.link_recheck_recovery()),
+    ServerUnreachable: (failure) =>
+      unavailable(failure, m.link_recheck_recovery()),
+    LedgerUnreachable: (failure) =>
+      unavailable(failure, m.link_recheck_recovery()),
+    ServiceFailed: (failure) => unavailable(failure, m.link_recheck_recovery()),
+    SessionRequired: (failure) =>
+      unavailable(failure, m.link_recheck_recovery()),
+    RateLimited: (failure) => unavailable(failure, m.link_recheck_recovery()),
+    InvalidResponse: (failure) =>
+      unavailable(failure, m.link_recheck_recovery()),
   });
 };
 
@@ -512,15 +499,15 @@ export type RevealRefusal =
 
 const cannotOpen = (reason: string) =>
   new LinkScreen<RevealAction>(
-    "No pudimos abrir tu link",
-    `${reason} ${stillInLink}`,
+    m.link_cannot_open_title(),
+    thenStillInLink(reason),
     "recover",
   );
 
 const retryOpen = (reason: string) =>
   new LinkScreen<RevealAction>(
-    "No pudimos abrir tu link",
-    `${reason} ${stillInLink}`,
+    m.link_cannot_open_title(),
+    thenStillInLink(reason),
     "retry",
   );
 
@@ -530,31 +517,17 @@ export const revealResult = (
   outcome: RevealRefusal,
 ): LinkScreen<RevealAction> =>
   Match.valueTags(outcome, {
-    PasskeyCancelled: () =>
-      retryOpen("No usaste tu passkey, así que no abrimos el link."),
-    PasskeyFailed: () =>
-      retryOpen("No pudimos usar tu passkey. Inténtalo de nuevo."),
-    WrongCredential: () =>
-      retryOpen(
-        "Usaste una passkey distinta. Ábrelo con la passkey de tu cuenta.",
-      ),
-    AssertionRejected: () =>
-      retryOpen(
-        "No pudimos verificar tu passkey. Ábrelo con tu huella, rostro o PIN del dispositivo.",
-      ),
-    PrfOutputMissing: () =>
-      cannotOpen("Tu passkey no puede abrir el link en este dispositivo."),
-    SavedLinkMissing: () =>
-      cannotOpen("Este link no está guardado en este dispositivo."),
-    SavedLinkCorrupt: () =>
-      cannotOpen("El link guardado en este dispositivo está dañado."),
-    CorruptDeviceWallet: () =>
-      cannotOpen("Los datos guardados en este navegador están dañados."),
-    NoWallet: () =>
-      cannotOpen("Este dispositivo no tiene una cuenta de Orchid."),
-    UnsupportedDevice: () =>
-      cannotOpen("Este navegador no puede abrir tu link de forma segura."),
-    DeviceFailure: () => retryOpen("Algo falló en este dispositivo."),
+    PasskeyCancelled: () => retryOpen(m.link_open_passkey_cancelled()),
+    PasskeyFailed: () => retryOpen(m.passkey_failed()),
+    WrongCredential: () => retryOpen(m.link_open_wrong_credential()),
+    AssertionRejected: () => retryOpen(m.link_open_assertion_rejected()),
+    PrfOutputMissing: () => cannotOpen(m.link_open_prf_missing()),
+    SavedLinkMissing: () => cannotOpen(m.link_saved_missing()),
+    SavedLinkCorrupt: () => cannotOpen(m.link_saved_corrupt()),
+    CorruptDeviceWallet: () => cannotOpen(m.corrupt_device_wallet()),
+    NoWallet: () => cannotOpen(m.session_no_wallet()),
+    UnsupportedDevice: () => cannotOpen(m.link_open_unsupported()),
+    DeviceFailure: () => retryOpen(m.link_device_failed()),
     Offline: (failure) => retryOpen(unavailableMessage(failure)),
     ServerUnreachable: (failure) => retryOpen(unavailableMessage(failure)),
     LedgerUnreachable: (failure) => retryOpen(unavailableMessage(failure)),

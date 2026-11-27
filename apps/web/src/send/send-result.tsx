@@ -6,6 +6,8 @@ import { ScreenActions, ScreenNote, ScreenStatus } from "@/components/screen";
 
 import { type SendScreen, outstandingLabel } from "./outcomes";
 
+import { m } from "@/paraglide/messages";
+
 export function SendResultScreen({
   outcome,
   screen,
@@ -47,11 +49,11 @@ export function SendResultScreen({
       </ScreenStatus>
       <ScreenActions>
         {Match.value(screen.action).pipe(
-          Match.when("done", () => home("Listo")),
-          Match.when("home", () => home("Volver al inicio")),
-          Match.when("retry", () => again("Reintentar")),
-          Match.when("wait", () => again("Reintentar")),
-          Match.when("check", () => again("Ver estado")),
+          Match.when("done", () => home(m.common_done())),
+          Match.when("home", () => home(m.common_back_home())),
+          Match.when("retry", () => again(m.common_retry())),
+          Match.when("wait", () => again(m.common_retry())),
+          Match.when("check", () => again(m.send_see_status())),
           Match.exhaustive,
         )}
       </ScreenActions>

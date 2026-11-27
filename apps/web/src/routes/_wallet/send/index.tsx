@@ -12,6 +12,7 @@ import { TopNav } from "@/components/top-nav";
 import { amountLabel } from "@/send/money";
 import { SendUnavailable } from "@/send/send-unavailable";
 import { shownOverview } from "@/wallet/shown-overview";
+import { m } from "@/paraglide/messages";
 
 export const Route = createFileRoute("/_wallet/send/")({
   ssr: false,
@@ -33,14 +34,14 @@ function ChooseAssetFrame({
   return (
     <Screen>
       <TopNav
-        title="Enviar"
-        label="Cerrar"
+        title={m.common_send()}
+        label={m.common_close()}
         icon={<XIcon absoluteStrokeWidth />}
         link={<Link to="/home" />}
       />
       {loading ? (
         <div
-          aria-label="Cargando tus saldos"
+          aria-label={m.send_loading_balances()}
           className="flex flex-col gap-3 px-5 pt-2"
         >
           <Skeleton className="h-9 w-56" />
@@ -100,10 +101,10 @@ function AssetChoices({ holding }: { holding: Holding }) {
   return (
     <>
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-        <h1 className="font-display text-h1">¿Qué quieres enviar?</h1>
+        <h1 className="font-display text-h1">{m.send_choose_asset()}</h1>
         {held.length === 0 ? (
           <p className="text-body text-muted-foreground">
-            Aún no tienes saldo para enviar.
+            {m.send_no_balance()}
           </p>
         ) : (
           <div className="flex flex-col gap-3">
@@ -133,7 +134,7 @@ function AssetChoices({ holding }: { holding: Holding }) {
           nativeButton={false}
           render={<Link to="/links" data-testid="open-links" />}
         >
-          Ver mis links de pago
+          {m.send_view_links()}
         </Button>
       </ScreenActions>
     </>

@@ -43,7 +43,6 @@ import {
 import {
   type RecoverableLink,
   createLinkResult,
-  lostLinkMessage,
   preparedLinkResult,
   resolveLinkResult,
 } from "./outcomes";
@@ -62,6 +61,8 @@ import {
   useLinkReveal,
 } from "./link-reveal";
 import { type ShareResult, copyLink, shareLink } from "./share-link";
+
+import { m } from "@/paraglide/messages";
 
 const withSaving = (intent: PaymentLinkIntent, saveOnDevice: boolean) =>
   new PaymentLinkIntent({ ...intent, saveOnDevice });
@@ -96,10 +97,14 @@ function LinkAmountStep({
     event.preventDefault();
 
     Option.match(parseAmount(amount, precisionOf(asset)), {
-      onNone: () => refuse("Escribe un monto válido"),
+      onNone: () => refuse(m.common_amount_invalid()),
       onSome: (entered) =>
         entered > available
-          ? refuse(`Tienes ${amountLabel(available, asset)} disponibles`)
+          ? refuse(
+              m.common_amount_available({
+                amount: amountLabel(available, asset),
+              }),
+            )
           : onIntent(
               new PaymentLinkIntent({
                 asset,
@@ -116,12 +121,14 @@ function LinkAmountStep({
         <button
           type="button"
           onClick={onChangeDestination}
-          aria-label="Cambiar destino"
+          aria-label={m.common_change_destination()}
           data-testid="change-destination"
           className="flex items-center gap-3 rounded-lg bg-secondary px-4 py-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         >
-          <span className="text-body text-muted-foreground">Para</span>
-          <span className="truncate text-label-lg">Un link de pago</span>
+          <span className="text-body text-muted-foreground">
+            {m.common_to()}
+          </span>
+          <span className="truncate text-label-lg">{m.link_destination()}</span>
         </button>
         <AmountPad
           amount={amount}
@@ -139,7 +146,7 @@ function LinkAmountStep({
           data-testid="review-link"
           disabled={Option.isNone(parseAmount(amount, precisionOf(asset)))}
         >
-          Revisar
+          {m.common_review()}
         </Button>
       </ScreenActions>
     </form>
@@ -192,21 +199,20 @@ function LinkReview({
         data-amount={formatAmount(review.amount, precisionOf(review.asset))}
       >
         <ReviewHero
-          title="Revisa tu link"
+          title={m.link_review_title()}
           amount={amountLabel(review.amount, review.asset)}
           network={review.network}
         />
         <dl className="flex flex-col rounded-lg border border-border px-4">
-          <ReviewRow label="Comisión">Gratis</ReviewRow>
+          <ReviewRow label={m.common_fee()}>{m.common_free()}</ReviewRow>
         </dl>
         <p className="text-body text-muted-foreground">
-          Quien tenga el link recibe el dinero. Puedes recuperarlo mientras
-          nadie lo use.
+          {m.link_review_note()}
         </p>
         <FieldLabel htmlFor="save-link">
           <Field orientation="horizontal">
             <FieldContent>
-              <FieldTitle>Guardar para compartir de nuevo</FieldTitle>
+              <FieldTitle>{m.link_save()}</FieldTitle>
             </FieldContent>
             <Switch
               id="save-link"
@@ -230,7 +236,7 @@ function LinkReview({
           disabled={renewing}
           data-testid="confirm-link"
         >
-          Crear link
+          {m.link_create()}
         </Button>
       </ScreenActions>
     </>
@@ -246,7 +252,7 @@ function LinkReceipt({
 }) {
   return (
     <ScreenStatus
-      title="Tu link está listo"
+      title={m.link_ready()}
       data-testid="link-created"
       media={
         <span className="flex size-14 items-center justify-center rounded-full bg-accent text-icon-accent [&_svg]:size-7">
@@ -257,7 +263,7 @@ function LinkReceipt({
       <p className="font-display text-h1 text-muted-foreground">
         {amountLabel(created.amount, created.asset)}
       </p>
-      <ScreenNote>Compártelo con quien quieres pagarle.</ScreenNote>
+      <ScreenNote>{m.link_ready_note()}</ScreenNote>
       <DeliveryNote delivery={delivery} />
     </ScreenStatus>
   );
@@ -294,7 +300,7 @@ function LinkCreated({
             nativeButton={false}
             render={<Link to="/home" data-testid="finish-link" />}
           >
-            {delivered(delivery) ? "Listo" : "Compartir después"}
+            {delivered(delivery) ? m.common_done() : m.link_share_later()}
           </Button>
         ) : (
           <Button
@@ -304,7 +310,7 @@ function LinkCreated({
             disabled={sharing}
             data-testid="leave-link"
           >
-            Salir sin compartir
+            {m.link_leave_unshared()}
           </Button>
         )}
       </ScreenActions>
@@ -328,7 +334,7 @@ function LinkSent({
           nativeButton={false}
           render={<Link to="/home" data-testid="finish-link" />}
         >
-          Listo
+          {m.common_done()}
         </Button>
       </ScreenActions>
     </>
@@ -345,17 +351,16 @@ function LostLink({ link }: { link: RecoverableLink }) {
         onBegin={begin}
         onConfirm={confirm}
         onCancel={reset}
-        done={<ResultLink link={<Link to="/home" />}>Listo</ResultLink>}
+        done={
+          <ResultLink link={<Link to="/home" />}>{m.common_done()}</ResultLink>
+        }
       />
     );
 
   return (
     <>
-      <ScreenStatus
-        title="Ya no puedes compartir este link"
-        data-testid="link-lost"
-      >
-        <ScreenNote>{lostLinkMessage}</ScreenNote>
+      <ScreenStatus title={m.link_lost_title()} data-testid="link-lost">
+        <ScreenNote>{m.link_lost()}</ScreenNote>
       </ScreenStatus>
       <ScreenActions>
         <Button
@@ -363,7 +368,9 @@ function LostLink({ link }: { link: RecoverableLink }) {
           onClick={() => begin(link)}
           data-testid="recover-link"
         >
-          Recuperar {amountLabel(link.amount, link.asset)}
+          {m.link_recover_amount({
+            amount: amountLabel(link.amount, link.asset),
+          })}
         </Button>
         <Button
           className="w-full"
@@ -371,7 +378,7 @@ function LostLink({ link }: { link: RecoverableLink }) {
           nativeButton={false}
           render={<Link to="/links" />}
         >
-          Recuperarlo después
+          {m.link_recover_later()}
         </Button>
       </ScreenActions>
     </>
@@ -389,14 +396,16 @@ function SavedLink({ link }: { link: SavedLinkTarget }) {
         onBegin={begin}
         onConfirm={confirm}
         onCancel={reset}
-        done={<ResultLink link={<Link to="/home" />}>Listo</ResultLink>}
+        done={
+          <ResultLink link={<Link to="/home" />}>{m.common_done()}</ResultLink>
+        }
       />
     );
 
   return (
     <>
       <ScreenStatus
-        title="Tu link está guardado"
+        title={m.link_saved_title()}
         data-testid="link-saved"
         media={
           <span className="flex size-14 items-center justify-center rounded-full bg-accent text-icon-accent [&_svg]:size-7">
@@ -407,9 +416,7 @@ function SavedLink({ link }: { link: SavedLinkTarget }) {
         <p className="font-display text-h1 text-muted-foreground">
           {amountLabel(link.amount, link.asset)}
         </p>
-        <ScreenNote>
-          Compártelo de nuevo o recupera el dinero mientras nadie lo use.
-        </ScreenNote>
+        <ScreenNote>{m.link_saved_note()}</ScreenNote>
       </ScreenStatus>
       <ScreenActions>
         <Button
@@ -418,7 +425,7 @@ function SavedLink({ link }: { link: SavedLinkTarget }) {
           data-testid="reshare-link"
         >
           <ShareIcon />
-          Compartir link
+          {m.link_share()}
         </Button>
         <Button
           className="w-full"
@@ -426,7 +433,9 @@ function SavedLink({ link }: { link: SavedLinkTarget }) {
           onClick={() => begin(link)}
           data-testid="recover-link"
         >
-          Recuperar {amountLabel(link.amount, link.asset)}
+          {m.link_recover_amount({
+            amount: amountLabel(link.amount, link.asset),
+          })}
         </Button>
       </ScreenActions>
       <LinkShareModal sharing={sharing} onRecover={(target) => begin(target)} />
@@ -574,16 +583,13 @@ export function LinkFlow({
             onChangeDestination={onChangeDestination}
           />
         ),
-        Reviewing: () => <LinkWorking label="Preparando tu link…" />,
+        Reviewing: () => <LinkWorking label={m.link_preparing()} />,
         Reviewed: ({ intent, review, problem }) =>
           reviewed(intent, review, problem, false),
         Renewing: ({ intent, review }) =>
           reviewed(intent, review, Option.none(), true),
         Creating: () => (
-          <LinkWorking
-            label="Creando tu link…"
-            note="No cierres esta pantalla."
-          />
+          <LinkWorking label={m.link_creating()} note={m.link_keep_open()} />
         ),
         Refused: ({ intent, confirmed, outcome }) => {
           const screen = (confirmed ? createLinkResult : preparedLinkResult)(
@@ -598,42 +604,46 @@ export function LinkFlow({
                   <ResultButton
                     onClick={() => prepare(withSaving(intent, false))}
                   >
-                    Crear sin guardarlo
+                    {m.link_create_without_saving()}
                   </ResultButton>
                 )),
                 Match.when("again", () => (
                   <ResultButton onClick={() => prepare(intent)}>
-                    Reintentar
+                    {m.common_retry()}
                   </ResultButton>
                 )),
                 Match.when("edit", () => (
-                  <ResultButton onClick={edit}>Cambiar monto</ResultButton>
+                  <ResultButton onClick={edit}>
+                    {m.link_change_amount()}
+                  </ResultButton>
                 )),
                 Match.when("check", () => (
-                  <ResultButton onClick={check}>Revisar de nuevo</ResultButton>
+                  <ResultButton onClick={check}>
+                    {m.receive_check_again()}
+                  </ResultButton>
                 )),
                 Match.when("home", () => (
                   <ResultLink link={<Link to="/home" />}>
-                    Volver al inicio
+                    {m.common_back_home()}
                   </ResultLink>
                 )),
                 Match.when("links", () => (
                   <ResultLink link={<Link to="/links" />}>
-                    Ver mis links
+                    {m.link_view_mine()}
                   </ResultLink>
                 )),
                 Match.when("assets", () => (
                   <ResultLink link={<Link to="/send" />}>
-                    Elegir otra moneda
+                    {m.link_choose_asset()}
                   </ResultLink>
                 )),
                 Match.when("elsewhere", () => (
                   <>
                     <ResultButton onClick={onChangeDestination}>
-                      Enviar de otra forma
+                      {m.link_send_another_way()}
                     </ResultButton>
                     <ResultLink variant="secondary" link={<Link to="/send" />}>
-                      Elegir otra moneda
+                      {m.link_choose_asset()}
                     </ResultLink>
                   </>
                 )),
@@ -649,7 +659,7 @@ export function LinkFlow({
         ),
         Saved: ({ link }) => <SavedLink link={link} />,
         Lost: ({ link }) => <LostLink link={link} />,
-        Checking: () => <LinkWorking label="Revisando tu link…" />,
+        Checking: () => <LinkWorking label={m.link_checking()} />,
         Checked: ({ outcome }) => {
           const screen = resolveLinkResult(outcome);
 
@@ -657,16 +667,18 @@ export function LinkFlow({
             <LinkResultScreen outcome={outcome._tag} screen={screen}>
               {Match.value(screen.action).pipe(
                 Match.when("check", () => (
-                  <ResultButton onClick={check}>Revisar de nuevo</ResultButton>
+                  <ResultButton onClick={check}>
+                    {m.receive_check_again()}
+                  </ResultButton>
                 )),
                 Match.when("home", () => (
                   <ResultLink link={<Link to="/home" />}>
-                    Volver al inicio
+                    {m.common_back_home()}
                   </ResultLink>
                 )),
                 Match.when("links", () => (
                   <ResultLink link={<Link to="/links" />}>
-                    Ver mis links
+                    {m.link_view_mine()}
                   </ResultLink>
                 )),
                 Match.exhaustive,

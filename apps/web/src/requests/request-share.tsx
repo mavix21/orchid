@@ -18,7 +18,7 @@ import { type Delivery, delivered, nextDelivery } from "@/links/link-step";
 import {
   type ShareResult,
   type ShareableLink,
-  copyLink,
+  copyPaymentRequestLink,
   sharePaymentRequest,
 } from "@/links/share-link";
 import { amountLabel } from "@/send/money";
@@ -77,7 +77,7 @@ export function useRequestShare() {
     shared,
     open,
     share: () => deliver(sharePaymentRequest),
-    copy: () => deliver(copyLink),
+    copy: () => deliver(copyPaymentRequestLink),
     close: () => setShared(Option.none()),
   };
 }

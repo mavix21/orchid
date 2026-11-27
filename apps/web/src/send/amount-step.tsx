@@ -24,6 +24,8 @@ import { AmountPad } from "./amount-pad";
 import { MemoModal } from "./memo-modal";
 import { shortAddress } from "./money";
 
+import { m } from "@/paraglide/messages";
+
 const messageFor = (problem: Option.Option<FieldProblem>, field: SendField) =>
   problem.pipe(
     Option.filter((found) => found.field === field),
@@ -84,11 +86,13 @@ export function AmountStep({
           <button
             type="button"
             onClick={onChangeRecipient}
-            aria-label="Cambiar destinatario"
+            aria-label={m.send_change_recipient()}
             data-testid="change-recipient"
             className="flex items-center gap-3 rounded-lg bg-secondary px-4 py-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
-            <span className="text-body text-muted-foreground">Para</span>
+            <span className="text-body text-muted-foreground">
+              {m.common_to()}
+            </span>
             <span className="truncate text-label-lg">
               {destination === "username"
                 ? `@${recipient}`
@@ -114,7 +118,7 @@ export function AmountStep({
                 onClick={() => setMemoOpen(true)}
                 data-testid="edit-memo"
               >
-                {form.memo === "" ? "Agregar memo" : "Editar memo"}
+                {form.memo === "" ? m.send_add_memo() : m.send_edit_memo()}
               </Button>
             ) : null}
             <Button
@@ -123,7 +127,7 @@ export function AmountStep({
               data-testid="review-payment"
               disabled={!entered}
             >
-              Revisar
+              {m.common_review()}
             </Button>
           </div>
         </ScreenActions>

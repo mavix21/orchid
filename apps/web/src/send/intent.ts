@@ -18,6 +18,8 @@ import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
+import { m } from "@/paraglide/messages";
+
 export type Destination = "username" | "address";
 
 export type SendField = "recipient" | "amount" | "memo";
@@ -40,20 +42,22 @@ export const memoByteLimit = 28;
 export const memoBytes = (memo: string) =>
   new TextEncoder().encode(memo.trim()).length;
 
-const otherNetworkNames: Record<Exclude<AddressNetwork, "stellar">, string> = {
-  evm: "una red EVM (como Base o Ethereum)",
-  solana: "Solana",
-  tron: "Tron",
-  bitcoin: "Bitcoin",
-};
+export const otherNetworkName = (network: Exclude<AddressNetwork, "stellar">) =>
+  Match.value(network).pipe(
+    Match.when("evm", () => m.common_network_evm()),
+    Match.when("solana", () => "Solana"),
+    Match.when("tron", () => "Tron"),
+    Match.when("bitcoin", () => "Bitcoin"),
+    Match.exhaustive,
+  );
 
 const addressProblem = (typed: string) =>
   Option.match(recogniseAddress(typed), {
-    onNone: () => "La dirección no es válida",
+    onNone: () => m.common_address_invalid(),
     onSome: (network) =>
       network === "stellar"
-        ? "La dirección no es válida"
-        : `Esta es una dirección de ${otherNetworkNames[network]}. Por ahora Orchid envía dólares por Stellar. Pídele a quien recibe una dirección de Stellar, o envíale un link de pago.`,
+        ? m.common_address_invalid()
+        : m.send_other_network({ network: otherNetworkName(network) }),
   });
 
 export const recipientOf = (
@@ -64,12 +68,7 @@ export const recipientOf = (
     Match.when("username", () =>
       Option.match(Schema.decodeOption(Username)(typed), {
         onNone: () =>
-          Result.fail(
-            new FieldProblem(
-              "recipient",
-              "Un @usuario tiene de 3 a 20 letras minúsculas, números o guion bajo",
-            ),
-          ),
+          Result.fail(new FieldProblem("recipient", m.send_username_invalid())),
         onSome: (value) => Result.succeed(UsernameRecipient.make({ value })),
       }),
     ),
@@ -85,12 +84,12 @@ export const recipientOf = (
 
 const memoOf = (typed: string): Result.Result<PaymentMemo, FieldProblem> =>
   memoBytes(typed) > memoByteLimit
-    ? Result.fail(new FieldProblem("memo", "El memo es demasiado largo"))
+    ? Result.fail(new FieldProblem("memo", m.send_memo_too_long()))
     : Option.match(
         Schema.decodeOption(PaymentMemo)({ type: "text", value: typed }),
         {
           onNone: () =>
-            Result.fail(new FieldProblem("memo", "Este memo no es válido")),
+            Result.fail(new FieldProblem("memo", m.common_memo_invalid())),
           onSome: Result.succeed,
         },
       );
@@ -110,7 +109,7 @@ export function intentOf(
   );
 
   if (Option.isNone(amount))
-    return Result.fail(new FieldProblem("amount", "Escribe un monto válido"));
+    return Result.fail(new FieldProblem("amount", m.common_amount_invalid()));
 
   const memo = form.memo.trim();
 

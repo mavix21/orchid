@@ -31,7 +31,7 @@ export type EntryBadge = {
 export type Direction = "in" | "out" | "unchanged";
 
 export type Counterparty = {
-  readonly label: "Para" | "De";
+  readonly label: string;
   readonly party: Party;
 };
 
@@ -51,16 +51,25 @@ export type ShownEntry = {
   readonly openLink: boolean;
 };
 
-const sending: EntryBadge = { label: "Enviando", variant: "warning" };
-
-const awaitingAcceptance: EntryBadge = {
-  label: "Por aceptar",
+const sending = (): EntryBadge => ({
+  label: m.activity_sending(),
   variant: "warning",
-};
+});
 
-const unclaimed: EntryBadge = { label: "Sin cobrar", variant: "neutral" };
+const awaitingAcceptance = (): EntryBadge => ({
+  label: m.activity_awaiting_acceptance(),
+  variant: "warning",
+});
 
-const notSent: EntryBadge = { label: "No se envió", variant: "destructive" };
+const unclaimed = (): EntryBadge => ({
+  label: m.activity_unclaimed(),
+  variant: "neutral",
+});
+
+const notSent = (): EntryBadge => ({
+  label: m.activity_not_sent(),
+  variant: "destructive",
+});
 
 export const partyName = (party: Party) =>
   party instanceof Profile ? `@${party.username}` : shortAddress(party.address);
@@ -104,7 +113,7 @@ const linkOutcome = (
     readonly open?: boolean;
   },
 ): Outcome => ({
-  title: "Link de pago",
+  title: m.activity_payment_link(),
   subtitle: outcome.subtitle,
   badge: outcome.badge,
   direction: outcome.direction,
@@ -113,7 +122,7 @@ const linkOutcome = (
   counterparty: Option.map(
     Option.fromUndefinedOr(outcome.claimer),
     (party) => ({
-      label: "Para",
+      label: m.common_to(),
       party,
     }),
   ),
@@ -126,60 +135,71 @@ const claimedLinkOutcome = (
 ) =>
   claimer === undefined
     ? linkOutcome({
-        subtitle: "Alguien lo cobró",
+        subtitle: m.activity_link_claimed_someone(),
         badge: Option.none(),
         direction: "out",
-        detail: `Alguien cobró este link el ${closedOn(closedAt)}.`,
+        detail: m.activity_link_claimed_someone_detail({
+          date: closedOn(closedAt),
+        }),
       })
     : claimer instanceof Profile
       ? linkOutcome({
-          subtitle: `Lo cobró ${partyName(claimer)}`,
+          subtitle: m.activity_link_claimed_by({ name: partyName(claimer) }),
           badge: Option.none(),
           direction: "out",
-          detail: `Lo cobró ${partyName(claimer)} el ${closedOn(closedAt)}.`,
+          detail: m.activity_link_claimed_by_detail({
+            name: partyName(claimer),
+            date: closedOn(closedAt),
+          }),
           claimer,
         })
       : linkOutcome({
-          subtitle: `Lo cobraron en ${partyName(claimer)}`,
+          subtitle: m.activity_link_claimed_at({ name: partyName(claimer) }),
           badge: Option.none(),
           direction: "out",
-          detail: `Lo cobraron en ${partyName(claimer)} el ${closedOn(closedAt)}.`,
+          detail: m.activity_link_claimed_at_detail({
+            name: partyName(claimer),
+            date: closedOn(closedAt),
+          }),
           claimer,
         });
 
-const openLinkOutcome = linkOutcome({
-  subtitle: "Nadie lo ha cobrado",
-  badge: Option.some(unclaimed),
-  direction: "out",
-  detail: "Puedes compartirlo o recuperar el dinero.",
-  open: true,
-});
+const openLinkOutcome = () =>
+  linkOutcome({
+    subtitle: m.activity_link_open(),
+    badge: Option.some(unclaimed()),
+    direction: "out",
+    detail: m.activity_link_open_detail(),
+    open: true,
+  });
 
 const linkReceiptOutcome = (receipt: Receipt) =>
   Match.valueTags(receipt, {
     Pending: () =>
       linkOutcome({
-        subtitle: "Creando el link",
-        badge: Option.some(sending),
+        subtitle: m.activity_link_creating(),
+        badge: Option.some(sending()),
         direction: "out",
-        detail: "Creando tu link. Se confirma en segundos.",
+        detail: m.activity_link_creating_detail(),
       }),
     Failed: () =>
       linkOutcome({
-        subtitle: "No se creó",
-        badge: Option.some(notSent),
+        subtitle: m.activity_link_not_created(),
+        badge: Option.some(notSent()),
         direction: "unchanged",
-        detail: "No se creó el link. Tu dinero no se movió.",
+        detail: m.activity_link_not_created_detail(),
       }),
-    Settled: () => openLinkOutcome,
-    Reserved: () => openLinkOutcome,
+    Settled: openLinkOutcome,
+    Reserved: openLinkOutcome,
     Claimed: ({ by, closedAt }) => claimedLinkOutcome(by, closedAt),
     Refunded: ({ closedAt }) =>
       linkOutcome({
-        subtitle: "Recuperaste el dinero",
+        subtitle: m.activity_link_taken_back(),
         badge: Option.none(),
         direction: "unchanged",
-        detail: `Recuperaste el dinero de este link el ${closedOn(closedAt)}.`,
+        detail: m.activity_link_taken_back_detail({
+          date: closedOn(closedAt),
+        }),
       }),
   });
 
@@ -190,12 +210,12 @@ const paymentOutcome = (
   },
 ): Outcome => ({
   title: partyName(party),
-  subtitle: outcome.subtitle ?? "Enviaste",
+  subtitle: outcome.subtitle ?? m.activity_you_sent(),
   badge: outcome.badge,
   direction: outcome.direction,
   detail: outcome.detail,
   media: party,
-  counterparty: Option.some({ label: "Para", party }),
+  counterparty: Option.some({ label: m.common_to(), party }),
   openLink: false,
 });
 
@@ -205,48 +225,42 @@ const paymentReceiptOutcome = (receipt: Receipt, party: Party) => {
   return Match.valueTags(receipt, {
     Pending: () =>
       paymentOutcome(party, {
-        badge: Option.some(sending),
+        badge: Option.some(sending()),
         direction: "out",
-        detail: "Enviando. Se confirma en segundos.",
+        detail: m.activity_sending_detail(),
       }),
     Settled: () =>
       paymentOutcome(party, {
         badge: Option.none(),
         direction: "out",
-        detail: `Llegó a ${name}.`,
+        detail: m.activity_settled_detail({ name }),
       }),
     Reserved: () =>
       paymentOutcome(party, {
-        badge: Option.some(awaitingAcceptance),
+        badge: Option.some(awaitingAcceptance()),
         direction: "out",
-        detail: `Esperando que ${name} lo acepte.`,
+        detail: m.activity_reserved_detail({ name }),
       }),
     Claimed: ({ closedAt }) =>
       paymentOutcome(party, {
         badge: Option.none(),
         direction: "out",
-        detail: `${name} lo aceptó el ${closedOn(closedAt)}.`,
+        detail: m.activity_claimed_detail({ name, date: closedOn(closedAt) }),
       }),
     Refunded: ({ closedAt }) =>
       paymentOutcome(party, {
-        subtitle: "Volvió a tu cuenta",
+        subtitle: m.activity_returned(),
         badge: Option.none(),
         direction: "unchanged",
-        detail: `El pago volvió a tu cuenta el ${closedOn(closedAt)}.`,
+        detail: m.activity_returned_detail({ date: closedOn(closedAt) }),
       }),
     Failed: ({ reason }) =>
       paymentOutcome(party, {
-        badge: Option.some(notSent),
+        badge: Option.some(notSent()),
         direction: "unchanged",
         detail: Match.value(reason).pipe(
-          Match.when(
-            "expired",
-            () => "No se envió a tiempo. Tu dinero no se movió.",
-          ),
-          Match.when(
-            "rejected",
-            () => "La red rechazó el pago. Tu dinero no se movió.",
-          ),
+          Match.when("expired", () => m.activity_expired_detail()),
+          Match.when("rejected", () => m.activity_rejected_detail()),
           Match.exhaustive,
         ),
       }),
@@ -282,7 +296,7 @@ const receivedEntry = (
   ...outcome,
   title: partyName(entry.from),
   media: entry.from,
-  counterparty: Option.some({ label: "De", party: entry.from }),
+  counterparty: Option.some({ label: m.activity_from(), party: entry.from }),
   openLink: false,
   amount: signedAmount(outcome.direction, entry.amount, entry.asset),
   memo: Option.none(),
@@ -295,8 +309,8 @@ const receivedText = (
 ) =>
   Option.match(paidRequest, {
     onNone: () => ({
-      subtitle: "Recibiste",
-      detail: `${partyName(from)} te envió este pago.`,
+      subtitle: m.activity_received(),
+      detail: m.activity_received_detail({ name: partyName(from) }),
     }),
     onSome: ({ note }) => ({
       subtitle: m.activity_paid_request(),
@@ -321,33 +335,41 @@ export const shownEntry = (
       }),
     AwaitingAcceptanceActivity: (awaiting) =>
       receivedEntry(awaiting, {
-        subtitle: `Te envió ${awaiting.asset.code}`,
-        badge: Option.some(awaitingAcceptance),
+        subtitle: m.activity_awaiting_receipt({ asset: awaiting.asset.code }),
+        badge: Option.some(awaitingAcceptance()),
         direction: "unchanged",
-        detail: "Llega a tu saldo cuando lo recibas con tu passkey.",
+        detail: m.activity_awaiting_receipt_detail(),
       }),
     TakenBackActivity: (takenBack) =>
       receivedEntry(takenBack, {
-        subtitle: "Lo recuperó",
+        subtitle: m.activity_sender_took_back(),
         badge: Option.none(),
         direction: "unchanged",
-        detail: `${partyName(takenBack.from)} recuperó este pago el ${closedOn(takenBack.closedAt)}.`,
+        detail: m.activity_sender_took_back_detail({
+          name: partyName(takenBack.from),
+          date: closedOn(takenBack.closedAt),
+        }),
       }),
     ClaimedLinkActivity: (claimed) =>
       receivedEntry(claimed, {
-        subtitle: "Cobraste su link",
+        subtitle: m.activity_you_claimed(),
         badge: Option.none(),
         direction: "in",
-        detail: `Cobraste un link de pago de ${partyName(claimed.from)}.`,
+        detail: m.activity_you_claimed_detail({
+          name: partyName(claimed.from),
+        }),
       }),
     DepositActivity: (deposit): ShownEntry => ({
-      title: "Depósito",
-      subtitle: "Desde otra billetera",
+      title: m.activity_deposit(),
+      subtitle: m.activity_deposit_subtitle(),
       badge: Option.none(),
       direction: "in",
-      detail: "Llegó desde otra billetera o exchange.",
+      detail: m.activity_deposit_detail(),
       media: deposit.from,
-      counterparty: Option.some({ label: "De", party: deposit.from }),
+      counterparty: Option.some({
+        label: m.activity_from(),
+        party: deposit.from,
+      }),
       amount: signedAmount("in", deposit.amount, deposit.asset),
       memo: Option.none(),
       createdAt: deposit.createdAt,
@@ -388,10 +410,11 @@ export const createdWhen = (createdAt: DateTime.Utc) => {
     hourCycle: "h23",
   });
 
-  if (created.toDateString() === today.toDateString()) return `Hoy, ${time}`;
+  if (created.toDateString() === today.toDateString())
+    return m.activity_today({ time });
 
   if (created.toDateString() === yesterday.toDateString())
-    return `Ayer, ${time}`;
+    return m.activity_yesterday({ time });
 
   return created.toLocaleDateString(formattingLocale(), {
     day: "numeric",

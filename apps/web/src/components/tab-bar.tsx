@@ -14,16 +14,16 @@ const itemClass =
 export function TabBar() {
   return (
     <nav
-      aria-label="Principal"
+      aria-label={m.nav_main()}
       className="fixed bottom-safe left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border bg-card p-1 md:hidden"
     >
-      <Link to="/home" aria-label="Inicio" className={itemClass}>
+      <Link to="/home" aria-label={m.nav_home()} className={itemClass}>
         <HouseIcon />
       </Link>
-      <button type="button" aria-label="Swap" className={itemClass}>
+      <button type="button" aria-label={m.nav_swap()} className={itemClass}>
         <ArrowLeftRightIcon />
       </button>
-      <Link to="/activity" aria-label="Actividad" className={itemClass}>
+      <Link to="/activity" aria-label={m.nav_activity()} className={itemClass}>
         <ClockIcon />
       </Link>
       <Link

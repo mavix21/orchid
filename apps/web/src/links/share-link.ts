@@ -1,7 +1,9 @@
 import type { Asset, PositiveAmount } from "@workspace/wallet";
 
-import { amountLabel } from "@/send/money";
+import { inSenderLanguage } from "@/locale/sender-language";
 import { m } from "@/paraglide/messages";
+import { getLocale } from "@/paraglide/runtime";
+import { amountLabel } from "@/send/money";
 
 export type ShareResult = "shared" | "copied" | "dismissed" | "failed";
 
@@ -11,17 +13,20 @@ export interface ShareableLink {
   readonly amount: PositiveAmount;
 }
 
-const linkUrl = (path: string) => new URL(path, window.location.origin).href;
+const pageUrl = (path: string) => new URL(path, window.location.origin);
+
+const paymentLinkUrl = ({ path }: ShareableLink) =>
+  inSenderLanguage(pageUrl(path), getLocale()).href;
 
 export const nativeShareAvailable = () => "share" in navigator;
 
 const shareMessage = async (
   title: string,
   message: string,
-  path: string,
+  url: string,
 ): Promise<ShareResult> => {
   try {
-    await navigator.share({ title, text: `${message}\n\n${linkUrl(path)}` });
+    await navigator.share({ title, text: `${message}\n\n${url}` });
 
     return "shared";
   } catch (error) {
@@ -33,9 +38,9 @@ const shareMessage = async (
 
 export const shareLink = (link: ShareableLink) =>
   shareMessage(
-    "Link de pago de Orchid",
-    `Te envié ${amountLabel(link.amount, link.asset)} con Orchid. Abre el link para recibirlo.`,
-    link.path,
+    m.receive_preview_title(),
+    m.link_message({ amount: amountLabel(link.amount, link.asset) }),
+    paymentLinkUrl(link),
   );
 
 export const sharePaymentRequest = (link: ShareableLink) =>
@@ -44,15 +49,20 @@ export const sharePaymentRequest = (link: ShareableLink) =>
     m.payment_request_message({
       amount: amountLabel(link.amount, link.asset),
     }),
-    link.path,
+    pageUrl(link.path).href,
   );
 
-export const copyLink = async (link: ShareableLink): Promise<ShareResult> => {
+const copyUrl = async (url: string): Promise<ShareResult> => {
   try {
-    await navigator.clipboard.writeText(linkUrl(link.path));
+    await navigator.clipboard.writeText(url);
 
     return "copied";
   } catch {
     return "failed";
   }
 };
+
+export const copyLink = (link: ShareableLink) => copyUrl(paymentLinkUrl(link));
+
+export const copyPaymentRequestLink = (link: ShareableLink) =>
+  copyUrl(pageUrl(link.path).href);

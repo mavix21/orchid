@@ -45,6 +45,8 @@ import { RecipientStep } from "./recipient-step";
 import { SendResultScreen } from "./send-result";
 import { type Answer, useWalletTask } from "./use-wallet-task";
 
+import { m } from "@/paraglide/messages";
+
 type EntryField = "recipient" | "amount";
 
 interface Entry {
@@ -223,9 +225,7 @@ const reduceSendFlow = (step: SendStep, event: SendEvent): SendStep =>
           SendStep.Reviewed({
             draft: step.draft,
             review,
-            problem: Option.some(
-              "El pago anterior venció y lo preparamos de nuevo. Revísalo y confirma otra vez.",
-            ),
+            problem: Option.some(m.send_redrafted()),
           }),
         Refused: ({ problem }) =>
           SendStep.Reviewed({
@@ -281,11 +281,10 @@ function ReviewScreen({
   return (
     <>
       <main className="flex flex-1 flex-col gap-6 px-5 pt-2">
-        <h1 className="font-display text-h1">Revisa tu pago</h1>
+        <h1 className="font-display text-h1">{m.send_review_title()}</h1>
         <PaymentReviewCard review={review} />
         <p className="text-body text-muted-foreground">
-          Tu passkey confirma que eres tú, pero no muestra los datos del pago.
-          Revísalos aquí antes de enviar.
+          {m.send_review_note()}
         </p>
         {Option.isSome(problem) ? (
           <p role="alert" className="text-body text-destructive">
@@ -299,10 +298,10 @@ function ReviewScreen({
           onClick={onConfirm}
           data-testid="confirm-payment"
         >
-          Enviar
+          {m.common_send()}
         </Button>
         <Button className="w-full" variant="secondary" onClick={onEdit}>
-          Editar
+          {m.common_edit()}
         </Button>
       </ScreenActions>
     </>
@@ -333,7 +332,7 @@ function TransferStatus({
 
   useEffect(look, [id]);
 
-  if (Option.isNone(found)) return <Working label="Buscando tu pago…" />;
+  if (Option.isNone(found)) return <Working label={m.send_looking()} />;
 
   const answer = readOutcome(found.value, asset);
 
@@ -342,11 +341,7 @@ function TransferStatus({
       <SendResultScreen
         outcome={outcome}
         screen={
-          new SendScreen(
-            "Revisa los datos de tu pago",
-            problem.message,
-            "retry",
-          )
+          new SendScreen(m.send_check_details(), problem.message, "retry")
         }
         onAgain={onStartOver}
       />
@@ -482,7 +477,7 @@ export function SendFlow({
           />
         ),
       ),
-    Reviewing: () => withNav(<Working label="Preparando tu pago…" />),
+    Reviewing: () => withNav(<Working label={m.send_preparing()} />),
     Reviewed: ({ review: shown, problem: refusal }) =>
       withNav(
         <ReviewScreen
@@ -492,7 +487,7 @@ export function SendFlow({
           onEdit={startOver}
         />,
       ),
-    Confirming: () => withNav(<Working label="Enviando…" />),
+    Confirming: () => withNav(<Working label={m.common_sending()} />),
     Concluded: ({ draft, outcome, screen, resume }) =>
       withNav(
         <SendResultScreen
