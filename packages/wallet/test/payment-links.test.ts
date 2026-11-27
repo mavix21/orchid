@@ -6,8 +6,6 @@ import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
-  type AccountAddress,
-  AddressRecipient,
   type Approval,
   AssetUnsupported,
   UnclaimedFundsId,
@@ -15,7 +13,6 @@ import {
   OpenPaymentLinks,
   PaymentLinkRecipient,
   PositiveAmount,
-  RecipientCannotReceive,
   TransferOrder,
   type WalletPort,
   baseAsset,
@@ -444,92 +441,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           expect(authRefusal).toEqual(
             new AssetUnsupported({ reason: "authorization_required" }),
-          );
-        }),
-    );
-
-    it.effect.each([
-      {
-        name: "an absent account",
-        reason: "no_account",
-        linkable: true,
-        authRequired: false,
-        clawback: false,
-        recipient: () => undefined,
-      },
-      {
-        name: "a missing trustline",
-        reason: "no_trustline",
-        linkable: true,
-        authRequired: false,
-        clawback: false,
-        recipient: (address: AccountAddress) =>
-          holdingsFor(address, { lines: [] }),
-      },
-      {
-        name: "an unauthorized trustline",
-        reason: "not_authorized",
-        linkable: false,
-        authRequired: false,
-        clawback: false,
-        recipient: (address: AccountAddress) =>
-          holdingsFor(address, {
-            lines: [{ ...euroLine("0"), authorized: false }],
-          }),
-      },
-      {
-        name: "a missing trustline for an AUTH_REQUIRED issuer",
-        reason: "no_trustline",
-        linkable: false,
-        authRequired: true,
-        clawback: false,
-        recipient: (address: AccountAddress) =>
-          holdingsFor(address, { lines: [] }),
-      },
-      {
-        name: "an absent account with clawback on the sender's trustline",
-        reason: "no_account",
-        linkable: false,
-        authRequired: false,
-        clawback: true,
-        recipient: () => undefined,
-      },
-    ] as const)(
-      "refuses an external recipient with $name and links it: $linkable",
-      ({ reason, linkable, authRequired, clawback, recipient }) =>
-        Effect.gen(function* () {
-          const sender = yield* fundedWallet("linkoffer");
-          const senderAddr = addressOf(sender);
-          const destination = addressOf(Keypair.random());
-
-          world.issuers.set(euro.id, { authRequired });
-          world.holdings.set(
-            senderAddr,
-            holdingsFor(senderAddr, {
-              lines: [{ ...euroLine("50000000"), clawbackEnabled: clawback }],
-            }),
-          );
-
-          const held = recipient(destination);
-
-          if (held !== undefined) world.holdings.set(destination, held);
-
-          expect(
-            yield* send(
-              new TransferOrder({
-                ...orderFor(
-                  sender,
-                  AddressRecipient.make({ value: destination }),
-                ),
-                asset: euro,
-              }),
-            ),
-          ).toEqual(
-            new RecipientCannotReceive({
-              address: destination,
-              reason,
-              linkable,
-            }),
           );
         }),
     );

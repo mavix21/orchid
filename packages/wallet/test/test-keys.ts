@@ -8,7 +8,7 @@ export interface TestKey {
   sign(payload: Uint8Array): Uint8Array;
 }
 
-export interface SeededKey extends TestKey {
+interface SeededKey extends TestKey {
   publicKey(): AccountAddress;
   readonly privateKey: Uint8Array;
 }

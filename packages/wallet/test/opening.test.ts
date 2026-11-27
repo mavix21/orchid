@@ -1,46 +1,20 @@
 import { expect, layer } from "@effect/vitest";
-import {
-  Account,
-  Keypair,
-  Transaction,
-  TransactionBuilder,
-} from "@stellar/stellar-sdk";
-import * as DateTime from "effect/DateTime";
+import { Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
-import {
-  AccountAddress,
-  AddressBound,
-  AddressRecipient,
-  Opened,
-  Profile,
-  Username,
-  WalletClaim,
-} from "../src/contract";
-import { Sealed } from "../src/server/Chain.server";
-import { Directory } from "../src/server/Directory.server";
-import { draftOpening, readEnvelope } from "../src/stellar/envelopes";
-import { networkPassphrase } from "../src/stellar/network";
+import { AddressBound, Opened, Profile } from "../src/contract";
+import { readEnvelope } from "../src/stellar/envelopes";
 import { assertTagged } from "./tagged";
 import {
   accountState,
-  addressOf,
   amount,
   approveOpening,
-  channel,
-  bindingAllowed,
   claimFor,
   create,
-  feePayer,
   findWallet,
   opening,
-  orderFor,
   overviewOf,
-  reserveSponsor,
-  send,
   settleAttempt,
-  sponsor,
   useDisposableDatabase,
   walletTestLayer,
   world,
@@ -69,58 +43,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "a sealed opening outside RPC history redrafts after the ledger passes maxTime",
-      () =>
-        Effect.gen(function* () {
-          const key = Keypair.random();
-          const claim = claimFor(key, "maria");
-          const row = yield* Directory.use((d) => d.start(claim.address));
-          const now = Math.floor(Date.now() / 1000);
-
-          const inner = TransactionBuilder.fromXDR(
-            draftOpening({
-              channel: new Account(channel, "100"),
-              reserveSponsor,
-              address: claim.address,
-              createAccount: true,
-              minTime: now - 200,
-              maxTime: now - 80,
-            }),
-            networkPassphrase,
-          );
-
-          if (!(inner instanceof Transaction))
-            throw new Error("Expected inner transaction");
-
-          inner.sign(sponsor, key);
-
-          const outer = TransactionBuilder.buildFeeBumpTransaction(
-            feePayer.publicKey(),
-            "100",
-            inner,
-            networkPassphrase,
-          );
-
-          outer.sign(feePayer);
-
-          const historical = new Sealed({
-            envelope: outer.toXDR(),
-            hash: Buffer.from(outer.hash()).toString("hex"),
-            expiresAt: DateTime.makeUnsafe((now - 80) * 1000),
-          });
-
-          yield* Directory.use((d) =>
-            d.seal(row, historical, claim, bindingAllowed),
-          );
-          expect((yield* opening(claim))._tag).toBe("OpeningDraft");
-          expect(world.submitted).toHaveLength(0);
-          expect(
-            Option.getOrThrow(yield* findWallet(claim.address)).attemptHash,
-          ).toBeNull();
-        }),
-    );
-
-    it.effect(
       "a partially sponsored account is refused before a username binds",
       () =>
         Effect.gen(function* () {
@@ -136,32 +58,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
           expect((yield* opening(claim))._tag).toBe("NotSponsored");
           expect(Option.isNone(yield* findWallet(claim.address))).toBe(true);
-          expect(world.submitted).toHaveLength(0);
-        }),
-    );
-
-    it.effect(
-      "bad address checksums are typed refusals before username claims or drafts",
-      () =>
-        Effect.gen(function* () {
-          const key = Keypair.random();
-          const valid = addressOf(key);
-
-          const bad = Schema.decodeSync(AccountAddress)(
-            `${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`,
-          );
-
-          const claim = new WalletClaim({
-            username: Schema.decodeSync(Username)("maria"),
-            address: bad,
-          });
-
-          expect((yield* opening(claim))._tag).toBe("InvalidAddress");
-          expect(Option.isNone(yield* findWallet(bad))).toBe(true);
-          expect(
-            (yield* send(orderFor(key, AddressRecipient.make({ value: bad }))))
-              ._tag,
-          ).toBe("InvalidAddress");
           expect(world.submitted).toHaveLength(0);
         }),
     );

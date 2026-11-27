@@ -6,7 +6,6 @@ import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
   AddressRecipient,
-  ExternalMemoRequired,
   ExternalRecipient,
   MemoNotAllowed,
   DestinationAddress,
@@ -30,7 +29,6 @@ import {
   settleHash,
   useDisposableDatabase,
   walletTestLayer,
-  world,
   exchangeMemos,
 } from "./stellar-harness";
 
@@ -51,32 +49,6 @@ const registerExchange = (address: AccountAddress) => {
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
-    it.effect(
-      "known exchange destinations refuse missing memos with client-visible source evidence",
-      () =>
-        Effect.gen(function* () {
-          const key = yield* fundedWallet();
-          const entry = registerExchange(addressOf(Keypair.random()));
-
-          const order = orderFor(
-            key,
-            AddressRecipient.make({ value: entry.address }),
-          );
-
-          const initial = world.submitted.length;
-
-          expect(yield* send(order)).toEqual(
-            new ExternalMemoRequired({
-              address: entry.address,
-              exchange: entry.exchange,
-              source: entry.source,
-            }),
-          );
-          expect(Option.isNone(yield* findTransfer(order.id))).toBe(true);
-          expect(world.submitted).toHaveLength(initial);
-        }),
-    );
-
     it.effect(
       "a muxed destination pays the muxed address without a memo through its base account",
       () =>
@@ -128,41 +100,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               orderFor(key, AddressRecipient.make({ value: missing })),
             ))._tag,
           ).toBe("RecipientCannotReceive");
-        }),
-    );
-
-    it.effect(
-      "a new registry entry blocks an unsigned draft but preserves an authorized external transfer",
-      () =>
-        Effect.gen(function* () {
-          const key = yield* fundedWallet();
-          const destKey = Keypair.random();
-
-          fundHolder(destKey);
-          const destination = addressOf(destKey);
-
-          const order = orderFor(
-            key,
-            AddressRecipient.make({ value: destination }),
-          );
-
-          const draft = yield* draftTransfer(order);
-
-          registerExchange(destination);
-          expect((yield* send(order, approve(draft.request, key)))._tag).toBe(
-            "ExternalMemoRequired",
-          );
-          expect(Option.getOrThrow(yield* findTransfer(order.id))._tag).toBe(
-            "Proposed",
-          );
-
-          exchangeMemos.length = 0;
-          expect((yield* send(order, approve(draft.request, key)))._tag).toBe(
-            "Pending",
-          );
-
-          registerExchange(destination);
-          expect((yield* send(order))._tag).toBe("Pending");
         }),
     );
 

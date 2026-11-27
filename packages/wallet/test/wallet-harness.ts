@@ -62,6 +62,7 @@ export const {
   create,
   fundedWallet,
   authorizeTransfer,
+  signedTransfer,
   settleHash,
   settleSubmitted,
   useDisposableDatabase,

@@ -19,8 +19,6 @@ import {
   type TransferOrder,
   UnclaimedFundsId,
   type WalletPort,
-  baseAsset,
-  sameAsset,
 } from "../src/contract";
 import {
   Applied,
@@ -76,7 +74,7 @@ import {
   accountState,
   amount,
   dbLayer,
-  holdingsFor,
+  holdingsReader,
   payoutCompletesAfter,
   resetWorld,
   walletScenarios,
@@ -85,7 +83,7 @@ import {
 
 export * from "./wallet-scenarios";
 
-export { channel, feePayer, reserveSponsor, sponsor };
+export { channel, feePayer, reserveSponsor };
 
 export const exchangeMemos = new Array<KnownExchangeMemo>();
 
@@ -135,38 +133,7 @@ const fakeChain = Layer.effect(
         });
       });
 
-    const holdings: Chain["Service"]["holdings"] = (addr, assets) =>
-      world.holdings.has(addr)
-        ? Effect.succeed(Option.fromNullishOr(world.holdings.get(addr)))
-        : account(addr).pipe(
-            Effect.map(
-              Option.map((s) =>
-                holdingsFor(addr, {
-                  nativeTotal: amount(s.nativeBalance.toString()),
-                  reserveSponsor: s.accountSponsored
-                    ? Option.some(reserveSponsor)
-                    : Option.none(),
-                  native: amount(s.nativeBalance.toString()),
-                  trustlineSlotsUsed: 1,
-                  lines: assets.flatMap((a) =>
-                    sameAsset(a, baseAsset) && Option.isSome(s.balance)
-                      ? [
-                          {
-                            asset: a,
-                            balance: s.balance.value,
-                            spendable: s.balance.value,
-                            capacity: amount("9223372036854775807"),
-                            authorized: true,
-                            clawbackEnabled: false,
-                            sponsored: true,
-                          },
-                        ]
-                      : [],
-                  ),
-                }),
-              ),
-            ),
-          );
+    const holdings = holdingsReader(account, reserveSponsor);
 
     const links = linkChain(
       sponsor,
@@ -347,10 +314,10 @@ export const {
   walletWithChain,
   approve,
   approveOpening,
-  sealLostOpening,
   create,
   fundedWallet,
   authorizeTransfer,
+  signedTransfer,
   settleOnSubmit,
   useDisposableDatabase,
 } = scenarios;

@@ -65,6 +65,7 @@ export {
   amount,
   fakeHumanCheck,
   holdingsFor,
+  holdingsReader,
   recordingQueue,
   resetWorld,
   world,
@@ -252,7 +253,7 @@ export const entryFor = (page: ActivityPage, id: string) => {
 
 export const devicePasskeys = new SoftwareAuthenticator(passkeyOrigin).passkeys;
 
-export interface TestNetwork<Key extends TestKey, ChainFailure> {
+interface TestNetwork<Key extends TestKey, ChainFailure> {
   readonly randomKey: () => Key;
   readonly signingPayload: (envelope: UnsignedEnvelope) => Uint8Array;
   readonly chain: Layer.Layer<Chain, ChainFailure>;
@@ -386,6 +387,21 @@ export const walletScenarios = <Key extends TestKey, ChainFailure>(
     return { draft, authorized: stored };
   });
 
+  const signedTransfer = Effect.fn(function* (name: string) {
+    const key = yield* fundedWallet(name);
+    const order = selfOrder(key);
+
+    const { authorized } = yield* authorizeTransfer(key, order, {
+      failSubmit: true,
+    });
+
+    return {
+      order,
+      hash: authorized.sealed.hash,
+      envelope: authorized.sealed.envelope,
+    };
+  });
+
   const settleSubmitted = (unclaimedFunds?: string) =>
     Effect.sync(() => {
       settleHash(
@@ -420,6 +436,7 @@ export const walletScenarios = <Key extends TestKey, ChainFailure>(
     create,
     fundedWallet,
     authorizeTransfer,
+    signedTransfer,
     settleHash,
     settleSubmitted,
     settleOnSubmit,
