@@ -7,6 +7,7 @@ import {
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
 import { channelKeypairs } from "../src/stellar/channel-pool.server";
+import { sandboxPartnerKeypair } from "../src/stellar/sandbox-partner";
 import { networkPassphrase, usdc } from "../src/stellar/network";
 
 export { usdc };
@@ -149,4 +150,44 @@ export const openChannels = async (
   await horizon.submitTransaction(transaction);
 
   return missing.length;
+};
+
+export const openSandboxPartner = async (
+  sponsorSecret: string,
+  feePayerSecret: string,
+) => {
+  const sponsor = Keypair.fromSecret(sponsorSecret);
+  const partner = sandboxPartnerKeypair(Keypair.fromSecret(feePayerSecret));
+
+  if (await isOpenOnTestnet(partner.publicKey())) return false;
+
+  const opening = new TransactionBuilder(
+    await horizon.loadAccount(sponsor.publicKey()),
+    { fee: "10000", networkPassphrase },
+  )
+    .addOperation(
+      Operation.beginSponsoringFutureReserves({
+        sponsoredId: partner.publicKey(),
+      }),
+    )
+    .addOperation(
+      Operation.createAccount({
+        destination: partner.publicKey(),
+        startingBalance: "0",
+      }),
+    )
+    .addOperation(
+      Operation.changeTrust({ asset: usdc, source: partner.publicKey() }),
+    )
+    .addOperation(
+      Operation.endSponsoringFutureReserves({ source: partner.publicKey() }),
+    )
+    .setTimeout(60)
+    .build();
+
+  opening.sign(sponsor, partner);
+
+  await horizon.submitTransaction(opening);
+
+  return true;
 };
