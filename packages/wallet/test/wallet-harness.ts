@@ -663,7 +663,7 @@ export function useDisposableDatabase() {
     await Effect.runPromise(
       Database.use((db) =>
         db.execute(
-          sql`truncate asset_orders, trustlines, transfers, usernames, wallets, backups, passkey_challenges, deposits, deposit_cursors, channel_leases`,
+          sql`truncate asset_orders, trustlines, transfers, usernames, wallets, backups, passkey_challenges, deposits, deposit_cursors, channel_leases, payment_requests`,
         ),
       ).pipe(Effect.provide(dbLayer)),
     );
