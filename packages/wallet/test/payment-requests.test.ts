@@ -4,10 +4,10 @@ import { eq, sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   AccountAddress,
-  Amount,
   AssetCode,
   AssetId,
   NewPaymentRequest,
@@ -345,13 +345,20 @@ layer(testLayer, { excludeTestServices: true, concurrent: false })(
   },
 );
 
-it("rejects an amount above the asset's maximum", () => {
-  const amount = Schema.decodeSync(Amount)(
-    (precisionOf(baseAsset).maximum + 1n).toString(),
-  );
+it.each([
+  ["at", 0n, true],
+  ["above", 1n, false],
+])(
+  "parses an amount %s the asset's maximum as a new request",
+  (_, excess, accepted) => {
+    const decoded = Schema.decodeOption(NewPaymentRequest)({
+      ...Schema.encodeSync(NewPaymentRequest)(newRequest()),
+      amount: (precisionOf(baseAsset).maximum + excess).toString(),
+    });
 
-  expect(Schema.is(NewPaymentRequest)({ ...newRequest(), amount })).toBe(false);
-});
+    expect(Option.isSome(decoded)).toBe(accepted);
+  },
+);
 
 it.each([
   ["3yQ8fKm2Zd", true],
