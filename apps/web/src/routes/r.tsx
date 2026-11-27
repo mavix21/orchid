@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { createIsomorphicFn } from "@tanstack/react-start";
-import { getRequestUrl } from "@tanstack/react-start/server";
 import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -24,6 +22,7 @@ import { BrandLogo } from "@/components/brand-logo";
 import { BloomActions, BloomHero } from "@/components/orchid-bloom";
 import { Screen } from "@/components/screen";
 import { ExternalClaimFlow } from "@/links/external-claim-flow";
+import { linkPreviewMeta } from "@/links/link-preview";
 import {
   LinkResultScreen,
   ResultButton,
@@ -42,35 +41,19 @@ import { enrollmentEffects } from "@/wallet/enrollment";
 import { EnrollmentFlow } from "@/wallet/enrollment-flow";
 import { SessionConfirmation } from "@/wallet/session-confirmation";
 
-const publicOrigin = createIsomorphicFn()
-  .server(() => getRequestUrl().origin)
-  .client(() => window.location.origin);
-
 const previewTitle = "Link de pago de Orchid";
 const previewDescription = "Ábrelo para ver el pago y recibirlo en Orchid.";
 
 export const Route = createFileRoute("/r")({
   ssr: false,
-  head: () => {
-    const origin = publicOrigin();
-
-    return {
-      meta: [
-        { title: previewTitle },
-        { name: "description", content: previewDescription },
-        { name: "robots", content: "noindex, nofollow" },
-        { property: "og:type", content: "website" },
-        { property: "og:site_name", content: "Orchid" },
-        { property: "og:title", content: previewTitle },
-        { property: "og:description", content: previewDescription },
-        { property: "og:url", content: `${origin}/r` },
-        { property: "og:image", content: `${origin}/og-payment-link.png` },
-        { property: "og:image:width", content: "1200" },
-        { property: "og:image:height", content: "630" },
-        { name: "twitter:card", content: "summary_large_image" },
-      ],
-    };
-  },
+  head: () => ({
+    meta: linkPreviewMeta({
+      title: previewTitle,
+      description: previewDescription,
+      path: "/r",
+      image: "/og-payment-link.png",
+    }),
+  }),
   component: PaymentLinkPage,
 });
 

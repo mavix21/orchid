@@ -47,7 +47,7 @@ export function AmountPad({
   amount: string;
   problem: Option.Option<string>;
   asset: Asset;
-  available: Amount;
+  available?: Amount;
   field: React.Ref<HTMLInputElement>;
   onAmount: (amount: string) => void;
 }) {
@@ -63,6 +63,7 @@ export function AmountPad({
           <input
             id="amount"
             name="amount"
+            data-testid="amount-input"
             ref={field}
             value={amount}
             onChange={(event) => type(event.target.value)}
@@ -89,23 +90,25 @@ export function AmountPad({
           <FieldError id="amount-error">{problem.value}</FieldError>
         ) : null}
       </div>
-      <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
-        <TokenIcon asset={asset} />
-        <div className="flex flex-1 flex-col">
-          <span className="text-label-lg">{asset.code}</span>
-          <span className="text-body text-muted-foreground">
-            {amountLabel(available, asset)} disponibles
-          </span>
+      {available === undefined ? null : (
+        <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+          <TokenIcon asset={asset} />
+          <div className="flex flex-1 flex-col">
+            <span className="text-label-lg">{asset.code}</span>
+            <span className="text-body text-muted-foreground">
+              {amountLabel(available, asset)} disponibles
+            </span>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => onAmount(formatAmount(available, precision))}
+          >
+            Usar todo
+          </Button>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          onClick={() => onAmount(formatAmount(available, precision))}
-        >
-          Usar todo
-        </Button>
-      </div>
+      )}
       <div className="grid grid-cols-3 gap-1 md:pointer-fine:hidden">
         {keys.map((key) => (
           <Button

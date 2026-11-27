@@ -23,7 +23,7 @@ const failClosed = <A>(
     ),
   );
 
-const deviceKeyStore: KeyStore = {
+export const deviceKeyStore: KeyStore = {
   readPublic: () =>
     failClosed(browserKeyStore.readPublic()).pipe(
       Effect.tap((stored) =>

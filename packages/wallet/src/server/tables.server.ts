@@ -214,3 +214,32 @@ export const channelLeases = pgTable("channel_leases", {
   sequence: bigint({ mode: "bigint" }).notNull(),
   leasedUntil: timestamp({ withTimezone: true }).notNull(),
 });
+
+export const paymentRequests = pgTable(
+  "payment_requests",
+  {
+    id: text().primaryKey(),
+    requester: text()
+      .notNull()
+      .references(() => usernames.username),
+    network: text().notNull(),
+    testnetEpoch: text().notNull(),
+    assetId: text().notNull(),
+    assetCode: text().notNull(),
+    amount: bigint({ mode: "bigint" }).notNull(),
+    note: text(),
+    status: text({ enum: ["open", "paid", "cancelled"] }).notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    cancelledAt: timestamp({ withTimezone: true }),
+  },
+  (table) => [
+    index("payment_requests_open")
+      .on(table.requester, table.network, table.testnetEpoch, table.createdAt)
+      .where(sql`${table.status} = 'open'`),
+    check("payment_requests_positive_amount", sql`${table.amount} > 0`),
+    check(
+      "payment_requests_cancelled_at",
+      sql`${table.status} <> 'cancelled' or ${table.cancelledAt} is not null`,
+    ),
+  ],
+);

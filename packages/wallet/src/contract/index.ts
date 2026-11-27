@@ -50,6 +50,7 @@ import {
   ResolvedPaymentLink,
   TransferId,
 } from "./payment-links";
+import { NeedsReopening, NotOpened, UnclaimedFunds } from "./standing";
 
 export * from "./approval";
 
@@ -68,6 +69,10 @@ export * from "./identity";
 export * from "./network-addresses";
 
 export * from "./payment-links";
+
+export * from "./payment-requests";
+
+export * from "./standing";
 
 export class InvalidAddress extends Schema.TaggedClass<InvalidAddress>()(
   "InvalidAddress",
@@ -330,28 +335,6 @@ export class TransferDraft extends Schema.TaggedClass<TransferDraft>()(
     unclaimedFunds: Schema.optional(UnclaimedFundsId),
   },
 ) {}
-
-export class UnclaimedFunds extends Schema.Class<UnclaimedFunds>(
-  "@workspace/wallet/UnclaimedFunds",
-)({
-  id: UnclaimedFundsId,
-  asset: Asset,
-  amount: PositiveAmount,
-  from: Profile,
-  to: Profile,
-  claimableAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString),
-}) {}
-
-export class NotOpened extends Schema.TaggedClass<NotOpened>()("NotOpened", {
-  profile: Schema.OptionFromNullOr(Profile).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-    Schema.withConstructorDefault(Effect.succeed(Option.none())),
-  ),
-  unclaimedFunds: Schema.Array(UnclaimedFunds).pipe(
-    Schema.withDecodingDefault(Effect.succeed([])),
-    Schema.withConstructorDefault(Effect.succeed([])),
-  ),
-}) {}
 
 export const ActivityCursor = Schema.String.check(
   Schema.isPattern(
@@ -693,13 +676,6 @@ export class Holding extends Schema.TaggedClass<Holding>()("Holding", {
   unclaimedFunds: Schema.Array(UnclaimedFunds),
   latest: Schema.OptionFromNullOr(Receipt),
 }) {}
-
-export class NeedsReopening extends Schema.TaggedClass<NeedsReopening>()(
-  "NeedsReopening",
-  {
-    profile: Profile,
-  },
-) {}
 
 export const Overview = Schema.Union([
   NotOpened,
