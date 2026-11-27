@@ -57,6 +57,9 @@ _Avoid_: Link secret.
 **Link key**: The key that controls a payment link's own account, which can claim the link's **Unclaimed funds**. Only the network can interpret it, and it never leaves the device.
 _Avoid_: Link secret.
 
+**Payment request**: A public ask to be paid an asset amount, with an optional note, that its requester shares as a link. It names the requester by username, carries no secret and puts nothing on the network. It is **open** while it waits to be paid, **paid** once it has been, or **cancelled** once its requester withdraws it while open.
+_Avoid_: **Payment link**, which carries a **Link code** for **Unclaimed funds**; invoice; charge.
+
 **Asset order**: A uniquely identified instruction to open or close a trustline, or claim **Unclaimed funds**.
 
 **Draft**: An unsigned transaction offered for approval before its expiry.
@@ -85,13 +88,17 @@ _Avoid_: Payment or transfer when the money did not go through Orchid.
 
 Product names in English:
 
-| Spanish      | English      |
-| ------------ | ------------ |
-| Ahorro       | Savings      |
-| Mis links    | My links     |
-| Link de pago | Payment link |
-| Inicio       | Home         |
-| Actividad    | Activity     |
-| Enviar       | Send         |
-| Recibir      | Receive      |
-| Ajustes      | Settings     |
+| Spanish       | English         |
+| ------------- | --------------- |
+| Ahorro        | Savings         |
+| Mis links     | My links        |
+| Link de pago  | Payment link    |
+| Link de cobro | Payment request |
+| Pendiente     | Open            |
+| Pagado        | Paid            |
+| Cancelado     | Cancelled       |
+| Inicio        | Home            |
+| Actividad     | Activity        |
+| Enviar        | Send            |
+| Recibir       | Receive         |
+| Ajustes       | Settings        |
