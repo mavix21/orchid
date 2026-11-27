@@ -51,7 +51,7 @@ export type PendingState = Data.TaggedEnum<{
     readonly enrollment: BackupEnrollment;
     readonly candidate: PendingCandidate;
     readonly review: Option.Option<OpeningReview>;
-    readonly approvals: Approvals | undefined;
+    readonly approvals: Approvals;
     readonly receive: HeldReceive | undefined;
   };
 }>;

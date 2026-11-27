@@ -5,7 +5,6 @@ import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import {
   type EnrollStep,
-  type Enrolled,
   InvalidResponse,
   type OpenStep,
   OpeningPending,
@@ -25,7 +24,7 @@ import { reserveSponsorOf } from "./opening-drafts";
 import { DraftRejected, UnsupportedDevice, WalletOnDevice } from "./outcomes";
 import { pollSchedule } from "./polling";
 
-type Committed = Enrolled | Opened | OpeningPending;
+type Committed = Opened | OpeningPending;
 
 export const enrollmentRelease = (
   deps: EnrollmentDependencies,
@@ -59,7 +58,6 @@ export const enrollmentRelease = (
     step: EnrollStep,
   ): Effect.Effect<Committed | EnrollWalletOutcome> =>
     Match.valueTags(step, {
-      Enrolled: (enrolled) => Effect.succeed<Committed>(enrolled),
       Opened: (opened) => Effect.succeed<Committed>(opened),
       OpeningPending: (pending) => Effect.succeed<Committed>(pending),
       OpeningDraft: () => resign(held),
@@ -96,7 +94,7 @@ export const enrollmentRelease = (
       return yield* refusedBeforeCommit(new DraftRejected());
 
     const committed = yield* deps.port
-      .enroll(held.enrollment, Option.fromNullishOr(held.approvals))
+      .enroll(held.enrollment, held.approvals)
       .pipe(Effect.result);
 
     if (Result.isFailure(committed)) return committed.failure;
@@ -104,7 +102,6 @@ export const enrollmentRelease = (
     const answered = yield* answerCommit(held, committed.success);
 
     if (
-      !Predicate.isTagged(answered, "Enrolled") &&
       !Predicate.isTagged(answered, "Opened") &&
       !Predicate.isTagged(answered, "OpeningPending")
     )
@@ -152,7 +149,6 @@ export const enrollmentRelease = (
     const committed = yield* exclusive(commitAndInstall(held));
 
     if (
-      !Predicate.isTagged(committed, "Enrolled") &&
       !Predicate.isTagged(committed, "Opened") &&
       !Predicate.isTagged(committed, "OpeningPending")
     )

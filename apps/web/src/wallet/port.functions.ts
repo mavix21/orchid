@@ -82,7 +82,7 @@ const EnrollmentChallengeCall = Schema.Struct({
 
 const EnrollCall = Schema.Struct({
   enrollment: BackupEnrollment,
-  approvals: Schema.OptionFromNullOr(Approvals),
+  approvals: Approvals,
 });
 
 const RestoreCall = Schema.Struct({ assertion: PasskeyAssertion });
