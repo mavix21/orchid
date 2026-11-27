@@ -4,6 +4,7 @@ import {
   defineCustomClientStrategy,
   defineCustomServerStrategy,
   isLocale,
+  toLocale,
 } from "@/paraglide/runtime";
 
 const parameter = "lang";
@@ -29,17 +30,22 @@ const senderLocale = (url: URL) => {
     : undefined;
 };
 
-const holdsChosenLocale = (request: Request) =>
-  (request.headers.get("cookie") ?? "").split(";").some((entry) => {
-    const [name, value] = entry.trim().split("=");
+const chosenLocale = (request: Request) => {
+  const prefix = `${cookieName}=`;
 
-    return name === cookieName && isLocale(value);
-  });
+  const cookie = request.headers
+    .get("cookie")
+    ?.split(";")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(prefix));
+
+  return toLocale(cookie?.slice(prefix.length));
+};
 
 export const registerSenderLanguageOnServer = () =>
   defineCustomServerStrategy(strategy, {
     getLocale: (request) =>
-      request === undefined || holdsChosenLocale(request)
+      request === undefined || chosenLocale(request) !== undefined
         ? undefined
         : senderLocale(new URL(request.url)),
   });
