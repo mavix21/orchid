@@ -37,13 +37,11 @@ import { draftOpening, signingPayload } from "../src/stellar/envelopes";
 import { approvalMargin, paymentLifetime } from "../src/policy";
 import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 import {
-  addressOf,
   enrolledDeviceWallet,
   memoryKeyStore,
-  seededDeviceWallet,
   unusedPort,
-  signingKey,
 } from "./device-fixtures";
+import { stellarSigningKey } from "./stellar-device-fixtures";
 import {
   approvingDevice,
   installSealedWallet,
@@ -56,6 +54,8 @@ import {
 } from "../src/device/key-store";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
+import { addressOf } from "./test-keys";
+import { seededDeviceWallet } from "./stellar-device-fixtures";
 import {
   channel,
   findWallet,
@@ -64,7 +64,7 @@ import {
   settleAttempt,
   useDisposableDatabase,
   walletTestLayer,
-} from "./wallet-harness";
+} from "./stellar-harness";
 
 const passkeys = new SoftwareAuthenticator(passkeyOrigin).passkeys;
 const seeded = seededDeviceWallet(reserveSponsor);
@@ -111,7 +111,7 @@ it.effect(
   () =>
     Effect.gen(function* () {
       const enrolled = enrolledDeviceWallet();
-      const key = signingKey(enrolled.phrase);
+      const key = stellarSigningKey(enrolled.phrase);
       const { auth } = yield* installSealedWallet(enrolled);
       const started = yield* Latch.make();
       let calls = 0;

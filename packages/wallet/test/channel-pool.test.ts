@@ -3,7 +3,7 @@ import { Account, Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { leaseChannel } from "../src/stellar/channel-pool.server";
-import { dbLayer, useDisposableDatabase } from "./wallet-harness";
+import { dbLayer, useDisposableDatabase } from "./stellar-harness";
 
 useDisposableDatabase();
 

@@ -34,7 +34,7 @@ import { SealedLinkCode, linkPrfInput } from "../src/device/link-seal";
 import { holdingsFromEntries } from "../src/stellar/ledger-assets.server";
 import { transfers } from "../src/server/tables.server";
 import { network, usdc } from "../src/stellar/network";
-import { linkKeypairOf, memoryKeyStore } from "./device-fixtures";
+import { memoryKeyStore } from "./device-fixtures";
 import {
   approvingDevice,
   installSealedWallet,
@@ -44,9 +44,10 @@ import {
   storedKeys,
 } from "./sealed-wallet-fixtures";
 import { accountEntryXdr } from "./rpc-answering";
-import { settleOnSubmit } from "./link-fixtures";
 import { assertTagged } from "./tagged";
+import { linkKeypairOf } from "./stellar-device-fixtures";
 import {
+  settleOnSubmit,
   addressOf,
   devicePasskeys,
   euro,
@@ -60,7 +61,7 @@ import {
   useDisposableDatabase,
   walletTestLayer,
   world,
-} from "./wallet-harness";
+} from "./stellar-harness";
 
 const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");
 

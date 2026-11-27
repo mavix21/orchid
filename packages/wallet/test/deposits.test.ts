@@ -21,15 +21,7 @@ import {
   network,
   usdc,
 } from "../src/stellar/network";
-import {
-  activityOf,
-  entryFor,
-  payUsername,
-  receiveInto,
-  username,
-} from "./activity-fixtures";
 import { memoryKeyStore, signingKey } from "./device-fixtures";
-import { fundLink, fundLinkFrom } from "./link-fixtures";
 import {
   claimEvent,
   ledgers,
@@ -40,6 +32,13 @@ import {
 } from "./rpc-events";
 import { assertTagged } from "./tagged";
 import {
+  activityOf,
+  entryFor,
+  payUsername,
+  receiveInto,
+  username,
+  fundLink,
+  fundLinkFrom,
   addressOf,
   authorizeTransfer,
   fundedWallet,
@@ -49,7 +48,7 @@ import {
   useDisposableDatabase,
   walletTestLayer,
   world,
-} from "./wallet-harness";
+} from "./stellar-harness";
 
 useDisposableDatabase();
 

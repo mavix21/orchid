@@ -23,15 +23,15 @@ import {
   type SecretPhrase,
   generateSecretPhrase,
 } from "../src/device/secret-phrase";
-import { network } from "../src/stellar/network";
+import { network } from "../src/device-network";
 import {
   type DeviceWallet,
-  addressOf,
   publicWalletOf,
   signingKey,
 } from "./device-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
+import { addressOf } from "./test-keys";
 
 export const relyingParty = {
   origin: "http://localhost:3000",

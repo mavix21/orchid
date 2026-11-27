@@ -3,13 +3,13 @@ import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import { channelKeypair } from "../src/stellar/channel-pool.server";
 import { WalletSettings } from "../src/server/settings.server";
-import { addressOf } from "./device-fixtures";
+import { passkeyOrigin } from "./ledger-world";
+import { addressOf } from "./test-keys";
 
 export const sponsor = Keypair.random();
 export const feePayer = Keypair.random();
 export const reserveSponsor = addressOf(sponsor);
 export const channel = addressOf(channelKeypair(feePayer, 0));
-export const passkeyOrigin = "http://localhost:3000";
 
 export const settingsFor = (rpcUrl = "https://soroban-testnet.stellar.org") =>
   Layer.succeed(WalletSettings, {

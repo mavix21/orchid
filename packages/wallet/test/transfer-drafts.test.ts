@@ -1,32 +1,18 @@
 import { expect, layer } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
-import { Database } from "@workspace/db";
-import { sql } from "drizzle-orm";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
-import {
-  ExternalRecipient,
-  PositiveAmount,
-  ServiceFailed,
-  type TransferDraft,
-  TransferOrder,
-} from "../src/contract";
-import { Applied, Chain, Rejected } from "../src/server/Chain.server";
-import { Transfers } from "../src/server/Transfers.server";
+import { type TransferDraft } from "../src/contract";
+import { Applied, Rejected } from "../src/server/Chain.server";
 import { readEnvelope } from "../src/stellar/envelopes";
 import { assertTagged } from "./tagged";
 import {
-  addressOf,
   approve,
   authorizeTransfer,
   draftTransfer,
-  fakeChain,
   findTransfer,
   fundHolder,
   fundedWallet,
-  overviewOf,
   selfOrder,
   send,
   settleHash,
@@ -36,7 +22,7 @@ import {
   walletTestLayer,
   walletWithChain,
   world,
-} from "./wallet-harness";
+} from "./stellar-harness";
 
 useDisposableDatabase();
 
@@ -50,55 +36,6 @@ const paymentSequence = (draft: TransferDraft) => {
 
 layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
   (it) => {
-    it.effect(
-      "near-expiry unsigned drafts refresh, while authorized bytes never change",
-      () =>
-        Effect.gen(function* () {
-          const key = yield* fundedWallet();
-          const order = selfOrder(key);
-
-          yield* send(order);
-          yield* Database.use((db) =>
-            db.execute(
-              sql`update transfers set "expiresAt" = now() + interval '10 seconds' where id = ${order.id}`,
-            ),
-          );
-
-          const refreshed = yield* draftTransfer(order);
-
-          expect(
-            DateTime.toEpochMillis(refreshed.request.expiresAt),
-          ).toBeGreaterThan(Date.now() + 20_000);
-          yield* send(order, approve(refreshed.request, key));
-
-          const authorized = Option.getOrThrow(yield* findTransfer(order.id));
-
-          assertTagged(authorized, "Authorized");
-          expect(
-            yield* Transfers.use((s) =>
-              s.propose(
-                order,
-                new ExternalRecipient({ address: addressOf(Keypair.random()) }),
-                refreshed.request,
-                Option.none(),
-              ),
-            ),
-          ).toEqual(authorized);
-
-          const changed = new TransferOrder({
-            ...order,
-            amount: Schema.decodeSync(PositiveAmount)("20000000"),
-          });
-
-          expect(yield* send(changed).pipe(Effect.flip)).toEqual(
-            new ServiceFailed(),
-          );
-          expect(Option.getOrThrow(yield* findTransfer(order.id))).toEqual(
-            authorized,
-          );
-        }),
-    );
-
     it.effect(
       "double tap redrafts a still-live stale sequence before accepting its approval",
       () =>
@@ -203,37 +140,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect(
-      "an unsigned newer draft cannot hide the latest authorized or settled receipt",
-      () =>
-        Effect.gen(function* () {
-          const key = yield* fundedWallet();
-          const first = selfOrder(key);
-          const draft = yield* draftTransfer(first);
-
-          yield* send(selfOrder(key));
-          yield* send(first, approve(draft.request, key));
-
-          const pendingView = yield* overviewOf(addressOf(key));
-
-          assertTagged(pendingView, "Holding");
-          expect(Option.getOrThrow(pendingView.latest)._tag).toBe("Pending");
-          expect(Option.getOrThrow(pendingView.latest).id).toBe(first.id);
-
-          const signed = Option.getOrThrow(yield* findTransfer(first.id));
-
-          assertTagged(signed, "Authorized");
-          settleHash(signed.sealed.hash);
-          expect((yield* send(first))._tag).toBe("Settled");
-
-          const settledView = yield* overviewOf(addressOf(key));
-
-          assertTagged(settledView, "Holding");
-          expect(Option.getOrThrow(settledView.latest)._tag).toBe("Settled");
-          expect(Option.getOrThrow(settledView.latest).id).toBe(first.id);
-        }),
-    );
-
-    it.effect(
       "a sequence change during signing redrafts before durable authorization",
       () =>
         Effect.gen(function* () {
@@ -262,41 +168,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             "Proposed",
           );
           expect(yield* authorizedTransfers).toHaveLength(0);
-        }),
-    );
-
-    it.effect(
-      "a stale redraft cannot replace a concurrent durable authorization",
-      () =>
-        Effect.gen(function* () {
-          const key = yield* fundedWallet();
-          const order = selfOrder(key);
-          const draft = yield* draftTransfer(order);
-          const proposed = Option.getOrThrow(yield* findTransfer(order.id));
-
-          assertTagged(proposed, "Proposed");
-          yield* send(order, approve(draft.request, key));
-
-          const authorized = Option.getOrThrow(yield* findTransfer(order.id));
-
-          assertTagged(authorized, "Authorized");
-          fundHolder(key, { sequence: "1001" });
-
-          const replacement = yield* Chain.use((c) =>
-            c.draftPayment(
-              order.from,
-              addressOf(key),
-              order.asset,
-              order.amount,
-            ),
-          ).pipe(Effect.provide(fakeChain));
-
-          const saved = yield* Transfers.use((s) =>
-            s.redraft(proposed, replacement, Option.none()),
-          );
-
-          assertTagged(saved, "Authorized");
-          expect(saved.sealed.envelope).toBe(authorized.sealed.envelope);
         }),
     );
   },

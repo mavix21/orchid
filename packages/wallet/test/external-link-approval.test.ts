@@ -34,16 +34,11 @@ import {
   draftLinkReceive,
 } from "../src/stellar/link-receive";
 import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
-import {
-  addressOf,
-  linkFixture,
-  memoryKeyStore,
-  nowSeconds,
-  sendActors,
-  unusedPort,
-} from "./device-fixtures";
+import { memoryKeyStore, nowSeconds, unusedPort } from "./device-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
+import { addressOf } from "./test-keys";
+import { linkFixture, sendActors } from "./stellar-device-fixtures";
 
 const actors = sendActors();
 const passkeys = new SoftwareAuthenticator("https://orchid.example").passkeys;

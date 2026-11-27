@@ -50,7 +50,7 @@ import {
   walletTestLayer,
   walletWithChain,
   world,
-} from "./wallet-harness";
+} from "./stellar-harness";
 
 useDisposableDatabase();
 

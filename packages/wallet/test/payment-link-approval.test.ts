@@ -41,16 +41,15 @@ import {
 } from "../src/stellar/link-receive";
 import { baseFee, networkPassphrase, usdc } from "../src/stellar/network";
 import {
-  addressOf,
-  linkFixture,
   memoryKeyStore,
   nowSeconds,
-  sendActors,
   transferDraftOf,
   unusedPort,
 } from "./device-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
+import { addressOf } from "./test-keys";
+import { linkFixture, sendActors } from "./stellar-device-fixtures";
 
 const actors = sendActors();
 const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");

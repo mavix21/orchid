@@ -16,8 +16,9 @@ import {
 import type { AssertionCeremony } from "../src/device/assertion";
 import { Reserved, approveReviewed } from "../src/device/reviewed-approval";
 import { signingPayload } from "../src/stellar/envelopes";
-import { nowSeconds, sendActors } from "./device-fixtures";
+import { nowSeconds } from "./device-fixtures";
 import { approvingDevice, installSealedWallet } from "./sealed-wallet-fixtures";
+import { sendActors } from "./stellar-device-fixtures";
 
 const actors = sendActors();
 const amount = Schema.decodeSync(PositiveAmount)("10000000");

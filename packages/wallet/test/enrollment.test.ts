@@ -29,11 +29,18 @@ import {
 import { reopenLocalEnvelope } from "../src/device/local-envelope";
 import { Principal, type SessionGrant } from "../src/server/Principal.server";
 import { Wallet } from "../src/server/Wallet.server";
-import { network } from "../src/stellar/network";
+import { network } from "../src/device-network";
 import { clearDatabase, relyingParty } from "./sealed-wallet-fixtures";
 import { settlingOpenings } from "./settling-openings";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
+
+import {
+  memoryPendingStorage,
+  restoreBackupPhrase,
+  tableRows,
+} from "./enrollment-fixtures";
+import { signingKey } from "./device-fixtures";
 import {
   checkRecipient,
   dbLayer,
@@ -43,14 +50,7 @@ import {
   walletForDb,
   walletTestLayer,
   world,
-} from "./wallet-harness";
-
-import {
-  memoryPendingStorage,
-  restoreBackupPhrase,
-  tableRows,
-} from "./enrollment-fixtures";
-import { signingKey } from "./device-fixtures";
+} from "./stellar-harness";
 
 const enrollmentFor = (
   port: WalletPort,

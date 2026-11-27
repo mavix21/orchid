@@ -53,7 +53,8 @@ import {
   useDisposableDatabase,
   walletTestLayer,
   world,
-} from "./wallet-harness";
+  recordClaimableBalance,
+} from "./stellar-harness";
 
 useDisposableDatabase();
 
@@ -319,7 +320,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           ).toBe("Pending");
           yield* sweep;
 
-          world.claimables.set(facts.unclaimedFunds, {
+          recordClaimableBalance({
             unclaimedFunds: facts.unclaimedFunds,
             asset: euro,
             amount: Schema.decodeSync(PositiveAmount)("10000000"),
@@ -404,7 +405,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             if (!submitted) throw new Error("Expected submission");
 
             assertTagged(facts, "ClaimableFacts");
-            world.claimables.set(facts.unclaimedFunds, {
+            recordClaimableBalance({
               unclaimedFunds: facts.unclaimedFunds,
               asset: euro,
               amount: Schema.decodeSync(PositiveAmount)("10000000"),

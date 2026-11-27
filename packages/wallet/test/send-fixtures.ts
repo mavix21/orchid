@@ -25,13 +25,13 @@ import {
   type DeviceWallet,
   memoryKeyStore,
   nowSeconds,
-  sendActors,
   transferDraftOf,
   unusedPort,
 } from "./device-fixtures";
 import { approvingDevice, installSealedWallet } from "./sealed-wallet-fixtures";
 import { SoftwareAuthenticator } from "./software-authenticator";
 import { assertTagged } from "./tagged";
+import { sendActors } from "./stellar-device-fixtures";
 
 export const actors = sendActors();
 export const amount = Schema.decodeSync(PositiveAmount)("10000000");

@@ -3,16 +3,16 @@ import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
-import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
-import type * as HttpClientError from "effect/http/HttpClientError";
 import type * as HttpClientRequest from "effect/http/HttpClientRequest";
-import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { Chain } from "../src/server/Chain.server";
 import { WalletSettings } from "../src/server/settings.server";
+import { bodyText, httpClientAnswering, jsonResponse } from "./http-answering";
 import { dbLayer } from "./test-database";
+
+export { bodyText, httpClientAnswering, jsonResponse };
 
 const MethodReq = Schema.fromJsonString(
   Schema.Struct({ method: Schema.String }),
@@ -50,14 +50,6 @@ export const rpcError = JSON.stringify({
 export const rpcOk = <A>(result: A) =>
   JSON.stringify({ jsonrpc: "2.0", id: 1, result });
 
-export const jsonResponse = (body: string) =>
-  new Response(body, { headers: { "Content-Type": "application/json" } });
-
-export const bodyText = (req: HttpClientRequest.HttpClientRequest) =>
-  Predicate.isTagged(req.body, "Uint8Array")
-    ? new TextDecoder().decode(req.body.body)
-    : "";
-
 export const rpcMethod = (req: HttpClientRequest.HttpClientRequest) =>
   Schema.decodeSync(MethodReq)(bodyText(req)).method;
 
@@ -70,20 +62,6 @@ export const submittedTransaction = (
 
 export const queriedHash = (req: HttpClientRequest.HttpClientRequest) =>
   Schema.decodeSync(TxReq)(bodyText(req)).params.hash;
-
-export const httpClientAnswering = (
-  reply: (
-    request: HttpClientRequest.HttpClientRequest,
-  ) => Effect.Effect<Response, HttpClientError.HttpClientError>,
-) =>
-  Layer.succeed(
-    HttpClient.HttpClient,
-    HttpClient.make((request) =>
-      reply(request).pipe(
-        Effect.map((res) => HttpClientResponse.fromWeb(request, res)),
-      ),
-    ),
-  );
 
 export const rpcAnswering = (reply: (keys: ReadonlyArray<string>) => string) =>
   httpClientAnswering((req) =>

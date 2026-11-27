@@ -1,5 +1,4 @@
 import { expect, layer } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -39,6 +38,7 @@ import {
   walletTestLayer,
   world,
 } from "./wallet-harness";
+import { randomKey } from "./test-keys";
 
 useDisposableDatabase();
 
@@ -55,7 +55,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "a name is bound only by the signed opening; drafts reserve nothing",
       () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
+          const key = randomKey();
           const first = claimFor(key, "maria");
           const draft = yield* opening(first);
 
@@ -65,16 +65,16 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const redraft = yield* opening(second);
 
           assertTagged(redraft, "OpeningDraft");
-          expect(
-            (yield* opening(claimFor(Keypair.random(), "maria")))._tag,
-          ).toBe("OpeningDraft");
+          expect((yield* opening(claimFor(randomKey(), "maria")))._tag).toBe(
+            "OpeningDraft",
+          );
           expect(
             (yield* opening(second, approveOpening(key, redraft)))._tag,
           ).toBe("OpeningPending");
           expect(yield* opening(first)).toEqual(
             new AddressBound({ profile: new Profile(second) }),
           );
-          expect(yield* opening(claimFor(Keypair.random(), "maria2"))).toEqual(
+          expect(yield* opening(claimFor(randomKey(), "maria2"))).toEqual(
             new UsernameTaken({ username: second.username }),
           );
         }),
@@ -84,7 +84,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "concurrent signed openings bind a name once and the loser submits nothing",
       () =>
         Effect.gen(function* () {
-          const keys = [Keypair.random(), Keypair.random()];
+          const keys = [randomKey(), randomKey()];
           const claims = keys.map((k) => claimFor(k, "maria"));
 
           const drafts = yield* Effect.all(
@@ -131,7 +131,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "a refused human check binds nothing and a later passing check binds the name",
       () =>
         Effect.gen(function* () {
-          const key = Keypair.random();
+          const key = randomKey();
           const claim = claimFor(key, "maria");
           const draft = yield* opening(claim);
 
@@ -141,14 +141,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             new HumanCheckRefused(),
           );
           expect(world.submitted).toHaveLength(0);
-          expect(
-            (yield* opening(claimFor(Keypair.random(), "maria")))._tag,
-          ).toBe("OpeningDraft");
+          expect((yield* opening(claimFor(randomKey(), "maria")))._tag).toBe(
+            "OpeningDraft",
+          );
           world.humanCheckRefused = false;
           expect((yield* opening(claim, approveOpening(key, draft)))._tag).toBe(
             "OpeningPending",
           );
-          expect(yield* opening(claimFor(Keypair.random(), "maria"))).toEqual(
+          expect(yield* opening(claimFor(randomKey(), "maria"))).toEqual(
             new UsernameTaken({ username: claim.username }),
           );
         }),
@@ -158,7 +158,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "the human check runs without the wallet's locks, and a wallet changed meanwhile binds nothing",
       () =>
         Effect.gen(function* () {
-          const claim = claimFor(Keypair.random(), "maria");
+          const claim = claimFor(randomKey(), "maria");
           const draft = yield* opening(claim);
 
           assertTagged(draft, "OpeningDraft");
@@ -182,15 +182,15 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           expect(written).toMatchObject({ version: stored.version + 1 });
-          expect(
-            (yield* opening(claimFor(Keypair.random(), "maria")))._tag,
-          ).toBe("OpeningDraft");
+          expect((yield* opening(claimFor(randomKey(), "maria")))._tag).toBe(
+            "OpeningDraft",
+          );
         }),
     );
 
     it.effect("a reserved name is never bound", () =>
       Effect.gen(function* () {
-        const key = Keypair.random();
+        const key = randomKey();
 
         expect(yield* opening(claimFor(key, "soporte"))).toEqual(
           new UsernameTaken({
@@ -207,7 +207,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       () =>
         Effect.gen(function* () {
           const sender = yield* fundedWallet("rosa");
-          const key = Keypair.random();
+          const key = randomKey();
 
           const toMaria = UsernameRecipient.make({
             value: Schema.decodeSync(Username)("maria"),
@@ -257,9 +257,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const recoveredOrder = orderFor(sender, toMaria);
 
           expect((yield* send(recoveredOrder))._tag).toBe("UnknownRecipient");
-          expect(
-            (yield* opening(claimFor(Keypair.random(), "maria")))._tag,
-          ).toBe("UsernameTaken");
+          expect((yield* opening(claimFor(randomKey(), "maria")))._tag).toBe(
+            "UsernameTaken",
+          );
           expect(yield* opening(claimFor(key, "maria2"))).toEqual(
             new AddressBound({ profile: new Profile(claim) }),
           );
@@ -288,7 +288,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "activation refuses a name another key bound after the opening draft",
       () =>
         Effect.gen(function* () {
-          const claim = claimFor(Keypair.random(), "maria");
+          const claim = claimFor(randomKey(), "maria");
 
           world.accounts.set(
             claim.address,
@@ -297,7 +297,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           assertTagged(yield* opening(claim), "OpeningDraft");
           const row = Option.getOrThrow(yield* findWallet(claim.address));
 
-          yield* create(Keypair.random(), "maria");
+          yield* create(randomKey(), "maria");
           expect(
             yield* Directory.use((d) => d.activate(row, claim, bindingAllowed)),
           ).toEqual(new UsernameTaken({ username: claim.username }));

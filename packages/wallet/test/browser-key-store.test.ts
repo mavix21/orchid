@@ -1,6 +1,5 @@
 import "fake-indexeddb/auto";
 import { expect, it } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
@@ -19,8 +18,7 @@ import {
   reopenLocalEnvelope,
   sealLocalEnvelope,
 } from "../src/device/local-envelope";
-import { network } from "../src/stellar/network";
-import { addressOf } from "./device-fixtures";
+import { network } from "../src/device-network";
 import {
   clearDatabase,
   enrollDisposableWallet,
@@ -30,6 +28,7 @@ import {
   storedKeys,
 } from "./sealed-wallet-fixtures";
 import { assertTagged } from "./tagged";
+import { randomAddress } from "./test-keys";
 
 const normalizeBytes = (bytes: Uint8Array) =>
   `${Buffer.from(bytes).toString("base64")}:${Buffer.from(bytes).toString("hex")}`;
@@ -120,7 +119,8 @@ it.effect(
       const forbiddenSecrets = [
         disposable.phrase,
         Buffer.from(disposable.phrase).toString("base64"),
-        disposable.key.secret(),
+        Buffer.from(disposable.key.privateKey).toString("base64"),
+        Buffer.from(disposable.key.privateKey).toString("hex"),
         Buffer.from(prfBytes).toString("base64"),
         Buffer.from(prfBytes).toString("hex"),
       ];
@@ -138,7 +138,7 @@ it.effect(
       ).envelope;
 
       const nextUsername = Schema.decodeSync(Username)("ana");
-      const nextSponsor = addressOf(Keypair.random());
+      const nextSponsor = randomAddress();
 
       const updated = yield* browserKeyStore.updatePublic((current) =>
         Option.some(

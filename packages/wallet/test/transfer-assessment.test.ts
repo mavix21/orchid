@@ -1,5 +1,4 @@
 import { expect, layer } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -16,15 +15,14 @@ import {
   Username,
   UsernameRecipient,
 } from "../src/contract";
-import { KnownExchangeMemo } from "../src/stellar/exchange-memos.server";
 import { Transfers } from "../src/server/Transfers.server";
-import { network } from "../src/stellar/network";
 import { assertTagged } from "./tagged";
 import {
   addressOf,
   assess,
   authorizeTransfer,
   checkRecipient,
+  exchanges,
   draftTransfer,
   findWallet,
   fundedWallet,
@@ -35,6 +33,7 @@ import {
   walletTestLayer,
   world,
 } from "./wallet-harness";
+import { randomAddress } from "./test-keys";
 
 useDisposableDatabase();
 
@@ -101,14 +100,14 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       Effect.gen(function* () {
         const target = yield* fundedWallet("pedro");
 
-        const exchange = new KnownExchangeMemo({
-          network,
-          address: addressOf(Keypair.random()),
-          exchange: "Synthetic exchange fixture",
-          source: "https://example.com/fixtures/stellar-testnet-memo-required",
-        });
+        const address = randomAddress();
 
-        world.exchangeMemos.push(exchange);
+        const exchange = {
+          exchange: "Synthetic exchange fixture",
+          source: "https://example.com/fixtures/memo-required",
+        };
+
+        exchanges.set(address, exchange);
 
         expect(
           yield* checkRecipient(
@@ -125,12 +124,10 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           }),
         );
         expect(
-          yield* checkRecipient(
-            AddressRecipient.make({ value: exchange.address }),
-          ),
+          yield* checkRecipient(AddressRecipient.make({ value: address })),
         ).toEqual(
           new RecipientCheck({
-            recipient: new ExternalRecipient({ address: exchange.address }),
+            recipient: new ExternalRecipient({ address }),
             memoRequired: true,
             exchange: Option.some(exchange.exchange),
           }),

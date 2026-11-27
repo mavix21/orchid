@@ -25,9 +25,9 @@ import {
   installSealedWallet,
   sealedKeyStore,
 } from "./sealed-wallet-fixtures";
-import { settleOnSubmit } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {
+  settleOnSubmit,
   create,
   devicePasskeys,
   euro,
@@ -39,7 +39,7 @@ import {
   useDisposableDatabase,
   walletTestLayer,
   world,
-} from "./wallet-harness";
+} from "./stellar-harness";
 
 const toPedro = new TransferIntent({
   to: UsernameRecipient.make({ value: Schema.decodeSync(Username)("pedro") }),

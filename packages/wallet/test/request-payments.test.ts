@@ -1,5 +1,4 @@
 import { expect, layer } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
 import { Database } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
@@ -43,6 +42,7 @@ import {
   walletTestLayer,
   world,
 } from "./wallet-harness";
+import { randomKey, type TestKey } from "./test-keys";
 
 const requestId = (text: string) =>
   Schema.decodeSync(PaymentRequestId)(text.padStart(10, "a"));
@@ -51,7 +51,7 @@ const toMaria = UsernameRecipient.make({
   value: Schema.decodeSync(Username)("maria"),
 });
 
-const askedBy = Effect.fn(function* (requester: Keypair, name = "1") {
+const askedBy = Effect.fn(function* (requester: TestKey, name = "1") {
   const request = new NewPaymentRequest({
     id: requestId(name),
     asset: baseAsset,
@@ -101,7 +101,7 @@ const signedHash = Effect.fn(function* (order: TransferOrder) {
 });
 
 const payUntilPending = Effect.fn(function* (
-  payer: Keypair,
+  payer: TestKey,
   id: PaymentRequestId,
   order: TransferOrder,
 ) {
@@ -137,13 +137,13 @@ const lapseBindings = Database.use((db) =>
   ),
 );
 
-const cancel = (requester: Keypair, id: PaymentRequestId) =>
+const cancel = (requester: TestKey, id: PaymentRequestId) =>
   RequestPayments.use((payments) => payments.cancel(addressOf(requester), id));
 
 const publicRead = (id: PaymentRequestId) =>
   RequestPayments.use((payments) => payments.read(id));
 
-const authorizingDraftsOutside = (payer: Keypair) =>
+const authorizingDraftsOutside = (payer: TestKey) =>
   Layer.fresh(
     RequestPayments.serviceLayer.pipe(
       Layer.provide(
@@ -243,7 +243,7 @@ layer(testLayer, { excludeTestServices: true, concurrent: false })(
           const unsigned = yield* pay(
             id,
             second,
-            approve(draft.request, Keypair.random()),
+            approve(draft.request, randomKey()),
           );
 
           assertTagged(unsigned, "TransferDraft");

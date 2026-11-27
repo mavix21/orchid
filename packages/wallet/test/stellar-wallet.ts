@@ -16,12 +16,9 @@ import {
   rpcMethod,
   testRpcUrl,
 } from "./rpc-answering";
-import {
-  fakeHumanCheck,
-  payoutCompletesAfter,
-  recordingQueue,
-  settingsFor,
-} from "./wallet-harness";
+import { fakeHumanCheck, recordingQueue } from "./ledger-world";
+import { settingsFor } from "./stellar-settings";
+import { payoutCompletesAfter } from "./wallet-scenarios";
 
 export const stellarWallet = (
   reply: (

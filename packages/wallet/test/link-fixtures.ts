@@ -1,142 +1,69 @@
-import {
-  Claimant,
-  FeeBumpTransaction,
-  Keypair,
-  TransactionBuilder,
-} from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
-  type AccountAddress,
-  UnclaimedFundsId,
   PaymentLinkRecipient,
-  PositiveAmount,
   TransferId,
   TransferOrder,
   type WalletPort,
   baseAsset,
 } from "../src/contract";
-import { networkPassphrase } from "../src/stellar/network";
-import {
-  type DeviceWallet,
-  memoryKeyStore,
-  signingKey,
-} from "./device-fixtures";
 import { assertTagged } from "./tagged";
+import type { TestKey } from "./test-keys";
 import {
-  accountState,
+  type walletScenarios,
   addressOf,
-  approve,
-  channel,
+  advanceSequence,
   euroLine,
   holdingsFor,
-  openSender,
-  settleHash,
+  linkAmount,
   world,
-} from "./wallet-harness";
+} from "./wallet-scenarios";
 
-export const settleOnSubmit =
-  (wallet: WalletPort, sender: AccountAddress): WalletPort["transfer"] =>
-  (order, approval) =>
-    wallet.transfer(order, approval).pipe(
-      Effect.tap(() =>
-        Effect.sync(() => {
-          const sealed = world.submitted.at(-1);
+export const linkFlows = <Key extends TestKey, ChainFailure>({
+  randomKey,
+  approve,
+  settleOnSubmit,
+}: ReturnType<typeof walletScenarios<Key, ChainFailure>>) => ({
+  fundLinkFrom: (wallet: WalletPort, sender: TestKey) =>
+    Effect.gen(function* () {
+      const address = addressOf(sender);
 
-          if (Option.isNone(approval) || !sealed) return;
-
-          settleHash(sealed.hash);
-
-          const outer = TransactionBuilder.fromXDR(
-            sealed.envelope,
-            networkPassphrase,
-          );
-
-          const inner =
-            outer instanceof FeeBumpTransaction
-              ? outer.innerTransaction
-              : outer;
-
-          if (
-            inner.operations[1]?.type === "createClaimableBalance" &&
-            Predicate.isTagged(order.to, "PaymentLink")
-          ) {
-            const unclaimedFunds = Schema.decodeSync(UnclaimedFundsId)(
-              inner.getClaimableBalanceId(1),
-            );
-
-            world.claimables.set(unclaimedFunds, {
-              unclaimedFunds,
-              asset: order.asset,
-              amount: order.amount,
-              sponsored: true,
-              claimants: [
-                new Claimant(order.to.value, Claimant.predicateUnconditional()),
-                new Claimant(sender, Claimant.predicateUnconditional()),
-              ],
-            });
-          }
+      world.holdings.set(
+        address,
+        holdingsFor(address, {
+          lines: [{ ...euroLine("500000000"), asset: baseAsset }],
         }),
-      ),
-    );
+      );
 
-export const advanceSequence = (address: AccountAddress) => {
-  const current = world.accounts.get(address) ?? accountState();
+      const link = randomKey();
 
-  world.accounts.set(address, {
-    ...current,
-    sequence: (BigInt(current.sequence) + 1n).toString(),
-  });
-};
+      const funding = new TransferOrder({
+        id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
+        from: address,
+        to: PaymentLinkRecipient.make({ value: addressOf(link) }),
+        asset: baseAsset,
+        amount: linkAmount,
+      });
 
-export const linkAmount = Schema.decodeSync(PositiveAmount)("10000000");
+      const fundingDraft = yield* wallet.transfer(funding, Option.none());
 
-export const fundLinkFrom = (wallet: WalletPort, sender: DeviceWallet) =>
-  Effect.gen(function* () {
-    world.holdings.set(
-      sender.address,
-      holdingsFor(sender.address, {
-        lines: [{ ...euroLine("500000000"), asset: baseAsset }],
-      }),
-    );
+      assertTagged(fundingDraft, "TransferDraft");
+      yield* settleOnSubmit(wallet, address)(
+        funding,
+        approve(fundingDraft.request, sender),
+      );
 
-    const link = Keypair.random();
+      const funded = yield* wallet.transfer(funding, Option.none());
 
-    const funding = new TransferOrder({
-      id: Schema.decodeSync(TransferId)(crypto.randomUUID()),
-      from: sender.address,
-      to: PaymentLinkRecipient.make({ value: addressOf(link) }),
-      asset: baseAsset,
-      amount: linkAmount,
-    });
+      assertTagged(funded, "Settled");
 
-    const fundingDraft = yield* wallet.transfer(funding, Option.none());
+      const unclaimedFunds = Option.getOrThrow(
+        Option.fromNullishOr(funded.unclaimedFunds),
+      );
 
-    assertTagged(fundingDraft, "TransferDraft");
-    yield* settleOnSubmit(wallet, sender.address)(
-      funding,
-      approve(fundingDraft.request, signingKey(sender.phrase)),
-    );
+      advanceSequence(address);
 
-    const funded = yield* wallet.transfer(funding, Option.none());
-
-    assertTagged(funded, "Settled");
-
-    const unclaimedFunds = Option.getOrThrow(
-      Option.fromNullishOr(funded.unclaimedFunds),
-    );
-
-    world.accounts.set(channel, accountState());
-    advanceSequence(sender.address);
-
-    return { link, unclaimedFunds, transferId: funding.id };
-  });
-
-export const fundLink = (username: string) =>
-  Effect.gen(function* () {
-    const { wallet, sender } = yield* openSender(memoryKeyStore(), username);
-
-    return { wallet, sender, ...(yield* fundLinkFrom(wallet, sender)) };
-  });
+      return { link, unclaimedFunds, transferId: funding.id };
+    }),
+});

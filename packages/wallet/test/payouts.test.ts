@@ -1,5 +1,4 @@
 import { expect, layer } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -21,22 +20,21 @@ import {
   YapeAccount,
 } from "../src/contract";
 import { Applied } from "../src/server/Chain.server";
-import { readEnvelope } from "../src/stellar/envelopes";
-import { sandboxPartnerKeypair } from "../src/stellar/sandbox-partner";
-import { fundLink } from "./link-fixtures";
 import { assertTagged } from "./tagged";
 import {
   accountState,
   addressOf,
   approve,
-  fundHolder,
+  draftedReceive,
+  fundLink,
+  partnerAddress,
   payoutCompletesAfter,
   settleHash,
   useDisposableDatabase,
   walletTestLayer,
   world,
 } from "./wallet-harness";
-import { feePayer } from "./wallet-settings";
+import { randomAddress } from "./test-keys";
 
 useDisposableDatabase();
 
@@ -46,8 +44,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
       "a Yape payout claims the link to the simulated partner at the quoted soles, refuses another destination or a stale quote, and completes after the partner's delay",
       () =>
         Effect.gen(function* () {
-          const partner = sandboxPartnerKeypair(feePayer);
-
           const yape = YapeAccount.make({
             mobile: Schema.decodeSync(PeruvianMobile)("987654321"),
           });
@@ -55,7 +51,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const soles = (minorUnits: bigint) =>
             LocalAmount.make({ currency: "PEN", minorUnits });
 
-          fundHolder(partner);
+          world.accounts.set(partnerAddress, accountState());
 
           const pendingPayout = Effect.fn(function* (name: string) {
             const { wallet, link, unclaimedFunds } = yield* fundLink(name);
@@ -70,7 +66,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
               depositAddress: quote.depositAddress,
             }).toEqual({
               local: soles(375n),
-              depositAddress: addressOf(partner),
+              depositAddress: partnerAddress,
             });
 
             const payoutTo = (
@@ -88,7 +84,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
                 local,
               });
 
-            const elsewhere = addressOf(Keypair.random());
+            const elsewhere = randomAddress();
 
             expect(
               yield* wallet.requestPayout(
@@ -108,15 +104,12 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
             assertTagged(drafted, "ExternalLinkDraft");
 
-            const facts = Option.getOrThrow(
-              readEnvelope(drafted.request.envelope),
-            );
+            const receive = Option.getOrThrow(draftedReceive(drafted.request));
 
-            assertTagged(facts, "LinkReceiveFacts");
             expect({
-              destination: facts.destination,
-              memo: facts.memo,
-            }).toEqual({ destination: addressOf(partner), memo: undefined });
+              destination: receive.destination,
+              memo: receive.memo,
+            }).toEqual({ destination: partnerAddress, memo: undefined });
             expect(yield* wallet.payout(order.claim.id)).toEqual(
               new PayoutNotFound(),
             );

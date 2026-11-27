@@ -1,5 +1,4 @@
 import { expect, it } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
@@ -12,12 +11,13 @@ import {
   sealToken,
   slidClaims,
 } from "../src/server/session-token.server";
+import { randomKey } from "./test-keys";
 
 const day = 24 * 60 * 60 * 1000;
 const idleLifetime = 30 * day;
 const hardCap = 90 * day;
 const secret = Redacted.make("session-secret");
-const address = Schema.decodeSync(AccountAddress)(Keypair.random().publicKey());
+const address = Schema.decodeSync(AccountAddress)(randomKey().publicKey());
 const credentialId = Schema.decodeSync(CredentialId)("Y3JlZGVudGlhbA");
 const mintedAt = Date.UTC(2026, 10, 25);
 

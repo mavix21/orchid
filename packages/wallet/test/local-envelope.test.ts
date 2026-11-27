@@ -1,6 +1,5 @@
 import "fake-indexeddb/auto";
 import { expect, it } from "@effect/vitest";
-import { Keypair } from "@stellar/stellar-sdk";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -15,14 +14,14 @@ import {
 } from "../src/device/local-envelope";
 import { linkPrfInput } from "../src/device/link-seal";
 import { backupSalt } from "../src/device/phrase-seal";
-import { network } from "../src/stellar/network";
-import { addressOf } from "./device-fixtures";
+import { network } from "../src/device-network";
 import {
   clearDatabase,
   enrollDisposableWallet,
   putRawEntry,
   relyingParty,
 } from "./sealed-wallet-fixtures";
+import { randomAddress } from "./test-keys";
 
 const flipFirstByte = (bytes: Uint8Array) => {
   const copy = Uint8Array.from(bytes);
@@ -146,10 +145,10 @@ it.effect(
   "keeps local phrase, server backup and each payment link on independent PRF inputs",
   () =>
     Effect.gen(function* () {
-      const address = addressOf(Keypair.random());
-      const otherAddress = addressOf(Keypair.random());
-      const linkA = addressOf(Keypair.random());
-      const linkB = addressOf(Keypair.random());
+      const address = randomAddress();
+      const otherAddress = randomAddress();
+      const linkA = randomAddress();
+      const linkB = randomAddress();
       const salt = freshInstallationSalt();
       const otherSalt = freshInstallationSalt();
 
