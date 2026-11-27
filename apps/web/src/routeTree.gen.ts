@@ -17,6 +17,8 @@ import { Route as RestoreRouteImport } from "./routes/restore";
 import { Route as WalletAppRouteImport } from "./routes/_wallet/_app";
 import { Route as WalletLinksRouteImport } from "./routes/_wallet/links";
 import { Route as WalletReceiveRouteImport } from "./routes/_wallet/receive";
+import { Route as WalletRequestRouteImport } from "./routes/_wallet/request";
+import { Route as PayIdRouteImport } from "./routes/pay/$id";
 import { Route as WalletAppActivityRouteImport } from "./routes/_wallet/_app/activity";
 import { Route as WalletAppHomeRouteImport } from "./routes/_wallet/_app/home";
 import { Route as WalletAppSettingsRouteImport } from "./routes/_wallet/_app/settings";
@@ -61,6 +63,16 @@ const WalletReceiveRoute = WalletReceiveRouteImport.update({
   path: "/receive",
   getParentRoute: () => WalletRoute,
 } as any);
+const WalletRequestRoute = WalletRequestRouteImport.update({
+  id: "/request",
+  path: "/request",
+  getParentRoute: () => WalletRoute,
+} as any);
+const PayIdRoute = PayIdRouteImport.update({
+  id: "/pay/$id",
+  path: "/pay/$id",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const WalletAppActivityRoute = WalletAppActivityRouteImport.update({
   id: "/activity",
   path: "/activity",
@@ -94,6 +106,8 @@ export interface FileRoutesByFullPath {
   "/restore": typeof RestoreRoute;
   "/links": typeof WalletLinksRoute;
   "/receive": typeof WalletReceiveRoute;
+  "/request": typeof WalletRequestRoute;
+  "/pay/$id": typeof PayIdRoute;
   "/activity": typeof WalletAppActivityRoute;
   "/home": typeof WalletAppHomeRoute;
   "/settings": typeof WalletAppSettingsRoute;
@@ -107,6 +121,8 @@ export interface FileRoutesByTo {
   "/restore": typeof RestoreRoute;
   "/links": typeof WalletLinksRoute;
   "/receive": typeof WalletReceiveRoute;
+  "/request": typeof WalletRequestRoute;
+  "/pay/$id": typeof PayIdRoute;
   "/activity": typeof WalletAppActivityRoute;
   "/home": typeof WalletAppHomeRoute;
   "/settings": typeof WalletAppSettingsRoute;
@@ -123,6 +139,8 @@ export interface FileRoutesById {
   "/_wallet/_app": typeof WalletAppRouteWithChildren;
   "/_wallet/links": typeof WalletLinksRoute;
   "/_wallet/receive": typeof WalletReceiveRoute;
+  "/_wallet/request": typeof WalletRequestRoute;
+  "/pay/$id": typeof PayIdRoute;
   "/_wallet/_app/activity": typeof WalletAppActivityRoute;
   "/_wallet/_app/home": typeof WalletAppHomeRoute;
   "/_wallet/_app/settings": typeof WalletAppSettingsRoute;
@@ -138,6 +156,8 @@ export interface FileRouteTypes {
     | "/restore"
     | "/links"
     | "/receive"
+    | "/request"
+    | "/pay/$id"
     | "/activity"
     | "/home"
     | "/settings"
@@ -151,6 +171,8 @@ export interface FileRouteTypes {
     | "/restore"
     | "/links"
     | "/receive"
+    | "/request"
+    | "/pay/$id"
     | "/activity"
     | "/home"
     | "/settings"
@@ -166,6 +188,8 @@ export interface FileRouteTypes {
     | "/_wallet/_app"
     | "/_wallet/links"
     | "/_wallet/receive"
+    | "/_wallet/request"
+    | "/pay/$id"
     | "/_wallet/_app/activity"
     | "/_wallet/_app/home"
     | "/_wallet/_app/settings"
@@ -179,6 +203,7 @@ export interface RootRouteChildren {
   CreateAccountRoute: typeof CreateAccountRoute;
   RRoute: typeof RRoute;
   RestoreRoute: typeof RestoreRoute;
+  PayIdRoute: typeof PayIdRoute;
 }
 
 declare module "@tanstack/react-router" {
@@ -239,6 +264,20 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof WalletReceiveRouteImport;
       parentRoute: typeof WalletRoute;
     };
+    "/_wallet/request": {
+      id: "/_wallet/request";
+      path: "/request";
+      fullPath: "/request";
+      preLoaderRoute: typeof WalletRequestRouteImport;
+      parentRoute: typeof WalletRoute;
+    };
+    "/pay/$id": {
+      id: "/pay/$id";
+      path: "/pay/$id";
+      fullPath: "/pay/$id";
+      preLoaderRoute: typeof PayIdRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/_wallet/_app/activity": {
       id: "/_wallet/_app/activity";
       path: "/activity";
@@ -297,6 +336,7 @@ interface WalletRouteChildren {
   WalletAppRoute: typeof WalletAppRouteWithChildren;
   WalletLinksRoute: typeof WalletLinksRoute;
   WalletReceiveRoute: typeof WalletReceiveRoute;
+  WalletRequestRoute: typeof WalletRequestRoute;
   WalletSendAssetRoute: typeof WalletSendAssetRoute;
   WalletSendIndexRoute: typeof WalletSendIndexRoute;
 }
@@ -305,6 +345,7 @@ const WalletRouteChildren: WalletRouteChildren = {
   WalletAppRoute: WalletAppRouteWithChildren,
   WalletLinksRoute: WalletLinksRoute,
   WalletReceiveRoute: WalletReceiveRoute,
+  WalletRequestRoute: WalletRequestRoute,
   WalletSendAssetRoute: WalletSendAssetRoute,
   WalletSendIndexRoute: WalletSendIndexRoute,
 };
@@ -318,6 +359,7 @@ const rootRouteChildren: RootRouteChildren = {
   CreateAccountRoute: CreateAccountRoute,
   RRoute: RRoute,
   RestoreRoute: RestoreRoute,
+  PayIdRoute: PayIdRoute,
 };
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

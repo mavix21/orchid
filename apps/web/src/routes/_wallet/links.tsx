@@ -18,6 +18,7 @@ import type {
 } from "@workspace/wallet";
 import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -34,8 +35,11 @@ import { type RecoverableLink, lostLinkMessage } from "@/links/outcomes";
 import { ResultButton } from "@/links/link-result";
 import { LinkShareModal, useLinkReveal } from "@/links/link-reveal";
 import { RecoveryAnswer, useRecovery } from "@/links/recovery";
+import { OpenRequests } from "@/requests/open-requests";
 import { amountLabel } from "@/send/money";
+import { paymentRequestEffects } from "@/wallet/payment-requests";
 import { unavailableMessage } from "@/wallet/unavailable";
+import { m } from "@/paraglide/messages";
 
 export const Route = createFileRoute("/_wallet/links")({
   ssr: false,
@@ -43,10 +47,11 @@ export const Route = createFileRoute("/_wallet/links")({
   pendingComponent: () => <LinksFrame loading />,
   preload: false,
   loader: async ({ context }) => {
+    const requested = Effect.runPromise(paymentRequestEffects.open());
     const latest = await context.walletClient.resolvePaymentLink();
     const links = await context.walletClient.paymentLinks();
 
-    return { latest, links };
+    return { latest, links, requests: await requested };
   },
   component: PaymentLinks,
 });
@@ -176,10 +181,10 @@ function LinksFrame({
   return (
     <Screen>
       <TopNav
-        title="Links de pago"
-        label="Atrás"
+        title={m.links_title()}
+        label={m.common_back()}
         icon={<ChevronLeftIcon absoluteStrokeWidth />}
-        link={<Link to="/send" />}
+        link={<Link to="/home" />}
       />
       {loading ? (
         <div
@@ -198,7 +203,7 @@ function LinksFrame({
 }
 
 function PaymentLinks() {
-  const { latest, links } = Route.useLoaderData();
+  const { latest, links, requests } = Route.useLoaderData();
   const router = useRouter();
   const { started, begin, confirm, reset } = useRecovery();
   const sharing = useLinkReveal();
@@ -226,6 +231,7 @@ function PaymentLinks() {
 
   return (
     <LinksFrame>
+      <OpenRequests outcome={requests} />
       {Predicate.isTagged(links, "ListedPaymentLinks") ? (
         <LinkList
           links={links.links}

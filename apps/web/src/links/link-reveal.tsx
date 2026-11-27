@@ -18,6 +18,7 @@ import {
 import { amountLabel } from "@/send/money";
 import { useWalletTask } from "@/send/use-wallet-task";
 import { walletEffects } from "@/wallet";
+import { m } from "@/paraglide/messages";
 
 import { type Delivery, delivered, nextDelivery } from "./link-step";
 import { type RevealRefusal, revealResult } from "./outcomes";
@@ -98,7 +99,7 @@ export function DeliveryActions({
           data-testid="share-link"
         >
           <ShareIcon />
-          Compartir link
+          {m.link_share()}
         </Button>
       ) : null}
       <Button
@@ -109,7 +110,7 @@ export function DeliveryActions({
         data-testid="copy-link"
       >
         <CopyIcon />
-        Copiar link
+        {m.link_copy()}
       </Button>
     </>
   );
