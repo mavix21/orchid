@@ -7,6 +7,9 @@ import * as Predicate from "effect/Predicate";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import {
+  AddressRecipient,
+  LedgerUnreachable,
+  nativeAsset,
   ExternalRecipient,
   PositiveAmount,
   Profile,
@@ -18,13 +21,16 @@ import { Transfers } from "../src/server/Transfers.server";
 import { Directory } from "../src/server/Directory.server";
 import { ReconcileTransfer } from "../src/server/work-queue.server";
 import { assertTagged } from "./tagged";
-import { randomAddress } from "./test-keys";
+import { randomAddress, randomKey } from "./test-keys";
 import {
   addressOf,
   approve,
   draftTransfer,
   findTransfer,
+  amount,
   fundHolder,
+  holdingsFor,
+  orderFor,
   fundedWallet,
   memoryChain,
   overviewOf,
@@ -377,6 +383,46 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
 
           assertTagged(saved, "Authorized");
           expect(saved.sealed.envelope).toBe(authorized.sealed.envelope);
+        }),
+    );
+
+    it.effect(
+      "an unreachable ledger refuses an unsigned external step without storing it but leaves an authorized transfer pending",
+      () =>
+        Effect.gen(function* () {
+          const key = yield* fundedWallet();
+          const destKey = randomKey();
+
+          fundHolder(destKey);
+
+          for (const holder of [key, destKey])
+            world.holdings.set(
+              addressOf(holder),
+              holdingsFor(addressOf(holder), { native: amount("50000000") }),
+            );
+
+          const order = new TransferOrder({
+            ...orderFor(
+              key,
+              AddressRecipient.make({ value: addressOf(destKey) }),
+            ),
+            asset: nativeAsset,
+          });
+
+          world.ledgerDown = true;
+          expect(yield* send(order).pipe(Effect.flip)).toEqual(
+            new LedgerUnreachable(),
+          );
+          expect(Option.isNone(yield* findTransfer(order.id))).toBe(true);
+          world.ledgerDown = false;
+
+          const draft = yield* draftTransfer(order);
+
+          expect((yield* send(order, approve(draft.request, key)))._tag).toBe(
+            "Pending",
+          );
+          world.ledgerDown = true;
+          expect((yield* send(order))._tag).toBe("Pending");
         }),
     );
   },
