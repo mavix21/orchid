@@ -8,6 +8,8 @@ export { PayoutPartner } from "./PayoutPartner.server";
 
 export { PaymentRequests } from "./PaymentRequests.server";
 
+export { RequestPayments } from "./RequestPayments.server";
+
 export { RateLimits } from "./RateLimits.server";
 
 export {

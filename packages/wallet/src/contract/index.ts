@@ -30,6 +30,7 @@ import {
   type SessionStep,
 } from "./backup";
 import { UnclaimedFundsId } from "./unclaimed-funds";
+import type { WalletUnavailable } from "./failures";
 import { HumanCheckRefused, type HumanCheckToken } from "./human-check";
 import {
   AccountAddress,
@@ -51,6 +52,14 @@ import {
   TransferId,
 } from "./payment-links";
 import {
+  type CancelPaymentRequestStep,
+  type OpenPaymentRequestsStep,
+  PayPaymentRequestRefusal,
+  type PaymentRequestId,
+  PaymentRequestPaid,
+  type PaymentRequestStep,
+} from "./payment-requests";
+import {
   PayoutDestination,
   PayoutQuote,
   PayoutQuoteChanged,
@@ -65,6 +74,8 @@ export * from "./approval";
 export * from "./asset-orders";
 
 export * from "./assets";
+
+export * from "./failures";
 
 export * from "./backup";
 
@@ -495,6 +506,13 @@ export const TransferStep = Schema.Union([
 
 export type TransferStep = typeof TransferStep.Type;
 
+export const PayPaymentRequestStep = Schema.Union([
+  ...TransferStep.members,
+  ...PayPaymentRequestRefusal.members,
+]);
+
+export type PayPaymentRequestStep = typeof PayPaymentRequestStep.Type;
+
 const memoRequirementFields = {
   memoRequired: Schema.Boolean,
   exchange: Schema.OptionFromNullOr(Schema.String),
@@ -583,6 +601,26 @@ export const ActivityStep = Schema.Union([
 ]);
 
 export type ActivityStep = typeof ActivityStep.Type;
+
+export const PaidRequest = Schema.Struct({
+  payment: TransferId,
+  request: PaymentRequestPaid,
+});
+
+export type PaidRequest = typeof PaidRequest.Type;
+
+export class RequestActivityPage extends Schema.TaggedClass<RequestActivityPage>()(
+  "RequestActivityPage",
+  { page: ActivityPage, paidRequests: Schema.Array(PaidRequest) },
+) {}
+
+export const RequestActivityStep = Schema.Union([
+  RequestActivityPage,
+  NotOpened,
+  InvalidAddress,
+]);
+
+export type RequestActivityStep = typeof RequestActivityStep.Type;
 
 export const ResolveReceiptStep = Schema.Union([
   ResolvedPaymentLink,
@@ -716,59 +754,6 @@ export const Overview = Schema.Union([
 
 export type Overview = typeof Overview.Type;
 
-export class Offline extends Schema.TaggedError<Offline>()("Offline", {}) {}
-
-export class ServerUnreachable extends Schema.TaggedError<ServerUnreachable>()(
-  "ServerUnreachable",
-  {},
-) {}
-
-export class LedgerUnreachable extends Schema.TaggedError<LedgerUnreachable>()(
-  "LedgerUnreachable",
-  {},
-) {}
-
-export class ServiceFailed extends Schema.TaggedError<ServiceFailed>()(
-  "ServiceFailed",
-  {},
-) {}
-
-export class InvalidResponse extends Schema.TaggedError<InvalidResponse>()(
-  "InvalidResponse",
-  {},
-) {}
-
-export class SessionRequired extends Schema.TaggedError<SessionRequired>()(
-  "SessionRequired",
-  {},
-) {}
-
-export class RateLimited extends Schema.TaggedError<RateLimited>()(
-  "RateLimited",
-  {},
-) {}
-
-export const ServerFailure = Schema.Union([
-  LedgerUnreachable,
-  ServiceFailed,
-  SessionRequired,
-  RateLimited,
-]);
-
-export type ServerFailure = typeof ServerFailure.Type;
-
-export const WalletUnavailable = Schema.Union([
-  Offline,
-  ServerUnreachable,
-  LedgerUnreachable,
-  ServiceFailed,
-  SessionRequired,
-  RateLimited,
-  InvalidResponse,
-]);
-
-export type WalletUnavailable = typeof WalletUnavailable.Type;
-
 export interface WalletPort<E = WalletUnavailable> {
   overview(address: AccountAddress): Effect.Effect<Overview, E>;
   open(
@@ -816,4 +801,22 @@ export interface WalletPort<E = WalletUnavailable> {
   restore(assertion: PasskeyAssertion): Effect.Effect<RestoreStep, E>;
   sessionChallenge(): Effect.Effect<PasskeyChallenge, E>;
   beginSession(assertion: PasskeyAssertion): Effect.Effect<SessionStep, E>;
+}
+
+export interface RequestPaymentsPort<E = WalletUnavailable> {
+  pay(
+    id: PaymentRequestId,
+    order: TransferOrder,
+    approval: Option.Option<Approval>,
+  ): Effect.Effect<PayPaymentRequestStep, E>;
+  read(id: PaymentRequestId): Effect.Effect<PaymentRequestStep, E>;
+  open(address: AccountAddress): Effect.Effect<OpenPaymentRequestsStep, E>;
+  cancel(
+    address: AccountAddress,
+    id: PaymentRequestId,
+  ): Effect.Effect<CancelPaymentRequestStep, E>;
+  activity(
+    address: AccountAddress,
+    before?: ActivityCursor,
+  ): Effect.Effect<RequestActivityStep, E>;
 }

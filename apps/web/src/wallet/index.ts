@@ -43,7 +43,6 @@ export const walletEffects: WalletEffects = {
   confirmPaymentLink: (shown) =>
     withWallet((wallet) => wallet.confirmPaymentLink(shown)),
   paymentLinks: () => withWallet((wallet) => wallet.paymentLinks()),
-  activity: (cursor) => withWallet((wallet) => wallet.activity(cursor)),
   resolvePaymentLink: () => withWallet((wallet) => wallet.resolvePaymentLink()),
   revealPaymentLink: (target) =>
     withWallet((wallet) => wallet.revealPaymentLink(target)),
@@ -89,7 +88,6 @@ export const walletClient: WalletClient = {
   confirmPaymentLink: (shown) =>
     Effect.runPromise(walletEffects.confirmPaymentLink(shown)),
   paymentLinks: () => Effect.runPromise(walletEffects.paymentLinks()),
-  activity: (cursor) => Effect.runPromise(walletEffects.activity(cursor)),
   resolvePaymentLink: () =>
     Effect.runPromise(walletEffects.resolvePaymentLink()),
   revealPaymentLink: (target) =>

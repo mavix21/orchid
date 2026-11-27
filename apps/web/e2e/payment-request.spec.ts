@@ -1,6 +1,52 @@
-import { type APIRequestContext, expect, test } from "@playwright/test";
+import {
+  type APIRequestContext,
+  type Page,
+  expect,
+  test,
+} from "@playwright/test";
+import { AccountAddress } from "@workspace/wallet";
+import { fundWithUsdc } from "@workspace/wallet/testnet";
+import * as Schema from "effect/Schema";
 
-import { countPasskeyPrompts, freshUsername, openWallet } from "./device";
+import {
+  addAuthenticator,
+  countPasskeyPrompts,
+  freshUsername,
+  openWallet,
+  storedWalletAddress,
+  submitButton,
+  usernameInput,
+  walletActive,
+} from "./device";
+
+const recordShares = async (page: Page) => {
+  const shared: Array<string> = [];
+
+  await page.exposeFunction("recordShare", (text: string) => {
+    shared.push(text);
+  });
+  await page.addInitScript({
+    content: `Object.defineProperty(navigator, "share", { configurable: true, value: (data) => window.recordShare(data.text) });`,
+  });
+
+  return shared;
+};
+
+const requestLink = async (
+  page: Page,
+  shared: ReadonlyArray<string>,
+  amount: string,
+) => {
+  await page.getByTestId("open-request").click();
+  await page.getByTestId("amount-input").fill(amount);
+  await page.getByTestId("create-request").click();
+  await page.getByTestId("share-link").click();
+  await expect.poll(() => shared).toHaveLength(1);
+
+  const [message = ""] = shared;
+
+  return new URL(message.split("\n\n").at(-1) ?? "");
+};
 
 const servedPreview = async (request: APIRequestContext, url: string) => {
   const response = await request.get(url);
@@ -24,15 +70,7 @@ test("a payment request stays public and shows its cancellation", async ({
   page,
   browser,
 }) => {
-  const shared: Array<string> = [];
-
-  await page.exposeFunction("recordShare", (text: string) => {
-    shared.push(text);
-  });
-  await page.addInitScript({
-    content: `Object.defineProperty(navigator, "share", { configurable: true, value: (data) => window.recordShare(data.text) });`,
-  });
-
+  const shared = await recordShares(page);
   const prompts = await countPasskeyPrompts(page);
   const username = freshUsername();
   const address = await openWallet(page, username);
@@ -111,4 +149,79 @@ test("a payment request stays public and shows its cancellation", async ({
   expect(cancelledPreview.description).not.toBe(openPreview.description);
 
   await visitor.close();
+});
+
+test("a payer without a wallet creates one on the request page and pays it", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(420_000);
+
+  const shared = await recordShares(page);
+
+  await openWallet(page, freshUsername());
+
+  const link = await requestLink(page, shared, "0.5");
+  const requestId = link.pathname.slice("/pay/".length);
+
+  const payerContext = await browser.newContext(test.info().project.use);
+  const payer = await payerContext.newPage();
+  const payerUsername = freshUsername();
+
+  await addAuthenticator(payer, true);
+  await payer.goto(link.href);
+  await payer.getByTestId("pay-request").click();
+  await payer.getByTestId("pay-create-account").click();
+  await usernameInput(payer).fill(payerUsername);
+  await submitButton(payer).click();
+  await expect(payer.getByTestId("enrollment-step")).toHaveAttribute(
+    "data-stage",
+    "activate",
+    { timeout: 30_000 },
+  );
+  await payer.getByTestId("enrollment-continue").click();
+
+  const outcome = payer.getByTestId("send-outcome");
+
+  await expect(outcome).toHaveAttribute("data-outcome", "InsufficientBalance", {
+    timeout: 120_000,
+  });
+  await expect(payer).toHaveURL(link.href);
+
+  const address = Schema.decodeSync(AccountAddress)(
+    await storedWalletAddress(payer),
+  );
+
+  await expect
+    .poll(() => walletActive(address), { timeout: 120_000 })
+    .toBe(true);
+  await fundWithUsdc(address, "1");
+  await payer.getByTestId("result-again").click();
+
+  const summary = payer.getByTestId("payment-summary");
+
+  await expect(summary).toHaveAttribute("data-amount", "0.5", {
+    timeout: 30_000,
+  });
+  await payer.getByTestId("confirm-payment").click();
+
+  const request = payer.getByTestId("payment-request");
+
+  await expect(request).toHaveAttribute("data-state", "PaymentRequestPaid", {
+    timeout: 120_000,
+  });
+  await expect(payer.getByTestId("pay-request")).toHaveCount(0);
+  await payer.reload();
+  await expect(request).toHaveAttribute("data-state", "PaymentRequestPaid");
+  await expect(payer.getByTestId("pay-request")).toHaveCount(0);
+  await payerContext.close();
+
+  await page.goto("/activity");
+
+  const paid = page.locator(
+    `[data-testid="activity-row"][data-paid-request="${requestId}"]`,
+  );
+
+  await expect(paid).toHaveAttribute("data-entry", "ReceivedActivity");
+  await expect(paid).toHaveAttribute("data-counterparty", payerUsername);
 });

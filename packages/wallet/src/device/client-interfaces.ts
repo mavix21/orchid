@@ -1,6 +1,5 @@
 import type * as Effect from "effect/Effect";
 import type {
-  ActivityCursor,
   AssetOrderId,
   PasskeyChallenge,
   PayoutDestination,
@@ -10,7 +9,6 @@ import type {
 } from "../contract";
 import type { LinkCode } from "./link-code";
 import type {
-  ActivityOutcome,
   BackUpOutcome,
   ConfirmExternalLinkOutcome,
   ConfirmLinkReceiveOutcome,
@@ -68,7 +66,6 @@ export interface WalletClient {
   ): Promise<ReviewPaymentLinkOutcome>;
   confirmPaymentLink(review: PaymentReview): Promise<ConfirmPaymentLinkOutcome>;
   paymentLinks(): Promise<PaymentLinksOutcome>;
-  activity(cursor?: ActivityCursor): Promise<ActivityOutcome>;
   resolvePaymentLink(): Promise<ResolvePaymentLinkOutcome>;
   revealPaymentLink(target: SavedLinkTarget): Promise<RevealPaymentLinkOutcome>;
   reviewReclaim(target: PaymentLinkTarget): Promise<ReviewReclaimOutcome>;
@@ -122,7 +119,6 @@ export interface WalletEffects {
     review: PaymentReview,
   ): Effect.Effect<ConfirmPaymentLinkOutcome>;
   paymentLinks(): Effect.Effect<PaymentLinksOutcome>;
-  activity(cursor?: ActivityCursor): Effect.Effect<ActivityOutcome>;
   resolvePaymentLink(): Effect.Effect<ResolvePaymentLinkOutcome>;
   revealPaymentLink(
     target: SavedLinkTarget,

@@ -4,7 +4,9 @@ import {
   type Asset,
   ExternalRecipient,
   LinkRecipient,
+  type PaidRequest,
   type PaymentMemo,
+  type PaymentRequestPaid,
   Profile,
   type Receipt,
   type ResolvedRecipient,
@@ -13,9 +15,11 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 
 import { formattingLocale } from "@/locale/format";
 import { amountLabel, shortAddress } from "@/send/money";
+import { m } from "@/paraglide/messages";
 
 export type Party = Profile | ExternalRecipient;
 
@@ -285,15 +289,35 @@ const receivedEntry = (
   createdAt: entry.createdAt,
 });
 
-export const shownEntry = (entry: ActivityEntry): ShownEntry =>
+const receivedText = (
+  from: Profile,
+  paidRequest: Option.Option<PaymentRequestPaid>,
+) =>
+  Option.match(paidRequest, {
+    onNone: () => ({
+      subtitle: "Recibiste",
+      detail: `${partyName(from)} te envió este pago.`,
+    }),
+    onSome: ({ note }) => ({
+      subtitle: m.activity_paid_request(),
+      detail:
+        note === undefined
+          ? m.activity_paid_request_detail({ name: partyName(from) })
+          : m.activity_paid_request_noted({ name: partyName(from), note }),
+    }),
+  });
+
+export const shownEntry = (
+  entry: ActivityEntry,
+  paidRequest: Option.Option<PaymentRequestPaid>,
+): ShownEntry =>
   Match.valueTags(entry, {
     SentActivity: sentEntry,
     ReceivedActivity: (received) =>
       receivedEntry(received, {
-        subtitle: "Recibiste",
+        ...receivedText(received.from, paidRequest),
         badge: Option.none(),
         direction: "in",
-        detail: `${partyName(received.from)} te envió este pago.`,
       }),
     AwaitingAcceptanceActivity: (awaiting) =>
       receivedEntry(awaiting, {
@@ -330,6 +354,21 @@ export const shownEntry = (entry: ActivityEntry): ShownEntry =>
       openLink: false,
     }),
   });
+
+export const paidRequestOf = (
+  paidRequests: ReadonlyArray<PaidRequest>,
+  entry: ActivityEntry,
+) =>
+  Option.map(
+    Option.fromNullishOr(
+      paidRequests.find(
+        (paid) =>
+          Predicate.isTagged(entry, "ReceivedActivity") &&
+          paid.payment === entry.id,
+      ),
+    ),
+    (paid) => paid.request,
+  );
 
 export const entryKey = (entry: ActivityEntry) => `${entry._tag}:${entry.id}`;
 

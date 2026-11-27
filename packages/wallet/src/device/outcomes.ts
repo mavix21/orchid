@@ -11,7 +11,8 @@ import {
   ExternalLinkOrder,
   type ExternalLinkStep,
   OpenPaymentLink,
-  type ActivityStep,
+  type RequestActivityStep,
+  type PayPaymentRequestRefusal,
   type OpenPaymentLinks,
   ReceivedPaymentLink,
   type AddressBound,
@@ -276,6 +277,18 @@ export type ConfirmOutcome =
   | PrfOutputMissing
   | CorruptDeviceWallet;
 
+export type ReviewRequestPaymentOutcome =
+  | ReviewOutcome
+  | PayPaymentRequestRefusal;
+
+export type ConfirmRequestPaymentOutcome =
+  | ConfirmOutcome
+  | PayPaymentRequestRefusal;
+
+export type ResumeRequestPaymentOutcome =
+  | ResumeOutcome
+  | PayPaymentRequestRefusal;
+
 export class PaymentLinkIntent extends Schema.Class<PaymentLinkIntent>(
   "@workspace/wallet/PaymentLinkIntent",
 )({
@@ -347,7 +360,7 @@ export type PaymentLinksOutcome =
   | WalletUnavailable;
 
 export type ActivityOutcome =
-  | ActivityStep
+  | RequestActivityStep
   | NoWallet
   | UnsupportedDevice
   | WalletUnavailable;

@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import type * as Redacted from "effect/Redacted";
 import * as Ref from "effect/Ref";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import {
   type AccountAddress,
@@ -21,7 +22,7 @@ import {
   type CorruptDeviceWallet,
   type KeyStore,
   type KeyStoreUnavailable,
-  PublicDeviceWallet,
+  type PublicDeviceWallet,
   type SealedDevice,
   type SealedDeviceWallet,
 } from "./key-store";
@@ -51,7 +52,9 @@ import {
   standingNow,
 } from "./payment-reviews";
 import { type Reserved, approveReviewed } from "./reviewed-approval";
-import { concludedLink, recordsStore } from "./saved-links";
+import { claimOrderSlot, forgetOrder } from "./order-slots";
+import { recordsStore } from "./saved-links";
+import type { TransferRoute } from "./transfer-route";
 import {
   type FundingReservation,
   reserveApproval,
@@ -90,47 +93,13 @@ export interface Reviews {
   readonly device: SealedDevice | undefined;
 }
 
-export function sendTransfer(
+export function sendTransfer<R>(
   port: WalletPort,
+  route: TransferRoute<R>,
   store: KeyStore,
   reviews?: Reviews,
 ) {
   const records = recordsStore(store, reviews?.device?.store);
-
-  const forget = (
-    address: AccountAddress,
-    order: TransferOrder,
-    concluded: Settled | Failed,
-  ) =>
-    records
-      .updateRecords(({ wallet: current, links }) => {
-        if (current.address !== address) return Option.none();
-
-        const concludedLinks = concludedLink(
-          links,
-          current.address,
-          order,
-          concluded,
-        );
-
-        const clears = current.transfer?.id === order.id;
-
-        if (!clears && concludedLinks === links) return Option.none();
-
-        return Option.some({
-          wallet: clears
-            ? new PublicDeviceWallet({
-                ...current,
-                transfer: undefined,
-                approvedUntil: undefined,
-                linkReceipt: undefined,
-                transferRevision: orderRevision(current) + 1,
-              })
-            : current,
-          links: concludedLinks,
-        });
-      })
-      .pipe(Effect.asVoid);
 
   const advance = <D>(
     initial: PublicDeviceWallet,
@@ -138,7 +107,10 @@ export function sendTransfer(
     onDraft: DraftHandler<D>,
     released: Option.Option<Approval> = Option.none(),
     refusedBeforeRelease: Effect.Effect<void> = Effect.void,
-  ): Effect.Effect<D | SendOutcome, WalletUnavailable | KeyStoreUnavailable> =>
+  ): Effect.Effect<
+    D | R | SendOutcome,
+    WalletUnavailable | KeyStoreUnavailable
+  > =>
     Effect.gen(function* () {
       let wallet = initial;
       let approval = released;
@@ -146,16 +118,16 @@ export function sendTransfer(
       let attempts = 0;
 
       const step: Effect.Effect<
-        SendTurn<D>,
+        SendTurn<D | R>,
         WalletUnavailable | KeyStoreUnavailable
       > = Effect.gen(function* () {
         const submitted = Option.isSome(approval);
 
         attempts++;
 
-        const attempt = port.transfer(order, approval);
+        const attempt = route.transfer(order, approval);
 
-        const response = yield* submitted
+        const answered = yield* submitted
           ? attempt.pipe(
               Effect.tapErrorTag(
                 ["SessionRequired", "RateLimited"],
@@ -166,7 +138,13 @@ export function sendTransfer(
 
         approval = Option.none();
 
-        return yield* Match.valueTags(response, {
+        if (Result.isFailure(answered)) {
+          if (submitted) yield* refusedBeforeRelease;
+
+          return { done: Option.some(answered.failure), pause: false };
+        }
+
+        return yield* Match.valueTags(answered.success, {
           TransferDraft: (draft) =>
             onDraft(
               wallet,
@@ -192,14 +170,14 @@ export function sendTransfer(
               pause: !submitted,
             }),
           Settled: (settled) =>
-            forget(wallet.address, order, settled).pipe(
+            forgetOrder(records, wallet.address, order, settled).pipe(
               Effect.as<SendTurn<D>>({
                 done: Option.some(settled),
                 pause: false,
               }),
             ),
           Failed: (failed) =>
-            forget(wallet.address, order, failed).pipe(
+            forgetOrder(records, wallet.address, order, failed).pipe(
               Effect.as<SendTurn<D>>({
                 done: Option.some(failed),
                 pause: false,
@@ -233,7 +211,7 @@ export function sendTransfer(
       });
 
       const last = yield* Effect.repeat(step, {
-        schedule: pollSchedule<SendTurn<D>>(
+        schedule: pollSchedule<SendTurn<D | R>>(
           (turn) => Option.isNone(turn.done),
           (turn) => turn.pause,
         ),
@@ -289,7 +267,10 @@ export function sendTransfer(
   const prepared = <D>(
     intent: TransferIntent,
     onDraft: DraftHandler<D>,
-  ): Effect.Effect<D | SendOutcome, WalletUnavailable | KeyStoreUnavailable> =>
+  ): Effect.Effect<
+    D | R | SendOutcome,
+    WalletUnavailable | KeyStoreUnavailable
+  > =>
     Effect.gen(function* () {
       const stored = yield* store.readPublic();
 
@@ -299,7 +280,10 @@ export function sendTransfer(
       const address = observed.address;
 
       for (let attempt = 0; attempt < 2; attempt++) {
-        if (matchesIntent(observed, intent) && observed.transfer !== undefined)
+        if (
+          matchesIntent(observed, intent, route.paymentRequest) &&
+          observed.transfer !== undefined
+        )
           return yield* advance(observed, observed.transfer, onDraft);
 
         let reconciled = false;
@@ -336,44 +320,14 @@ export function sendTransfer(
           from: address,
         });
 
-        const expected = observed;
-
-        const replaced = observed.transfer;
-
-        const claimed = yield* records.updateRecords(
-          ({ wallet: current, links }) => {
-            if (current.address !== address) return Option.none();
-
-            if (matchesIntent(current, intent)) return Option.none();
-
-            const unchanged = sameOrderSlot(current, expected);
-
-            const clearedObserved =
-              reconciled &&
-              current.transfer === undefined &&
-              orderRevision(current) === orderRevision(expected) + 1;
-
-            if (!unchanged && !clearedObserved) return Option.none();
-
-            return Option.some({
-              wallet: new PublicDeviceWallet({
-                ...current,
-                transfer: candidate,
-                approvedUntil: undefined,
-                linkReceipt: undefined,
-                transferRevision: orderRevision(current) + 1,
-              }),
-              links:
-                replaced === undefined
-                  ? links
-                  : Option.match(concluded, {
-                      onNone: () => links,
-                      onSome: (outcome) =>
-                        concludedLink(links, address, replaced, outcome),
-                    }),
-            });
-          },
-        );
+        const claimed = yield* claimOrderSlot(records, {
+          expected: observed,
+          intent,
+          paymentRequest: route.paymentRequest,
+          candidate,
+          reconciled,
+          concluded,
+        });
 
         if (Option.isNone(claimed)) return new NoWallet();
 
@@ -381,7 +335,10 @@ export function sendTransfer(
 
         if (wallet.address !== address) return new UnsupportedDevice();
 
-        if (matchesIntent(wallet, intent) && wallet.transfer !== undefined)
+        if (
+          matchesIntent(wallet, intent, route.paymentRequest) &&
+          wallet.transfer !== undefined
+        )
           return yield* advance(wallet, wallet.transfer, onDraft);
 
         if (
@@ -421,7 +378,9 @@ export function sendTransfer(
   });
 
   const observed = (wallet: PublicDeviceWallet, id: TransferId) =>
-    wallet.transfer?.id === id && wallet.approvedUntil !== undefined
+    wallet.transfer?.id === id &&
+    wallet.paymentRequest === route.paymentRequest &&
+    wallet.approvedUntil !== undefined
       ? advance(wallet, wallet.transfer, observeDraft(observing))
       : Effect.succeed(new NoTransfer());
 
@@ -464,7 +423,10 @@ export function sendTransfer(
 
   const resume = Effect.fn("Device.resume")(function* (
     id: TransferId,
-  ): Effect.fn.Return<ResumeOutcome, WalletUnavailable | KeyStoreUnavailable> {
+  ): Effect.fn.Return<
+    ResumeOutcome | R,
+    WalletUnavailable | KeyStoreUnavailable
+  > {
     const stored = yield* store.readPublic();
 
     if (Option.isNone(stored)) return new NoWallet();
@@ -475,7 +437,7 @@ export function sendTransfer(
 
     return Option.getOrElse(
       yield* recorded(stored.value.address, id),
-      (): ResumeOutcome => answered,
+      (): ResumeOutcome | R => answered,
     );
   });
 
@@ -502,7 +464,7 @@ export function sendTransfer(
     shown: PaymentReview,
     saving: LinkSaving<W> | undefined,
   ): Effect.fn.Return<
-    ConfirmOutcome | W,
+    ConfirmOutcome | R | W,
     WalletUnavailable | KeyStoreUnavailable | CorruptDeviceWallet
   > {
     if (reviews?.device === undefined) return new UnsupportedDevice();
@@ -527,7 +489,11 @@ export function sendTransfer(
     const observed = record.public;
     const order = observed.transfer;
 
-    if (order === undefined || orderJson(order) !== orderJson(presented.order))
+    if (
+      order === undefined ||
+      observed.paymentRequest !== route.paymentRequest ||
+      orderJson(order) !== orderJson(presented.order)
+    )
       return new DraftRejected();
 
     if (approvalOutstanding(observed, yield* nowSeconds))
@@ -543,7 +509,7 @@ export function sendTransfer(
     const approved = yield* approveReviewed<
       FundingReservation,
       W | ApprovalOutstanding | DraftRejected | NoWallet,
-      SendOutcome | NoTransfer,
+      SendOutcome | NoTransfer | R,
       KeyStoreUnavailable | CorruptDeviceWallet,
       WalletUnavailable | KeyStoreUnavailable
     >(device, {

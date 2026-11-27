@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
@@ -13,8 +14,10 @@ import {
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
+import { PasskeyBrowserGate } from "@/browser/passkey-browser-gate";
 import { BrandLogo } from "@/components/brand-logo";
 import { FlowerAvatar } from "@/components/flower-avatar";
 import {
@@ -24,9 +27,11 @@ import {
   ScreenStatus,
 } from "@/components/screen";
 import { linkPreviewMeta } from "@/links/link-preview";
+import { PayRequest } from "@/requests/pay-request";
 import { paymentRequestPort } from "@/requests/payment-requests.functions";
 import { amountLabel } from "@/send/money";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
+import { useSavedUsername } from "@/wallet/use-saved-username";
 import { m } from "@/paraglide/messages";
 
 const PaymentRequestAnswer = Schema.Union([
@@ -110,6 +115,14 @@ export const Route = createFileRoute("/pay/$id")({
 
 function PaymentRequestPage() {
   const answer = decodeAnswer(Route.useLoaderData());
+  const [paying, setPaying] = useState(false);
+
+  if (paying && Predicate.isTagged(answer, "PaymentRequestOpen"))
+    return (
+      <PasskeyBrowserGate>
+        <PayRequest request={answer} onBack={() => setPaying(false)} />
+      </PasskeyBrowserGate>
+    );
 
   const found = (request: FoundRequest, status: React.ReactNode) => (
     <RequestDetails request={request} status={status} />
@@ -125,11 +138,17 @@ function PaymentRequestPage() {
         <BrandLogo />
       </header>
       {Match.valueTags(answer, {
-        PaymentRequestOpen: (request) =>
-          found(
-            request,
-            <Badge variant="warning">{m.payment_request_status_open()}</Badge>,
-          ),
+        PaymentRequestOpen: (request) => (
+          <>
+            {found(
+              request,
+              <Badge variant="warning">
+                {m.payment_request_status_open()}
+              </Badge>,
+            )}
+            <PayAction request={request} onPay={() => setPaying(true)} />
+          </>
+        ),
         PaymentRequestPaid: (request) =>
           found(
             request,
@@ -159,6 +178,27 @@ function PaymentRequestPage() {
         InvalidResponse: unavailable,
       })}
     </Screen>
+  );
+}
+
+function PayAction({
+  request,
+  onPay,
+}: {
+  request: PaymentRequestOpen;
+  onPay: () => void;
+}) {
+  const saved = useSavedUsername();
+
+  if (!saved.read || Option.contains(saved.username, request.requester))
+    return null;
+
+  return (
+    <ScreenActions>
+      <Button className="w-full" data-testid="pay-request" onClick={onPay}>
+        {m.pay_request_action()}
+      </Button>
+    </ScreenActions>
   );
 }
 

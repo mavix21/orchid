@@ -7,6 +7,7 @@ import {
   LinkRecipient,
   PaymentLinkReceipt,
   type PaymentMemo,
+  type PaymentRequestId,
   Profile,
   type TransferDraft,
   TransferOrder,
@@ -26,6 +27,7 @@ export const sameOrderSlot = (
   right: PublicDeviceWallet,
 ) =>
   left.transfer?.id === right.transfer?.id &&
+  left.paymentRequest === right.paymentRequest &&
   left.approvedUntil === right.approvedUntil &&
   receiptJson(left.linkReceipt ?? null) ===
     receiptJson(right.linkReceipt ?? null) &&
@@ -62,8 +64,10 @@ export const approvalOutstanding = (wallet: PublicDeviceWallet, now: number) =>
 export const matchesIntent = (
   wallet: PublicDeviceWallet,
   intent: TransferIntent,
+  paymentRequest: PaymentRequestId | undefined,
 ) =>
   wallet.transfer !== undefined &&
+  wallet.paymentRequest === paymentRequest &&
   orderJson(wallet.transfer) ===
     orderJson(
       new TransferOrder({

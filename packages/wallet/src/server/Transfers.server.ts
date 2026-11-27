@@ -109,6 +109,7 @@ export class Transfers extends Context.Service<
       id: TransferId,
       settlement: Applied | Rejected | Expired,
     ): Effect.Effect<Concluded, StoreFailure>;
+    discardProposed(id: TransferId): Effect.Effect<boolean, StoreFailure>;
     inFlight(
       runStartedAt: DateTime.Utc,
     ): Effect.Effect<ReadonlyArray<Authorized>, StoreFailure>;
@@ -484,6 +485,25 @@ export class Transfers extends Context.Service<
         return current;
       });
 
+      const discardProposed = Effect.fn("Transfers.discardProposed")(function* (
+        id: TransferId,
+      ) {
+        const now = yield* Clock.currentTimeMillis;
+
+        const discarded = yield* db
+          .delete(transfers)
+          .where(
+            and(
+              scopeAt(now),
+              eq(transfers.id, id),
+              eq(transfers.status, "proposed"),
+            ),
+          )
+          .returning({ id: transfers.id });
+
+        return discarded.length > 0;
+      });
+
       const wrap = <A, E>(program: Effect.Effect<A, E>) =>
         program.pipe(Effect.mapError((cause) => new StoreFailure({ cause })));
 
@@ -513,6 +533,7 @@ export class Transfers extends Context.Service<
             authorize(proposed, sealed).pipe(Effect.tap(announceAuthorized)),
           ),
         conclude: (id, settlement) => wrap(conclude(id, settlement)),
+        discardProposed: (id) => wrap(discardProposed(id)),
         inFlight: (runStartedAt) =>
           wrap(
             stuckTransfers(runStartedAt, decode).pipe(

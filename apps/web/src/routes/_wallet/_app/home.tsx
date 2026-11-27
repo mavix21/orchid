@@ -12,6 +12,7 @@ import {
   type WalletUnavailable,
   baseAsset,
 } from "@workspace/wallet";
+import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 
@@ -21,6 +22,7 @@ import { HomeSkeleton } from "@/components/home-skeleton";
 import { Screen, ScreenNote, ScreenStatus } from "@/components/screen";
 import { arrivalOf } from "@/wallet/arrival";
 import { OpeningFlow } from "@/wallet/opening-flow";
+import { paymentRequestEffects } from "@/wallet/payment-requests";
 import { shownOverview } from "@/wallet/shown-overview";
 import {
   retryable,
@@ -37,7 +39,7 @@ export const Route = createFileRoute("/_wallet/_app/home")({
     const [overview, saved, activity] = await Promise.all([
       context.walletClient.overview(),
       context.walletClient.saved(),
-      context.walletClient.activity(),
+      Effect.runPromise(paymentRequestEffects.activity()),
     ]);
 
     return {

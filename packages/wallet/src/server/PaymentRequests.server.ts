@@ -1,12 +1,25 @@
 import { Database } from "@workspace/db";
-import { and, desc, eq } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNotNull,
+  isNull,
+} from "drizzle-orm";
+import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
+import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
+import { isSqlError } from "effect/sql/SqlError";
 import {
   type AccountAddress,
   AssetCode,
@@ -18,26 +31,33 @@ import {
   NotOpened,
   OpenPaymentRequests,
   type OpenPaymentRequestsStep,
+  type PaidRequest,
   PaymentRequestAssetUnsupported,
+  PaymentRequestBeingPaid,
   PaymentRequestCancelled,
   PaymentRequestId,
+  PaymentRequestLimitReached,
   PaymentRequestNote,
   PaymentRequestNotFound,
   PaymentRequestOpen,
   PaymentRequestPaid,
+  PaymentRequestPaymentTaken,
   type PaymentRequestPort,
   type PaymentRequestStep,
   PositiveAmount,
   type Profile,
+  TransferId,
   Username,
   baseAsset,
   sameAsset,
 } from "../contract";
+import { openPaymentRequestQuota } from "../policy";
 import { epochAt, network } from "../record-network";
 import { Directory } from "./Directory.server";
 import { Principal } from "./Principal.server";
+import { walletLock } from "./slot.server";
 import { StoreFailure } from "./store-failure.server";
-import { paymentRequests } from "./tables.server";
+import { paymentRequests, usernames } from "./tables.server";
 
 type PaymentRequestRow = typeof paymentRequests.$inferSelect;
 
@@ -83,9 +103,68 @@ const sameRequest = (
   row.amount === request.amount &&
   row.note === (request.note ?? null);
 
+const paymentIndex = "payment_requests_payment";
+
+const violatesPaymentIndex = (error: EffectDrizzleQueryError) =>
+  Cause.isCause(error.cause) &&
+  Option.exists(
+    Cause.findErrorOption(error.cause),
+    (failure) =>
+      isSqlError(failure) &&
+      Predicate.isTagged(failure.reason, "UniqueViolation") &&
+      failure.reason.constraint === paymentIndex,
+  );
+
+export interface RequestBinding {
+  readonly payment: string;
+  readonly expiresAt: Option.Option<DateTime.Utc>;
+}
+
+export interface InspectedRequest {
+  readonly step:
+    | PaymentRequestOpen
+    | PaymentRequestPaid
+    | PaymentRequestCancelled;
+  readonly binding: Option.Option<RequestBinding>;
+}
+
+const inspectedOf = (row: PaymentRequestRow): InspectedRequest => ({
+  step: stepOf(row),
+  binding: Option.map(Option.fromNullishOr(row.payment), (payment) => ({
+    payment,
+    expiresAt: Option.map(
+      Option.fromNullishOr(row.paymentExpiresAt),
+      DateTime.fromDateUnsafe,
+    ),
+  })),
+});
+
 export class PaymentRequests extends Context.Service<
   PaymentRequests,
-  PaymentRequestPort<StoreFailure>
+  PaymentRequestPort<StoreFailure> & {
+    inspect(
+      id: PaymentRequestId,
+    ): Effect.Effect<Option.Option<InspectedRequest>, StoreFailure>;
+    openBound(
+      address: AccountAddress,
+    ): Effect.Effect<ReadonlyArray<PaymentRequestId>, StoreFailure>;
+    paidBy(
+      payments: ReadonlyArray<TransferId>,
+    ): Effect.Effect<ReadonlyArray<PaidRequest>, StoreFailure>;
+    bind(
+      id: PaymentRequestId,
+      payment: TransferId,
+      expiresAt: DateTime.Utc,
+    ): Effect.Effect<boolean | PaymentRequestPaymentTaken, StoreFailure>;
+    release(
+      id: PaymentRequestId,
+      payment: TransferId,
+    ): Effect.Effect<void, StoreFailure>;
+    markPaid(
+      id: PaymentRequestId,
+      payment: TransferId,
+    ): Effect.Effect<void, StoreFailure>;
+  }
 >()("@workspace/wallet/server/PaymentRequests") {
   static readonly serviceLayer = Layer.effect(
     PaymentRequests,
@@ -124,6 +203,12 @@ export class PaymentRequests extends Context.Service<
         return Option.fromNullishOr(rows[0]);
       });
 
+      const openFrom = (requester: Username) =>
+        and(
+          eq(paymentRequests.requester, requester),
+          eq(paymentRequests.status, "open"),
+        );
+
       const requesterAt = Effect.fn("PaymentRequests.requesterAt")(function* (
         address: AccountAddress,
       ): Effect.fn.Return<
@@ -132,16 +217,8 @@ export class PaymentRequests extends Context.Service<
       > {
         const wallet = yield* directory.byAddress(address);
 
-        if (Option.isNone(wallet)) return new NotOpened();
-
-        if (wallet.value.status === "opening") {
-          const bound = yield* directory.unopened(wallet.value);
-
-          return Option.match(bound, {
-            onNone: () => new NotOpened(),
-            onSome: (profile) => ({ profile, recovered: false }),
-          });
-        }
+        if (Option.isNone(wallet) || wallet.value.status === "opening")
+          return new NotOpened();
 
         return {
           profile: yield* directory.profile(wallet.value),
@@ -165,37 +242,70 @@ export class PaymentRequests extends Context.Service<
           return new PaymentRequestAssetUnsupported();
 
         const now = yield* Clock.currentTimeMillis;
+        const scope = yield* current;
 
-        yield* stored(
-          db
-            .insert(paymentRequests)
-            .values({
-              id: request.id,
-              requester: profile.username,
-              network,
-              testnetEpoch: epochAt(now),
-              assetId: request.asset.id,
-              assetCode: request.asset.code,
-              amount: request.amount,
-              note: request.note ?? null,
-              status: "open",
-            })
-            .onConflictDoNothing(),
+        const written = yield* stored(
+          db.transaction((tx) =>
+            Effect.gen(function* () {
+              yield* tx.execute(walletLock(address));
+
+              const own = tx
+                .select()
+                .from(paymentRequests)
+                .where(
+                  and(
+                    scope,
+                    eq(paymentRequests.id, request.id),
+                    eq(paymentRequests.requester, profile.username),
+                  ),
+                );
+
+              const [replayed] = yield* own;
+
+              if (replayed) return replayed;
+
+              const [opened] = yield* tx
+                .select({ total: count() })
+                .from(paymentRequests)
+                .where(and(scope, openFrom(profile.username)));
+
+              if ((opened?.total ?? 0) >= openPaymentRequestQuota)
+                return new PaymentRequestLimitReached({
+                  limit: openPaymentRequestQuota,
+                });
+
+              yield* tx
+                .insert(paymentRequests)
+                .values({
+                  id: request.id,
+                  requester: profile.username,
+                  network,
+                  testnetEpoch: epochAt(now),
+                  assetId: request.asset.id,
+                  assetCode: request.asset.code,
+                  amount: request.amount,
+                  note: request.note ?? null,
+                  status: "open",
+                })
+                .onConflictDoNothing();
+
+              const [inserted] = yield* own;
+
+              return inserted;
+            }),
+          ),
         );
 
-        const found = yield* find(request.id, profile.username);
+        if (written instanceof PaymentRequestLimitReached) return written;
 
-        if (
-          Option.isNone(found) ||
-          !sameRequest(found.value, profile.username, request)
-        )
+        if (!written || !sameRequest(written, profile.username, request))
           return yield* new StoreFailure({
             cause: new Error(
               "Payment request id cannot identify a different request",
             ),
           });
 
-        return stepOf(found.value);
+        return stepOf(written);
       });
 
       const read = Effect.fn("PaymentRequests.read")(function* (
@@ -222,13 +332,7 @@ export class PaymentRequests extends Context.Service<
           db
             .select()
             .from(paymentRequests)
-            .where(
-              and(
-                scope,
-                eq(paymentRequests.requester, requester.profile.username),
-                eq(paymentRequests.status, "open"),
-              ),
-            )
+            .where(and(scope, openFrom(requester.profile.username)))
             .orderBy(desc(paymentRequests.createdAt), paymentRequests.id),
         );
 
@@ -259,6 +363,7 @@ export class PaymentRequests extends Context.Service<
                 eq(paymentRequests.id, id),
                 eq(paymentRequests.requester, username),
                 eq(paymentRequests.status, "open"),
+                isNull(paymentRequests.payment),
               ),
             )
             .returning(),
@@ -272,15 +377,166 @@ export class PaymentRequests extends Context.Service<
 
         const settled = stepOf(found.value);
 
-        if (settled instanceof PaymentRequestOpen)
-          return yield* new StoreFailure({
-            cause: new Error("Open payment request was not cancelled"),
-          });
-
-        return settled;
+        return settled instanceof PaymentRequestOpen
+          ? new PaymentRequestBeingPaid()
+          : settled;
       });
 
-      return PaymentRequests.of({ create, read, open, cancel });
+      const inspect = Effect.fn("PaymentRequests.inspect")(function* (
+        id: PaymentRequestId,
+      ) {
+        return Option.map(yield* find(id), inspectedOf);
+      });
+
+      const openBound = Effect.fn("PaymentRequests.openBound")(function* (
+        address: AccountAddress,
+      ) {
+        const scope = yield* current;
+
+        const rows = yield* stored(
+          db
+            .select({ id: paymentRequests.id })
+            .from(paymentRequests)
+            .innerJoin(
+              usernames,
+              eq(usernames.username, paymentRequests.requester),
+            )
+            .where(
+              and(
+                scope,
+                eq(usernames.address, address),
+                eq(paymentRequests.status, "open"),
+                isNotNull(paymentRequests.payment),
+              ),
+            ),
+        );
+
+        return rows.map((row) => Schema.decodeSync(PaymentRequestId)(row.id));
+      });
+
+      const paidBy = Effect.fn("PaymentRequests.paidBy")(function* (
+        payments: ReadonlyArray<TransferId>,
+      ) {
+        if (payments.length === 0) return [];
+
+        const scope = yield* current;
+
+        const rows = yield* stored(
+          db
+            .select(getTableColumns(paymentRequests))
+            .from(paymentRequests)
+            .where(
+              and(
+                scope,
+                eq(paymentRequests.status, "paid"),
+                inArray(paymentRequests.payment, [...payments]),
+              ),
+            ),
+        );
+
+        return rows.flatMap((row) =>
+          row.payment === null
+            ? []
+            : [
+                {
+                  payment: Schema.decodeSync(TransferId)(row.payment),
+                  request: new PaymentRequestPaid(requestOf(row)),
+                },
+              ],
+        );
+      });
+
+      const bindingTo = (id: PaymentRequestId, payment: TransferId) =>
+        Effect.map(current, (scope) =>
+          and(
+            scope,
+            eq(paymentRequests.id, id),
+            eq(paymentRequests.status, "open"),
+            eq(paymentRequests.payment, payment),
+          ),
+        );
+
+      const bind = Effect.fn("PaymentRequests.bind")(function* (
+        id: PaymentRequestId,
+        payment: TransferId,
+        expiresAt: DateTime.Utc,
+      ) {
+        const scope = yield* current;
+
+        const bound = yield* db
+          .update(paymentRequests)
+          .set({ payment, paymentExpiresAt: DateTime.toDateUtc(expiresAt) })
+          .where(
+            and(
+              scope,
+              eq(paymentRequests.id, id),
+              eq(paymentRequests.status, "open"),
+              isNull(paymentRequests.payment),
+            ),
+          )
+          .returning({ id: paymentRequests.id })
+          .pipe(
+            Effect.map((rows) => rows.length > 0),
+            Effect.catchIf(violatesPaymentIndex, () =>
+              Effect.succeed(new PaymentRequestPaymentTaken()),
+            ),
+            stored,
+          );
+
+        if (bound !== false) return bound;
+
+        const held = yield* stored(
+          db
+            .select({ id: paymentRequests.id })
+            .from(paymentRequests)
+            .where(yield* bindingTo(id, payment)),
+        );
+
+        return held.length > 0;
+      });
+
+      const release = Effect.fn("PaymentRequests.release")(function* (
+        id: PaymentRequestId,
+        payment: TransferId,
+      ) {
+        yield* stored(
+          db
+            .update(paymentRequests)
+            .set({ payment: null, paymentExpiresAt: null })
+            .where(yield* bindingTo(id, payment)),
+        );
+      });
+
+      const markPaid = Effect.fn("PaymentRequests.markPaid")(function* (
+        id: PaymentRequestId,
+        payment: TransferId,
+      ) {
+        const now = yield* Clock.currentTimeMillis;
+
+        yield* stored(
+          db
+            .update(paymentRequests)
+            .set({
+              status: "paid",
+              paidAt: new Date(now),
+              paymentExpiresAt: null,
+            })
+            .where(yield* bindingTo(id, payment)),
+        );
+      });
+
+      return PaymentRequests.of({
+        create,
+        read,
+        open,
+        cancel,
+        inspect,
+        openBound,
+        paidBy,
+        bind,
+        release,
+        markPaid,
+      });
     }),
   );
   static readonly layer = PaymentRequests.serviceLayer.pipe(
