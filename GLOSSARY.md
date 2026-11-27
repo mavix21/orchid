@@ -19,10 +19,10 @@ _Avoid_: Recovery, import.
 **Account address**: The public identifier of an account on the wallet's network, which decides what a valid one looks like.
 _Avoid_: Username, private key.
 
-**Username**: A permanent name bound to one account address when the wallet is created. It resolves as a recipient while the wallet is unopened or active and stays bound if the wallet's account leaves the network.
+**Username**: A permanent name bound to one account address when the wallet is created. It resolves as a recipient only while the wallet is active, and stays bound if the wallet's account leaves the network.
 _Avoid_: Temporary alias, recyclable handle.
 
-**Unopened wallet**: A wallet whose username is bound and whose backup is stored, but whose sponsored account does not exist on the network yet. Creating a wallet signs its opening, so a new wallet stays unopened only until that opening settles, or if it fails.
+**Unopened wallet**: A wallet whose username is bound and whose backup is stored, but whose sponsored account does not exist on the network yet. Only its holder sees it: its username resolves to nobody, so nothing can be paid to it. Creating a wallet signs its opening, so a new wallet stays unopened only until that opening settles, or if it fails.
 _Avoid_: Inactive wallet, pending wallet.
 
 **Opening**: Establishing or repairing the sponsored account and base trustline so an unopened wallet, or one whose account left the network, can become active. Orchid never closes an open wallet to take its reserves back.
@@ -46,7 +46,7 @@ _Avoid_: Transaction when referring to the user's instruction rather than its ne
 **Transfer intent**: What the user entered to send (recipient, asset, amount and optional payment memo) before the device turns it into a transfer order.
 _Avoid_: Order when referring to the entry before it has an id.
 
-**Unclaimed funds**: An asset amount that has left its sender and that the network holds until someone claims it, because no wallet can receive it yet: a **Payment link** holds one, and so does a payment to an **Unopened wallet** or to a wallet that cannot hold the **Asset** yet. The sender takes it back by claiming it. An identifier, which only the network can interpret, tells it apart from all other unclaimed funds.
+**Unclaimed funds**: An asset amount that has left its sender and that the network holds until someone claims it, because no wallet can receive it yet: a **Payment link** holds one, and so does a payment to a wallet that cannot hold the **Asset** yet. The sender takes it back by claiming it. An identifier, which only the network can interpret, tells it apart from all other unclaimed funds.
 _Avoid_: Claimable balance; escrow, because nobody has custody of the funds; balance, which is what a wallet holds.
 
 **Payment link**: A URL that carries the **Link code** for **Unclaimed funds**, so whoever opens it can receive them or send them to another address.
