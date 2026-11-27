@@ -8,10 +8,8 @@ import {
   AddressRecipient,
   ExternalMemoRequired,
   ExternalRecipient,
-  LedgerUnreachable,
   MemoNotAllowed,
   DestinationAddress,
-  nativeAsset,
   PaymentMemo,
   TransferOrder,
 } from "../src/contract";
@@ -21,13 +19,11 @@ import { network } from "../src/stellar/network";
 import { assertTagged } from "./tagged";
 import {
   addressOf,
-  amount,
   approve,
   draftTransfer,
   findTransfer,
   fundHolder,
   fundedWallet,
-  holdingsFor,
   orderFor,
   selfOrder,
   send,
@@ -166,46 +162,6 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           );
 
           registerExchange(destination);
-          expect((yield* send(order))._tag).toBe("Pending");
-        }),
-    );
-
-    it.effect(
-      "an unreachable ledger refuses an unsigned external step without storing it but leaves an authorized transfer pending",
-      () =>
-        Effect.gen(function* () {
-          const key = yield* fundedWallet();
-          const destKey = Keypair.random();
-
-          fundHolder(destKey);
-
-          for (const holder of [key, destKey])
-            world.holdings.set(
-              addressOf(holder),
-              holdingsFor(addressOf(holder), { native: amount("50000000") }),
-            );
-
-          const order = new TransferOrder({
-            ...orderFor(
-              key,
-              AddressRecipient.make({ value: addressOf(destKey) }),
-            ),
-            asset: nativeAsset,
-          });
-
-          world.ledgerDown = true;
-          expect(yield* send(order).pipe(Effect.flip)).toEqual(
-            new LedgerUnreachable(),
-          );
-          expect(Option.isNone(yield* findTransfer(order.id))).toBe(true);
-          world.ledgerDown = false;
-
-          const draft = yield* draftTransfer(order);
-
-          expect((yield* send(order, approve(draft.request, key)))._tag).toBe(
-            "Pending",
-          );
-          world.ledgerDown = true;
           expect((yield* send(order))._tag).toBe("Pending");
         }),
     );

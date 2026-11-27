@@ -50,12 +50,11 @@ export class PayoutPartner extends Context.Service<
     );
 
   static readonly sandbox = (completesAfter: Duration.Input) =>
-    Layer.effect(
-      PayoutPartner,
+    Layer.unwrap(
       Effect.gen(function* () {
         const { feePayerSecret } = yield* WalletSettings;
 
-        return sandboxPartner(
+        return PayoutPartner.depositingTo(
           Schema.decodeSync(AccountAddress)(
             sandboxPartnerKeypair(
               Keypair.fromSecret(Redacted.value(feePayerSecret)),

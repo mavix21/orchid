@@ -135,6 +135,14 @@ export const draftedReceive = (request: SigningRequest) => {
     : Option.none();
 };
 
+const createsAccount = DraftedChange.$match({
+  Opened: () => true,
+  Paid: () => false,
+  Held: () => false,
+  AssetChanged: () => false,
+  LinkReceived: ({ receive }) => receive.createsLinkAccount,
+});
+
 const ledgerDown = () =>
   Effect.fail(new ChainUnreachable({ cause: new Error("Ledger down") }));
 
@@ -396,7 +404,10 @@ export const memoryChain = Layer.succeed(
       ),
     draftLinkReceive: (receive) =>
       recordedDraft(receive.link, DraftedChange.LinkReceived({ receive })),
-    cleanUpLink: (link) => Effect.sync(() => !world.accounts.delete(link)),
+    cleanUpLink: (link) =>
+      Effect.sync(
+        () => !world.unmergeable.has(link) && !world.accounts.delete(link),
+      ),
     depositFeed: "memory-ledger",
     resumeDeposits: (cursor) =>
       Effect.as(cursor, EventsStart.FromLedger({ ledger: 0 })),
@@ -434,7 +445,7 @@ export const memoryChain = Layer.succeed(
 
         const draft = sealedDrafts.get(sealed.hash);
 
-        if (draft && DraftedChange.$is("Opened")(draft.change))
+        if (draft && createsAccount(draft.change))
           world.accounts.set(
             draft.signer,
             accountState({

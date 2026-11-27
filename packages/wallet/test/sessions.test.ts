@@ -73,6 +73,7 @@ const enrollBackedWallet = (
       "OpeningPending",
     );
     yield* settleSubmitted();
+    assertTagged(yield* port.open(claim, Option.none()), "Opened");
   });
 
 const sessionAssertion = (

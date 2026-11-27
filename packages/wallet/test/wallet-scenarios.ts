@@ -13,6 +13,7 @@ import {
   type ActivityPage,
   Approval,
   type Approvals,
+  AssetOrder,
   AssetOrderId,
   type CheckedRecipient,
   type HumanCheckRefused,
@@ -215,6 +216,18 @@ export const draftTransfer = Effect.fn(function* (order: TransferOrder) {
 
 export const assetOrderId = () =>
   Schema.decodeSync(AssetOrderId)(crypto.randomUUID());
+
+export const manage = (
+  order: AssetOrder,
+  approval: Option.Option<Approval> = Option.none(),
+) => Wallet.use((w) => w.manage(order, approval));
+
+export const assetOrder = (key: TestKey, action: AssetOrder["action"]) =>
+  new AssetOrder({
+    id: assetOrderId(),
+    wallet: addressOf(key),
+    action,
+  });
 
 export const username = (name: string) => Schema.decodeSync(Username)(name);
 
