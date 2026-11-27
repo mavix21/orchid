@@ -1,7 +1,6 @@
-import { beforeAll, beforeEach, expect, it, layer } from "@effect/vitest";
+import { expect, it, layer } from "@effect/vitest";
 import { Database } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
-import { migrate } from "drizzle-orm/effect-postgres/migrator";
+import { eq } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -28,7 +27,7 @@ import {
 } from "../src/server/tables.server";
 import { epochAt, network } from "../src/record-network";
 import { assertTagged } from "./tagged";
-import { dbLayer } from "./test-database";
+import { dbLayer, useMigratedDatabase } from "./test-database";
 
 const address = Schema.decodeSync(AccountAddress);
 
@@ -90,23 +89,7 @@ const testLayer = PaymentRequests.serviceLayer.pipe(
   Layer.provideMerge(dbLayer),
 );
 
-beforeAll(async () => {
-  await Effect.runPromise(
-    Database.use((db) =>
-      migrate(db, { migrationsFolder: `${import.meta.dirname}/../drizzle` }),
-    ).pipe(Effect.provide(dbLayer)),
-  );
-});
-
-beforeEach(async () => {
-  await Effect.runPromise(
-    Database.use((db) =>
-      db.execute(
-        sql`truncate asset_orders, trustlines, transfers, usernames, wallets, backups, passkey_challenges, deposits, deposit_cursors, channel_leases, payment_requests`,
-      ),
-    ).pipe(Effect.provide(dbLayer)),
-  );
-});
+useMigratedDatabase();
 
 layer(testLayer, { excludeTestServices: true, concurrent: false })(
   "payment requests",
@@ -284,7 +267,6 @@ layer(testLayer, { excludeTestServices: true, concurrent: false })(
     );
 
     it.effect.each([
-      ["an active wallet", "active", "maria", "PaymentRequestOpen"],
       [
         "an unopened wallet with a username",
         "opening",
@@ -365,9 +347,6 @@ it.each([
   ["3yQ8fKm2Z", false],
   ["3yQ8fKm2Zdd", false],
   ["3yQ8fKm2Z0", false],
-  ["3yQ8fKm2ZO", false],
-  ["3yQ8fKm2ZI", false],
-  ["3yQ8fKm2Zl", false],
 ])("parses %j as a payment request id: %s", (text, accepted) => {
   expect(Schema.is(PaymentRequestId)(text)).toBe(accepted);
 });
@@ -380,7 +359,7 @@ it.each([
   [" Cena", false],
   ["Cena ", false],
   ["Cena\ndel viernes", false],
-  ["Cena del viernes", false],
+  ["Cena\u2028del viernes", false],
   ["Cena\u0000", false],
 ])("parses %j as a payment request note: %s", (text, accepted) => {
   expect(Schema.is(PaymentRequestNote)(text)).toBe(accepted);

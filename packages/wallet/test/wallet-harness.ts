@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, expect } from "@effect/vitest";
+import { beforeEach, expect } from "@effect/vitest";
 import {
   Account,
   FeeBumpTransaction,
@@ -7,7 +7,6 @@ import {
 } from "@stellar/stellar-sdk";
 import { Database } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
-import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -101,7 +100,7 @@ import {
   sponsor,
 } from "./wallet-settings";
 import { assertTagged } from "./tagged";
-import { dbLayer } from "./test-database";
+import { dbLayer, useMigratedDatabase } from "./test-database";
 
 export { addressOf };
 
@@ -635,15 +634,9 @@ export const openSender = Effect.fn(function* (
 });
 
 export function useDisposableDatabase() {
-  beforeAll(async () => {
-    await Effect.runPromise(
-      Database.use((db) =>
-        migrate(db, { migrationsFolder: `${import.meta.dirname}/../drizzle` }),
-      ).pipe(Effect.provide(dbLayer)),
-    );
-  });
+  useMigratedDatabase();
 
-  beforeEach(async () => {
+  beforeEach(() => {
     world.accounts.clear();
     world.holdings.clear();
     world.claimables.clear();
@@ -660,12 +653,5 @@ export function useDisposableDatabase() {
     world.unreadable.clear();
     world.claimablesDown = false;
     resetLedgers();
-    await Effect.runPromise(
-      Database.use((db) =>
-        db.execute(
-          sql`truncate asset_orders, trustlines, transfers, usernames, wallets, backups, passkey_challenges, deposits, deposit_cursors, channel_leases, payment_requests`,
-        ),
-      ).pipe(Effect.provide(dbLayer)),
-    );
   });
 }
