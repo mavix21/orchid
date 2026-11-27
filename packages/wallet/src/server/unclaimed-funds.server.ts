@@ -31,13 +31,13 @@ export const recoverablePaymentLinks = (
   entries: ReadonlyArray<UnclaimedFundsEntry>,
   sender: AccountAddress,
 ): ReadonlyArray<RecoverablePaymentLink> =>
-  entries.flatMap(({ unclaimedFunds, asset, amount, paymentLinkFrom }) =>
+  entries.flatMap((entry) =>
     Option.toArray(
-      Option.map(paymentLinkFrom(sender), (address) => ({
-        unclaimedFunds,
+      Option.map(entry.paymentLinkFrom(sender), (address) => ({
+        unclaimedFunds: entry.unclaimedFunds,
         address,
-        asset,
-        amount,
+        asset: entry.asset,
+        amount: entry.amount,
       })),
     ),
   );
