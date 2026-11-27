@@ -6,7 +6,7 @@ import type {
 import * as Match from "effect/Match";
 
 import type { DeviceFailure } from "@/send/use-wallet-task";
-import { LinkScreen } from "@/links/outcomes";
+import { LinkScreen, thenStillInLink } from "@/links/outcomes";
 import { retryable, unavailableMessage } from "@/wallet/unavailable";
 import { m } from "@/paraglide/messages";
 
@@ -15,9 +15,6 @@ export type ReceiveAction = "home" | "again" | "check" | "done";
 export type ReceiveConclusion =
   | Exclude<ConfirmLinkReceiveOutcome, LinkReceiveReview>
   | DeviceFailure;
-
-const thenStillInLink = (sentence: string) =>
-  `${sentence} ${m.link_still_there()}`;
 
 const used = () =>
   new LinkScreen<ReceiveAction>(m.claim_used_title(), m.claim_used(), "done");

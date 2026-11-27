@@ -235,9 +235,6 @@ test("receives a link into a wallet created on the link page with two passkey pr
   const visitor = await browser.newPage({ locale: "es-PE" });
   const pageErrors: Array<string> = [];
 
-  const documentLanguage = () =>
-    visitor.evaluate(() => document.documentElement.lang);
-
   visitor.on("pageerror", (error) => {
     pageErrors.push(error.message);
   });
@@ -246,10 +243,10 @@ test("receives a link into a wallet created on the link page with two passkey pr
   await expect(visitor.getByTestId("link-offer")).toBeVisible({
     timeout: 30_000,
   });
-  await expect.poll(documentLanguage).toBe("en");
+  await expect(visitor.getByRole("document")).toHaveAttribute("lang", "en");
 
   await visitor.getByTestId("language-switch").click();
-  await expect.poll(documentLanguage).toBe("es");
+  await expect(visitor.getByRole("document")).toHaveAttribute("lang", "es");
   await expect(visitor.getByTestId("link-offer")).toBeVisible({
     timeout: 30_000,
   });

@@ -8,7 +8,7 @@ import type {
 import * as Data from "effect/Data";
 import * as Match from "effect/Match";
 
-import { LinkScreen } from "@/links/outcomes";
+import { LinkScreen, thenStillInLink } from "@/links/outcomes";
 import { shortAddress } from "@/send/money";
 import type { DeviceFailure } from "@/send/use-wallet-task";
 import { unavailableMessage } from "@/wallet/unavailable";
@@ -33,9 +33,6 @@ export type ExternalClaimResult = Data.TaggedEnum<{
 }>;
 
 export const ExternalClaimResult = Data.taggedEnum<ExternalClaimResult>();
-
-const thenStillInLink = (sentence: string) =>
-  `${sentence} ${m.link_still_there()}`;
 
 const lookupFailedMessage = () => thenStillInLink(m.external_lookup_failed());
 

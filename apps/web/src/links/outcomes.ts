@@ -60,7 +60,7 @@ export const recoverable = ({
 
 const thenUntouched = (sentence: string) => `${sentence} ${m.send_untouched()}`;
 
-const thenStillInLink = (sentence: string) =>
+export const thenStillInLink = (sentence: string) =>
   `${sentence} ${m.link_still_there()}`;
 
 const unavailable = (failure: WalletUnavailable, next: string) =>
