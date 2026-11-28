@@ -1,9 +1,14 @@
 import { Database } from "@workspace/db";
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import type { AssetOrderId, UnclaimedFundsId } from "../contract";
+import * as Predicate from "effect/Predicate";
+import {
+  AssetOrder,
+  type AssetOrderId,
+  type UnclaimedFundsId,
+} from "../contract";
 import { approvalMargin, sweepBatchSize } from "../policy";
 import { epochAt, network } from "../record-network";
 import type { Sealed } from "./Chain.server";
@@ -11,10 +16,12 @@ import { StoreFailure } from "./Directory.server";
 import {
   type AssetProposed,
   type StoredAssetOrder,
+  type StoredOrder,
   StoredExternalOrder,
 } from "./asset-order-records.server";
 import { SlotOccupied, walletLock } from "./slot.server";
-import { assetOrders } from "./tables.server";
+import { assetOrders, transfers, usernames, wallets } from "./tables.server";
+import type { Transaction } from "./transaction.server";
 
 type Decode = (
   row: typeof assetOrders.$inferSelect,
@@ -136,3 +143,32 @@ export const authorizeExternalOrder = (
       }),
     );
   });
+
+export const openedWallet = (order: StoredOrder) =>
+  order instanceof AssetOrder && Predicate.isTagged(order.action, "ReceiveLink")
+    ? sql`exists (
+        select 1 from ${wallets}
+        where ${wallets.address} = ${order.wallet}
+          and ${wallets.network} = ${network}
+          and ${wallets.status} = 'opening'
+      ) and not exists (
+        select 1 from ${usernames}
+        where ${usernames.address} = ${order.wallet}
+      )`
+    : false;
+
+export const closeUnclaimedFunds = (
+  tx: Transaction,
+  unclaimedFunds: UnclaimedFundsId,
+  now: DateTime.Utc,
+) =>
+  tx
+    .update(transfers)
+    .set({ balanceClosedAt: DateTime.toDateUtc(now) })
+    .where(
+      and(
+        eq(transfers.balanceId, unclaimedFunds),
+        isNull(transfers.balanceClosedAt),
+      ),
+    )
+    .pipe(Effect.asVoid);

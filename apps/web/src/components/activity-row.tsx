@@ -46,6 +46,16 @@ export function EntryAvatar({ media }: { media: EntryMedia }) {
       </ItemMedia>
     );
 
+  if ("linkClaimer" in media)
+    return (
+      <ItemMedia className="relative w-fit self-center">
+        <FlowerAvatar username={media.linkClaimer.username} />
+        <span className="absolute -right-1 -bottom-1 grid size-4 place-items-center rounded-full bg-accent text-icon-accent ring-2 ring-background">
+          <LinkIcon aria-hidden="true" className="size-2.5" />
+        </span>
+      </ItemMedia>
+    );
+
   if (media instanceof Profile)
     return (
       <ItemMedia>
@@ -94,7 +104,11 @@ export function ActivityRow({
         <EntryAvatar media={shown.media} />
         <ItemContent>
           <ItemTitle>{shown.title}</ItemTitle>
-          <ItemDescription>{shown.subtitle}</ItemDescription>
+          <ItemDescription
+            wrap={shown.media !== "link" && "linkClaimer" in shown.media}
+          >
+            {shown.subtitle}
+          </ItemDescription>
         </ItemContent>
         <ItemActions>
           <div className="flex flex-col items-end gap-1">

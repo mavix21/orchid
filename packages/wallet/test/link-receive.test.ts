@@ -31,6 +31,8 @@ import { sandboxPartnerKeypair } from "../src/stellar/sandbox-partner";
 import { assertTagged } from "./tagged";
 import {
   fundLink,
+  claimFor,
+  create,
   linkAmount,
   accountState,
   addressOf,
@@ -104,7 +106,13 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const { wallet, sender, link, unclaimedFunds } =
             yield* fundLink("linkfunder");
 
-          const recipient = yield* fundedWallet("linkreceiver");
+          const recipient = Keypair.random();
+          const claim = claimFor(recipient, "linkreceiver");
+
+          assertTagged(
+            yield* wallet.open(claim, Option.none()),
+            "OpeningDraft",
+          );
 
           const receiveOrder = () =>
             new AssetOrder({
@@ -120,6 +128,9 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const drafted = yield* wallet.manage(receive, Option.none());
 
           assertTagged(drafted, "AssetDraft");
+
+          yield* create(recipient, "linkreceiver");
+          fundHolder(recipient);
 
           const approval = approve(drafted.request, link);
           const fundingSubmissions = world.submitted.length;
@@ -151,6 +162,16 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
             new PaymentLinkUsed(),
           );
           expect(world.accounts.has(addressOf(link))).toBe(false);
+
+          const activity = yield* activityOf(wallet, sender.address);
+          const [entry] = activity.entries;
+
+          assertTagged(entry, "SentActivity");
+          assertTagged(entry.receipt, "Claimed");
+          expect(entry.receipt).toMatchObject({
+            openedWallet: true,
+            by: { username: claim.username },
+          });
 
           const listed = yield* wallet.paymentLinks(sender.address);
 

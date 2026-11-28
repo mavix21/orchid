@@ -1,5 +1,5 @@
 import { Database } from "@workspace/db";
-import { and, eq, gt, isNull, lt } from "drizzle-orm";
+import { and, eq, gt, lt } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -28,6 +28,8 @@ import { Applied, Expired, Rejected, Sealed } from "./Chain.server";
 import { StoreFailure } from "./Directory.server";
 import {
   authorizeExternalOrder,
+  closeUnclaimedFunds,
+  openedWallet,
   linkCleaned,
   ordersOnUnclaimedFunds,
 } from "./asset-order-links.server";
@@ -235,6 +237,7 @@ export class AssetOrders extends Context.Service<
           wallet: order instanceof AssetOrder ? order.wallet : null,
           order: Schema.encodeSync(StoredOrderJson)(order),
           opens: opensColumn(opens),
+          openedWallet: openedWallet(order),
           balanceId:
             Predicate.isTagged(order.action, "ClaimUnclaimedFunds") ||
             Predicate.isTagged(order.action, "ReceiveLink") ||
@@ -256,6 +259,7 @@ export class AssetOrders extends Context.Service<
               envelope: value.envelope,
               expiresAt: value.expiresAt,
               opens: value.opens,
+              openedWallet: value.openedWallet,
             },
             setWhere: and(
               scopeAt(now),
@@ -287,6 +291,7 @@ export class AssetOrders extends Context.Service<
             envelope: request.envelope,
             expiresAt: DateTime.toDateUtc(request.expiresAt),
             opens: opensColumn(opens),
+            openedWallet: openedWallet(proposed.order),
           })
           .where(
             and(
@@ -434,22 +439,6 @@ export class AssetOrders extends Context.Service<
             ),
           );
       };
-
-      const closeUnclaimedFunds = (
-        tx: Transaction,
-        unclaimedFunds: UnclaimedFundsId,
-        now: DateTime.Utc,
-      ) =>
-        tx
-          .update(transfers)
-          .set({ balanceClosedAt: DateTime.toDateUtc(now) })
-          .where(
-            and(
-              eq(transfers.balanceId, unclaimedFunds),
-              isNull(transfers.balanceClosedAt),
-            ),
-          )
-          .pipe(Effect.asVoid);
 
       const applied = Effect.fn("AssetOrders.applied")(function* (
         tx: Transaction,

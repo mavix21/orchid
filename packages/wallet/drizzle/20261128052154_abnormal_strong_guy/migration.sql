@@ -1,0 +1,1 @@
+ALTER TABLE "asset_orders" ADD COLUMN "openedWallet" boolean DEFAULT false NOT NULL;
