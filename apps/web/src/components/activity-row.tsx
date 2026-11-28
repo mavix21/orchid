@@ -49,10 +49,12 @@ export function EntryAvatar({ media }: { media: EntryMedia }) {
       </ItemMedia>
     );
 
-  if (isLinkClaimer(media) && media.openedWallet)
+  const newcomer = walletOpenedBy(media);
+
+  if (Option.isSome(newcomer))
     return (
       <ItemMedia className="relative w-fit">
-        <FlowerAvatar username={media.linkClaimer.username} />
+        <FlowerAvatar username={newcomer.value.username} />
         <span className="absolute inset-1 rounded-full ring-2 ring-background" />
         <span className="absolute inset-0 rounded-full joined-ring" />
         <span className="absolute -right-1 -bottom-1 grid size-5 place-items-center rounded-full bg-background">

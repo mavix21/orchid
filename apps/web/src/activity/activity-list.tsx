@@ -186,7 +186,7 @@ function Welcome({ claimer }: { claimer: Profile }) {
             <span
               key={angle}
               className={cn(
-                "absolute size-2 rounded-full joined-burst",
+                "pointer-events-none absolute size-2 rounded-full joined-burst",
                 index % 2 === 0 ? "bg-primary" : "bg-(--flower-blush)",
               )}
               style={style}
