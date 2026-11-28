@@ -24,6 +24,7 @@ import {
   type EntryMedia,
   type Party,
   createdWhen,
+  isLinkClaimer,
   shownEntry,
 } from "@/activity/entry";
 
@@ -46,9 +47,9 @@ export function EntryAvatar({ media }: { media: EntryMedia }) {
       </ItemMedia>
     );
 
-  if ("linkClaimer" in media)
+  if (isLinkClaimer(media))
     return (
-      <ItemMedia className="relative w-fit self-center">
+      <ItemMedia className="relative w-fit">
         <FlowerAvatar username={media.linkClaimer.username} />
         <span className="absolute -right-1 -bottom-1 grid size-4 place-items-center rounded-full bg-accent text-icon-accent ring-2 ring-background">
           <LinkIcon aria-hidden="true" className="size-2.5" />
@@ -104,9 +105,7 @@ export function ActivityRow({
         <EntryAvatar media={shown.media} />
         <ItemContent>
           <ItemTitle>{shown.title}</ItemTitle>
-          <ItemDescription
-            wrap={shown.media !== "link" && "linkClaimer" in shown.media}
-          >
+          <ItemDescription wrap={isLinkClaimer(shown.media)}>
             {shown.subtitle}
           </ItemDescription>
         </ItemContent>

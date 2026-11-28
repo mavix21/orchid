@@ -129,6 +129,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const claimedInto = receiptOf(intoWallet.transferId);
 
           assertTagged(claimedInto, "Claimed");
+          expect(claimedInto.openedWallet).toBeUndefined();
           expect(claimedInto.by).toEqual(
             new Profile({
               username: username("linkclaimer"),
@@ -139,6 +140,7 @@ layer(walletTestLayer, { excludeTestServices: true, concurrent: false })(
           const claimedTo = receiptOf(toAddress.transferId);
 
           assertTagged(claimedTo, "Claimed");
+          expect(claimedTo.openedWallet).toBeUndefined();
           expect(claimedTo.by).toEqual(
             new ExternalRecipient({ address: addressOf(external) }),
           );
