@@ -19,7 +19,11 @@ import {
   ModalHeader,
   ModalTitle,
 } from "@/components/modal";
-import { ActivityRow, amountTone } from "@/components/activity-row";
+import {
+  ActivityRow,
+  EntryAvatar,
+  amountTone,
+} from "@/components/activity-row";
 
 import {
   type Party,
@@ -92,6 +96,9 @@ function EntryDetail({
   return (
     <>
       <ModalHeader>
+        {shown.media !== "link" && "linkClaimer" in shown.media ? (
+          <EntryAvatar media={shown.media} />
+        ) : null}
         <ModalTitle>{shown.title}</ModalTitle>
         <p
           className={cn(

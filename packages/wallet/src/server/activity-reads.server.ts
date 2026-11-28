@@ -282,6 +282,7 @@ export const activityFor = Effect.fn("Transfers.activity")(function* ({
           .select({
             unclaimedFunds: assetOrders.balanceId,
             order: assetOrders.order,
+            openedWallet: assetOrders.openedWallet,
           })
           .from(assetOrders)
           .where(
@@ -298,7 +299,10 @@ export const activityFor = Effect.fn("Transfers.activity")(function* ({
     try: (): Closers => {
       const byUnclaimedFunds = new Map<
         string,
-        Schema.Schema.Type<typeof StoredOrderJson>
+        {
+          order: typeof StoredOrderJson.Type;
+          openedWallet: boolean;
+        }
       >();
 
       for (const entry of closing)
@@ -306,17 +310,17 @@ export const activityFor = Effect.fn("Transfers.activity")(function* ({
           entry.unclaimedFunds !== null &&
           !byUnclaimedFunds.has(entry.unclaimedFunds)
         )
-          byUnclaimedFunds.set(
-            entry.unclaimedFunds,
-            Schema.decodeSync(StoredOrderJson)(entry.order),
-          );
+          byUnclaimedFunds.set(entry.unclaimedFunds, {
+            order: Schema.decodeSync(StoredOrderJson)(entry.order),
+            openedWallet: entry.openedWallet,
+          });
 
       return byUnclaimedFunds;
     },
     catch: (cause) => new StoreFailure({ cause }),
   });
 
-  const claimers = [...closers.values()].flatMap((order) =>
+  const claimers = [...closers.values()].flatMap(({ order }) =>
     order instanceof AssetOrder ? [order.wallet] : [],
   );
 
