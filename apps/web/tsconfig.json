@@ -34,7 +34,19 @@
     "plugins": [
       {
         "name": "@effect/language-service",
-        "allowedUnstableApis": ["effect/http/FetchHttpClient#layer"]
+        "allowedUnstableApis": ["effect/http/FetchHttpClient#layer"],
+        "overrides": [
+          {
+            "include": ["src/agent/**/*", "test/agent*.ts"],
+            "options": {
+              "allowedUnstableApis": [
+                "effect/http/FetchHttpClient#layer",
+                "effect/ai",
+                "@effect/ai-anthropic"
+              ]
+            }
+          }
+        ]
       }
     ]
   }

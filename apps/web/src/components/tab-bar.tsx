@@ -3,6 +3,7 @@ import {
   ClockIcon,
   HouseIcon,
   SettingsIcon,
+  SparklesIcon,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
@@ -19,6 +20,9 @@ export function TabBar() {
     >
       <Link to="/home" aria-label={m.nav_home()} className={itemClass}>
         <HouseIcon />
+      </Link>
+      <Link to="/assistant" aria-label={m.agent_title()} className={itemClass}>
+        <SparklesIcon />
       </Link>
       <button type="button" aria-label={m.nav_swap()} className={itemClass}>
         <ArrowLeftRightIcon />

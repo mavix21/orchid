@@ -4,6 +4,7 @@ import {
   HouseIcon,
   MoonIcon,
   SettingsIcon,
+  SparklesIcon,
   SunIcon,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
@@ -100,6 +101,12 @@ export function AppSidebar() {
                 <SidebarMenuButton render={<Link to="/home" />}>
                   <HouseIcon />
                   <span>{m.nav_home()}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton render={<Link to="/assistant" />}>
+                  <SparklesIcon />
+                  <span>{m.agent_title()}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

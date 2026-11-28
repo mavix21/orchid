@@ -13,7 +13,7 @@ import * as Schema from "effect/Schema";
 
 import { Screen } from "@/components/screen";
 import { TopNav } from "@/components/top-nav";
-import { SendFlow } from "@/send/send-flow";
+import { SendFlow, type SendPrefill } from "@/send/send-flow";
 import {
   SendUnavailable,
   type UnavailableOverview,
@@ -21,7 +21,41 @@ import {
 import { shownOverview } from "@/wallet/shown-overview";
 import { m } from "@/paraglide/messages";
 
-const TransferSearch = Schema.Struct({ transfer: Schema.optional(TransferId) });
+const TransferSearch = Schema.Struct({
+  transfer: Schema.optional(TransferId),
+  to: Schema.optional(Schema.Literals(["username", "address", "link"])),
+  recipient: Schema.optional(Schema.String),
+  amount: Schema.optional(Schema.String),
+  memo: Schema.optional(Schema.String),
+  save: Schema.optional(Schema.Boolean),
+});
+
+const prefillOf = ({
+  to,
+  recipient = "",
+  amount = "",
+  memo = "",
+  save = true,
+}: typeof TransferSearch.Type): Option.Option<SendPrefill> =>
+  Match.value(to).pipe(
+    Match.withReturnType<Option.Option<SendPrefill>>(),
+    Match.when("link", () =>
+      Option.some({ destination: "link", amount, saveOnDevice: save }),
+    ),
+    Match.when("username", () =>
+      Option.some({
+        destination: "username",
+        form: { recipient, amount, memo },
+      }),
+    ),
+    Match.when("address", () =>
+      Option.some({
+        destination: "address",
+        form: { recipient, amount, memo },
+      }),
+    ),
+    Match.orElse(() => Option.none()),
+  );
 
 export const Route = createFileRoute("/_wallet/send/$asset")({
   ssr: false,
@@ -46,7 +80,7 @@ export const Route = createFileRoute("/_wallet/send/$asset")({
 
 function SendAsset() {
   const { overview, balance } = Route.useLoaderData();
-  const { transfer } = Route.useSearch();
+  const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
 
   const nav = (locked: boolean, edit?: () => void) => (
@@ -86,7 +120,8 @@ function SendAsset() {
             <SendFlow
               asset={balance.asset}
               available={balance.amount}
-              transfer={Option.fromNullishOr(transfer)}
+              transfer={Option.fromNullishOr(search.transfer)}
+              prefill={prefillOf(search)}
               nav={nav}
               onTransfer={(id) =>
                 void navigate({
