@@ -29,6 +29,7 @@ import {
   type Party,
   createdAtLabel,
   entryKey,
+  isLinkClaimer,
   paidRequestOf,
   partyName,
   shownEntry,
@@ -96,8 +97,10 @@ function EntryDetail({
   return (
     <>
       <ModalHeader>
-        {shown.media !== "link" && "linkClaimer" in shown.media ? (
-          <EntryAvatar media={shown.media} />
+        {isLinkClaimer(shown.media) ? (
+          <div className="self-center md:self-start">
+            <EntryAvatar media={shown.media} />
+          </div>
         ) : null}
         <ModalTitle>{shown.title}</ModalTitle>
         <p
