@@ -1,6 +1,7 @@
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, SparklesIcon } from "lucide-react";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
 import {
@@ -33,9 +34,15 @@ import {
   paidRequestOf,
   partyName,
   shownEntry,
+  walletOpenedBy,
 } from "./entry";
 
+import { FlowerAvatar } from "@/components/flower-avatar";
 import { m } from "@/paraglide/messages";
+
+type BurstStyle = React.CSSProperties & { "--angle": string };
+
+const burstAngles = [-150, -105, -60, -20, 20, 60, 105, 150];
 
 export function ActivityList({
   entries,
@@ -93,16 +100,27 @@ function EntryDetail({
   onClose: () => void;
 }) {
   const shown = shownEntry(entry, paidRequest);
+  const newcomer = walletOpenedBy(shown.media);
 
   return (
     <>
       <ModalHeader>
-        {isLinkClaimer(shown.media) ? (
-          <div className="self-center md:self-start">
-            <EntryAvatar media={shown.media} />
-          </div>
-        ) : null}
-        <ModalTitle>{shown.title}</ModalTitle>
+        {Option.match(newcomer, {
+          onNone: () =>
+            isLinkClaimer(shown.media) ? (
+              <div className="self-center md:self-start">
+                <EntryAvatar media={shown.media} />
+              </div>
+            ) : null,
+          onSome: (claimer) => <Welcome claimer={claimer} />,
+        })}
+        <ModalTitle>
+          {Option.match(newcomer, {
+            onNone: () => shown.title,
+            onSome: (claimer) =>
+              m.activity_joined_title({ name: partyName(claimer) }),
+          })}
+        </ModalTitle>
         <p
           className={cn(
             "py-2 font-display text-h1 tabular-nums",
@@ -153,6 +171,37 @@ function EntryDetail({
         </Button>
       </ModalFooter>
     </>
+  );
+}
+
+function Welcome({ claimer }: { claimer: Profile }) {
+  return (
+    <div className="flex flex-col items-center gap-3 pt-4 md:items-start">
+      <span className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-48 rounded-t-xl bg-linear-to-b from-accent to-transparent" />
+      <span className="relative grid place-items-center">
+        {burstAngles.map((angle, index) => {
+          const style: BurstStyle = { "--angle": `${angle}deg` };
+
+          return (
+            <span
+              key={angle}
+              className={cn(
+                "absolute size-2 rounded-full joined-burst",
+                index % 2 === 0 ? "bg-primary" : "bg-(--flower-blush)",
+              )}
+              style={style}
+            />
+          );
+        })}
+        <span className="rounded-full ring-4 ring-popover">
+          <FlowerAvatar username={claimer.username} size="xl" />
+        </span>
+      </span>
+      <Badge>
+        <SparklesIcon />
+        {m.activity_new_to_orchid()}
+      </Badge>
+    </div>
   );
 }
 
